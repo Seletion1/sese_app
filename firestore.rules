@@ -1,0 +1,1747 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return request.auth.token.role;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() &&
+        (getUserRole() == 'SUPER_ADMIN' || getUserRole() == 'ROLE_SUPER_ADMIN' || isOwnerEmail());
+    }
+
+    // Bootstrap backstop: the primary owner is the implicit SUPER_ADMIN even
+    // before custom claims are minted (fresh sign-in, token not yet
+    // refreshed). Mirrors OWNER_EMAIL in functions + AdminAccessService.
+    function isOwnerEmail() {
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'bamiduromichael2@gmail.com';
+    }
+
+    function isOperationsAdmin() {
+      return isAuthenticated() && (
+        getUserRole() == 'OPERATIONS_ADMIN' ||
+        getUserRole() == 'SUPER_ADMIN' ||
+        isSuperAdmin()
+      );
+    }
+
+    function isAgent() {
+      return isAuthenticated() && (
+        getUserRole() == 'AGENT' ||
+        getUserRole() == 'OPERATIONS_ADMIN' ||
+        getUserRole() == 'SUPER_ADMIN' ||
+        isSuperAdmin()
+      );
+    }
+
+    // Hub staff provisioned in `hub_staff/{email}` (no self-registration;
+    // `admin_users/{email}` kept as a legacy fallback).
+    // These accounts often carry NO custom claims on their ID token, so
+    // claim-based helpers (isAgent / isOperationsAdmin / isAdminAuthClaim)
+    // evaluate to false for them. This bridge grants verification-desk access
+    // based on the provisioned staff record instead, so pending vehicles are
+    // visible and approvable in sese_hub. Doc IDs are lowercase for current
+    // records, so the token email is lowercased before the lookup — AND the
+    // exact-case email is tried as well, mirroring HubAccessService.checkAccess
+    // which reads both (records provisioned before the lowercase convention
+    // keep Gmail's original casing; without this fallback those staffers
+    // pass the app gate but get PERMISSION_DENIED on every staff query).
+    function isHubStaff() {
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        (exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())) ||
+          exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email)) ||
+          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower())) ||
+          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email)));
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidCustomerOrderCreate() {
+      return isAuthenticated() && isNotSuspended() &&
+        request.resource.data.keys().hasAll([
+          'idempotencyKey', 'customerId', 'receiverPhone', 'pickupAddress',
+          'dropoffAddress', 'paymentPlan', 'requireDeliveryPin', 'status',
+          'createdAt'
+        ]) &&
+        request.resource.data.keys().hasOnly([
+          'idempotencyKey', 'customerId', 'receiverId', 'receiverPhone',
+          'pickupAddress', 'dropoffAddress', 'paymentPlan',
+          'requireDeliveryPin', 'status', 'createdAt'
+        ]) &&
+        request.resource.data.customerId == request.auth.uid &&
+        request.resource.data.idempotencyKey is string &&
+        request.resource.data.idempotencyKey.size() >= 16 &&
+        request.resource.data.receiverPhone is string &&
+        request.resource.data.pickupAddress is string &&
+        request.resource.data.dropoffAddress is string &&
+        request.resource.data.paymentPlan is map &&
+        request.resource.data.requireDeliveryPin is bool &&
+        request.resource.data.status in ['SEARCHING', 'awaiting_receiver_consent'] &&
+        !('deliveryPin' in request.resource.data);
+    }
+
+    function isPrimaryHubOwner() {
+      return isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() == 'bamiduromichael2@gmail.com';
+    }
+
+    // PROMPT 22: fleet operator is a user whose `fleet_operators/{uid}`
+    // record exists with `verified == true` (written by `fleetVerifyOperator`).
+    function isVerifiedFleetOperator() {
+      return isAuthenticated() && isNotSuspended() &&
+        exists(/databases/$(database)/documents/fleet_operators/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/fleet_operators/$(request.auth.uid)).data.verified == true;
+    }
+
+    // Realtime suspension gate: the caller's live `users/{uid}` document is the
+    // source of truth (mirrored to `drivers/{uid}` for driver accounts by the
+    // backend suspension service). Accounts with no profile document yet
+    // (provisioning / guest) are treated as active.
+    // NOTE (2026-09-30, verified against the emulator): dot-access on a
+    // MISSING field is an evaluation error in security rules, not null.
+    // Nothing in the codebase ever writes `isSuspended`, so
+    // `users/{uid}` documents do not have it, and the old
+    // `get(...).data.isSuspended` form errored on every normal user —
+    // denying ALL 46 call sites (including `support_chats` create, which
+    // produced the "Could not open support chat" screenshot).
+    // `.get('isSuspended', false)` treats a missing field as not-suspended,
+    // which is the intended semantic: only an explicit `true` suspends.
+    function isNotSuspended() {
+      return isAuthenticated() &&
+        (!exists(/databases/$(database)/documents/users/$(request.auth.uid)) ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isSuspended', false) != true);
+    }
+
+    // ── PROMPT 89: compact custom-claims RBAC ──────────────────────────
+    // Claims are minted by functions/src/services/claim_provisioner.ts and
+    // injected via admin.auth().setCustomUserClaims. SUPER_ADMIN carries the
+    // wildcard scope ['*'] so it bypasses per-scope checks.
+    function isAdminAuthClaim() {
+      return isSuperAdmin() ||
+        (isAuthenticated() &&
+          request.auth.token.adminAuth == true &&
+          request.auth.token.role != null &&
+          (request.auth.token.role == 'SUPER_ADMIN' ||
+           request.auth.token.role == 'ROLE_SUPER_ADMIN' ||
+           request.auth.token.role == 'FINANCE_ADMIN' ||
+           request.auth.token.role == 'DISPATCH_OPERATIONS' ||
+           request.auth.token.role == 'SECURITY_AUDITOR' ||
+           request.auth.token.role == 'ROLE_CUSTOMER_SUPPORT' ||
+           request.auth.token.role == 'ROLE_DRIVER_SUPPORT' ||
+           request.auth.token.role == 'ROLE_FINANCE_AUDITOR'));
+    }
+
+    function claimsScopeContains(scopeCode) {
+      return isSuperAdmin() ||
+        (isAdminAuthClaim() &&
+          request.auth.token.scope is list &&
+          request.auth.token.scope.hasAny(['*', scopeCode]));
+    }
+
+    // Verbose scope → compact code, kept in sync with ADMIN_SCOPE_CODES.
+    function scopeCodeOf(scope) {
+      return scope == 'manageAdminInvites' ? 'iam'
+        : scope == 'manageVaultKeys' ? 'vault'
+        : scope == 'viewLedger' ? 'ledger'
+        : scope == 'processPayouts' ? 'payouts'
+        : scope == 'liveDriverTracking' ? 'tracking'
+        : scope == 'manageIncidents' ? 'incidents'
+        : scope == 'approveKyc' ? 'kyc'
+        : scope == 'manageSystemSettings' ? 'settings'
+        : scope == 'viewAuditLogs' ? 'audit'
+        : scope == 'manageSuspensions' ? 'suspend'
+        : scope == 'manageCustomerSupport' ? 'cust'
+        : scope == 'manageDriverSupport' ? 'drv'
+        : '';
+    }
+
+    // ===== ADMIN IAM & AUDIT (PROMPT 89: adminAuth claim required) =====
+    // IAM registry writes (`admin_users`, `approved_admins`) are reserved for
+    // SUPER_ADMIN / the `iam` scope so a lower-tier admin-claim holder can
+    // never self-promote or invite others. Admin session tokens are minted
+    // exclusively by the backend `adminLoginPassword` callable (admin SDK
+    // bypasses rules); clients can neither forge nor read another admin's
+    // session.
+    match /admin_users/{email} {
+      allow read: if isAdminAuthClaim() ||
+        (isAuthenticated() && request.auth.token.email != null &&
+         request.auth.token.email.lower() == email.lower());
+      allow write: if isSuperAdmin() ||
+        claimsScopeContains(scopeCodeOf('manageAdminInvites'));
+    }
+    match /approved_admins/{email} {
+      allow read: if isAdminAuthClaim();
+      allow write: if isSuperAdmin() ||
+        claimsScopeContains(scopeCodeOf('manageAdminInvites'));
+    }
+    match /admin_auth_sessions/{tokenHash} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+    match /admin_audit_logs/{entryId} {
+      allow read: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('viewAuditLogs'));
+      allow write: if false; // ledger is append-only via Cloud Functions
+    }
+    match /audit_logs/{entryId} {
+      allow read: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('viewAuditLogs'));
+      allow write: if false; // immutable append-only ledger via Cloud Functions
+    }
+    match /failed_payouts_dlq/{jobId} {
+      allow read: if isAdminAuthClaim();
+      allow write: if false; // managed strictly by server Cloud Functions
+    }
+    // ===== HUB PAYOUT APPROVALS =====
+    // Payout requests are created exclusively server-side by
+    // `processWalletWithdrawal` (Admin SDK), which is the only writer and the
+    // only component that debits the wallet. The Hub approval desk may read
+    // and update them with Super Admin access or the delegated payouts scope.
+    // The OWNER may read their own request so the app can show withdrawal
+    // status — the owner can never create, update, or delete one, so they
+    // cannot forge or mutate a payout.
+    match /payout_requests/{requestId} {
+      allow read: if isSuperAdmin() ||
+        (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('processPayouts'))) ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow update: if isSuperAdmin() ||
+        (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('processPayouts')));
+      allow create, delete: if false;
+    }
+    // Delivery PIN codes, written exclusively server-side at trip mint.
+    // The customer reads their own code to share with the recipient; the
+    // assigned driver must NEVER read it (they enter it blind at drop-off),
+    // so there is deliberately no driver branch here. `verifyDeliveryPin`
+    // reads it via Admin SDK.
+    match /delivery_pins/{tripId} {
+      allow read: if isSuperAdmin() || isOperationsAdmin() ||
+        (isAuthenticated() &&
+          get(/databases/$(database)/documents/trips/$(tripId)).data.customerId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+    // Split-payment intents, created exclusively server-side by
+    // `requestSplitPayment` (Admin SDK). The requester and every invited
+    // co-payer may read the intent and their own part row to track status;
+    // all writes (including accept/decline) go through `respondSplitPayment`
+    // so consent and state stay transactional. Nobody can forge or mutate
+    // a split from the client.
+    match /split_payments/{splitId} {
+      allow read: if isSuperAdmin() || isOperationsAdmin() ||
+        (isAuthenticated() && resource.data.requesterId == request.auth.uid) ||
+        (isAuthenticated() && exists(/databases/$(database)/documents/split_payments/$(splitId)/parts/$(request.auth.uid)));
+      allow create, update, delete: if false;
+
+      match /parts/{userId} {
+        allow read: if isSuperAdmin() || isOperationsAdmin() ||
+          (isAuthenticated() && (
+            userId == request.auth.uid ||
+            get(/databases/$(database)/documents/split_payments/$(splitId)).data.requesterId == request.auth.uid
+          ));
+        allow create, update, delete: if false;
+      }
+    }
+    match /terms_documents/{docId} {
+      allow read: if isAdminAuthClaim();
+      allow write: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+    match /legal_versions/{docId} {
+      allow read: if isAdminAuthClaim();
+      allow write: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+
+    // ===== PROMPT 47 — GEOFENCED TOLL ZONES & DRIVER TOLL REPORTS =====
+    // `toll_zones`: every authenticated client reads the active geofence
+    // catalogue for the pre-booking surcharge scan; Super/Operations Admins
+    // (manageSystemSettings scope) create/update/delete zones.
+    match /toll_zones/{zoneId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+    // `reported_tolls`: an authenticated driver creates their own report
+    // (status PENDING) and reads only their own; admins read/verify/publish
+    // reports so the desk can promote verified reports into `toll_zones`.
+    match /reported_tolls/{reportId} {
+      allow read: if isAdminAuthClaim() ||
+        (isAuthenticated() && resource.data.driverId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.status == 'PENDING';
+      allow update: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+      allow delete: if false;
+    }
+
+    // ===== ORDERS =====
+    match /orders/{orderId} {
+      // PROMPT 71: the customer who placed the order reads live bid state
+      // (offered / counter-offered fare) to drive the smart-bidding selector.
+      // Hybrid 3-Tier dispatch: targeted Tier 1 / Tier 2 drivers read their
+      // offer, and any authenticated driver browses MARKETPLACE_OPEN/LIST.
+      // Assigned driver (driverId / assignedDriverId) can read the active order.
+      allow read: if isAgent() ||
+        (isAuthenticated() && resource.data.customerId == request.auth.uid) ||
+        (isAuthenticated() && resource.data.receiverId == request.auth.uid) ||
+        (isAuthenticated() && resource.data.driverId == request.auth.uid) ||
+        (isAuthenticated() && resource.data.assignedDriverId == request.auth.uid) ||
+        (isAuthenticated() && resource.data.driver_id == request.auth.uid) ||
+        (isAuthenticated() && resource.data.tier1_driver_id == request.auth.uid) ||
+        (isAuthenticated() && resource.data.targeted_driver_ids is list &&
+          resource.data.targeted_driver_ids.hasAny([request.auth.uid])) ||
+        (isAuthenticated() && resource.data.tier2_driver_ids is list &&
+          resource.data.tier2_driver_ids.hasAny([request.auth.uid])) ||
+        (isAuthenticated() &&
+          resource.data.status in ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST', 'SEARCHING', 'broadcasted']);
+      allow create: if (isAgent() && isNotSuspended()) ||
+        isValidCustomerOrderCreate();
+      allow update: if isOperationsAdmin() ||
+        (isNotSuspended() && resource.data.customerId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['bidding', 'updatedAt']) &&
+         request.resource.data.status == resource.data.status) ||
+        (isNotSuspended() && resource.data.receiverId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['receiverConsent', 'receiverConsentBy', 'receiverConsentAt', 'status', 'updatedAt']) &&
+         request.resource.data.receiverConsentBy == request.auth.uid &&
+         request.resource.data.status == (
+           request.resource.data.receiverConsent == 'accepted'
+             ? 'SEARCHING'
+             : 'cancelled')) ||
+        (isNotSuspended() && resource.data.driverId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['cashCheckpoints', 'deliveryPinVerified', 'status', 'updatedAt'])) ||
+        (isNotSuspended() && resource.data.status == 'unassigned' &&
+         request.resource.data.driverId == request.auth.uid &&
+         request.resource.data.status == 'assigned' &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['driverId', 'acceptedBidId', 'fareMinor', 'assignedAt', 'updatedAt', 'status']));
+      allow delete: if isSuperAdmin();
+
+      // PROMPT 71 & Hybrid Dispatch: per-driver bid documents. A driver reads/writes only their
+      // own bid; agents may review all bids; order customer reads incoming bids.
+      match /bids/{bidId} {
+        allow read: if isAgent() || isOwner(bidId) ||
+          (isAuthenticated() && get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid);
+        allow create: if (isAgent() || isOwner(bidId)) && isNotSuspended();
+        allow update: if (isAgent() || isOwner(bidId)) && isNotSuspended() ||
+          (isAuthenticated() &&
+           get(/databases/$(database)/documents/orders/$(orderId)).data.customerId == request.auth.uid &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+           request.resource.data.status in ['accepted', 'declined']);
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    // ===== QUICK ORDERS =====
+    match /quick_orders/{orderId} {
+      allow read: if isAuthenticated() && (
+        resource.data.driverId == request.auth.uid ||
+        resource.data.assignedDriverId == request.auth.uid ||
+        resource.data.status in ['broadcasted', 'searching', 'pending'] ||
+        isAgent()
+      );
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        request.resource.data.driverId == request.auth.uid;
+      allow update: if isAuthenticated() && isNotSuspended() && (
+        resource.data.driverId == request.auth.uid ||
+        resource.data.assignedDriverId == request.auth.uid ||
+        isAgent()
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== LIVE TRIPS (ride & delivery dispatch state machine) =====
+    // NOTE (2026-09-30): merged with the former "TRIPS (settled records)"
+    // block. The two `match /trips/{tripId}` blocks unioned, but disagreed on
+    // schema (`driver.driverId` vs flat `driverId`) and on marketplace
+    // visibility — deleting either one silently broke the feed. There is now
+    // exactly one block; both driver-id shapes are accepted below.
+    match /trips/{tripId} {
+      // The owning customer reads live snapshots (Trips tab restore + live
+      // tracker); the pinged driver reads their offer; the accepted driver
+      // reads the live trip for navigation/arrival updates. Settled records
+      // use the flat `driverId` shape — accepted alongside the nested one.
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        (resource.data.keys().hasAll(['pingDriverId']) &&
+          resource.data.pingDriverId == request.auth.uid) ||
+        (resource.data.keys().hasAll(['pingDriverIds']) &&
+          resource.data.pingDriverIds is list &&
+          resource.data.pingDriverIds.hasAny([request.auth.uid])) ||
+        (resource.data.keys().hasAll(['driver']) &&
+          resource.data.driver is map &&
+          resource.data.driver.keys().hasAll(['driverId']) &&
+          resource.data.driver.driverId == request.auth.uid) ||
+        resource.data.driverId == request.auth.uid ||
+        // Marketplace pool: online-verified-driver reads only. Customers,
+        // suspended drivers, and signed-out users cannot browse pool docs
+        // (pickup/dropoff/fare PII). Claim-time checks in acceptTrip/submitBid
+        // remain the write gate; this closes the read side. Hub/staff below.
+        ((resource.data.status == 'MARKETPLACE_OPEN') &&
+          isDriver() && isNotSuspended()) ||
+        ((resource.data.status == 'MARKETPLACE_LIST') &&
+          isDriver() && isNotSuspended()) ||
+        isAgent() || isHubStaff() || isAdminAuthClaim() ||
+        isOperationsAdmin()
+      );
+      // All trip writes go through Cloud Functions (Admin SDK bypasses
+      // rules). Direct client writes stay denied; the create rule below is
+      // belt-and-braces for the owning customer with contact phones present.
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        request.resource.data.customerId == request.auth.uid &&
+        request.resource.data.pickupPhone is string &&
+        request.resource.data.dropoffPhone is string &&
+        request.resource.data.status == 'SEARCHING_DRIVER';
+      allow update, delete: if false;
+
+      // ── Settled-trip receipts (moved from the merged duplicate block) ────
+      // Server-written only; owner + ops read.
+      match /receipts/{receiptId} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/trips/$(tripId)).data.customerId == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.driverId == request.auth.uid ||
+          isOperationsAdmin()
+        );
+        allow write: if false; // Server-only via Admin SDK
+      }
+
+      // ── Driver Bids subcollection ─────────────────────────────────────────
+      // Each document is keyed by driverId. Cloud Functions (Admin SDK) own
+      // the accept/reject transitions; clients may only create/update their
+      // own pending bid document, and the trip owner can read all bids.
+      match /bids/{driverId} {
+        // Customer (trip owner) may read all bids on their trip; hub
+        // verification staff and admins may read for the Queue Inspector.
+        allow read: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/trips/$(tripId)).data.customerId
+            == request.auth.uid ||
+           isAgent() || isHubStaff() || isAdminAuthClaim());
+
+        // Verified online driver may write ONLY their own bid document.
+        allow create, update: if isAuthenticated() && isNotSuspended() &&
+          driverId == request.auth.uid &&
+          request.resource.data.driverId == request.auth.uid &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.offeredFare is number &&
+          request.resource.data.offeredFare >=
+            get(/databases/$(database)/documents/trips/$(tripId)).data.baselineFare;
+
+        // Only Cloud Functions (Admin SDK) may delete or reject bids.
+      allow delete: if false;
+    }
+
+      // ── Tri-Party Trip Chat (`trips/{tripId}/messages/{messageId}`) ─────
+      // Customer + assigned driver (+ recipient relayed through the
+      // customer app) + hub support staff. Text/Images strictly — voice
+      // notes are hard-disabled at the schema layer.
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/trips/$(tripId)).data.customerId
+            == request.auth.uid ||
+          get(/databases/$(database)/documents/trips/$(tripId)).data.driver.driverId
+            == request.auth.uid ||
+          isAgent() || isHubStaff() || isAdminAuthClaim());
+        allow create: if isAuthenticated() && isNotSuspended() &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.timestamp != null &&
+          (!('type' in request.resource.data) ||
+            request.resource.data.type in ['text', 'image']) &&
+          (!('imageUrl' in request.resource.data) ||
+            request.resource.data.imageUrl is string) &&
+          (get(/databases/$(database)/documents/trips/$(tripId)).data.customerId
+            == request.auth.uid ||
+           get(/databases/$(database)/documents/trips/$(tripId)).data.driver.driverId
+            == request.auth.uid);
+        allow update, delete: if false; // immutable chat history
+      }
+    }
+
+    // ===== DRIVERS — onboarding owner write + admin queue read + admin approve =====
+    match /drivers/{userId} {
+      // Driver can read and write their own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Hub admins/staff can read and update all drivers
+      allow read, update: if request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Driver break state is server-managed; the owning driver may observe it
+    // while all mutations continue through the break controller callables.
+    match /drivers/{driverId}/driver_break/{document} {
+      allow read: if isAuthenticated() && (isOwner(driverId) || isSuperAdmin()) && isNotSuspended();
+      allow write: if false;
+    }
+
+    // GPS telemetry trail — owner can write own telemetry even while pending
+    match /drivers/{driverId}/telemetry/{telemetryId} {
+      allow read, write: if isOwner(driverId);
+    }
+
+    // ===== PROMPT 50 — DRIVER FLEET REGISTRY =====
+    // `/drivers/{driverId}/vehicles/{vehicleId}`: a driver registers vehicles
+    // under their OWN account with initial status `PENDING` + `ACTIVE`. They
+    // may read their own fleet, toggle the active session vehicle, and request
+    // soft-deletion (`is_deletion_requested: true` + `lifecycleStatus:
+    // DELETION_REQUESTED`). Drivers can NEVER self-approve (`verificationStatus`
+    // stays immutable for owners) or transition to `APPROVED`/`ARCHIVED` — those
+    // transitions are reserved for fleet ops admins / the backend callables.
+    match /drivers/{driverId}/vehicles/{vehicleId} {
+      allow read: if isOwner(driverId) || isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+      allow create: if isOwner(driverId) &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.verificationStatus == 'PENDING' &&
+        request.resource.data.lifecycleStatus == 'ACTIVE';
+      allow update: if isOperationsAdmin() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin() ||
+        (isOwner(driverId) &&
+         request.resource.data.verificationStatus == resource.data.verificationStatus &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['isActiveSelected', 'is_deletion_requested', 'lifecycleStatus', 'updatedAt']) &&
+         (request.resource.data.lifecycleStatus == resource.data.lifecycleStatus ||
+          request.resource.data.lifecycleStatus == 'DELETION_REQUESTED') &&
+         (request.resource.data.lifecycleStatus != 'DELETION_REQUESTED' ||
+          request.resource.data.is_deletion_requested == true));
+      allow delete: if false;
+    }
+
+    // ===== VEHICLE COLLECTION-GROUP MIRROR (sese_hub Pending Vehicles) ====
+    // Explicit recursive match so `collectionGroup('vehicles')` listeners
+    // (verificationStatus == PENDING / isVerified == false snapshots) resolve
+    // against a dedicated rule at any depth. Read coverage is identical to
+    // the specific match above (owner via the document's driverId, otherwise
+    // hub staff / agents / admins). Writes stay governed exclusively by the
+    // specific match — this mirror grants NO writes (an overlapping
+    // `allow write` for all authenticated users would let anyone flip
+    // verification statuses).
+    match /{path=**}/vehicles/{vehicleId} {
+      allow read: if isAuthenticated() &&
+        (request.auth.uid == resource.data.driverId ||
+         isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin());
+      allow write: if false;
+    }
+
+    // ===== DRIVER PREFERENCES (PROMPT 52) =====
+    // `/drivers/{driverId}/preferences/settings`: a driver reads/writes their
+    // own preference suite (pickup radius, auto-acceptance, keep-awake,
+    // contact mode, service modes). Writes are also funneled through the
+    // `driverPreferencesSave` callable for server-side validation + audit;
+    // this rule keeps the live Firestore mirror readable/updatable by owner.
+    match /drivers/{driverId}/preferences/{prefDoc} {
+      allow read: if isOwner(driverId) || isAgent();
+      allow create: if isOwner(driverId);
+      allow update: if isOwner(driverId);
+      allow delete: if false;
+    }
+
+    // ===== DRIVER PUBLIC PROFILE (PROMPT 53) =====
+    // `/drivers/{driverId}/profile/public_profile`: a driver publishes their
+    // own public bio (why_i_deliver), languages and compliment badges. Public
+    // reads are allowed so customers can render the driver's public card;
+    // writes are owner-only (also funneled through `publicProfileSave`).
+    match /drivers/{driverId}/profile/{docId} {
+      allow read: if isAuthenticated() || isAgent();
+      allow create: if isOwner(driverId);
+      allow update: if isOwner(driverId);
+      allow delete: if false;
+    }
+
+    // ===== DRIVER ACCESSIBILITY SETTINGS (PROMPT 53) =====
+    // `/driver_accessibility_settings/{driverId}`: vibration/flash/hearing
+    // disclosure toggles. Owner read/write; customers read the hearing
+    // disclosure flag so they can render the "deaf or hard of hearing" banner.
+    match /driver_accessibility_settings/{driverId} {
+      allow read: if isOwner(driverId) || isAuthenticated();
+      allow create: if isOwner(driverId);
+      allow update: if isOwner(driverId);
+      allow delete: if false;
+    }
+
+    // ===== DRIVER COMPLIANCE AUDIT (PROMPT 53) =====
+    // `/driver_compliance/{driverId}`: pre-online required actions. Drivers
+    // read their own gate; ops admins write (mint/clear actions server-side).
+    match /driver_compliance/{driverId} {
+      allow read: if isOwner(driverId) || isAgent();
+      allow create: if isOperationsAdmin();
+      allow update: if isOperationsAdmin();
+      allow delete: if false;
+    }
+
+    // ===== DRIVER STACKING PREFERENCES (PROMPT 53) =====
+    // `/driver_stacking_prefs/{driverId}`: owner reads their stacking toggle
+    // (writes are server-authoritative via `stackingToggle`).
+    match /driver_stacking_prefs/{driverId} {
+      allow read: if isOwner(driverId) || isAgent();
+      allow create: if isOwner(driverId);
+      allow update: if isOwner(driverId);
+      allow delete: if false;
+    }
+
+    // ===== USERS & DRIVERS — onboarding merge writes (authenticated owner) + admin queue read/approve =====
+    match /users/{userId} {
+      // User can read and write their own document
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Hub admins/staff can read and update all users
+      allow read, update: if request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin());
+      allow delete: if isSuperAdmin();
+
+      // Reviews / ratings subcollection (consumed by ratings_breakdown_card)
+      match /reviews/{reviewId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isNotSuspended();
+        allow update, delete: if isSuperAdmin();
+      }
+    }
+
+    // Hub staff qualification records. The primary owner is the only account
+    // allowed to provision, change roles, assign scopes, or deactivate staff.
+    match /hub_staff/{staffEmail} {
+      allow read: if isPrimaryHubOwner() ||
+        (isAuthenticated() && request.auth.token.email != null &&
+         request.auth.token.email.lower() == staffEmail.lower());
+      allow create, update: if isPrimaryHubOwner() &&
+        request.resource.data.email == staffEmail &&
+        request.resource.data.role in ['Super', 'Admin', 'Agent'] &&
+        request.resource.data.assignedBy == 'bamiduromichael2@gmail.com';
+      allow delete: if isPrimaryHubOwner();
+    }
+
+    // Rider accessibility preferences are private to the authenticated rider.
+    match /rider_accessibility_settings/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Profile-photo submissions are immutable audit records. Users may submit
+    // their own pending request; only the admin review callable changes state.
+    match /profile_photo_submissions/{submissionId} {
+      allow read: if isOwner(resource.data.userId) || isAdminAuthClaim() || isSuperAdmin();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ===== REGION-TAGGED DATA (PROMPT 90: PIPL/GDPR/NDPR compliance) =====
+    // Writes must carry a valid data_region tag; edits may not change it to
+    // evade compliance routing. Region is minted by the backend data router.
+    // isValidDataRegion / regionInvariant removed — unused helpers with typos (lines 286-296)
+    match /data_regions/{region}/{docId=**} {
+      allow read: if isAdminAuthClaim();
+      allow write: if isAdminAuthClaim();
+    }
+
+    // ── PROMPT 97: Master Dynamic Config Vault stream ──────────────────
+    // Explicit top-level doc match for `system/runtime_configs`.
+    // This is publicly readable (client-safe payload only) so apps can
+    // subscribe pre-login; never writable from clients.
+    match /system/runtime_configs {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Client-safe dynamic pricing, vehicle eligibility, and reward configuration.
+    // Super Admins publish changes; authenticated apps resolve the fallback chain.
+    match /system_configs/{configId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Immutable camera verification audit records. The image itself is protected
+    // by Storage rules; only the owning driver may submit a pending audit entry.
+    match /driver_vehicle_verification/{verificationId} {
+      allow read: if isOwner(resource.data.driverId) || isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.captureMode == 'camera_only' &&
+        request.resource.data.status == 'pending';
+      allow update, delete: if false;
+    }
+
+    // ===== SYSTEM / FINANCIAL VAULT (SUPER_ADMIN only) =====
+    match /system/{docId} {
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+
+      match /financial_vault {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /daily_stats {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /weekly_stats {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /yearly_stats {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /lifetime_stats {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /daily_stats_archive {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /yearly_stats_archive {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+
+      match /financial_time_series {
+        allow read: if isSuperAdmin();
+        allow write: if isSuperAdmin();
+      }
+    }
+
+    // ===== RUNTIME CONFIG VAULT (PROMPT 97) =====
+    // Encrypted credentials + write-only hints. Read by authorized admins only;
+    // writes flow exclusively through the TOTP-gated Cloud Function callables
+    // (service accounts bypass rules), never directly from clients.
+    match /runtime_config_vault/{domain} {
+      allow read: if isAdminAuthClaim() || isSuperAdmin();
+      allow write: if false;
+    }
+    match /runtime_config_events/{eventId} {
+      allow read: if isAdminAuthClaim() || isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ===== INQUIRIES (Operations + Super Admin) =====
+    match /inquiries/{inquiryId} {
+      allow read: if isOperationsAdmin();
+      allow create: if isOperationsAdmin();
+      allow update: if isOperationsAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== SUPPORT TICKETS (PROMPT 26) =====
+    // Users create their OWN tickets in the QUEUED state; the connecting /
+    // resolving transitions are performed exclusively by the Cloud Function
+    // dispatcher / resolver (admin SDK bypasses rules) so a client can never
+    // fabricate an assignment or resolve someone else's ticket.
+    function isTicketParticipant(ticketId) {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.userUid == request.auth.uid ||
+         get(/databases/$(database)/documents/support_tickets/$(ticketId)).data.assignedAgentUid == request.auth.uid);
+    }
+    function adminSupportAccess() {
+      return isAgent() ||
+        claimsScopeContains(scopeCodeOf('manageCustomerSupport')) ||
+        claimsScopeContains(scopeCodeOf('manageDriverSupport'));
+    }
+    match /support_tickets/{ticketId} {
+      // AI support chat (bot_active) + legacy dispatch queue (QUEUED) share
+      // this collection. Tickets carry BOTH userUid (participant checks) and
+      // userId (AI-chat spec); status is bot_active | escalated | resolved
+      // for AI chats. All bot/admin writes go through the Admin SDK.
+      allow read: if adminSupportAccess() || isTicketParticipant(ticketId);
+      allow create: if isAgent() || (
+        isAuthenticated() && isNotSuspended() &&
+        request.resource.data.userUid == request.auth.uid &&
+        request.resource.data.status in ['QUEUED', 'bot_active'] &&
+        (request.resource.data.userRole in ['customer', 'driver'])
+      );
+      allow update: if adminSupportAccess();
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read: if adminSupportAccess() || isTicketParticipant(ticketId);
+        // Legacy dispatch shape (senderUid/ticketId/sentAt) OR AI-chat spec
+        // shape (sender == 'user', userId/text/timestamp). Either way the
+        // writer must be authed, unsuspended, and a ticket participant
+        // (owner driver/customer) or support staff. Bot/admin rows are
+        // written exclusively server-side via the Admin SDK.
+        allow create: if isAuthenticated() && isNotSuspended() &&
+          (adminSupportAccess() || isTicketParticipant(ticketId)) && (
+            (request.resource.data.senderUid == request.auth.uid &&
+             request.resource.data.ticketId == ticketId &&
+             request.resource.data.sentAt != null) ||
+            (request.resource.data.sender == 'user' &&
+             request.resource.data.userId == request.auth.uid &&
+             request.resource.data.text is string &&
+             request.resource.data.timestamp != null)
+          );
+        allow update, delete: if false; // immutable chat history
+      }
+    }
+
+    // ===== SUPPORT CHATS (AI-FIRST & HUMAN AGENT HANDOVER) =====
+    function isChatParticipant(chatId) {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/support_chats/$(chatId)).data.userId == request.auth.uid ||
+         get(/databases/$(database)/documents/support_chats/$(chatId)).data.assignedAgentId == request.auth.uid);
+    }
+    match /support_chats/{chatId} {
+      // NOTE: kept as a single disjunction. It is semantically identical to
+      // splitting it per-field, and Firestore DOES accept a disjunction when
+      // one branch is provable from the query's own constraints
+      // (`where('userId','==',uid)` proves the first branch). An earlier draft
+      // "fixed" a suspected query/rules mismatch here; that was not the cause
+      // of the failure and the change has been reverted to avoid a false
+      // fix. The real cause is still unconfirmed — see the split try/catch in
+      // SupportChatService.openOrCreateSession, which now reports the actual
+      // FirebaseException.code so it can be identified from a device run.
+      allow read: if adminSupportAccess() ||
+        (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.assignedAgentId == request.auth.uid));
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        request.resource.data.userId == request.auth.uid &&
+        (request.resource.data.status in ['ai_active', 'open', 'pending']) &&
+        (request.resource.data.userRole in ['customer', 'driver']);
+      // Owner update: two disjoint capabilities, never combined.
+      //  (a) Escalation — a user may move an active chat to pending_agent to
+      //      request a human. This is the ONLY owner-allowed status change.
+      //  (b) CSAT — after resolution the owner may write ONLY the rating
+      //      fields. A user must not be able to un-resolve a chat, reassign
+      //      it, or rewrite escalation state by submitting a rating, so every
+      //      other field is pinned to its current value.
+      // NOTE: previously this allowed any owner update on a non-resolved
+      // chat, which let a user set status, assignedAgentId or userRole to
+      // arbitrary values.
+      allow update: if adminSupportAccess() || isValidSupportChatOwnerUpdate();
+
+    function isValidSupportChatOwnerUpdate() {
+      return isAuthenticated() && isNotSuspended() &&
+        resource.data.userId == request.auth.uid &&
+        (
+          // (a) Escalation path.
+          resource.data.status in ['ai_active', 'pending_agent'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'updatedAt', 'lastMessage', 'escalatedAt'
+          ])
+          ||
+          // (b) CSAT path, only once the agent has resolved it.
+          resource.data.status == 'resolved' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'csatRating', 'csatComment', 'csatSubmittedAt'
+          ])
+        );
+    }
+
+      allow delete: if isSuperAdmin();
+
+      match /messages/{messageId} {
+        allow read: if adminSupportAccess() || isChatParticipant(chatId);
+        // Text/Images only — voice notes are hard-disabled: `type` may be
+        // absent (legacy text) or 'text'/'image'; audio/voice types never
+        // pass. Images must carry an imageUrl (Storage support_media/).
+        allow create: if isAuthenticated() && isNotSuspended() &&
+          (!('type' in request.resource.data) ||
+            request.resource.data.type in ['text', 'image']) &&
+          (!('imageUrl' in request.resource.data) ||
+            request.resource.data.imageUrl is string) && (
+          (isChatParticipant(chatId) &&
+           request.resource.data.senderType == 'user' &&
+           request.resource.data.senderId == request.auth.uid &&
+           request.resource.data.text is string) ||
+          (adminSupportAccess() &&
+           request.resource.data.senderType == 'agent' &&
+           request.resource.data.text is string) ||
+          (isChatParticipant(chatId) &&
+           request.resource.data.senderType == 'ai' &&
+           request.resource.data.senderId == 'ai_assistant')
+        );
+        allow update, delete: if false;
+      }
+    }
+
+    // ===== SUPPORT QUEUE — AGENT PRESENCE (PROMPT 26) =====
+    // Server-authoritative presence registry. Availability, role and position
+    // in the queue are written ONLY by the `supportAgentHeartbeat` Callable via
+    // the Admin SDK, so an agent can never be injected or spoofed by a client.
+    match /support_agents/{agentUid} {
+      allow read: if isAgent() || adminSupportAccess() || isOwner(agentUid);
+      allow write: if false;
+    }
+
+    // ===== KYC DOCUMENTS =====
+    match /kyc_documents/{docId} {
+      allow read: if isOperationsAdmin();
+      allow create: if isAgent();
+      allow update: if isOperationsAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== KYC SUBMISSIONS =====
+    // Users can create their own submissions and read their own.
+    // Admins with kyc scope can read all and update status.
+    match /kyc_submissions/{submissionId} {
+      allow read: if isOperationsAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pendingReview';
+      allow update: if isOperationsAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'rejectionReason', 'updatedAt']);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== SCHEDULED RIDES (PROMPT 55) =====
+    // Advance bookings created by the `scheduleRide` callable (status
+    // SCHEDULED); the cron flips them DISPATCHING and mints a SEARCHING order.
+    // Clients may read their own and cancel only their own upcoming booking.
+    match /scheduled_rides/{rideId} {
+      allow read: if isAuthenticated() && resource.data.riderId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.riderId == request.auth.uid &&
+        request.resource.data.status == 'SCHEDULED';
+      allow update: if isAuthenticated() &&
+        request.resource.data.riderId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']) &&
+        request.resource.data.status == 'CANCELLED';
+      allow delete: if false;
+    }
+
+    // ===== RIDER PROFILES (PROMPT 55) =====
+    // Work/Family payment-routing config. Owned by the rider; upserted by the
+    // `riderProfileSave` callable so routing flags can never be forged.
+    match /rider_profiles/{userId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if isAuthenticated() && isOwner(userId);
+    }
+
+    // ===== MICRO-DEBIT CARD AUTHENTICATION (PROMPT 56) =====
+    // `card_verifications` tracks the ₦1 micro-charge lifecycle (PENDING ->
+    // VERIFIED/FAILED). Clients open their own PENDING verification and read
+    // their own record; the state flip is mediated by the
+    // `processCardVerificationCallback` callable.
+    match /card_verifications/{verificationId} {
+      allow read: if isAuthenticated() &&
+        (isOperationsAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'PENDING';
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'cardToken', 'last4', 'brand', 'verifiedAt',
+          'failedReason', 'updatedAt']) &&
+        (request.resource.data.status == 'VERIFIED' ||
+         request.resource.data.status == 'FAILED');
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== SAVED CARDS (PROMPT 56) =====
+    // Tokenized reusable cards written only by the gateway callables (clients
+    // never touch the token). Riders read/delete their own card metadata.
+    match /saved_cards/{cardId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.cardToken is string;
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isDefault', 'updatedAt']);
+      allow delete: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+    }
+
+    // ===== EMERGENCY INCIDENTS (SOS) =====
+    // Users can create their own SOS alerts and read their own.
+    // Admins with incident scope can read all and update status.
+    match /emergency_incidents/{alertId} {
+      allow read: if isAuthenticated() &&
+        (isOperationsAdmin() ||
+         resource.data.user_id == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.user_id == request.auth.uid &&
+        request.resource.data.status == 'ACTIVE';
+      allow update: if isOperationsAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'resolved_at', 'resolver_uid', 'updatedAt']);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== ROAD INCIDENTS (Community Hazard Broadcast) =====
+    // Realtime hazard alerts broadcast to drivers and customers on the map.
+    // Writes are server-managed via the reportRoadIncident Cloud Function.
+    match /road_incidents/{incidentId} {
+      allow read: if isAuthenticated();
+      allow write: if isOperationsAdmin();
+    }
+
+    match /road_incident_events/{eventId} {
+      allow read: if isOperationsAdmin();
+      allow write: if false; // Server-only audit log
+    }
+
+    // ===== PAYMENT RESOLUTIONS (Mutual Pre-Report Debt Handling) =====
+    // Drivers and customers read their own active resolutions.
+    // Writes are handled by server functions (respondToPaymentResolution, etc.).
+    match /payment_resolutions/{resolutionId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        isOperationsAdmin()
+      );
+      allow write: if isOperationsAdmin();
+    }
+
+    // ===== CANCELLATION RULES (Admin Config) =====
+    // Readable by all authenticated users for fee calculations.
+    // Writable only by admins with system-settings scope.
+    match /system_config/cancellation_rules {
+      allow read: if isAuthenticated();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+
+    // ===== ACTIVE TRIP GPS BREADCRUMB (OFFLINE SYNC) =====
+    // PROMPT 29: the assigned driver may append buffered GPS coordinates to
+    // their own active trip's route_history only. The update must be a pure
+    // route_history arrayUnion — any other field (fare, status, driverId, ...)
+    // is rejected so a malicious client can never mutate trip state.
+    match /active_trips/{tripId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.driverId == request.auth.uid ||
+         resource.data.customerId == request.auth.uid);
+      allow update: if isAuthenticated() &&
+        resource.data.driverId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['route_history']) &&
+        request.resource.data.route_history is list &&
+        resource.data.route_history is list &&
+        request.resource.data.route_history.size() >= resource.data.route_history.size();
+      allow create, delete: if false; // Server-managed trip lifecycle
+    }
+
+    // ===== ACTIVE TRIP MESSAGES (In-App Chat) =====
+    // Driver and customer can read/write messages for their active trips.
+    // Messages auto-expire after 24 hours via Cloud Function.
+    // Text/Images strictly: voice notes are hard-disabled at the schema
+    // layer (`type` absent/text/image only; audio/voice never passes).
+    match /active_trips/{tripId}/messages/{messageId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.senderId == request.auth.uid ||
+         resource.data.recipientId == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        request.resource.data.senderId == request.auth.uid &&
+        request.resource.data.timestamp != null &&
+        (!('type' in request.resource.data) ||
+          request.resource.data.type in ['text', 'image']) &&
+        (!('imageUrl' in request.resource.data) ||
+          request.resource.data.imageUrl is string);
+      allow update, delete: if false; // Server-managed lifecycle (TTL)
+    }
+
+    // ===== CLAIMS & DISPUTES =====
+    match /claims/{claimId} {
+      allow read: if isOperationsAdmin();
+      allow create: if isAgent();
+      allow update: if isOperationsAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== SYSTEM SETTINGS (PROMPT 39) =====
+    match /settings/{settingId} {
+      allow read: if isAgent();
+      allow write: if isOperationsAdmin();
+    }
+    match /system_settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || (isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings')));
+    }
+
+    // ===== MULTI-STOP ROUTES (PROMPT 40) =====
+    match /multi_stop_routes/{routeId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.assignedDriverId == request.auth.uid ||
+        resource.data.status == 'searching' ||
+        isOperationsAdmin()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.customerId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.assignedDriverId == request.auth.uid ||
+        isOperationsAdmin()
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== DRIVER PAYOUTS — PROMPT 42 =====
+    match /driver_payouts/{payoutId} {
+      allow read: if isAuthenticated() && (
+        resource.data.driverId == request.auth.uid ||
+        isOperationsAdmin()
+      );
+      allow write: if false; // Server-only via Admin SDK
+    }
+
+    // ===== PROMPT 44: DRIVER OTP BYPASS & LIABILITY AUDIT =====
+    match /liability_audit/{auditId} {
+      allow read: if isAuthenticated() && (
+        resource.data.driverId == request.auth.uid ||
+        isOperationsAdmin() ||
+        claimsScopeContains('audit')
+      );
+      allow write: if false; // Server-only via Admin SDK
+    }
+
+    // ===== REFERRALS =====
+    match /referrals/{referralId} {
+      allow read: if isOperationsAdmin();
+      allow create: if isAgent();
+      allow update: if isOperationsAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // PROMPT 18: server-only, append-only ledger for expired referral
+    // commissions (REFERRAL_COMMISSION_EXPIRED). Written exclusively by the
+    // Cloud Functions admin SDK, which bypasses rules; clients can never forge
+    // or tamper with an entry.
+    match /referral_audit_logs/{entryId} {
+      allow read: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('viewAuditLogs'));
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 23: referral_earnings =====
+    // `referral_earnings`: per-referee referral contribution ledger. Written
+    // exclusively by `ride_split_service.ts` (admin SDK, inside the settlement
+    // transaction) so clients can never inflate a contribution. A user may read
+    // only the rows where they are the referrer (their contributors) or the
+    // referee (their own contributions).
+    match /referral_earnings/{entryId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.referrerId == request.auth.uid ||
+         resource.data.refereeId == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    // ===== P2P WALLET & LEDGER (PROMPT 16) =====
+    // `system_config`: public configuration docs (wallet rules, payment
+    // gateways, delivery modes, referral settings, dispatch settings, ride
+    // split rules, KYC rules) and the insurance *tier* store are read by every
+    // app and written only by admins carrying the system-settings scope.
+    // PROMPT 48 SECURITY: partner API keys + webhook secrets are NOT stored in
+    // public docs — they live in `insurance_secrets` (restricted to
+    // SUPER_ADMIN / OPERATIONS_ADMIN) and the legacy `insurance` key store is
+    // likewise admin-only, so a key can never be leaked to an authenticated
+    // user. Cloud Functions resolve secrets via the admin SDK (rules bypass).
+    function isPublicSystemConfig(docId) {
+      return docId in ['config', 'payments', 'gateways', 'delivery_modes',
+        'referral_settings', 'referral_rates', 'dispatch_settings',
+        'ride_split', 'wallet_rules', 'kyc_rules', 'dispatch_rules'];
+    }
+    match /system_config/{docId} {
+      allow read: if isAuthenticated() && isPublicSystemConfig(docId);
+      allow read: if isSuperAdmin() || isOperationsAdmin();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+    // PROMPT 48 SECURITY — partner secrets / webhook secret / SMS-sync channel
+    // key are NEVER readable by standard users. `insurance_settings` is the
+    // admin-published insurance tier store (MyCover / Octamile API keys and
+    // webhook secrets live here and in `insurance_secrets`), so it is likewise
+    // admin-only; the public tier/threshold copy served to customers is the
+    // `config` document. Cloud Functions resolve secrets via the admin SDK
+    // (rules bypass).
+    match /system_config/insurance_secrets {
+      allow read: if isSuperAdmin() || isOperationsAdmin();
+      allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+    match /system_config/insurance_settings {
+      allow read: if isSuperAdmin() || isOperationsAdmin();
+      allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+    match /system_config/sms_sync_secrets {
+      allow read: if isSuperAdmin() || isOperationsAdmin();
+      allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+
+    // `dispatch_sounds`: Ringtone audio library available to active drivers.
+    match /dispatch_sounds/{soundId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+
+    // ===== DELIVERY JOBS (PROMPT 20) =====
+    // `delivery_jobs`: customer creates a job; drivers read pending jobs (PII
+    // is masked until acceptance); the owning driver and creator stream state.
+    // All status/accepted transitions are authoritatively handled by the
+    // backend `delivery_jobs` Cloud Function (admin SDK bypasses rules), so
+    // clients are limited to create-by-creator and driver reads.
+    function isDriver() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid));
+    }
+    match /delivery_jobs/{jobId} {
+      allow read: if isAuthenticated() && (
+        isDriver() ||
+        isAgent() ||
+        (resource.data.creatorId == request.auth.uid) ||
+        (resource.data.acceptedDriverId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.creatorId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update: if false; // server-only via callable
+      allow delete: if false;
+    }
+
+    // `system_config/delivery_modes`: admin-published delivery mode + pricing
+    // + Same-Day batch capacity (PROMPT 20). Read by all authenticated clients;
+    // written only by admins carrying the system-settings scope.
+    match /system_config/delivery_modes {
+      allow read: if isAuthenticated();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+
+    // ===== PROMPT 37 — SINGLE-DEVICE SESSION LOCK =====
+    // `/driver_sessions/{deviceId}`: the server-authoritative multi-device
+    // ledger. Requests come through the `sessionRegister` /
+    // `sessionRelease` / `sessionTakeoverTrip` callables (admin SDK bypasses
+    // rules); the driver app may only read its own sessions. Direct client
+    // writes are refused so a client can never forge an online session or
+    // force-expire another device.
+    match /driver_sessions/{deviceId} {
+      allow read: if isAuthenticated() &&
+        resource.data.driverId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ===== ZERO-TRUST DRIVER AVAILABILITY MIRROR =====
+    // `/driver_status/{driverId}`: server-authoritative online mirror written
+    // exclusively by the `goOnline` / `goOffline` callables (admin SDK
+    // bypasses rules). The client NEVER self-asserts status: it fires the
+    // callable with its Bearer ID token + signed GPS fix, and flips UI only
+    // on the grant response. Server validates JWT, licence/vehicle approval,
+    // suspension, fleet attachment, GPS spoof sanity, and active-trip state
+    // before mutating `isOnline`/`status` + the geospatial index.
+    // The owning driver (and agents) may read the mirror for UI dispatch.
+    match /driver_status/{driverId} {
+      allow read: if isAuthenticated() &&
+        (isOwner(driverId) || isAgent());
+      allow write: if false;
+    }
+
+    // ===== PROMPT 37 — DRIVER KYC GOLDEN TEMPLATE =====
+    // `/driver_kyc/{driverId}`: golden face template + identity
+    // re-verification status. Written exclusively by Cloud Functions; the
+    // owning driver reads their own record, agents/admins review all.
+    match /driver_kyc/{driverId} {
+      allow read: if isAuthenticated() && (
+        isAgent() ||
+        request.auth.uid == driverId
+      );
+      allow write: if false;
+    }
+
+    // ===== PROMPT 37 — BASELINE LOCATION PROFILE =====
+    // `/baseline_location_profiles/{driverId}`: server-built 7-day morning
+    // start-zone anchors. Readable by the owning driver (the Go Online geofence
+    // check) and agents; writes are server-authoritative only.
+    match /baseline_location_profiles/{driverId} {
+      allow read: if isAuthenticated() && (
+        isAgent() ||
+        request.auth.uid == driverId
+      );
+      allow write: if false;
+    }
+
+    // ===== PROMPT 37 — ADMIN ESCALATIONS (SOS / SAFETY DESK) =====
+    // `/admin_escalations/{escalationId}`: server-created unresponsive-driver
+    // SOS tickets (heartbeat monitor). Read + ack by admins; write is
+    // server-authoritative (the escalation callables bypass rules).
+    match /admin_escalations/{escalationId} {
+      allow read: if isAdminAuthClaim();
+      allow write: if false;
+    }
+
+    // ===== PROMPT 37 — ADMIN ALERTS (identity re-verification) =====
+    match /admin_alerts/{alertId} {
+      allow read: if isAdminAuthClaim();
+      allow write: if false;
+    }
+
+    // `driver_active_queue` (PROMPT 35): server-authoritative delivery queue.
+    // Readable by the owning driver (for the active-batch drawer) and agents;
+    // writes are server-only via the `acceptDeliveryJob` / `updateDeliveryJobStatus`
+    // callables (admin SDK bypasses rules). A driver can NEVER self-write this —
+    // that would let a client fake/spoof an accepted batch or clear a lock.
+    match /driver_active_queue/{driverId} {
+      allow read: if isAuthenticated() && (
+        isAgent() ||
+        isDriver() && request.auth.uid == driverId
+      );
+      allow write: if false;
+    }
+
+    // A client-created wallet may only carry a zero/absent balance. Any
+    // non-zero financial field would let a user mint arbitrary wallet credit
+    // (TOCTOU/forgery vector), so creation is restricted to a bare zeroed
+    // document. All balance mutations happen exclusively inside server-side
+    // Cloud Functions (admin SDK), which bypasses these rules.
+    function isZeroBalanceWalletCreate() {
+      return request.resource.data.keys().hasOnly([
+        'userId', 'currency', 'balance', 'availableBalance',
+        'escrowHold', 'createdAt', 'updatedAt',
+      ]) &&
+        (!request.resource.data.keys().hasAny(['balance']) ||
+         request.resource.data.balance == 0) &&
+        (!request.resource.data.keys().hasAny(['availableBalance']) ||
+         request.resource.data.availableBalance == 0) &&
+        (!request.resource.data.keys().hasAny(['escrowHold']) ||
+         request.resource.data.escrowHold == 0) &&
+        request.resource.data.userId == request.auth.uid;
+    }
+
+    // `wallets/{walletId}`: users own their wallet and may read it. All
+    // balance mutations happen server-side in Cloud Functions (admin SDK),
+    // which bypasses rules — so clients get read + owner-initiated create only.
+    match /wallets/{walletId} {
+      allow read: if isAuthenticated() && isOwner(walletId);
+      allow create: if isAuthenticated() && isOwner(walletId) &&
+        isNotSuspended() && isZeroBalanceWalletCreate();
+      allow update: if false;
+      allow delete: if false;
+
+      // Per-wallet transaction history (top-ups, streak bonuses, payouts).
+      // Written exclusively server-side via the Admin SDK (Paystack
+      // settlement, streak engine); the owner may only read their own.
+      match /transactions/{txId} {
+        allow read: if isAuthenticated() && isOwner(walletId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Paystack payment intents. Minted and settled exclusively server-side
+    // (initializePayment / verifyPayment / paystackWebhook via Admin SDK);
+    // the payer reads only their own intents to track status.
+    match /payment_intents/{reference} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // `wallet_transactions`: server-only append-only ledger. Users may read
+    // only transfers they are a party to; creation is exclusively performed by
+    // the Cloud Functions admin SDK (which bypasses rules).
+    match /wallet_transactions/{txId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.senderId == request.auth.uid ||
+         resource.data.recipientId == request.auth.uid ||
+         (resource.data.partyIds is list && resource.data.partyIds.hasAny([request.auth.uid])));
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /wallet_configs/{configId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /payout_profiles/{userId} {
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow create, update: if isOwner(userId);
+      allow delete: if false;
+    }
+
+    match /phone_lookup/{phoneId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow write: if false;
+    }
+
+    match /phone_lookup_rate_limits/{phoneId} {
+      allow create, update: if isAuthenticated() && isNotSuspended();
+      allow read, delete: if false;
+    }
+
+    // ===== CAMPAIGN & INCENTIVE SYSTEM =====
+    // Super Admin writes; Drivers read their own region's active campaigns
+    match /driver_campaigns/{campaignId} {
+      allow read: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.operatingCountryCode == resource.data.countryCode &&
+        get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.operatingStateId == resource.data.stateId;
+      allow write: if isSuperAdmin();
+    }
+
+    // Driver progress tracking — driver reads own, server writes
+    match /driver_campaign_progress/{progressId} {
+      allow read: if isAuthenticated() &&
+        resource.data.driverId == request.auth.uid;
+      allow create, update: if false; // server-only via settlement cron
+    }
+
+    // Driver trip events (audit log) — driver reads own, server writes
+    match /driver_trip_events/{eventId} {
+      allow read: if isAuthenticated() &&
+        resource.data.driverId == request.auth.uid;
+      allow create, update: if false;
+    }
+
+    // Driver daily metrics — driver reads own, server writes
+    match /driver_metrics/{metricsId} {
+      allow read: if isAuthenticated() &&
+        resource.data.driverId == request.auth.uid;
+      allow create, update: if false;
+    }
+
+    // ===== FLEET OPERATOR & VAULT (PROMPT 22) =====
+    // `fleet_operators`: verification registry — read by the operator + super
+    // admin, written ONLY by the `fleetVerifyOperator` Cloud Function (admin
+    // SDK bypasses rules); clients can never self-verify.
+    match /fleet_operators/{operatorId} {
+      allow read: if isAuthenticated() &&
+        (isOwner(operatorId) || isSuperAdmin());
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // `fleet_assets`: operators manage their own assets, super admins override.
+    // Financial fields (`balanceRemaining`, `totalAssetValue`) are immutable
+    // from clients — the vault/remittance engine updates them server-side.
+    match /fleet_assets/{assetId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.operatorId == request.auth.uid ||
+         resource.data.linkedDriverId == request.auth.uid ||
+         isSuperAdmin());
+      allow create: if isVerifiedFleetOperator() &&
+        request.resource.data.operatorId == request.auth.uid;
+      allow update: if (isVerifiedFleetOperator() || isSuperAdmin()) &&
+        request.resource.data.operatorId == request.auth.uid &&
+        request.resource.data.balanceRemaining == resource.data.balanceRemaining &&
+        request.resource.data.totalAssetValue == resource.data.totalAssetValue;
+      allow delete: if isSuperAdmin();
+    }
+
+    // `fleet_contracts`: the operator writes contract terms; drivers read only
+    // contracts they are party to. `status`/`totalCollected` transitions and
+    // balance fields are server-owned — clients may only move a contract
+    // through the `fleetAcceptContract` callable, never directly.
+    match /fleet_contracts/{contractId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.operatorId == request.auth.uid ||
+         resource.data.driverId == request.auth.uid ||
+         isSuperAdmin());
+      allow create: if isVerifiedFleetOperator() &&
+        request.resource.data.operatorId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.totalCollected == 0;
+      allow update: if (isVerifiedFleetOperator() || isSuperAdmin()) &&
+        request.resource.data.operatorId == request.auth.uid &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.totalCollected == resource.data.totalCollected;
+      allow delete: if isSuperAdmin();
+    }
+
+    // `wallet_vault`: drivers may read only their own escrow entries; operators
+    // read entries they own. Creation, sweeping and balance mutation are
+    // exclusively server-side (`fleetSweepToOperator` admin SDK transaction).
+    match /wallet_vault/{vaultId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.driverId == request.auth.uid ||
+         resource.data.operatorId == request.auth.uid ||
+         isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // `remittance_records`: immutable audit trail — drivers/operators read
+    // their own; all writes come from the backend engine.
+    match /remittance_records/{recordId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.driverId == request.auth.uid ||
+         resource.data.operatorId == request.auth.uid ||
+         isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // ===== FIELD AGENT APPLICATIONS (PROMPT 27) =====
+    // A user mints their own application at `agent_applications/{uid}` in the
+    // `pending` state; role-claim agents or compact-claim admins read the desk
+    // and manage reviews. Status transitions to `approved`/`declined` are
+    // exclusively performed by the `approveAgentApplication` /
+    // `declineAgentApplication` callables (admin SDK bypasses rules), so a
+    // client can never self-promote to field agent.
+    match /agent_applications/{applicationId} {
+      allow read: if isOwner(applicationId) || isAgent() || isAdminAuthClaim();
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        isOwner(applicationId) &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===== PROMPT 27: TIERED REFERRAL RATES =====
+    // `system_config/referral_rates` carries the standard-user vs. elevated
+    // field-agent commission decimal rates consumed by `ride_split_service.ts`
+    // on every trip completion. Readable by all authenticated clients; the
+    // explicit match mirrors the adjacent `system_config/{docId}` writer scope
+    // so the Super Admin CMS can tune rates live.
+    match /system_config/referral_rates {
+      allow read: if isAuthenticated();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+
+    // ===== PROMPT 27: STAFF PAYROLL RUNS =====
+    // Immutable supervisory summary of `scheduledAdminPayroll` runs. Created
+    // exclusively by the Cloud Function admin SDK; admins may audit the trail.
+    match /payroll_runs/{runId} {
+      allow read: if isAdminAuthClaim() || isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ===== PROMPT 32: GAMIFICATION (discounts, quests, leaderboard) =====
+    // Targeted customer discounts — campaigns are readable by all authenticated
+    // users, writable only by the super admin. Per-user discounts are readable
+    // only by the owning user (a client can never read/write another user's).
+    match /promotional_campaigns/{campaignId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Individual discount grants: owner-read; the balance/wallet mutations and
+    // `usesLeft` decrements happen inside the settlement transaction via the
+    // admin SDK (service account), so clients are write-denied entirely.
+    match /user_discounts/{discountId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.userId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // Driver milestones / quests — drivers read active quests; writers are
+    // super admins only. Progress docs track `tripsCompleted` verified and
+    // incremented server-side; clients never write progress.
+    match /driver_quests/{questId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /driver_quest_progress/{driverQuestId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.driverId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // Physical-reward pickups — server-created notices; driver reads own.
+    match /physical_reward_pickups/{pickupId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.driverId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 34: DRIVER BADGE PROFILES =====
+    // `driver_badge_profiles/{driverId}` is minted by the badge evaluation
+    // functions (`evaluateDriverBadges`) from REAL trip/delivery metrics —
+    // never client-supplied. The owning driver reads their own profile (the
+    // driver app realtime-subscribes for the identity strip); write access is
+    // reserved for the admin SDK (Cloud Functions bypass rules), so a client
+    // can never mint or inflate its own badges.
+    match /driver_badge_profiles/{driverId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(driverId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 34: MYSTERY BOXES =====
+    // `mystery_boxes/{boxId}` — the prize is predetermined by the server-side
+    // `revealMysteryBox` callable at unlock time; the doc carries the reward +
+    // `serverVerificationToken`. The owner reads their own boxes to render the
+    // scratch card and claim state; every state transition + wallet credit is
+    // performed server-side in `runTransaction` (idempotent), so clients can
+    // neither pick prizes nor credit their wallet themselves.
+    match /mystery_boxes/{boxId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.userId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 34: SPLIT BILLS =====
+    // `split_bills/{splitId}` — social fare splits. The creator and any listed
+    // participant read the split to render the deep-link landing + payment
+    // state. Ledger mutations (participant reservation, `hasPaid` flips,
+    // status roll-ups) happen exclusively inside `split_bill_engine.ts`
+    // `runTransaction`s; clients may not write, so a participant can never
+    // mark themselves paid without the server debiting the fare ledger.
+    match /split_bills/{splitId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.creatorId) || isSuperAdmin() ||
+         (resource.data.paymentUserIds is list && resource.data.paymentUserIds.hasAny([request.auth.uid])));
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 33: CUSTOMER GAMIFICATION (quests, streaks, referrals) =====
+    // Customer milestone quests — customers read active campaigns through the
+    // `listActiveCustomerQuests` callable; super admins manage them directly.
+    match /customer_quests/{questId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Per-customer quest progress — the owner reads only their own progress;
+    // every counter is advanced server-side from real completed orders by
+    // `onOrderCompletedCustomerGamification` (admin SDK bypasses rules).
+    match /customer_quest_progress/{progressId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(resource.data.userId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // Ride streaks — day counters / milestone bonuses are written only by the
+    // backend trigger; the owner reads their own streak card.
+    match /ride_streaks/{userId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        isOwner(userId);
+      allow create, update, delete: if false;
+    }
+
+    // Dynamic Commission Streak & Rebate Ladder — engine configs are
+    // Super Admin managed (global / country / state / vehicle scope);
+    // every authenticated user may read the active scope for transparency.
+    match /streak_configs/{configId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // Per-driver ladder state — the owner (or Super Admin) reads only their
+    // own card; stage/commission counters advance exclusively server-side
+    // (trip_settle preview+advance, dispatch decline, order-cancel trigger,
+    // and the midnight `scheduledResetStreaks` cron via the Admin SDK).
+    match /driver_streaks/{driverId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (isOwner(driverId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // Referral milestone progress — owner-read only; first-trip counting and
+    // reward credits are exclusive to the settlement trigger.
+    match /referral_milestone_progress/{referrerId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        isOwner(referrerId);
+      allow create, update, delete: if false;
+    }
+
+    // Live leaderboard campaigns + per-driver rankings. Campaigns readable by
+    // all authenticated users; rankings counters are incremented only by the
+    // backend trigger, never by clients. Cached top-10 summaries are read-only.
+    match /leaderboards/{campaignId} {
+      allow read: if isAuthenticated() && isNotSuspended();
+      allow create, update, delete: if isSuperAdmin();
+
+      match /rankings/{driverId} {
+        allow read: if isAuthenticated() && isNotSuspended();
+        allow create, update, delete: if false;
+      }
+
+      match /top10/{summaryId} {
+        allow read: if isAuthenticated() && isNotSuspended();
+        allow create, update, delete: if false;
+      }
+    }
+
+    // Server-owned monetary vault for marketing promo subsidies. The balance is
+    // mutated only inside the settlement transaction via the admin SDK; the
+    // super admin may read it for reconciliation. Clients are write-denied.
+    match /system_vaults/{vaultId} {
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // Exactly-once markers for periodic campaign settlements (audit trail).
+    match /campaign_settlements/{settlementId} {
+      allow read: if isSuperAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // ===== PROMPT 38 — EMBEDDED MICRO-INSURANCE =====
+    // Server-authoritative by design: policy creation, GIT binding and claim
+    // submission go through the `insurance*` callables (admin SDK bypasses
+    // rules). Clients may read their own records and — matching the
+    // `delivery_jobs` create-by-creator pattern — create their own initial
+    // records; status/state transitions are admin-only and the write path is
+    // otherwise closed so a client can never forge or re-settle a policy.
+    match /driver_insurance_policies/{policyId} {
+      allow read: if isAuthenticated() && (
+        resource.data.driverId == request.auth.uid || isAdminAuthClaim()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.status == 'active';
+      allow update: if isAdminAuthClaim();
+      allow delete: if false;
+    }
+
+    match /customer_git_policies/{policyId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid || isAdminAuthClaim()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.customerId == request.auth.uid &&
+        request.resource.data.status == 'bound';
+      allow update: if isAdminAuthClaim();
+      allow delete: if false;
+    }
+
+    // Legacy client-written GIT mirror (customer_git_insurance) stays readable
+    // for existing screens; writes are owner-scoped like delivery_jobs.
+    match /customer_git_insurance/{insuranceId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid || isAdminAuthClaim()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.customerId == request.auth.uid;
+      allow update: if isAdminAuthClaim();
+      allow delete: if false;
+    }
+
+    match /insurance_claims/{claimId} {
+      allow read: if isAuthenticated() && (
+        resource.data.claimantId == request.auth.uid || isAdminAuthClaim()
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.claimantId == request.auth.uid;
+      allow update: if isAdminAuthClaim();
+      allow delete: if false;
+    }
+
+    // PROMPT 48 — Insured Claims & Escrow Disputes. Docs are written by
+    // server callables only (disputeCreateAndHoldEscrow / disputeResolveEscrow);
+    // the order owner may read their own dispute, admins may audit all.
+    match /disputes/{disputeId} {
+      allow read: if isAuthenticated() && (
+        resource.data.customerId == request.auth.uid ||
+        isOperationsAdmin() || isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
+    // ===== PROMPT 48 — VERIFIED ADDRESS PINPOINT & LANDMARK CACHE =====
+    // `/address_cache/{placeId}` is written exclusively by the
+    // `persistAddressCache` callable (admin SDK bypasses rules); any
+    // authenticated client reads the cache to surface landmark notes and
+    // refined drop-off coordinates. Direct client writes are refused so a
+    // client can never forge another user's note or inflate verifications.
+    match /address_cache/{placeId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ===== DENY ALL UNMATCHED =====
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

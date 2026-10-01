@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SeSe branded launch splash: dark backdrop + centered gold logo -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/sese_splash" />
+    </item>
+</layer-list>

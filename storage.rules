@@ -1,0 +1,175 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── KYC helpers ──────────────────────────────────────────────────────────
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|jpg|png|webp)');
+    }
+    function isPdf() {
+      return request.resource.contentType == 'application/pdf';
+    }
+    function isAllowedDoc() {
+      return (isImage() || isPdf()) && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // ── Staff checks ──────────────────────────────────────────────────────────
+    // Storage rules cannot see Firestore `hub_staff` lookups cheaply, so staff
+    // access here keys off the same auth claims the Firestore rules use
+    // (adminAuth + role). Firestore remains the authoritative authorisation
+    // layer: a user can upload a picture regardless, but only a staff member
+    // who passed the Firestore `support_chats` read rule can see it in-app.
+    function isHubStaffClaim() {
+      return request.auth != null && (
+        request.auth.token.admin == true ||
+        (request.auth.token.adminAuth == true &&
+         request.auth.token.role != null)
+      );
+    }
+
+    // ── Verification documents (customers, pre-approval KYC uploads) ──────────
+    // Any authenticated user may upload to their own sub-path.
+    // Admins may read any document.
+    match /verification_documents/{userId}/{allPaths=**} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId
+                      || request.auth.token.admin == true);
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
+    // ── Driver onboarding documents (Step 2: ID, selfie, vehicle docs) ────────
+    match /driver_onboarding/{userId}/{allPaths=**} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId
+                      || request.auth.token.admin == true);
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
+    // ── Customer verification documents (legacy path) ─────────────────────────
+    match /customer_verification/{userId}/{allPaths=**} {
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId
+                      || request.auth.token.admin == true);
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
+    // ── Profile avatars ───────────────────────────────────────────────────────
+    match /profile_photos/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isImage()
+                   && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // ── Vehicle inspection photos and document uploads ──────────────────────
+    // Used by DriverFleetService.uploadVehicleDocument
+    // (`vehicle_documents/{driverId}/...`) and legacy `vehicles/{uid}/...`
+    // inspection paths. Authenticated drivers write only their own directory.
+    match /vehicles/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+    match /vehicle_documents/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
+    // ── Live-camera verification snapshots ──────────────────────────────────
+    // Used by DriverFleetService.uploadVerificationPhoto
+    // (`verifications/{driverId}/...`, camera-only JPEGs).
+    match /verifications/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isImage()
+                   && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // ── Fallback for general driver document uploads ────────────────────────
+    match /drivers/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
+    // ── Driver avatars (DriverProfileService `driver_photos/{uid}/...`) ─────
+    match /driver_photos/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isImage()
+                   && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // ── Chat media (images only — voice notes are hard-disabled) ─────────
+    // `support_media/{chatId}/...`: the chat owner, the assigned agent, or
+    // an admin/support staffer may read; only participants may write, and
+    // only images ≤ 5MB (audio/* never passes `isImage()`).
+    // Media scope is the OWNING USER, not the chat id. The client uploads to
+    // `support_media/{userId}/...` (see SupportChatService.mediaPathFor) and
+    // stores the resulting download URL on the message, so the storage path has
+    // no chatId in it. Gating on the chatId here would 403 every image upload:
+    // the participant check would look up a `support_chats/{userId}` document
+    // that does not exist.
+    // Mirrors `firestore.rules` `isSupportMediaOwner`.
+    function isSupportMediaOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // A support staffer (any kind) may read any support media, so agents can
+    // open photos in escalated chats they have not yet claimed.
+    function isSupportStaff() {
+      return isHubStaffClaim();
+    }
+
+    match /support_media/{userId}/{allPaths=**} {
+      allow read: if isSupportMediaOwner(userId) || isSupportStaff();
+      // Images only, ≤ 5MB. `isImage()` rejects any audio/* MIME, so voice
+      // notes can never be stored here — consistent with the Firestore rules
+      // that reject an audio message type.
+      allow write: if isSupportMediaOwner(userId) &&
+                    isImage() &&
+                    request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // `trip_media/{tripId}/...`: the trip customer, the assigned driver, or
+    // an admin/support staffer may read; only the customer/driver may
+    // write, images ≤ 5MB. Voice notes can never be stored (no audio MIME).
+    function isTripParty(tripId) {
+      return request.auth != null &&
+        (firestore.get(
+          /databases/(default)/documents/trips/$(tripId)
+        ).data.customerId == request.auth.uid ||
+        firestore.get(
+          /databases/(default)/documents/trips/$(tripId)
+        ).data.driver.driverId == request.auth.uid);
+    }
+    match /trip_media/{tripId}/{allPaths=**} {
+      allow read: if request.auth != null &&
+                   (isTripParty(tripId) ||
+                    request.auth.token.admin == true);
+      allow write: if isTripParty(tripId) &&
+                    isImage() &&
+                    request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // ── Default: block all other unauthenticated or unexpected writes ─────────
+    match /{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.token.admin == true;
+    }
+  }
+}

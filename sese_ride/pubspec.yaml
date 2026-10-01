@@ -1,0 +1,43 @@
+name: sese_ride
+description: "SeSe Ride Customer & Driver Application."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sese_core:
+    path: ../sese_core
+
+  firebase_core: ^4.15.0
+  firebase_app_check: ^0.4.7
+  cloud_firestore: ^6.10.0
+  firebase_auth: ^6.7.0
+  firebase_storage: ^13.0.0
+  image_picker: ^1.1.2
+  google_sign_in: ^6.2.0
+  geolocator: ^14.0.3
+  http: ^1.2.2
+  cloud_functions: ^6.5.0
+  url_launcher: ^6.3.2
+  webview_flutter: ^4.9.0
+  speech_to_text: ^7.0.0
+  latlong2: ^0.10.1
+  shared_preferences: ^2.5.5
+  flutter_map: 8.3.2
+  flutter_overlay_window: ^0.5.0
+  share_plus: ^13.0.0
+  firebase_remote_config: ^6.7.0
+  package_info_plus: ^10.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

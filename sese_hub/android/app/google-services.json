@@ -1,0 +1,91 @@
+{
+  "project_info": {
+    "project_number": "618721373016",
+    "firebase_url": "https://sese-ride-default-rtdb.firebaseio.com",
+    "project_id": "sese-ride",
+    "storage_bucket": "sese-ride.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618721373016:android:7d934d8761d319a750932d",
+        "android_client_info": {
+          "package_name": "com.sesetech.sese_hub"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "618721373016-u3dl9fqbom7grjknub0fltdglguu3v56.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_hub",
+            "certificate_hash": "1808e22ef783bcd1b55414da11b3629adc4de6a8"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHvMJ9iEGR0Jj-8agXVA4TpPTjwJFIKUY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "618721373016-m544iaqof5f8rss97282imlno0bhgbl7.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "618721373016-dajoi83gr67l6cuafajbg1scrmhlgtvr.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.sesetech.seseHub"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618721373016:android:9fb16cb52c1804c550932d",
+        "android_client_info": {
+          "package_name": "com.sesetech.sese_ride"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "618721373016-u6sepl65ohqdjik9igb47g3ghjdev3dh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "1808e22ef783bcd1b55414da11b3629adc4de6a8"
+          }
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHvMJ9iEGR0Jj-8agXVA4TpPTjwJFIKUY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "618721373016-m544iaqof5f8rss97282imlno0bhgbl7.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "618721373016-dajoi83gr67l6cuafajbg1scrmhlgtvr.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.sesetech.seseHub"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

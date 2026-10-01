@@ -1,0 +1,30 @@
+name: sese_hub
+description: "SeSe Hub Management Application."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  sese_core:
+    path: ../sese_core
+
+  firebase_core: ^4.15.0
+  firebase_app_check: ^0.4.7
+  cloud_firestore: ^6.10.0
+  firebase_auth: ^6.7.0
+  google_sign_in: ^6.2.0
+  firebase_storage: ^13.6.0
+  image_picker: ^1.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
