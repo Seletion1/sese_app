@@ -91,14 +91,17 @@ ESCALATE (needsHuman: true) when the user asks for a human, or the issue involve
 REPLY FORMAT: strict JSON only, no markdown fences:
 {"needsHuman": <true|false>, "reply": "<1-3 sentence user-facing reply>"}`;
 
-async function askGemini(userText: string, history: string[]): Promise<{ needsHuman: boolean; reply: string } | null> {
+async function askGemini(
+  userText: string,
+  history: Array<{ senderType: string; text: string }>
+): Promise<{ needsHuman: boolean; reply: string } | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
   const contents = [
-    ...history.slice(-8).map((text, i) => ({
-      role: i % 2 === 0 ? "user" : "model",
-      parts: [{ text }],
+    ...history.slice(-8).map((turn) => ({
+      role: turn.senderType === "user" ? "user" : "model",
+      parts: [{ text: turn.text }],
     })),
     { role: "user", parts: [{ text: userText }] },
   ];
@@ -178,6 +181,7 @@ async function escalateChat(
 
   batch.update(chatRef, {
     status: "pending_agent",
+    assignedTo: "human_queue",
     escalateReason: reason,
     escalateDetail: reasonDetail ?? null,
     escalatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -358,20 +362,23 @@ export const onSupportMessageCreated = onDocumentCreated(
       return;
     }
 
-    // Recent thread context for the model / follow-up resolution.
-    let history: string[] = [];
+    // Recent 10 thread context turns for persistent memory & multi-turn dialogue engine.
+    let history: Array<{ senderType: string; text: string }> = [];
     try {
       const recent = await db()
         .collection("support_chats")
         .doc(chatId)
         .collection("messages")
         .orderBy("timestamp", "desc")
-        .limit(9)
+        .limit(10)
         .get();
       history = recent.docs
-        .map((d) => String(d.data()["text"] ?? ""))
-        .filter((t) => t.length > 0)
-        .reverse();
+        .reverse()
+        .map((d) => ({
+          senderType: String(d.data()["senderType"] ?? d.data()["sender"] ?? "user"),
+          text: String(d.data()["text"] ?? ""),
+        }))
+        .filter((t) => t.text.length > 0);
     } catch (e) {
       console.warn(`supportBot: history read failed: ${e}`);
     }

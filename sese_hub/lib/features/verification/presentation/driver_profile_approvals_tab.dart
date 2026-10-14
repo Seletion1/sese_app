@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
+import '../../dashboard/presentation/hub_user_wallet_card.dart';
 
 /// Driver profile audit queue (Step 2 onboarding submissions).
 ///
@@ -340,6 +341,8 @@ class _DriverProfileApprovalsTabState
                         '${kin['phone'] ?? ''}'),
                     if ((kin['address'] ?? '').toString().isNotEmpty)
                       _fact('Kin Address', '${kin['address']}'),
+                    const SizedBox(height: 8),
+                    HubUserWalletCard(userId: doc.id, firestore: _db),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,

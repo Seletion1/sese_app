@@ -1,4 +1,21 @@
-import 'country_detection_service.dart';
+import 'package:sese_core/services/country_detection_service.dart';
+
+/// Result of parsing a raw phone string for country dial code and national number.
+class ParsedPhoneNumber {
+  final String isoCode;
+  final String dialCode;
+  final String nationalNumber;
+  final String e164;
+  final bool hasExplicitCountryPrefix;
+
+  const ParsedPhoneNumber({
+    required this.isoCode,
+    required this.dialCode,
+    required this.nationalNumber,
+    required this.e164,
+    required this.hasExplicitCountryPrefix,
+  });
+}
 
 /// E.164 Normalization & Leading Zero Sanitization Engine.
 ///
@@ -70,15 +87,81 @@ class SesePhoneSanitizer {
     return isoToDialCode[isoCode.toUpperCase()] ?? CountryDetectionService.defaultDialCode;
   }
 
-  /// Normalizes any raw phone input to strict E.164 format.
-  ///
-  /// Examples:
-  /// - `08012345678` -> `+2348012345678`
-  /// - `+23408012345678` -> `+2348012345678`
-  /// - `2348012345678` -> `+2348012345678`
-  /// - `+234 801-234-5678` -> `+2348012345678`
-  /// - `+44 07911 123456` -> `+447911123456`
-  /// - `+1 (555) 012-3456` -> `+15550123456`
+  /// Parses a raw phone string to auto-detect country dial code and national digits.
+  static ParsedPhoneNumber parse(String rawInput, {String? defaultIsoCode}) {
+    final trimmed = rawInput.trim();
+    final defaultIso = (defaultIsoCode != null && defaultIsoCode.isNotEmpty)
+        ? defaultIsoCode.toUpperCase()
+        : CountryDetectionService.instance.currentCountryCode;
+    final defaultDial = getDialCode(defaultIso);
+
+    if (trimmed.isEmpty) {
+      return ParsedPhoneNumber(
+        isoCode: defaultIso,
+        dialCode: defaultDial,
+        nationalNumber: '',
+        e164: '',
+        hasExplicitCountryPrefix: false,
+      );
+    }
+
+    String digitsOnly = trimmed.replaceAll(RegExp(r'[\s\(\)\-\.]'), '');
+
+    // 1. If starts with '+', parse exact country dial code
+    if (digitsOnly.startsWith('+')) {
+      final withoutPlus = digitsOnly.substring(1);
+      for (final len in [3, 2, 1]) {
+        if (withoutPlus.length >= len) {
+          final prefix = withoutPlus.substring(0, len);
+          if (dialCodeToIso.containsKey(prefix)) {
+            final iso = dialCodeToIso[prefix]!;
+            String rest = withoutPlus.substring(len);
+            while (rest.startsWith(prefix)) {
+              rest = rest.substring(prefix.length);
+            }
+            return ParsedPhoneNumber(
+              isoCode: iso,
+              dialCode: '+$prefix',
+              nationalNumber: rest,
+              e164: normalize(trimmed, defaultIsoCode: iso),
+              hasExplicitCountryPrefix: true,
+            );
+          }
+        }
+      }
+    }
+
+    // 2. If starts with dial code without '+' (e.g. 2348161561592)
+    for (final len in [3, 2, 1]) {
+      if (digitsOnly.length >= len + 7) {
+        final prefix = digitsOnly.substring(0, len);
+        if (dialCodeToIso.containsKey(prefix)) {
+          final iso = dialCodeToIso[prefix]!;
+          String rest = digitsOnly.substring(len);
+          while (rest.startsWith(prefix)) {
+            rest = rest.substring(prefix.length);
+          }
+          return ParsedPhoneNumber(
+            isoCode: iso,
+            dialCode: '+$prefix',
+            nationalNumber: rest,
+            e164: normalize(trimmed, defaultIsoCode: iso),
+            hasExplicitCountryPrefix: true,
+          );
+        }
+      }
+    }
+
+    // 3. Plain local national number (e.g. 08012345678 or 8012345678)
+    return ParsedPhoneNumber(
+      isoCode: defaultIso,
+      dialCode: defaultDial,
+      nationalNumber: digitsOnly,
+      e164: normalize(trimmed, defaultIsoCode: defaultIso),
+      hasExplicitCountryPrefix: false,
+    );
+  }
+
   /// Removes duplicate leading dial codes and leading zeros from raw input.
   static String cleanPhoneNumber(String input, String dialCode) {
     String cleaned = input.replaceAll(RegExp(r'\D'), ''); // Keep digits only
@@ -109,8 +192,9 @@ class SesePhoneSanitizer {
     final trimmed = rawPhone.trim();
     if (trimmed.isEmpty) return '';
 
-    final iso = defaultIsoCode?.toUpperCase() ??
-        CountryDetectionService.instance.currentCountryCode;
+    final iso = (defaultIsoCode != null && defaultIsoCode.isNotEmpty)
+        ? defaultIsoCode.toUpperCase()
+        : CountryDetectionService.instance.currentCountryCode;
     final fallbackDial = getDialCode(iso);
 
     // 1. Remove all spaces, parentheses, hyphens, dots
@@ -118,7 +202,7 @@ class SesePhoneSanitizer {
 
     // 2. If it begins with '+', extract dial code and national number
     if (digitsOnly.startsWith('+')) {
-      final withoutPlus = digitsOnly.replaceAll('+', '');
+      final withoutPlus = digitsOnly.substring(1);
       // Check known dial codes from longest (3 digits) to shortest (1 digit)
       String? matchedDial;
       for (final len in [3, 2, 1]) {
@@ -149,7 +233,7 @@ class SesePhoneSanitizer {
 
     // 3. If it starts with known dial code digits without '+' (e.g. 234801...)
     for (final len in [3, 2, 1]) {
-      if (digitsOnly.length >= len) {
+      if (digitsOnly.length >= len + 7) {
         final prefix = digitsOnly.substring(0, len);
         if (dialCodeToIso.containsKey(prefix)) {
           String rest = digitsOnly.substring(len);
@@ -183,10 +267,10 @@ class SesePhoneSanitizer {
     return RegExp(r'^\+[1-9]\d{6,14}$').hasMatch(phone);
   }
 
-  /// Legacy helper for Nigerian phone validation (backward-compatible).
+  /// Helper for Nigerian phone validation.
   static bool isValidNigerianNumber(String? phone) {
     if (phone == null || phone.isEmpty) return false;
     final normalized = normalize(phone, defaultIsoCode: 'NG');
-    return RegExp(r'^\+234[789][01]\d{8}$').hasMatch(normalized);
+    return RegExp(r'^\+234[789]\d{9}$').hasMatch(normalized);
   }
 }

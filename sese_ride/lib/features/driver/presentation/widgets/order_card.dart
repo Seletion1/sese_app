@@ -308,53 +308,75 @@ class _OrderCardState extends State<OrderCard> {
               const VerifiedCustomerBadge(),
             ],
             const SizedBox(height: 8),
+            // Fare + badges wrap instead of overflowing on narrow phones:
+            // the fare keeps word-safe bounds while badges flow right.
             Row(
               children: [
-                Text(
-                  fareLabel,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 18),
+                Flexible(
+                  child: Text(
+                    fareLabel,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 18),
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 if (_perKm.isNotEmpty) ...[
                   const SizedBox(width: 8),
-                  Text(_perKm,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Flexible(
+                    child: Text(
+                      _perKm,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
                 const Spacer(),
                 if (trip.fareBoosted) ...[
-                  Container(
-                    key: const Key('higher_fare_badge'),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade700,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      trip.boostPercent > 0
-                          ? 'HIGHER FARE +${trip.boostPercent}%'
-                          : 'HIGHER FARE',
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold),
+                  Flexible(
+                    child: Container(
+                      key: const Key('higher_fare_badge'),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade700,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        trip.boostPercent > 0
+                            ? 'HIGHER FARE +${trip.boostPercent}%'
+                            : 'HIGHER FARE',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold),
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
                 ],
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade600,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    _categoryLabel,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold),
+                Flexible(
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade600,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      _categoryLabel,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold),
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
                   ),
                 ),
               ],

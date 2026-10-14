@@ -125,16 +125,38 @@ class ActiveTrip {
   final String tripId;
   final TripStatus status;
   final String customerId;
+  final String customerName;
+
+  /// The trip booker's own account number, minted server-side at `createTrip`
+  /// from `users/{customerId}` — raw and NEVER masked, even when the booker
+  /// hides secondary numbers. This is the driver's guaranteed lifeline to
+  /// the person who ordered and paid: pickup/drop-off contacts are optional
+  /// and may be empty or masked, but this line always resolves. Empty only
+  /// on trips minted before the field existed (callers must fall back to
+  /// [pickupPhone], then to in-app chat).
+  final String customerPhone;
   final String serviceType;
 
   final double pickupLat;
   final double pickupLng;
   final String pickupAddress;
+
+  /// Optional name of the person at the pickup point, supplied by the booker
+  /// in Step 3 (e.g. "John Ade" for a third-party pickup). Empty when the
+  /// booker did not supply a distinct pickup contact name — use [customerName]
+  /// as fallback for the pre-pickup contact row on the driver card.
+  final String pickupName;
   final String pickupPhone;
 
   final double dropoffLat;
   final double dropoffLng;
   final String dropoffAddress;
+
+  /// Optional name of the person at the drop-off point (e.g. the parcel
+  /// recipient). Empty on ride-hailing trips where the passenger IS the
+  /// booker. When non-empty, the driver card post-pickup row displays this
+  /// name instead of the generic "Drop-off receiver" label.
+  final String dropoffName;
   final String dropoffPhone;
 
   final List<String> tierIds;
@@ -202,21 +224,33 @@ class ActiveTrip {
 
   /// How the customer intends to pay: 'cash' (default), 'split', or a
   /// prepaid rail ('prepaid' | 'wallet' | 'card' | 'paystack' | 'online').
-  /// Drives departure protection: only prepaid trips auto-start.
+  ///
+  /// Consumers should use [isPrepaidTrip] rather than comparing this field
+  /// directly, because new rails can be added server-side without a client
+  /// release.
   final String paymentMethod;
+
+  /// 4-digit security PIN issued for drop-off verification.
+  /// Populated server-side when [deliveryPinRequired] is true.
+  final String? deliveryPin;
+  final bool deliveryPinRequired;
 
   const ActiveTrip({
     required this.tripId,
     required this.status,
     required this.customerId,
+    this.customerName = 'Customer',
+    this.customerPhone = '',
     this.serviceType = 'ride',
     this.pickupLat = 0,
     this.pickupLng = 0,
     this.pickupAddress = '',
+    this.pickupName = '',
     this.pickupPhone = '',
     this.dropoffLat = 0,
     this.dropoffLng = 0,
     this.dropoffAddress = '',
+    this.dropoffName = '',
     this.dropoffPhone = '',
     this.tierIds = const [],
     this.fareFormatted = '',
@@ -247,6 +281,8 @@ class ActiveTrip {
     this.fareBoosted = false,
     this.boostPercent = 0,
     this.paymentMethod = 'cash',
+    this.deliveryPin,
+    this.deliveryPinRequired = false,
   });
 
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
@@ -328,14 +364,22 @@ class ActiveTrip {
       tripId: tripId,
       status: tripStatusFromString(map['status']?.toString()),
       customerId: (map['customerId'] ?? '').toString(),
+      customerName: (map['customerName'] ??
+              map['customer']?['name'] ??
+              map['customer']?['fullName'] ??
+              'Customer')
+          .toString(),
+      customerPhone: (map['customerPhone'] ?? '').toString(),
       serviceType: (map['serviceType'] ?? 'ride').toString(),
       pickupLat: numOf(pickup, 'lat'),
       pickupLng: numOf(pickup, 'lng'),
       pickupAddress: (pickup['address'] ?? '').toString(),
+      pickupName: (pickup['name'] ?? '').toString(),
       pickupPhone: ((pickup['phone'] ?? map['pickupPhone']) ?? '').toString(),
       dropoffLat: numOf(dropoff, 'lat'),
       dropoffLng: numOf(dropoff, 'lng'),
       dropoffAddress: (dropoff['address'] ?? '').toString(),
+      dropoffName: (dropoff['name'] ?? '').toString(),
       dropoffPhone: ((dropoff['phone'] ?? map['dropoffPhone']) ?? '')
           .toString(),
       tierIds:
@@ -377,6 +421,10 @@ class ActiveTrip {
       boostPercent: (map['boostPercent'] as num?)?.toInt() ?? 0,
       paymentMethod:
           (map['paymentMethod'] ?? map['paymentPlan'] ?? 'cash').toString(),
+      deliveryPin: (map['deliveryPin'] ?? map['order']?['deliveryPin'])?.toString(),
+      deliveryPinRequired: map['deliveryPinRequired'] == true ||
+          map['order']?['deliveryPinRequired'] == true ||
+          map['forceDeliveryPinSystemWide'] == true,
     );
   }
 }
@@ -388,10 +436,23 @@ class TripDraft {
   final double pickupLat;
   final double pickupLng;
   final String pickupAddress;
+
+  /// Optional name of the person at the pickup point (third-party sender,
+  /// pickup contact). Pre-filled from the booker's [AppUser.fullName] when
+  /// the booker IS at the pickup; editable for third-party bookings.
+  /// Stored as `pickup.name` on the Firestore trip document so the driver
+  /// can see who to look for without needing the raw phone number.
+  final String pickupName;
   final String pickupPhone;
   final double dropoffLat;
   final double dropoffLng;
   final String dropoffAddress;
+
+  /// Optional name of the drop-off recipient. Pre-filled from the booker's
+  /// name in Receive-Item mode; blank for standard ride/send flows unless the
+  /// customer explicitly provides a third-party receiver. Stored as
+  /// `dropoff.name` on the trip document.
+  final String dropoffName;
   final String dropoffPhone;
   final String serviceType;
   final List<String> selectedTiers;
@@ -415,15 +476,23 @@ class TripDraft {
   /// prepaid rail). Minted onto the trip doc; drives departure protection.
   final String paymentMethod;
 
+  /// User choice toggle: whether a 4-digit security PIN is required.
+  final bool requireDeliveryPin;
+
+  /// Optional Receiver Phone for split payments
+  final String? receiverPhone;
+
   const TripDraft({
     required this.customerId,
     required this.pickupLat,
     required this.pickupLng,
     required this.pickupAddress,
+    this.pickupName = '',
     required this.pickupPhone,
     required this.dropoffLat,
     required this.dropoffLng,
     required this.dropoffAddress,
+    this.dropoffName = '',
     required this.dropoffPhone,
     required this.serviceType,
     required this.selectedTiers,
@@ -434,6 +503,8 @@ class TripDraft {
     this.customTierFares,
     this.isVerifiedCustomer = false,
     this.paymentMethod = 'cash',
+    this.requireDeliveryPin = false,
+    this.receiverPhone,
   });
 
   Map<String, dynamic> toMap() {
@@ -442,16 +513,23 @@ class TripDraft {
         'lat': pickupLat,
         'lng': pickupLng,
         'address': pickupAddress,
+        // Name is stored alongside address so the driver card can show "John
+        // Ade — Pickup contact" without exposing the raw phone number.
+        if (pickupName.isNotEmpty) 'name': pickupName,
         'phone': pickupPhone,
       },
       'dropoff': {
         'lat': dropoffLat,
         'lng': dropoffLng,
         'address': dropoffAddress,
+        if (dropoffName.isNotEmpty) 'name': dropoffName,
         'phone': dropoffPhone,
       },
       'pickupPhone': pickupPhone,
       'dropoffPhone': dropoffPhone,
+      // Top-level name mirrors for quick reads (driver card + Hub console).
+      if (pickupName.isNotEmpty) 'pickupName': pickupName,
+      if (dropoffName.isNotEmpty) 'dropoffName': dropoffName,
       'serviceType': serviceType,
       'selectedTiers': selectedTiers,
       'fareToken': fareToken,
@@ -459,7 +537,11 @@ class TripDraft {
       'durationMins': durationMins,
       'isVerifiedCustomer': isVerifiedCustomer,
       'paymentMethod': paymentMethod,
+      'requireDeliveryPin': requireDeliveryPin,
     };
+    if (receiverPhone != null && receiverPhone!.isNotEmpty) {
+      map['receiverPhone'] = receiverPhone;
+    }
     if (proposedFare != null) map['proposedFare'] = proposedFare;
     if (customTierFares != null && customTierFares!.isNotEmpty) {
       map['customTierFares'] = customTierFares;

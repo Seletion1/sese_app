@@ -34,82 +34,29 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.processWalletWithdrawal = exports.resolveBankAccount = exports.paystackBanks = void 0;
+exports.processWalletWithdrawal = exports.resolveBankAccount = exports.verifyBankAccount = exports.paystackBanks = void 0;
 exports.accountNameMatches = accountNameMatches;
 exports.settleTransfer = settleTransfer;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
-const params_1 = require("firebase-functions/params");
-/**
- * Paystack Transfers — automated wallet withdrawal.
- *
- * Replaces the manual "Request via Support" flow with a direct Paystack
- * transfer. The client NEVER moves money and NEVER sees a secret: it can only
- * ask this module to (a) list banks, (b) resolve an account holder name, and
- * (c) request a withdrawal. Every balance check and every debit happens here
- * against the server-held wallet document.
- *
- * Money flow (zero-trust):
- *   1. `paystackBanks` (callable): proxy for `GET /bank` so the app can render
- *      a bank picker. The client could call Paystack's public list itself, but
- *      routing through here keeps one place to rate-limit and one code path
- *      when Paystack is unreachable.
- *   2. `resolveBankAccount` (callable): `GET /bank/resolve` returns the
- *      registered account holder name. Purely a read — it does not persist
- *      anything, so a user can probe names without side effects. (Persisting a
- *      verified destination is `BankService.saveBankAccount` writing
- *      `payout_profiles/{uid}` directly, which firestore.rules already allows
- *      for the owner.)
- *   3. `processWalletWithdrawal` (callable): the only money-moving entry
- *      point. In ONE Firestore transaction it re-reads the wallet, verifies
- *      sufficiency, debits the balance, and writes both a
- *      `wallets/{uid}/transactions/{txId}` ledger row and a
- *      `payout_requests/{requestId}` audit row. The transaction is the
- *      concurrency lock: two simultaneous withdrawals cannot both pass the
- *      balance check.
- *   4. Only after the debit commits does it call Paystack, and a failure at
- *      that point REFUNDS the debit (a compensating credit) rather than
- *      silently swallowing the user's money. This is why the debit is a
- *      transaction that completes independently of the network call.
- *   5. `transferWebhook` (HTTPS): `transfer.success` / `transfer.failed`
- *      settle the payout asynchronously. Transfers are normally async, so the
- *      request row stays `pending` until Paystack calls back.
- *
- * Secrets: the Paystack SECRET key lives ONLY here, via Secret Manager
- * (`firebase functions:secrets:set PAYSTACK_SECRET_KEY="sk_test_..."`). It is
- * never embedded, logged, or returned. Do not "helpfully" inline it — that is
- * exactly the failure mode this module exists to prevent.
- */
-/** Bound to the functions below so the platform injects it at runtime. */
-const PAYSTACK_SECRET_KEY = (0, params_1.defineSecret)("PAYSTACK_SECRET_KEY");
+const transactionPin_1 = require("./transactionPin");
 const db = () => admin.firestore();
 const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== void 0 ? _a : "https://api.paystack.co";
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
 const MIN_WITHDRAWAL_KOBO = 10000;
 /** Ceiling per withdrawal: ₦500,000. Bounds blast radius of a bug or a hijack. */
 const MAX_WITHDRAWAL_KOBO = 50000000;
-/**
- * Admin-configured payout floor (`system_configs/financials`
- * `minPayoutThreshold`, stored in NAIRA like the rest of FinancialConfig),
- * converted to kobo. Falls back to the hard floor when the doc is missing
- * or unreadable — an unconfigured backend must never block withdrawals.
- */
-async function payoutFloorKobo() {
-    var _a;
-    try {
-        const snap = await db().collection("system_configs").doc("financials").get();
-        const raw = (_a = snap.data()) === null || _a === void 0 ? void 0 : _a.minPayoutThreshold;
-        if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
-            return Math.round(raw * 100);
-        }
-    }
-    catch (e) {
-        console.warn(`payouts: financials read failed: ${e}`);
-    }
-    return MIN_WITHDRAWAL_KOBO;
-}
 function paystackSecret() {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
+    var _a;
+    // NOTE: `PAYSTACK_SECRET_KEY` is still bound as a Secret Manager secret
+    // on the live revisions (defineSecret era), and Cloud Run rejects a
+    // plain env var that overlaps a secret binding (`Secret environment
+    // variable overlaps non secret environment variable`). The plain `.env`
+    // value therefore ships under `PAYSTACK_API_KEY`, which is preferred;
+    // the legacy name remains as a fallback for emulators/local runs that
+    // never had the stale binding. Clean up the binding (console/gcloud)
+    // and this fallback can go.
+    const secret = (_a = process.env.PAYSTACK_API_KEY) !== null && _a !== void 0 ? _a : process.env.PAYSTACK_SECRET_KEY;
     if (!secret) {
         throw new https_1.HttpsError("failed-precondition", "Withdrawals are not available right now. Please contact support.");
     }
@@ -228,7 +175,7 @@ async function registeredName(uid) {
  */
 let bankCache = null;
 const BANK_CACHE_TTL_MS = 10 * 60 * 1000;
-exports.paystackBanks = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY] }, async (request) => {
+exports.paystackBanks = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -248,8 +195,11 @@ exports.paystackBanks = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY] }, 
  * confirm, but the value is treated as UNTRUSTED input by
  * `processWalletWithdrawal`, which re-resolves server-side and never accepts a
  * client-supplied name.
+ *
+ * Exported as both `verifyBankAccount` and `resolveBankAccount` to support
+ * both caller conventions.
  */
-exports.resolveBankAccount = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY] }, async (request) => {
+exports.verifyBankAccount = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
@@ -263,12 +213,16 @@ exports.resolveBankAccount = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY
         throw new https_1.HttpsError("invalid-argument", "Account number must be exactly 10 digits.");
     }
     const data = await paystackGet(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`, paystackSecret());
+    const accountName = String((_e = data["account_name"]) !== null && _e !== void 0 ? _e : "");
+    const bankName = String((_f = data["bank_name"]) !== null && _f !== void 0 ? _f : "");
     return {
-        accountName: String((_e = data["account_name"]) !== null && _e !== void 0 ? _e : ""),
-        bankName: String((_f = data["bank_name"]) !== null && _f !== void 0 ? _f : ""),
+        account_name: accountName,
+        accountName,
+        bankName,
         accountNumber,
     };
 });
+exports.resolveBankAccount = exports.verifyBankAccount;
 /**
  * Callable: debits the caller's wallet and transfers the money to their bank.
  *
@@ -283,31 +237,33 @@ exports.resolveBankAccount = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY
  *   5. Create the Paystack transfer recipient and initiate the transfer.
  *   6. On any failure after step 4, refund the debit.
  */
-exports.processWalletWithdrawal = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRET_KEY] }, async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
     const uid = request.auth.uid;
     const secret = paystackSecret();
-    // 1. Amount validation: hard ₦100 floor / ₦500,000 ceiling, plus the
-    // admin-configured payout floor from `system_configs/financials`
-    // (`minPayoutThreshold`, naira). When the doc is missing/unreadable the
-    // configured floor falls back to the hard floor, so an unconfigured
-    // backend never blocks all withdrawals.
-    const amountKobo = Math.round(Number((_a = request.data) === null || _a === void 0 ? void 0 : _a.amountKobo));
+    // Transaction-PIN gate FIRST: verified server-side before the balance
+    // is even re-read inside the debit transaction. Skipping the app prompt
+    // buys a hostile client nothing.
+    await (0, transactionPin_1.requireValidPin)(uid, (_a = request.data) === null || _a === void 0 ? void 0 : _a.transactionPin);
+    // 1. Amount validation: supports both amountKobo and amount (Naira).
+    // Hard ₦100 floor (10,000 kobo) / ₦500,000 ceiling.
+    const rawKobo = ((_b = request.data) === null || _b === void 0 ? void 0 : _b.amountKobo) !== undefined
+        ? Number(request.data.amountKobo)
+        : ((_c = request.data) === null || _c === void 0 ? void 0 : _c.amount) !== undefined
+            ? Number(request.data.amount) * 100
+            : NaN;
+    const amountKobo = Math.round(rawKobo);
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_WITHDRAWAL_KOBO) {
         throw new https_1.HttpsError("invalid-argument", "Minimum withdrawal is ₦100.");
     }
     if (amountKobo > MAX_WITHDRAWAL_KOBO) {
         throw new https_1.HttpsError("invalid-argument", "Maximum withdrawal per request is ₦500,000.");
     }
-    const configuredFloorKobo = await payoutFloorKobo();
-    if (amountKobo < configuredFloorKobo) {
-        throw new https_1.HttpsError("invalid-argument", `Minimum withdrawal is ₦${(configuredFloorKobo / 100).toLocaleString("en-NG")}.`);
-    }
-    const bankCode = String((_c = (_b = request.data) === null || _b === void 0 ? void 0 : _b.bankCode) !== null && _c !== void 0 ? _c : "").trim();
-    const accountNumber = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.accountNumber) !== null && _e !== void 0 ? _e : "").trim();
+    const bankCode = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.bankCode) !== null && _e !== void 0 ? _e : "").trim();
+    const accountNumber = String((_g = (_f = request.data) === null || _f === void 0 ? void 0 : _f.accountNumber) !== null && _g !== void 0 ? _g : "").trim();
     if (!/^\d{3}$/.test(bankCode)) {
         throw new https_1.HttpsError("invalid-argument", "Select a valid bank.");
     }
@@ -316,7 +272,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRE
     }
     // 2. Resolve the account name server-side (never trust the client's).
     const resolved = await paystackGet(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`, secret);
-    const accountName = String((_f = resolved["account_name"]) !== null && _f !== void 0 ? _f : "");
+    const accountName = String((_h = resolved["account_name"]) !== null && _h !== void 0 ? _h : "");
     if (!accountName) {
         throw new https_1.HttpsError("invalid-argument", "We could not verify that bank account. Check the number and bank.");
     }
@@ -392,7 +348,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRE
             bank_code: bankCode,
             currency: "NGN",
         }, secret);
-        const recipientCode = String((_g = recipient["recipient_code"]) !== null && _g !== void 0 ? _g : "");
+        const recipientCode = String((_j = recipient["recipient_code"]) !== null && _j !== void 0 ? _j : "");
         if (!recipientCode) {
             throw new https_1.HttpsError("internal", "Paystack did not return a transfer recipient.");
         }
@@ -404,8 +360,8 @@ exports.processWalletWithdrawal = (0, https_1.onCall)({ secrets: [PAYSTACK_SECRE
             reason: "Sese Ride Wallet Payout",
             reference: requestId,
         }, secret);
-        const transferReference = String((_h = transfer["reference"]) !== null && _h !== void 0 ? _h : "");
-        const transferStatus = String((_j = transfer["status"]) !== null && _j !== void 0 ? _j : "");
+        const transferReference = String((_k = transfer["reference"]) !== null && _k !== void 0 ? _k : "");
+        const transferStatus = String((_l = transfer["status"]) !== null && _l !== void 0 ? _l : "");
         // `success` here means Paystack ACCEPTED the transfer, not that the
         // bank has paid out. The webhook settles the final state.
         const settled = transferStatus === "success";

@@ -42,8 +42,12 @@ class SplitPart {
 }
 
 /// Client facade for fare splitting (`requestSplitPayment` /
-/// `respondSplitPayment`). Consent-only on accept — settlement is a separate,
-/// not-yet-built step, and nothing here implies otherwise.
+/// `respondSplitPayment` / `settleSplitPayment`).
+///
+/// Flow: request creates the intent (consent-only) → every co-payer accepts
+/// via an authenticated prompt → the last acceptance flips the intent to
+/// `ready` → [settle] moves the money atomically server-side. A decline
+/// anywhere kills the intent and the requester keeps the full fare.
 class SplitService {
   final FirebaseFirestore? _firestore;
   final FirebaseFunctions? _functions;
@@ -104,7 +108,12 @@ class SplitService {
   }
 
   /// Accepts or declines [splitId] as the current user.
-  Future<void> respond({
+  ///
+  /// Returns true when this response completed the set — i.e. every party
+  /// has now accepted and the intent is `ready` to settle. Callers should
+  /// offer [settle] immediately in that case (the last accepter settling
+  /// inline keeps money from hanging in `ready`).
+  Future<bool> respond({
     required String splitId,
     required bool accept,
   }) async {
@@ -113,9 +122,37 @@ class SplitService {
       throw const SplitException('unavailable', 'Splits are unavailable.');
     }
     try {
-      await fn.httpsCallable('respondSplitPayment').call({
+      final res = await fn.httpsCallable('respondSplitPayment').call({
         'splitId': splitId,
         'accept': accept,
+      });
+      final data = res.data is Map
+          ? Map<String, dynamic>.from(res.data as Map)
+          : const <String, dynamic>{};
+      return data['ready'] == true && accept;
+    } catch (e) {
+      _wrap(e);
+    }
+  }
+
+  /// Settles a `ready` split: the server re-verifies every co-payer
+  /// (KYC/suspension/phone), enforces the trust-tier balance guardrails,
+  /// and moves all shares atomically. [transactionPin] authorizes the
+  /// execution run (co-payer debits were authorized by their accepts).
+  /// Idempotent — safe to retry after a timeout, and a no-op when already
+  /// settled.
+  Future<void> settle({
+    required String splitId,
+    required String transactionPin,
+  }) async {
+    final fn = _fn;
+    if (fn == null) {
+      throw const SplitException('unavailable', 'Splits are unavailable.');
+    }
+    try {
+      await fn.httpsCallable('settleSplitPayment').call({
+        'splitId': splitId,
+        'transactionPin': transactionPin,
       });
     } catch (e) {
       _wrap(e);

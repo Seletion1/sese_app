@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'package:latlong2/latlong.dart' as base;
 
-/// Shared map view for sese_ride, rendered 100% with OpenStreetMap.
+/// Shared OpenStreetMap view for sese_ride's OSM-pinned surfaces.
 ///
-/// No Google Maps anywhere: tiles come from OpenStreetMap, geocoding from
-/// OSM Nominatim and routing from OSRM (see `LocationService`). There is no
-/// Maps API key in any native config or web entrypoint.
+/// Live-trip tracking, real-time movement, and the turn-by-turn cockpit
+/// render here (see [MapProviderPolicy]); browsing/idle surfaces render
+/// the Google branch of `SeSeMapView` instead. Geocoding stays OSM
+/// Nominatim and routing OSRM (see `LocationService`) on every surface —
+/// only the browsing TILES are Google.
 ///
 /// Thin wrapper around [fm.FlutterMap] that keeps the rest of the app on
 /// the plain [base.LatLng] data type: positions convert at this boundary.
@@ -19,7 +23,7 @@ import 'package:latlong2/latlong.dart' as base;
 /// OSM tile usage requires attribution — rendered by the built-in
 /// attribution widget (bottom-right). Do not overlay anything on the
 /// bottom corners of this widget.
-class OsmMapView extends StatelessWidget {
+class OsmMapView extends StatefulWidget {
   /// Camera controller. Create one per screen and keep it in state.
   /// Later position updates must call `move`/`fitPoints` — the initial
   /// center applies at creation.
@@ -37,10 +41,44 @@ class OsmMapView extends StatelessWidget {
   /// Route lines (build with [OsmMapView.route]).
   final List<MapRoute> polylines;
 
+  /// Optional override for dark map tiles (e.g. for driver cockpit view).
+  final bool? isDarkOverride;
+
   /// Test seam: when set, a plain placeholder renders instead of the real
   /// tile map (network tiles stall `flutter_test`).
   /// Set to [BlankTileProvider()] in test setup.
   static Object? debugTileProviderOverride;
+
+  /// Optional path to a local `.mbtiles` SQLite file.
+  final String? localMbtilePath;
+
+  /// Optional custom tile server URL template from RemoteKeysConfig.
+  final String? customTileUrlTemplate;
+
+  /// Optional callback invoked when tile loading fails/times out.
+  final VoidCallback? onTileError;
+
+  /// When true, indicates live user location is displayed.
+  final bool showMyLocation;
+
+  /// Live user fix driving the blue-dot marker on raster engines. When null
+  /// the dot falls back to [initialCenter] (legacy static behavior). Screens
+  /// holding a `Geolocator.getPositionStream` subscription pass each fix
+  /// here so the dot tracks the ground truth instead of a stale coordinate.
+  final base.LatLng? userLocation;
+
+  /// Optional camera move listener (for pin-drop modals and dragging).
+  final void Function(base.LatLng center)? onCameraMove;
+
+  /// Optional debounced camera idle listener.
+  final void Function(base.LatLng center)? onCameraIdle;
+
+  /// Optional map tap listener.
+  final void Function(base.LatLng point)? onTap;
+
+  /// Optional active engine identifier (e.g. 'mapbox' or 'cartodb') used to enforce
+  /// clean unmounting and disposal of native platform views / tile caches on switch.
+  final String? providerKey;
 
   const OsmMapView({
     super.key,
@@ -49,12 +87,19 @@ class OsmMapView extends StatelessWidget {
     this.initialZoom = 15.0,
     this.markers = const [],
     this.polylines = const [],
+    this.isDarkOverride,
+    this.localMbtilePath,
+    this.customTileUrlTemplate,
+    this.showMyLocation = false,
+    this.userLocation,
+    this.onTileError,
+    this.onCameraMove,
+    this.onCameraIdle,
+    this.onTap,
+    this.providerKey,
   });
 
   /// Builds a colored map pin marker at [point].
-  ///
-  /// Pass [label] (`'A'`/`'B'`) for pickup/drop-off style pins like the
-  /// incoming-offer sheet.
   static MapPin pin({
     required base.LatLng point,
     required Color color,
@@ -80,38 +125,97 @@ class OsmMapView extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  State<OsmMapView> createState() => _OsmMapViewState();
+}
 
-    if (debugTileProviderOverride != null) {
+class _OsmMapViewState extends State<OsmMapView> {
+  Timer? _idleDebounce;
+  base.LatLng? _lastCenter;
+
+  @override
+  void dispose() {
+    _idleDebounce?.cancel();
+    super.dispose();
+  }
+
+  void _onPositionChanged(fm.MapCamera camera, bool hasGesture) {
+    // Genuine user pan/zoom frees the camera from the GPS stream. The
+    // flag is authoritative here (flutter_map reports it per event), so no
+    // programmatic-window check is needed on this branch.
+    if (hasGesture) {
+      widget.mapController.handleUserGesture();
+    }
+    final center = base.LatLng(camera.center.latitude, camera.center.longitude);
+    _lastCenter = center;
+    widget.onCameraMove?.call(center);
+    if (widget.onCameraIdle != null) {
+      _idleDebounce?.cancel();
+      _idleDebounce = Timer(const Duration(milliseconds: 500), () {
+        if (mounted && _lastCenter != null) {
+          widget.onCameraIdle?.call(_lastCenter!);
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark =
+        widget.isDarkOverride ?? (Theme.of(context).brightness == Brightness.dark);
+
+    if (OsmMapView.debugTileProviderOverride != null) {
       // Widget tests: no network tiles — render a map-colored placeholder.
       return Container(
         color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E3DF),
       );
     }
 
-    final tileUrl = isDark
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    // Prefer custom tile URL template from remote keys if set, else fall back to CartoDB.
+    final tileUrl = (widget.customTileUrlTemplate != null &&
+            widget.customTileUrlTemplate!.trim().isNotEmpty &&
+            !widget.customTileUrlTemplate!.contains('light_all'))
+        ? widget.customTileUrlTemplate!
+        : (isDark
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
+
+    final effectiveKey = widget.providerKey ??
+        (tileUrl.contains('mapbox') ? 'mapbox' : 'cartodb');
 
     return fm.FlutterMap(
-      mapController: mapController.native,
+      key: ValueKey('flutter_map_${effectiveKey}_${tileUrl.hashCode}'),
+      mapController: widget.mapController.native,
       options: fm.MapOptions(
-        initialCenter: _toFm(initialCenter),
-        initialZoom: initialZoom,
+        initialCenter: _toFm(widget.initialCenter),
+        initialZoom: widget.initialZoom,
         minZoom: 3,
         maxZoom: 19,
-        onMapReady: mapController.markReady,
+        interactionOptions: const fm.InteractionOptions(
+          flags: fm.InteractiveFlag.all,
+        ),
+        onMapReady: widget.mapController.markReady,
+        onPositionChanged: _onPositionChanged,
+        onTap: (tapPos, point) {
+          widget.onTap?.call(base.LatLng(point.latitude, point.longitude));
+        },
       ),
       children: [
         fm.TileLayer(
+          key: ValueKey('tile_layer_${effectiveKey}_${tileUrl.hashCode}'),
           urlTemplate: tileUrl,
           subdomains: const ['a', 'b', 'c', 'd'],
           userAgentPackageName: 'com.sesetech.sese_ride',
+          // Retina tiles (`{r}` → `@2x`) for CartoDB Voyager and Mapbox
+          // raster styles — both endpoints serve @2x. Crisp pins/labels on
+          // high-density screens at the cost of ~4x tile bytes.
+          retinaMode: true,
+          errorTileCallback: (fm.TileImage tile, Object error, StackTrace? stackTrace) {
+            widget.onTileError?.call();
+          },
         ),
         fm.PolylineLayer(
           polylines: [
-            for (final r in polylines)
+            for (final r in widget.polylines)
               fm.Polyline(
                 points: r.points.map(_toFm).toList(),
                 color: r.color,
@@ -121,7 +225,7 @@ class OsmMapView extends StatelessWidget {
         ),
         fm.MarkerLayer(
           markers: [
-            for (final m in markers)
+            for (final m in widget.markers)
               fm.Marker(
                 point: _toFm(m.point),
                 width: 44,
@@ -130,10 +234,12 @@ class OsmMapView extends StatelessWidget {
               ),
           ],
         ),
-        const fm.RichAttributionWidget(
+        fm.RichAttributionWidget(
           attributions: [
             fm.TextSourceAttribution(
-              '© OpenStreetMap contributors',
+              tileUrl.contains('mapbox')
+                  ? '© Mapbox © OpenStreetMap'
+                  : '© CARTO © OpenStreetMap',
             ),
           ],
         ),
@@ -177,7 +283,7 @@ class MapRoute {
   });
 }
 
-/// Teardrop-ish pin glyph with an optional letter badge.
+/// Teardrop-ish pin glyph with an optional letter badge, or glowing blue dot for user position.
 class _PinGlyph extends StatelessWidget {
   final Color color;
   final String? label;
@@ -186,6 +292,37 @@ class _PinGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBlueDot = color == Colors.blue && (label == null || label!.isEmpty);
+    if (isBlueDot) {
+      return Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFF4285F4).withValues(alpha: 0.22),
+          border: Border.all(color: const Color(0xFF4285F4).withValues(alpha: 0.45), width: 1.5),
+        ),
+        child: Center(
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF4285F4),
+              border: Border.all(color: Colors.white, width: 2.5),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black38,
+                  blurRadius: 4,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -207,24 +344,132 @@ class _PinGlyph extends StatelessWidget {
   }
 }
 
-/// Camera handle for [OsmMapView].
+/// Camera handle for [OsmMapView] (and the Google branch of [SeSeMapView]).
 ///
-/// Queues moves until the flutter_map controller reports ready
-/// ([markReady]) instead of throwing — every method is safe to call
-/// unconditionally, including from widget tests rendering the placeholder.
+/// Queues moves until a renderer reports ready ([markReady] for OSM,
+/// [attachGoogle] for Google) instead of throwing — every method is safe
+/// to call unconditionally, including from widget tests rendering the
+/// placeholder.
+///
+/// When a Google controller is attached, camera ops drive it; otherwise
+/// they drive the OSM controller. Screens never need to know which
+/// renderer is live — that is [MapProviderPolicy]'s decision.
 class SeSeMapController {
   final fm.MapController _native = fm.MapController();
   final List<void Function()> _pending = [];
   bool _ready = false;
+
+  /// Attached Google renderer (set by the Google branch of [SeSeMapView]
+  /// via `onMapCreated`). Null on OSM surfaces and in widget tests.
+  gmaps.GoogleMapController? _google;
 
   /// Direct access for advanced camera ops (zoom in/out buttons).
   /// Prefer [move]/[fitPoints]; guard with try/catch — the controller
   /// throws while no map is bound.
   fm.MapController get native => _native;
 
+  // ── GPS follow state ────────────────────────────────────────────────────
+  //
+  // When true, fresh GPS fixes drive the camera ([SeseUniversalMap] calls
+  // [followTo] on each fix). Any manual pan clears it; the recenter button
+  // restores it via [recenterTo]. Defaults to true so a freshly opened map
+  // tracks until the user first grabs it.
+  bool isFollowingUser = true;
+
+  /// Marks the start of a programmatic camera animation. Moves issued
+  /// through [move]/[fitPoints]/[zoomBy]/[followTo]/[recenterTo] set a
+  /// short window during which camera callbacks are NOT treated as user
+  /// gestures (native animations report a stream of moves with no gesture
+  /// flag — without the window every recenter would instantly un-follow).
+  DateTime? _programmaticUntil;
+  static const _programmaticWindow = Duration(milliseconds: 1200);
+
+  void _noteProgrammatic() {
+    _programmaticUntil = DateTime.now().add(_programmaticWindow);
+  }
+
+  /// True while inside a programmatic animation window.
+  bool get isInProgrammaticWindow =>
+      _programmaticUntil?.isAfter(DateTime.now()) ?? false;
+
+  /// Called by map views when the USER pans/zooms (never for programmatic
+  /// moves). Frees the camera so exploration never fights the GPS stream.
+  void handleUserGesture() {
+    if (isFollowingUser) {
+      isFollowingUser = false;
+      onFollowingChanged?.call();
+    }
+  }
+
+  /// Fired whenever [isFollowingUser] flips (manual pan or recenter), so
+  /// screens with follow-dependent UI (e.g. cockpit tracking tint) can
+  /// rebuild. Screens own setting/clearing this hook in init/dispose.
+  VoidCallback? onFollowingChanged;
+
+  /// Re-center action: re-engages follow AND animates to the live fix.
+  /// Screens must route their recenter buttons here (not bare [move]) or
+  /// the camera will track once and then stop on the next pan state.
+  Future<void> recenterTo(base.LatLng target, double zoom) {
+    if (!isFollowingUser) {
+      isFollowingUser = true;
+      onFollowingChanged?.call();
+    } else {
+      isFollowingUser = true;
+    }
+    return move(target, zoom);
+  }
+
+  /// Follows the live fix WITHOUT touching the zoom (recenter owns zoom).
+  /// Called per GPS tick while [isFollowingUser] is true.
+  Future<void> followTo(base.LatLng target) {
+    void run() {
+      final google = _google;
+      if (google != null) {
+        // newLatLng keeps the current zoom — follow never re-zooms.
+        google.animateCamera(
+          gmaps.CameraUpdate.newLatLng(_toG(target)),
+        );
+        return;
+      }
+      _native.move(
+        LatLng(target.latitude, target.longitude),
+        _native.camera.zoom,
+      );
+    }
+
+    if (!_ready && _google == null) {
+      _pending.add(run);
+      return Future.value();
+    }
+    try {
+      _noteProgrammatic();
+      run();
+    } catch (e) {
+      debugPrint('SeSeMapController.followTo failed: $e');
+    }
+    return Future.value();
+  }
+
   /// Called by [OsmMapView] once the tile map is ready; flushes queued moves.
   void markReady() {
     _ready = true;
+    _flushPending();
+  }
+
+  /// Called by the Google branch of [SeSeMapView] once the native map is
+  /// created; flushes queued moves onto Google.
+  void attachGoogle(gmaps.GoogleMapController controller) {
+    _google = controller;
+    _flushPending();
+  }
+
+  /// Called when the Google branch disposes so later moves fall back to
+  /// the OSM path instead of hitting a dead controller.
+  void detachGoogle() {
+    _google = null;
+  }
+
+  void _flushPending() {
     final queued = List<void Function()>.of(_pending);
     _pending.clear();
     for (final fn in queued) {
@@ -236,13 +481,24 @@ class SeSeMapController {
     }
   }
 
+  static gmaps.LatLng _toG(base.LatLng point) =>
+      gmaps.LatLng(point.latitude, point.longitude);
+
   /// Centers the camera on [target] at [zoom].
   Future<void> move(base.LatLng target, double zoom) async {
     void run() {
+      _noteProgrammatic();
+      final google = _google;
+      if (google != null) {
+        google.animateCamera(
+          gmaps.CameraUpdate.newLatLngZoom(_toG(target), zoom),
+        );
+        return;
+      }
       _native.move(LatLng(target.latitude, target.longitude), zoom);
     }
 
-    if (!_ready) {
+    if (!_ready && _google == null) {
       _pending.add(run);
       return;
     }
@@ -256,6 +512,12 @@ class SeSeMapController {
   /// Adjusts zoom relative to the current level (custom +/- buttons).
   Future<void> zoomBy(double delta) async {
     void run() {
+      _noteProgrammatic();
+      final google = _google;
+      if (google != null) {
+        google.animateCamera(gmaps.CameraUpdate.zoomBy(delta));
+        return;
+      }
       final cam = _native.camera;
       _native.move(
         cam.center,
@@ -263,7 +525,7 @@ class SeSeMapController {
       );
     }
 
-    if (!_ready) {
+    if (!_ready && _google == null) {
       _pending.add(run);
       return;
     }
@@ -285,6 +547,29 @@ class SeSeMapController {
       return move(a, 15.0);
     }
     void run() {
+      _noteProgrammatic();
+      final google = _google;
+      if (google != null) {
+        // May throw if the native view has no size yet (called pre-layout);
+        // the caller-facing try/catch below swallows it — the next
+        // interaction re-fits.
+        google.animateCamera(
+          gmaps.CameraUpdate.newLatLngBounds(
+            gmaps.LatLngBounds(
+              southwest: gmaps.LatLng(
+                math.min(a.latitude, b.latitude),
+                math.min(a.longitude, b.longitude),
+              ),
+              northeast: gmaps.LatLng(
+                math.max(a.latitude, b.latitude),
+                math.max(a.longitude, b.longitude),
+              ),
+            ),
+            padding,
+          ),
+        );
+        return;
+      }
       final bounds = fm.LatLngBounds(
         LatLng(
           math.min(a.latitude, b.latitude),
@@ -303,7 +588,7 @@ class SeSeMapController {
       );
     }
 
-    if (!_ready) {
+    if (!_ready && _google == null) {
       _pending.add(run);
       return;
     }
@@ -321,32 +606,37 @@ class BlankTileProvider {
   const BlankTileProvider();
 }
 
-/// Shared circular recenter/fit button overlaid on every map.
+/// Shared circular recenter/fit floating action button overlaid on every map view.
 ///
-/// White circle + green GPS icon, matching the customer home style, so
-/// users always have a visible "center my location / fit route" affordance.
+/// Clean floating white card with elevation and standard target/crosshairs icon.
 class MapRecenterButton extends StatelessWidget {
   final VoidCallback onTap;
   final IconData icon;
+  final Color? color;
 
   const MapRecenterButton({
     super.key,
     required this.onTap,
-    this.icon = Icons.gps_fixed,
+    this.icon = Icons.my_location,
+    this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final iconColor = color ?? (isDark ? Colors.white : const Color(0xFF4285F4));
     return Material(
       shape: const CircleBorder(),
       elevation: 4,
-      color: Theme.of(context).cardColor,
+      shadowColor: Colors.black26,
+      color: isDark ? const Color(0xFF2C2C2C) : Colors.white,
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Icon(icon, color: Colors.green, size: 28),
+          padding: const EdgeInsets.all(12),
+          child: Icon(icon, color: iconColor, size: 24),
         ),
       ),
     );

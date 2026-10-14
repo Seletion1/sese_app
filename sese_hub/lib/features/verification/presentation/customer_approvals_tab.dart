@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
+import '../../dashboard/presentation/hub_user_wallet_card.dart';
 
 /// Customer KYC verification audit queue.
 ///
@@ -283,7 +284,20 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
                       ],
                     ),
 
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+
+                    // ── Wallet balances ─────────────────────────────────────
+                    // WHY: Admins need visibility into both wallets for every
+                    // user type (not just drivers) during the approval workflow.
+                    // Mirrors the HubUserWalletCard already present in
+                    // driver_profile_approvals_tab.dart:345.
+                    HubUserWalletCard(
+                      key: Key('customer_wallet_${doc.id}'),
+                      userId: doc.id,
+                      firestore: _db,
+                    ),
+
+                    const SizedBox(height: 12),
 
                     // ── Action buttons ──────────────────────────────────────
                     Row(

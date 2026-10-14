@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
@@ -13,7 +11,6 @@ import '../../home/customer_home_shell.dart';
 import '../../home/driver_home_shell.dart';
 import '../../settings/role_controller.dart';
 import '../../../widgets/location_picker_map.dart';
-import '../../../widgets/document_upload_card.dart';
 
 /// Step 2 of driver registration: Driver Personal Information Form.
 ///
@@ -23,8 +20,8 @@ import '../../../widgets/document_upload_card.dart';
 /// Sections:
 /// 1. Personal information — first/last name, phone, date of birth
 ///    (18+ age verification), gender.
-/// 2. Home address — OpenStreetMap/Nominatim autocomplete + interactive
-///    flutter_map view (search, tap to pin) producing `latitude/longitude`.
+/// 2. Home address — Google Places autocomplete + interactive map view
+///    (search, tap to pin) producing `latitude/longitude`.
 /// 3. Government ID — country-aware document type (Nigeria: NIN / Driver's
 ///    License / Voter's Card / International Passport; other countries:
 ///    Government Issued ID / Passport), front + back uploads, and a
@@ -108,8 +105,8 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   // Map pin state (default: Lagos).
   LatLng _pin = const LatLng(6.5244, 3.3792);
 
-  // Nominatim autocomplete state.
-  List<NominatimResult> _suggestions = [];
+  // Google Places autocomplete state (predictions resolve on tap).
+  List<PlacePrediction> _suggestions = [];
   Timer? _debounce;
   bool _searching = false;
 
@@ -120,7 +117,6 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   bool _submitting = false;
 
   late final DriverOnboardingService _service;
-  ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
   String _phoneNumberE164 = '';
 
@@ -169,7 +165,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     super.dispose();
   }
 
-  // ─── Address search (Nominatim) ──────────────────────────────────────────
+  // ─── Address search (Google Places via proxy) ────────────────────────────
 
   void _onAddressChanged(String query) {
     _debounce?.cancel();
@@ -183,7 +179,8 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     setState(() => _searching = true);
     _debounce = Timer(const Duration(milliseconds: 500), () async {
       try {
-        final results = await _service.searchAddress(query.trim());
+        final results =
+            await _service.searchPlacePredictions(query.trim());
         if (!mounted) return;
         setState(() {
           _suggestions = results;
@@ -199,12 +196,35 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     });
   }
 
-  void _selectSuggestion(NominatimResult result) {
-    setState(() {
-      _address.text = result.displayName;
-      _pin = LatLng(result.lat, result.lng);
-      _suggestions = [];
-    });
+  /// Resolves one Details call for the tapped prediction, then pins it.
+  /// A failed resolve keeps the typed text (never blocks onboarding).
+  Future<void> _selectSuggestion(PlacePrediction prediction) async {
+    setState(() => _searching = true);
+    try {
+      final details =
+          await _service.resolvePlaceDetails(prediction.placeId);
+      if (!mounted) return;
+      setState(() {
+        _address.text = details.displayAddress.isNotEmpty
+            ? details.displayAddress
+            : prediction.description;
+        _pin = LatLng(details.lat, details.lng);
+        _suggestions = [];
+        _searching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        // Keep the typed text; the map pin still refines via GPS/reverse.
+        _suggestions = [];
+        _searching = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not resolve that address. Try another.'),
+        ),
+      );
+    }
   }
 
   // ─── Image capture ───────────────────────────────────────────────────────
@@ -239,7 +259,15 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       ),
     );
     if (source == null) return;
-    final file = await _picker.pickImage(source: source, imageQuality: 80);
+    // Runtime permission handshake BEFORE the native picker.
+    final permission = await MediaPermissionService.ensureFor(source);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
+    final file = await ImageCompressionService.pickAndCompressImage(
+        source: source);
     if (file == null) return;
     setState(() {
       if (isFront) {
@@ -253,8 +281,16 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   /// Live selfie is camera-only by policy (no gallery upload) so hub
   /// reviewers get a genuine face-verification capture.
   Future<void> _captureSelfie() async {
-    final file =
-        await _picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+    // Runtime permission handshake BEFORE the native picker.
+    final permission =
+        await MediaPermissionService.ensureFor(ImageSource.camera);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
+    final file = await ImageCompressionService.pickAndCompressImage(
+        source: ImageSource.camera);
     if (file == null) return;
     setState(() => _selfie = file);
   }
@@ -421,6 +457,28 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     if (!mounted || choice == null || choice == 'cancel') return;
 
     if (choice == 'customer') {
+      // Module 2: double-confirmation before switching modes (second
+      // confirm — the exit dialog above was only the first step).
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (confirmCtx) => AlertDialog(
+          title: const Text('Confirm Switch'),
+          content: const Text(
+            'Are you sure you want to switch to Customer Mode?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(confirmCtx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(confirmCtx).pop(true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
       RoleController.instance.setCurrentRole(UserRole.customer);
       final customerUser = widget.user.copyWith(role: UserRole.customer);
       final nav = Navigator.of(context);
@@ -583,11 +641,21 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                           dense: true,
                           leading: const Icon(Icons.place_outlined),
                           title: Text(
-                            s.displayName,
-                            maxLines: 2,
+                            s.mainText.isNotEmpty
+                                ? s.mainText
+                                : s.description,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 13),
                           ),
+                          subtitle: s.secondaryText.isNotEmpty
+                              ? Text(
+                                  s.secondaryText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11),
+                                )
+                              : null,
                           onTap: () => _selectSuggestion(s),
                         ),
                     ],
@@ -885,27 +953,6 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   }
 }
 
-/// Nominatim / OpenStreetMap autocomplete result.
-class NominatimResult {
-  final String displayName;
-  final double lat;
-  final double lng;
-
-  const NominatimResult({
-    required this.displayName,
-    required this.lat,
-    required this.lng,
-  });
-
-  factory NominatimResult.fromJson(Map<String, dynamic> json) {
-    return NominatimResult(
-      displayName: (json['display_name'] ?? '').toString(),
-      lat: double.tryParse(json['lat']?.toString() ?? '') ?? 0,
-      lng: double.tryParse(json['lon']?.toString() ?? '') ?? 0,
-    );
-  }
-}
-
 class DriverOnboardingException implements Exception {
   final String code;
   final String userMessage;
@@ -920,7 +967,7 @@ class DriverOnboardingException implements Exception {
 class DriverOnboardingService {
   final FirebaseFirestore? _firestore;
   final FirebaseStorage? _storage;
-  final http.Client? _httpClient;
+  final GoogleMapsService _maps;
 
   /// Test seam: replaces the storage upload (returns a download URL).
   final Future<String> Function(XFile file, String path)? uploadOverride;
@@ -928,8 +975,9 @@ class DriverOnboardingService {
   DriverOnboardingService(
       {this._firestore,
       this._storage,
-      this._httpClient,
-      this.uploadOverride});
+      GoogleMapsService? mapsService,
+      this.uploadOverride})
+      : _maps = mapsService ?? GoogleMapsService();
 
   FirebaseFirestore? get _db {
     try {
@@ -950,34 +998,21 @@ class DriverOnboardingService {
     return age >= 18;
   }
 
-  /// OpenStreetMap Nominatim address autocomplete.
-  Future<List<NominatimResult>> searchAddress(String query) async {
-    final client = _httpClient ?? http.Client();
-    final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
-      'format': 'jsonv2',
-      'q': query,
-      'limit': '5',
-      'addressdetails': '0',
-    });
-    final closeClient = _httpClient == null;
+  /// Google Places autocomplete (Nigeria-biased, via the server proxy —
+  /// no key on the client). Empty on miss/offline; never throws past this
+  /// point so the address field stays usable.
+  Future<List<PlacePrediction>> searchPlacePredictions(String query) async {
     try {
-      final response = await client.get(uri, headers: {
-        'User-Agent': 'sese_ride-driver-onboarding/1.0',
-        'Accept': 'application/json',
-      }).timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return [];
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) return [];
-      return decoded
-          .whereType<Map>()
-          .map((m) =>
-              NominatimResult.fromJson(Map<String, dynamic>.from(m)))
-          .where((r) => r.displayName.isNotEmpty)
-          .toList();
-    } finally {
-      if (closeClient) client.close();
+      return await _maps.autocomplete(query);
+    } catch (_) {
+      return [];
     }
   }
+
+  /// Resolves a prediction to coordinates + formatted address (one Details
+  /// call, via the server proxy).
+  Future<PlaceDetails> resolvePlaceDetails(String placeId) =>
+      _maps.details(placeId);
 
   Future<String> _upload(XFile file, String path) async {
     if (uploadOverride != null) return uploadOverride!(file, path);

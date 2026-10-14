@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -5,19 +7,21 @@ import 'package:sese_core/sese_core.dart';
 ///
 /// Behaviour (spec):
 /// - Blank / skipped input never blocks completion.
-/// - Non-blank input is validated against `/referral_codes`.
-/// - Valid codes resolve to a referrer uid via [onResolved]; the caller
-///   stores `referredBy: referrerUserId` on the new profile document.
-/// - Invalid codes show an inline error but still allow skipping.
+/// - Non-blank input is validated against `/referral_codes` with a 400ms debouncer.
+/// - Valid codes resolve to a referrer uid and display: "Referred by [Name]".
+/// - Invalid codes show: "Invalid referral code. You can clear this field to proceed."
+/// - Optional Skip/Continue action button for immediate registration.
 class ReferralInputWidget extends StatefulWidget {
   final ReferralService referralService;
   final ValueChanged<String?> onResolved;
+  final VoidCallback? onSkip;
   final InputDecoration? decoration;
 
   const ReferralInputWidget({
     super.key,
     required this.referralService,
     required this.onResolved,
+    this.onSkip,
     this.decoration,
   });
 
@@ -27,30 +31,41 @@ class ReferralInputWidget extends StatefulWidget {
 
 class _ReferralInputWidgetState extends State<ReferralInputWidget> {
   final _ctrl = TextEditingController();
+  Timer? _debounceTimer;
   bool _checking = false;
   String? _error;
-  String? _resolvedName;
+  String? _referrerBadge;
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged(String value) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 400), () {
+      _validate(value);
+    });
   }
 
   Future<void> _validate(String value) async {
     final code = normalizeReferralCode(value);
     if (code.isEmpty) {
       setState(() {
+        _checking = false;
         _error = null;
-        _resolvedName = null;
+        _referrerBadge = null;
       });
       widget.onResolved(null);
       return;
     }
     if (!isPlausibleReferralCode(code)) {
       setState(() {
-        _error = 'That code does not look valid — you can skip this step.';
-        _resolvedName = null;
+        _checking = false;
+        _error = 'Invalid referral code. You can clear this field to proceed.';
+        _referrerBadge = null;
       });
       widget.onResolved(null);
       return;
@@ -59,19 +74,22 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
       _checking = true;
       _error = null;
     });
-    final referrerId = await widget.referralService.resolveReferrerId(code);
+    final details = await widget.referralService.resolveReferrerDetails(code);
     if (!mounted) return;
     setState(() => _checking = false);
-    if (referrerId == null) {
+
+    if (details == null) {
       setState(() {
-        _error = 'Referral code not found — you can skip or try again.';
-        _resolvedName = null;
+        _error = 'Invalid referral code. You can clear this field to proceed.';
+        _referrerBadge = null;
       });
       widget.onResolved(null);
     } else {
+      final referrerId = details['referrerId'];
+      final firstName = details['firstName'] ?? 'User';
       setState(() {
         _error = null;
-        _resolvedName = 'Code applied ✓';
+        _referrerBadge = 'Referred by $firstName';
       });
       widget.onResolved(referrerId);
     }
@@ -89,7 +107,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
           decoration: (widget.decoration ??
                   const InputDecoration(
                     labelText: 'Referral Code (Optional)',
-                    hintText: 'e.g. MB4321',
+                    hintText: 'e.g. MB6789',
                     prefixIcon: Icon(Icons.card_giftcard_outlined),
                   ))
               .copyWith(
@@ -99,28 +117,57 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
                     child: SizedBox(
                       width: 16,
                       height: 16,
-                      child:
-                          CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : _resolvedName != null
-                    ? const Icon(Icons.check_circle,
-                        color: Colors.green)
+                : _referrerBadge != null
+                    ? const Icon(Icons.check_circle, color: Colors.green)
                     : null,
           ),
-          onChanged: _validate,
+          onChanged: _onTextChanged,
         ),
         if (_error != null) ...[
-          const SizedBox(height: 4),
-          Text(_error!,
-              style: TextStyle(
-                  color: Colors.orange.shade800, fontSize: 12)),
+          const SizedBox(height: 6),
+          Text(
+            _error!,
+            style: TextStyle(color: Colors.orange.shade800, fontSize: 12),
+          ),
         ],
-        if (_resolvedName != null) ...[
-          const SizedBox(height: 4),
-          Text(_resolvedName!,
-              style: const TextStyle(
-                  color: Colors.green, fontSize: 12)),
+        if (_referrerBadge != null) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.shade300),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle, size: 14, color: Colors.green),
+                const SizedBox(width: 6),
+                Text(
+                  _referrerBadge!,
+                  style: TextStyle(
+                    color: Colors.green.shade900,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (widget.onSkip != null) ...[
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: widget.onSkip,
+              child: const Text('Skip / Continue without code'),
+            ),
+          ),
         ],
       ],
     );

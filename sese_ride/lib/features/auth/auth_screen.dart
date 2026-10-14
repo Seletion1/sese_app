@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:sese_core/sese_core.dart';
 
 import 'auth_controller.dart';
@@ -10,13 +11,19 @@ import '../driver/presentation/driver_onboarding_screen.dart';
 import '../home/customer_home_shell.dart';
 import '../home/driver_home_shell.dart';
 import '../referral/referral_input_widget.dart';
-import 'package:sese_core/sese_core.dart'
-    show ReferralService;
 
 /// Unified Authentication Screen for sese_ride.
 /// Supports Customer and Driver authentication with dual action modes:
-/// - Sign In (`isSignUpMode == false`)
+/// - Sign In (`isSignUpMode == false`, the default entry state)
 /// - Create Account (`isSignUpMode == true`)
+///
+/// The active [UserRole] is pre-selected upstream by
+/// `WelcomeRoleSelectionScreen` and passed in as [initialRole]. There is
+/// deliberately NO in-screen Customer/Driver toggle: the role is stored in
+/// the [AuthController] (`selectedRole`, mirrored to the auth repository via
+/// `setPendingSelectedRole`) and applied silently to every sign-in, sign-up,
+/// and OAuth request. Back navigation (app-bar arrow / system back) returns
+/// to the Welcome screen because this screen is pushed, never replacing it.
 ///
 /// Features:
 /// 1. Warm Gold (`seseGold`) dynamic highlight for active action mode and role.
@@ -61,8 +68,6 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _referredBy;
 
   static const Color _seseGold = AppColors.seseGold;
-  static const Color _roleAccentDark = Color(0xFFEAA200);
-  static const Color _roleSelectedFill = Color(0xFFFFF6D6);
 
   static const String _accountMissingMessage =
       "Account does not exist. Please tap 'Create Account' to register.";
@@ -318,10 +323,14 @@ class _AuthScreenState extends State<AuthScreen> {
         } catch (_) {}
         _showError(_accountMissingMessage);
       } else if (e.code != 'google-sign-in-cancelled' && e.code != 'canceled') {
-        _showError(_mapAuthError(e.code));
+        _showError(_mapAuthError(e.code, message: e.message));
+      }
+    } on PlatformException catch (e) {
+      if (e.code != 'sign_in_canceled' && e.code != 'canceled') {
+        _showError(_mapAuthError(e.code, message: e.message));
       }
     } catch (e) {
-      _showError('Authentication failed: $e');
+      _showError('Authentication failed. Please check your connection and try again.');
     } finally {
       if (mounted) _controller.setLoading(false);
     }
@@ -364,12 +373,26 @@ class _AuthScreenState extends State<AuthScreen> {
     _controller.setLoading(true);
     _controller.clearError();
 
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty) {
+      _showError('Please enter your email address.');
+      _controller.setLoading(false);
+      return;
+    }
+    if (password.isEmpty) {
+      _showError('Please enter your password.');
+      _controller.setLoading(false);
+      return;
+    }
+
     try {
       if (!_controller.isSignUpMode) {
         // Sign In Flow
         final user = await _auth.signInWithEmailPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+          email: email,
+          password: password,
           selectedRole: _controller.selectedRole,
         );
 
@@ -381,6 +404,26 @@ class _AuthScreenState extends State<AuthScreen> {
             } catch (_) {}
             _showError(_accountMissingMessage);
             return;
+          }
+        } else {
+          try {
+            final doc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get();
+            if (doc.exists && doc.data() != null) {
+              final data = doc.data()!;
+              final docRole = data['role'] as String?;
+              if (docRole != null && docRole != 'customer') {
+                try {
+                  await _auth.signOut();
+                } catch (_) {}
+                _showError('Account role mismatch. This account is registered as a $docRole.');
+                return;
+              }
+            }
+          } catch (e) {
+            debugPrint('Customer profile check exception: $e');
           }
         }
 
@@ -397,10 +440,10 @@ class _AuthScreenState extends State<AuthScreen> {
         if (repo != null) {
           appUser = await repo.registerWithReferral(
             fullName: fullName,
-            email: _emailController.text.trim(),
+            email: email,
             phoneNumber: _phoneController.text.trim(),
-            password: _passwordController.text.isNotEmpty
-                ? _passwordController.text
+            password: password.isNotEmpty
+                ? password
                 : 'OAuth-Registered-User-123!',
             role: _controller.selectedRole,
             referredBy: _referredBy,
@@ -408,10 +451,10 @@ class _AuthScreenState extends State<AuthScreen> {
         } else {
           appUser = await _auth.register(
             fullName: fullName,
-            email: _emailController.text.trim(),
+            email: email,
             phoneNumber: _phoneController.text.trim(),
-            password: _passwordController.text.isNotEmpty
-                ? _passwordController.text
+            password: password.isNotEmpty
+                ? password
                 : 'OAuth-Registered-User-123!',
             role: _controller.selectedRole,
           );
@@ -452,10 +495,12 @@ class _AuthScreenState extends State<AuthScreen> {
         } catch (_) {}
         _showError(_accountMissingMessage);
       } else {
-        _showError(_mapAuthError(e.code));
+        _showError(_mapAuthError(e.code, message: e.message));
       }
+    } on PlatformException catch (e) {
+      _showError(_mapAuthError(e.code, message: e.message));
     } catch (e) {
-      _showError('Authentication failed: $e');
+      _showError('Authentication failed. Please check your credentials and connection.');
     } finally {
       if (mounted) _controller.setLoading(false);
     }
@@ -488,26 +533,56 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  String _mapAuthError(String code) {
+  String _mapAuthError(String code, {String? message}) {
     switch (code) {
       case 'driver-account-missing':
         return _accountMissingMessage;
       case 'user-not-found':
-        return 'No account registered with this email.';
+        return 'No account found with this email. Please check your email or create an account.';
       case 'wrong-password':
-        return 'Incorrect email or password.';
+        return 'Incorrect email or password. Please verify your credentials and try again.';
       case 'invalid-credential':
-        return 'Invalid authentication credentials. Please try again.';
+        return 'Invalid email or password. Please verify your credentials and try again.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
       case 'email-already-in-use':
-        return 'An account already exists for this email address.';
+        return 'An account already exists for this email address. Please sign in instead.';
+      case 'account-exists-with-different-credential':
+        return 'This email is already registered with a different sign-in method. '
+            'Sign in with email & password first, then link Google from Settings.';
+      case 'credential-already-in-use':
+      case 'provider-already-linked':
+        return 'This sign-in method is already linked to your account. Please sign in normally.';
+      case 'requires-recent-login':
+      case 'reauth-required':
+        return 'For security, please sign out and sign back in, then try again.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is currently disabled. Please contact support.';
+      case 'user-token-expired':
+      case 'no-current-user':
+        return 'Your session expired. Please sign in again.';
+      case 'no-email':
+        return 'No email address is available for this account. Please contact support.';
       case 'weak-password':
         return 'Password must be at least 6 characters.';
       case 'user-disabled':
-        return 'This account has been disabled.';
+        return 'This account has been disabled. Please contact support.';
+      case 'too-many-requests':
+        return 'Too many failed attempts. Please wait a few moments and try again.';
       case 'network-request-failed':
-        return 'Network connection error. Check your connection.';
+        return 'Network connection error. Please check your internet connection.';
+      case 'channel-error':
+        return 'Unable to establish connection. Please check your email, password, and internet connection.';
+      case 'firebase-uninitialized':
+        return 'System initialization error. Please restart the app.';
       default:
-        return 'Authentication failed ($code).';
+        if (message != null &&
+            message.trim().isNotEmpty &&
+            !message.contains('channel-error') &&
+            !message.contains('PlatformException')) {
+          return message;
+        }
+        return 'Authentication failed. Please verify your credentials and try again.';
     }
   }
 
@@ -563,10 +638,21 @@ class _AuthScreenState extends State<AuthScreen> {
     }
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          key: const Key('auth_screen_back_button'),
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            // 16px side gutters keep cards/fields edge-to-edge on phones;
+            // the 420 cap only centers content on tablets/desktop.
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Form(
@@ -574,74 +660,30 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Brand Logo & Title
+                    // Brand Logo & Title — use the official SeSe mark, not a generic icon.
                     Center(
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: const BoxDecoration(
-                          color: _roleSelectedFill,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.local_taxi_rounded,
-                          size: 40,
-                          color: _roleAccentDark,
-                        ),
-                      ),
+                      child: SeSeLogo(size: 96, variant: SeSeLogoVariant.ride),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     Text(
                       'SeSe Ride',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
                           ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       isSignUp
-                          ? 'Create your account to get started'
-                          : 'Welcome back! Sign in to continue',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                          ? 'Create your ${isDriver ? "Driver" : "Customer"} account'
+                          : 'Welcome back! Sign in as ${isDriver ? "Driver" : "Customer"}',
+                      style: Theme.of(context).textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
 
-                    // 1. Role Selection Switcher
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _RoleCard(
-                            key: const Key('role_customer_tile'),
-                            title: 'Customer',
-                            subtitle: 'Book rides & deliveries',
-                            icon: Icons.person_outline,
-                            selected: !isDriver,
-                            onTap: _controller.isLoading
-                                ? null
-                                : () => _controller.setRole(UserRole.customer),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _RoleCard(
-                            key: const Key('role_driver_tile'),
-                            title: 'Driver',
-                            subtitle: 'Earn on your schedule',
-                            icon: Icons.two_wheeler,
-                            selected: isDriver,
-                            onTap: _controller.isLoading
-                                ? null
-                                : () => _controller.setRole(UserRole.driver),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // 2. Action Mode Selector (Sign In vs Create Account Toggle)
+                    // Action Mode Selector (Sign In vs Create Account Toggle)
                     Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
@@ -856,6 +898,8 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    const LegalAuthDisclaimer(),
                   ],
                 ),
               ),
@@ -910,84 +954,6 @@ class _ModeToggleButton extends StatelessWidget {
                 ? Colors.black87
                 : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Role selection card widget.
-class _RoleCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  const _RoleCard({
-    super.key,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.selected,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final fillColor =
-        selected
-            ? (isDark ? const Color(0xFF3D3212) : const Color(0xFFFFF6D6))
-            : (isDark ? const Color(0xFF242424) : Colors.white);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: fillColor,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 28,
-              color: selected
-                  ? const Color(0xFFEAA200)
-                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: selected
-                          ? (isDark ? Colors.white : Colors.black87)
-                          : (isDark ? Colors.grey.shade200 : Colors.grey.shade800),
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

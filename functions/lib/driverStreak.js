@@ -44,6 +44,7 @@ exports.breakDriverStreak = breakDriverStreak;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const streakRewards_1 = require("./streakRewards");
 /**
  * Dynamic Driver Daily Commission Tiering & Streak Gamification Engine
  *
@@ -358,7 +359,7 @@ function applyStreakBreak(streak) {
  * Computes streak-aware commission, credits refunds/bonuses, persists state.
  */
 exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
     if (!before || !after)
@@ -471,12 +472,263 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         });
     }
     await batch.commit();
+    // 5. Automated Residual Referral Commission Split Engine
+    try {
+        const customerId = String((_k = (_j = after["customerId"]) !== null && _j !== void 0 ? _j : after["userId"]) !== null && _k !== void 0 ? _k : "");
+        const driverName = String((_m = (_l = driverData["fullName"]) !== null && _l !== void 0 ? _l : driverData["displayName"]) !== null && _m !== void 0 ? _m : "Driver");
+        const refSplits = await processReferralCommissions(tripId, customerId, driverId, driverName, fareAmount);
+        await db().collection("trips").doc(tripId).update({
+            "settlement.platformFeeNaira": refSplits.platformFeeNaira,
+            "settlement.driverReferrerCutNaira": refSplits.driverReferrerCutNaira,
+            "settlement.customerReferrerCutNaira": refSplits.customerReferrerCutNaira,
+            "settlement.netPlatformProfitNaira": refSplits.netPlatformProfitNaira,
+            "settlement.netDriverPayoutNaira": refSplits.netDriverPayoutNaira,
+        });
+    }
+    catch (e) {
+        console.warn(`onTripCompleted[${tripId}]: referral commission processing warning: ${e}`);
+    }
+    // 6. Dynamic Streak & Reward Overrides Evaluation (Driver & Customer)
+    try {
+        await (0, streakRewards_1.evaluateAndGrantStreakRewards)(driverId, "driver", tripId, countryCode, stateOrRegion);
+    }
+    catch (e) {
+        console.warn(`onTripCompleted[${tripId}]: driver streak reward evaluation warning: ${e}`);
+    }
+    try {
+        const customerId = String((_p = (_o = after["customerId"]) !== null && _o !== void 0 ? _o : after["userId"]) !== null && _p !== void 0 ? _p : "");
+        if (customerId) {
+            const custSnap = await db().collection("users").doc(customerId).get();
+            const custData = custSnap.exists ? custSnap.data() : {};
+            const custCountry = String((_r = (_q = custData["countryCode"]) !== null && _q !== void 0 ? _q : countryCode) !== null && _r !== void 0 ? _r : "NG");
+            const custState = String((_t = (_s = custData["stateOrRegion"]) !== null && _s !== void 0 ? _s : stateOrRegion) !== null && _t !== void 0 ? _t : "");
+            await (0, streakRewards_1.evaluateAndGrantStreakRewards)(customerId, "customer", tripId, custCountry, custState);
+        }
+    }
+    catch (e) {
+        console.warn(`onTripCompleted[${tripId}]: customer streak reward evaluation warning: ${e}`);
+    }
     console.log(`onTripCompleted[${tripId}] driver=${driverId} ` +
         `L${streak.currentLevel}S${streak.currentStep} ` +
         `fare=${fareAmount} commission=${result.commissionAmount} ` +
         `cashBack=${result.cashBackAmount} bonus=${result.cashBonusAmount} ` +
         `grandAward=${result.grandAwardTriggered}`);
 });
+async function getBackendFinancialConfig() {
+    let userReferralCommissionRate = 0.01;
+    let agentReferralCommissionRate = 0.02;
+    let standardReferralDurationDays = 365;
+    let agentReferralDurationDays = 547;
+    let maxBonusThreshold = 10000.0;
+    try {
+        const snap = await db().collection("system_configs").doc("financials").get();
+        if (snap.exists && snap.data()) {
+            const d = snap.data();
+            if (typeof d.userReferralCommissionRate === "number")
+                userReferralCommissionRate = d.userReferralCommissionRate;
+            if (typeof d.agentReferralCommissionRate === "number")
+                agentReferralCommissionRate = d.agentReferralCommissionRate;
+            if (typeof d.standardReferralDurationDays === "number")
+                standardReferralDurationDays = d.standardReferralDurationDays;
+            if (typeof d.agentReferralDurationDays === "number")
+                agentReferralDurationDays = d.agentReferralDurationDays;
+            if (typeof d.maxBonusThreshold === "number")
+                maxBonusThreshold = d.maxBonusThreshold;
+        }
+    }
+    catch (_a) {
+        // Fall back to defaults
+    }
+    return {
+        userReferralCommissionRate,
+        agentReferralCommissionRate,
+        standardReferralDurationDays,
+        agentReferralDurationDays,
+        maxBonusThreshold,
+    };
+}
+async function getReferralSettings() {
+    let platformBaseCommissionRate = 20.0;
+    let driverReferrerRate = 5.0;
+    let customerReferrerRate = 5.0;
+    try {
+        const snap = await db().collection("system_config").doc("referral_settings").get();
+        if (snap.exists && snap.data()) {
+            const d = snap.data();
+            if (typeof d.platformBaseCommissionRate === "number")
+                platformBaseCommissionRate = d.platformBaseCommissionRate;
+            if (typeof d.driverReferrerRate === "number")
+                driverReferrerRate = d.driverReferrerRate;
+            if (typeof d.customerReferrerRate === "number")
+                customerReferrerRate = d.customerReferrerRate;
+        }
+    }
+    catch (_a) {
+        // Fall back to defaults
+    }
+    return { platformBaseCommissionRate, driverReferrerRate, customerReferrerRate };
+}
+async function processReferralCommissions(tripId, customerId, driverId, driverName, totalFareNaira) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    const finCfg = await getBackendFinancialConfig();
+    const settings = await getReferralSettings();
+    const platformFeeNaira = totalFareNaira * (settings.platformBaseCommissionRate / 100);
+    let driverReferrerCutNaira = 0;
+    let customerReferrerCutNaira = 0;
+    const nowMs = Date.now();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    // Helper: Process referral credit to seseCoinBalance + auto-sweep check
+    const creditReferrerCoins = async (referrerId, refereeId, refereeName, signupTimestamp, type) => {
+        var _a, _b, _c, _d, _e;
+        let signupMs = nowMs;
+        if (signupTimestamp) {
+            try {
+                signupMs = typeof signupTimestamp.toMillis === "function"
+                    ? signupTimestamp.toMillis()
+                    : new Date(String(signupTimestamp)).getTime();
+            }
+            catch (_) { }
+        }
+        const ageDays = (nowMs - signupMs) / (1000 * 60 * 60 * 24);
+        let targetUid = referrerId;
+        if (referrerId && referrerId.length < 20) {
+            try {
+                const codeSnap = await db().collection("referral_codes").doc(referrerId.toUpperCase()).get();
+                if (codeSnap.exists) {
+                    targetUid = String((_b = (_a = codeSnap.data()) === null || _a === void 0 ? void 0 : _a.referrerId) !== null && _b !== void 0 ? _b : referrerId);
+                }
+                else {
+                    const uQuery = await db().collection("users").where("referralCode", "==", referrerId.toUpperCase()).limit(1).get();
+                    if (!uQuery.empty) {
+                        targetUid = uQuery.docs[0].id;
+                    }
+                }
+            }
+            catch (_) { }
+        }
+        // Determine referrer role & commission rates
+        let isAgentOrStaff = false;
+        try {
+            const refUserSnap = await db().collection("users").doc(targetUid).get();
+            if (refUserSnap.exists) {
+                const role = String((_d = (_c = refUserSnap.data()) === null || _c === void 0 ? void 0 : _c.role) !== null && _d !== void 0 ? _d : "");
+                if (role === "agent" || role === "staff" || ((_e = refUserSnap.data()) === null || _e === void 0 ? void 0 : _e.isAgent) === true) {
+                    isAgentOrStaff = true;
+                }
+            }
+        }
+        catch (_) { }
+        const rate = isAgentOrStaff ? finCfg.agentReferralCommissionRate : finCfg.userReferralCommissionRate;
+        const maxDays = isAgentOrStaff ? finCfg.agentReferralDurationDays : finCfg.standardReferralDurationDays;
+        if (ageDays > maxDays)
+            return 0; // Eligibility window expired
+        const cutNaira = totalFareNaira * rate;
+        if (cutNaira <= 0)
+            return 0;
+        const wRef = db().collection("wallets").doc(targetUid);
+        const txRef = wRef.collection("transactions").doc();
+        const auditRef = db().collection("wallet_transactions").doc();
+        const earnRef = db().collection("referral_earnings").doc();
+        const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}`;
+        await db().runTransaction(async (tx) => {
+            var _a;
+            const wSnap = await tx.get(wRef);
+            const wData = wSnap.exists ? ((_a = wSnap.data()) !== null && _a !== void 0 ? _a : {}) : {};
+            const currentCoins = typeof wData.seseCoinBalance === "number" ? wData.seseCoinBalance : 0;
+            const newCoins = currentCoins + cutNaira;
+            // Auto-Sweep check
+            if (newCoins >= finCfg.maxBonusThreshold) {
+                tx.set(wRef, {
+                    seseCoinBalance: 0,
+                    mainWalletBalance: admin.firestore.FieldValue.increment(newCoins),
+                    updatedAt: now,
+                }, { merge: true });
+                tx.set(txRef, {
+                    type: "sese_coin_auto_sweep",
+                    amountNaira: newCoins,
+                    note: `Auto-swept ₦${newCoins.toFixed(2)} in SeSe Coins to withdrawable wallet cash.`,
+                    createdAt: now,
+                });
+            }
+            else {
+                tx.set(wRef, {
+                    seseCoinBalance: admin.firestore.FieldValue.increment(cutNaira),
+                    updatedAt: now,
+                }, { merge: true });
+                tx.set(txRef, {
+                    type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
+                    amountNaira: cutNaira,
+                    note,
+                    tripId,
+                    refereeId,
+                    createdAt: now,
+                });
+            }
+            tx.set(auditRef, {
+                type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
+                userId: targetUid,
+                refereeId,
+                tripId,
+                amountNaira: cutNaira,
+                createdAt: now,
+            });
+            tx.set(earnRef, {
+                referrerId: targetUid,
+                refereeId,
+                amount: cutNaira,
+                orderId: tripId,
+                type: `${type}_commission`,
+                createdAt: now,
+            });
+        });
+        return cutNaira;
+    };
+    // 1. Driver Referrer Check
+    if (driverId) {
+        try {
+            const driverSnap = await db().collection("drivers").doc(driverId).get();
+            if (driverSnap.exists) {
+                const dData = driverSnap.data();
+                const referrerId = String((_c = (_b = (_a = dData.referredBy) !== null && _a !== void 0 ? _a : dData.referred_by_code) !== null && _b !== void 0 ? _b : dData.referrerId) !== null && _c !== void 0 ? _c : "");
+                if (referrerId && referrerId !== driverId) {
+                    const refereeName = String((_e = (_d = dData.fullName) !== null && _d !== void 0 ? _d : driverName) !== null && _e !== void 0 ? _e : "Driver");
+                    const signupTs = (_f = dData.referralSignupAt) !== null && _f !== void 0 ? _f : dData.createdAt;
+                    driverReferrerCutNaira = await creditReferrerCoins(referrerId, driverId, refereeName, signupTs, "driver");
+                }
+            }
+        }
+        catch (e) {
+            console.warn(`processReferralCommissions driver check failed: ${e}`);
+        }
+    }
+    // 2. Customer Referrer Check
+    if (customerId) {
+        try {
+            const customerSnap = await db().collection("users").doc(customerId).get();
+            if (customerSnap.exists) {
+                const cData = customerSnap.data();
+                const referrerId = String((_j = (_h = (_g = cData.referredBy) !== null && _g !== void 0 ? _g : cData.referred_by_code) !== null && _h !== void 0 ? _h : cData.referrerId) !== null && _j !== void 0 ? _j : "");
+                if (referrerId && referrerId !== customerId) {
+                    const refereeName = String((_l = (_k = cData.fullName) !== null && _k !== void 0 ? _k : cData.displayName) !== null && _l !== void 0 ? _l : "Customer");
+                    const signupTs = (_m = cData.referralSignupAt) !== null && _m !== void 0 ? _m : cData.createdAt;
+                    customerReferrerCutNaira = await creditReferrerCoins(referrerId, customerId, refereeName, signupTs, "customer");
+                }
+            }
+        }
+        catch (e) {
+            console.warn(`processReferralCommissions customer check failed: ${e}`);
+        }
+    }
+    const netPlatformProfitNaira = platformFeeNaira - (driverReferrerCutNaira + customerReferrerCutNaira);
+    const netDriverPayoutNaira = totalFareNaira - platformFeeNaira;
+    return {
+        platformFeeNaira,
+        driverReferrerCutNaira,
+        customerReferrerCutNaira,
+        netPlatformProfitNaira,
+        netDriverPayoutNaira,
+    };
+}
 // ─── Shared streak-break writer ─────────────────────────────────────────────
 /**
  * Breaks a driver's streak from a non-CANCELLED path (explicit decline,

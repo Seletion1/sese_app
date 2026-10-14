@@ -113,7 +113,9 @@ void main() {
     }
 
     bool isOnStep2() =>
-        find.text('Multi-Vehicle Broadcast').evaluate().isNotEmpty;
+        // The internal Back button renders on steps 2+ only (step 1 has
+        // none) — mode-agnostic step detection without phantom strings.
+        find.widgetWithText(OutlinedButton, 'Back').evaluate().isNotEmpty;
 
     // NOTE: runtime type is PopScope<Object>, so a raw byType(PopScope)
     // finder misses it — match with an `is` predicate instead.

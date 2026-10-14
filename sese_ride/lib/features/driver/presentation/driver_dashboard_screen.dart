@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -6,10 +7,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 import '../../../core/services/remote_config_service.dart';
+import '../../notifications/notification_inbox_screen.dart';
 import '../../trips/models/trip_models.dart';
-import '../../../widgets/osm_map_view.dart';
-import '../../wallet/earnings_service.dart';
-import '../../payments/payment_service.dart';
+import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
 import '../services/driver_overlay_service.dart';
 import '../services/driver_status_service.dart';
@@ -23,6 +23,9 @@ import 'widgets/order_pool_sheet.dart';
 import 'widgets/slide_to_offline.dart';
 import 'widgets/streak_celebration_modal.dart';
 import 'widgets/streak_progress_banner.dart';
+import '../../payments/payment_service.dart';
+import '../../payments/top_up_sheet.dart';
+import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -61,22 +64,43 @@ class DriverDashboardScreen extends StatefulWidget {
 
 class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     with WidgetsBindingObserver {
-  static const Color _offlineColor = AppColors.seseGold;
-
   bool _isOnline = false;
   VehicleModel? _activeVehicle;
   List<VehicleModel> _fleet = [];
   bool _loading = true;
 
+  /// Active online session ID returned by backend or generated locally.
+  String? _currentSessionId;
+
+  /// True when this device's online session was superseded or taken offline
+  /// by another device. Drives the non-intrusive notification banner.
+  bool _sessionOverriddenOnOtherDevice = false;
+
+  /// Real-time subscription to driver availability document (`driver_status/{uid}`).
+  StreamSubscription<DriverStatusSnapshot>? _statusSubscription;
+
+  /// Listener callback for silent FCM data messages indicating session termination.
+  VoidCallback? _pushSessionListener;
+
   /// True while the activity is backgrounded (overlay bubble owns the UI).
   bool _appPaused = false;
+
+  // ── Driver Resting Break (Module 4) ────────────────────────────────────────
+  /// True while the driver is on a deliberate rest break. Auto-push pings
+  /// (Stage 1 & Stage 2 exclusive offers) are suppressed but the Quick-Order
+  /// pool badge stays visible so the driver can manually accept pool orders.
+  bool _isOnBreak = false;
+
+  /// Seconds remaining on the current break countdown.
+  int _breakRemainingSeconds = 0;
+
+  /// Ticks every second to decrement [_breakRemainingSeconds] and auto-resume
+  /// when the break expires.
+  Timer? _breakTimer;
 
   /// Camera for the home map canvas. Created once; positions move through
   /// it (never recreated — OsmMapView applies the initial center only).
   final SeSeMapController _mapController = SeSeMapController();
-
-  /// Earnings source for the offline snapshot card. Null-Firestore safe.
-  late final EarningsService _earnings = EarningsService();
 
   /// Opens the Tier-3 pool as a bottom sheet. Accepting inside calls the
   /// zero-trust `acceptTrip` callable (atomic first-wins + verified +
@@ -107,9 +131,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   bool _syncing = false;
 
   /// Driver's current coordinates. Defaults to Lagos; refined from the
-  /// platform location fix when available. Used for the signed online
-  /// payload and the incoming-offer route preview (the home screen itself
-  /// shows no map — the map lives on the incoming offer only).
+  /// platform location fix when available. Centers the home map canvas and
+  /// feeds the signed online payload plus the incoming-offer route preview.
   late LatLng _driverPosition;
 
   late final DriverStatusService _status =
@@ -129,6 +152,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
     _loadFleet();
     _resolvePosition();
+    _initSessionControl();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _mapController.move(_driverPosition, 15.0);
     });
@@ -136,30 +160,103 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     DriverOverlayService.instance.listenActions(_handleOverlayAction);
   }
 
+  void _initSessionControl() {
+    _statusSubscription =
+        _status.driverStatusStream(widget.driverId).listen((snapshot) {
+      if (!mounted) return;
+      // If we are currently online on this device, check if our session was revoked:
+      if (_isOnline) {
+        final sessionRevoked = (_currentSessionId != null &&
+                snapshot.activeSessionId != null &&
+                snapshot.activeSessionId != _currentSessionId) ||
+            (!snapshot.isOnline);
+
+        if (sessionRevoked) {
+          _handleRemoteSessionTermination();
+        }
+      }
+    });
+
+    _pushSessionListener = () {
+      final event = PushNotificationService.driverSessionTerminatedEvents.value;
+      if (event == null || !mounted) return;
+      final termSession = event['terminatedSessionId']?.toString();
+      if (_isOnline &&
+          (termSession == null ||
+              termSession == _currentSessionId ||
+              _currentSessionId == null)) {
+        _handleRemoteSessionTermination();
+      }
+    };
+    PushNotificationService.driverSessionTerminatedEvents
+        .addListener(_pushSessionListener!);
+  }
+
+  void _handleRemoteSessionTermination() {
+    if (!_isOnline && !_sessionOverriddenOnOtherDevice) return;
+    setState(() {
+      _isOnline = false;
+      _currentSessionId = null;
+      _streaks.activeSessionId = null;
+      _sessionOverriddenOnOtherDevice = true;
+    });
+
+    // Cleanup background and foreground services on this device
+    // ignore: discarded_futures
+    AppSoundService.instance.playOfflineSound();
+    // ignore: discarded_futures
+    DriverOverlayService.instance.hide();
+    // ignore: discarded_futures
+    PushNotificationService.cancelOnlineAlert();
+    // ignore: discarded_futures
+    PushNotificationService.unsubscribe('driver_${widget.driverId}');
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _statusSubscription?.cancel();
+    if (_pushSessionListener != null) {
+      PushNotificationService.driverSessionTerminatedEvents
+          .removeListener(_pushSessionListener!);
+    }
+    _breakTimer?.cancel();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final paused = state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive ||
+    // `inactive` fires on brief focus losses (call overlays, notification shade
+    // pull-down, task-switcher peek). We should NOT treat these as a full
+    // background event — doing so would incorrectly toggle the bubble and
+    // could mislead the online/offline state.
+    //
+    // Only `paused` (app fully hidden) and `detached` (Flutter engine torn down)
+    // count as genuinely backgrounded for the purposes of the bubble.
+    final backgrounded =
+        state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached;
-    if (paused == _appPaused) return;
-    setState(() => _appPaused = paused);
+    final foreground = state == AppLifecycleState.resumed;
+
+    if (!foreground && !backgrounded) return; // inactive / hidden — ignore
+
+    final nowPaused = backgrounded;
+    if (nowPaused == _appPaused) return;
+    setState(() => _appPaused = nowPaused);
     if (!mounted) return;
-    if (paused) {
-      // Minimized while ONLINE: the floating SeSe bubble owns the screen.
+    if (nowPaused) {
+      // Minimized while ONLINE: the floating SeSe bubble owns the screen
+      // and the single unified "SeSe Driver Active" notification holds the
+      // OS foreground signal. The driver is NOT taken offline — GPS fixes
+      // and dispatch offers keep flowing until an explicit go-offline.
       if (_isOnline) {
         // ignore: discarded_futures
-        DriverOverlayService.instance.showBubble();
+        DriverOverlayService.instance.showOverlayWidget();
       }
     } else {
       // Back in foreground: overlay yields to the in-app UI.
       // ignore: discarded_futures
-      DriverOverlayService.instance.hide();
+      DriverOverlayService.instance.closeOverlayWidget();
     }
   }
 
@@ -167,23 +264,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// accept/reject/expired outcomes for background order popups.
   Future<void> _handleOverlayAction(String action, String tripId) async {
     switch (action) {
+      case 'open_app':
       case 'foreground':
-        // Bubble tapped while minimized: close the bubble and raise a
-        // tap-to-open alert (system foregrounding needs a user gesture).
-        await DriverOverlayService.instance.hide();
+        // Bubble tapped while minimized: dismiss the bubble and bring
+        // sese_ride directly to the foreground via
+        // Intent.FLAG_ACTIVITY_REORDER_TO_FRONT.
+        await DriverOverlayService.instance.closeOverlayWidget();
         if (!mounted) return;
-        await PushNotificationService.showReturnToAppAlert(
-          body: _isOnline
-              ? 'You are ONLINE. Tap to open SeSe.'
-              : 'Tap to open SeSe.',
-        );
+        await DriverOverlayService.instance.bringToForeground();
         break;
       case 'accepted':
       case 'rejected':
       case 'expired':
         // Overlay already executed/closed the popup; refresh local state so
         // the feed reflects the outcome when the driver returns.
-        await DriverOverlayService.instance.hide();
+        await DriverOverlayService.instance.closeOverlayWidget();
         if (!mounted) return;
         setState(() {});
         break;
@@ -199,7 +294,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (!enabled) return;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
+        // Step 1 — foreground disclosure (ACCESS_FINE_LOCATION).
+        if (mounted) {
+          final agreedFg =
+              await ProminentLocationDisclosureDialog.showForeground(
+            context,
+            userId: widget.driverId,
+          );
+          if (!agreedFg) return;
+        }
         permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      // Step 2 — background disclosure (ACCESS_BACKGROUND_LOCATION) only
+      // when foreground was just granted and background is not yet granted.
+      // Drivers need background GPS for dispatch even when the app is closed.
+      if (permission == LocationPermission.whileInUse && mounted) {
+        final agreedBg = await ProminentLocationDisclosureDialog.show(
+          context,
+          userId: widget.driverId,
+        );
+        if (agreedBg) {
+          // Re-request so the OS can escalate to Always-Allow.
+          permission = await Geolocator.requestPermission();
+        }
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
@@ -219,6 +340,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       // Exceptions and Errors (e.g. DynamicLibraryLoadError).
     }
   }
+
 
   /// Collects the signed GPS fix for the zero-trust online handshake.
   /// Falls back to the last known position with unknown accuracy so the
@@ -249,23 +371,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   Future<void> _loadFleet({bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     try {
-      final vehicles = await widget.fleetService.getDriverFleet(widget.driverId);
+      final vehicles =
+          await widget.fleetService.getDriverFleet(widget.driverId);
       if (!mounted) return;
       setState(() {
         _fleet = vehicles;
         if (!silent) _loading = false;
         // If there's an active selected vehicle that is verified, keep it ready
         try {
-          _activeVehicle = vehicles.firstWhere((v) => v.isActiveSelected && v.isApproved);
+          _activeVehicle =
+              vehicles.firstWhere((v) => v.isActiveSelected && v.isApproved);
         } catch (_) {
           _activeVehicle = null;
         }
       });
-    } catch (e) {
-      debugPrint('DriverDashboardScreen._loadFleet error: $e');
-      if (mounted && !silent) {
-        setState(() => _loading = false);
-      }
+    } catch (_) {
+      // Fleet fetch must never wedge the home tab on a spinner: show the
+      // dashboard with an empty fleet instead.
+      if (!mounted) return;
+      setState(() {
+        if (!silent) _loading = false;
+        _fleet = [];
+        _activeVehicle = null;
+      });
     }
   }
 
@@ -285,13 +413,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (decision.granted) {
         setState(() {
           _isOnline = false;
+          _currentSessionId = null;
+          _streaks.activeSessionId = null;
+          _sessionOverriddenOnOtherDevice = false;
         });
         // Audio feedback: offline double-tone.
         // ignore: discarded_futures
         AppSoundService.instance.playOfflineSound();
-        // Bubble/overlay teardown + driver-topic unsubscribe.
+        // Bubble/overlay teardown + sticky-signal cancel + driver-topic
+        // unsubscribe.
         // ignore: discarded_futures
         DriverOverlayService.instance.hide();
+        // ignore: discarded_futures
+        PushNotificationService.cancelOnlineAlert();
         // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
         ScaffoldMessenger.of(context).showSnackBar(
@@ -417,7 +551,38 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         );
         return;
       }
-      _goOnlineWithVerifiedProfile();
+      // Document expiry guard — check after profile passes because a fresh
+      // driver without any dates entered (nulls) is allowed through; only
+      // hard-expired documents block the flow.
+      _checkDocExpiry().then((expiredDoc) {
+        if (!mounted) return;
+        if (expiredDoc != null) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Document Expired'),
+                ],
+              ),
+              content: Text(
+                'Your $expiredDoc has expired. Update the expiry date in '
+                'Driver Profile → Document Expiry Dates to go online again.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
+        _goOnlineWithVerifiedProfile();
+      });
     });
   }
 
@@ -437,7 +602,101 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
   }
 
+  /// Checks whether any mandatory document (license, inspection, insurance)
+  /// is expired. Returns the document label if expired, null otherwise.
+  ///
+  /// A null field (not yet entered) is treated as *not* expired so a
+  /// first-time driver is not wrongly blocked. The Cloud Functions
+  /// `goOnline` handshake is the authoritative enforcement point; this
+  /// provides the client-side UI signal only.
+  Future<String?> _checkDocExpiry() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(widget.driverId)
+          .get();
+      if (!doc.exists) return null;
+      final data = doc.data()!;
+      final today = DateTime.now();
+
+      DateTime? parseTs(dynamic v) {
+        if (v == null) return null;
+        try {
+          return (v as dynamic).toDate() as DateTime;
+        } catch (_) {
+          if (v is String) return DateTime.tryParse(v);
+          return null;
+        }
+      }
+
+      final license = parseTs(data['licenseExpiry']);
+      if (license != null && license.isBefore(today)) return "Driver's License";
+      final inspection = parseTs(data['inspectionExpiry']);
+      if (inspection != null && inspection.isBefore(today)) {
+        return 'Vehicle Inspection Certificate';
+      }
+      final insurance = parseTs(data['insuranceExpiry']);
+      if (insurance != null && insurance.isBefore(today)) {
+        return 'Vehicle Insurance Policy';
+      }
+      return null;
+    } catch (_) {
+      // Offline or unavailable — allow through; server is authoritative.
+      return null;
+    }
+  }
+
   void _goOnlineWithVerifiedProfile() async {
+    // ── Overlay permission gate (Android only) ────────────────────────────
+    // The floating SeSe bubble and background order popup both require
+    // SYSTEM_ALERT_WINDOW. Without it the driver can go ONLINE but will never
+    // see incoming offers in the background — a silent failure that looks like
+    // a dispatch problem. Gate here (before the server handshake) so the user
+    // can act on the prompt before any state changes.
+    //
+    // Non-Android (iOS, web, tests) always passes — overlay is Android-only.
+    if (Platform.isAndroid) {
+      final hasOverlay = await DriverOverlayService.instance
+          .ensurePermission(context: context);
+      if (!mounted) return;
+      if (!hasOverlay) {
+        // Permission was explicitly declined or the OS prompt was dismissed.
+        // Show a targeted dialog explaining the feature impact and send the
+        // driver to Android Settings — the go-online flow is halted here.
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.layers_outlined,
+                size: 36, color: AppColors.seseGold),
+            title: const Text('"Display over other apps" Required'),
+            content: const Text(
+              'To receive incoming trip offers when the app is in the '
+              'background, SeSe needs the \'Display over other apps\' '
+              'permission.\n\nTap "Open Settings", enable it for SeSe, then '
+              'return here and tap GO ONLINE again.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Later'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  // FlutterOverlayWindow uses its own settings launcher;
+                  // fall back to a SnackBar hint if unsupported.
+                  DriverOverlayService.instance
+                      .ensurePermission(context: context);
+                },
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        return; // halt — driver must re-tap GO ONLINE after granting
+      }
+    }
+
     // Refresh the fleet right before the guard: the cached list is from
     // screen load, but hub approval may have landed after that — a stale
     // cache would wrongly block a verified driver here while the server
@@ -536,97 +795,163 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     await _finalizeGoOnline(vehicle);
   }
 
-  /// Lightweight session-vehicle chooser used when the live snapshot is
-  /// disabled by Remote Config. Returns null when the driver dismisses.
+  /// Lightweight session-vehicle chooser requiring manual plate number confirmation.
+  /// Returns null when the driver cancels or fails verification.
   Future<VehicleModel?> _pickSessionVehicle(List<VehicleModel> vehicles) {
     return showModalBottomSheet<VehicleModel>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         var selected = vehicles.firstWhere(
           (v) => v.isActiveSelected,
           orElse: () => vehicles.first,
         );
+        final plateController = TextEditingController();
+        String? plateError;
+
         return StatefulBuilder(
           builder: (ctx, setSheetState) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Select Session Vehicle',
-                      style: TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold),
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                16,
+                20,
+                MediaQuery.of(ctx).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Choose the vehicle you will use for this session.',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                    const SizedBox(height: 12),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: RadioGroup<VehicleModel>(
-                          groupValue: selected,
-                          onChanged: (val) {
-                            if (val != null) {
-                              setSheetState(() => selected = val);
-                            }
-                          },
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: vehicles.map((veh) {
-                              final isSelected = selected.id == veh.id;
-                              return RadioListTile<VehicleModel>(
-                                value: veh,
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(
-                                  veh.displayTitle,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14),
+                  ),
+                  const Text(
+                    'Select Session Vehicle',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Choose vehicle and type its exact plate number to confirm.',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 12),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: RadioGroup<VehicleModel>(
+                        groupValue: selected,
+                        onChanged: (val) {
+                          if (val != null) {
+                            setSheetState(() {
+                              selected = val;
+                              plateError = null;
+                            });
+                          }
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: vehicles.map((veh) {
+                            final isSelected = selected.id == veh.id;
+                            return RadioListTile<VehicleModel>(
+                              value: veh,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                veh.displayTitle,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
                                 ),
-                                subtitle: Text(
-                                  'Category: ${veh.category.displayName} '
-                                  '${veh.tier != null ? "• ${veh.tier!.defaultDisplayName}" : ""}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                secondary: Icon(
-                                  veh.category == VehicleCategory.car
-                                      ? Icons.directions_car
-                                      : Icons.two_wheeler,
-                                  color: isSelected
-                                      ? Theme.of(ctx).colorScheme.primary
-                                      : Colors.grey,
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                              ),
+                              subtitle: Text(
+                                'Category: ${veh.category.displayName} '
+                                '${veh.tier != null ? "• ${veh.tier!.defaultDisplayName}" : ""}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              secondary: Icon(
+                                veh.category == VehicleCategory.car
+                                    ? Icons.directions_car
+                                    : Icons.two_wheeler,
+                                color: isSelected
+                                    ? Theme.of(ctx).colorScheme.primary
+                                    : Colors.grey,
+                              ),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(ctx),
-                            child: const Text('Cancel'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => Navigator.pop(ctx, selected),
-                            child: const Text('Go Online'),
-                          ),
-                        ),
-                      ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Confirm Plate Number:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    key: const Key('plate_verification_input'),
+                    controller: plateController,
+                    autocorrect: false,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: InputDecoration(
+                      hintText: 'Type plate number (e.g. ${selected.licensePlate})',
+                      errorText: plateError,
+                      border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
-                  ],
-                ),
+                    onChanged: (_) {
+                      if (plateError != null) {
+                        setSheetState(() => plateError = null);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          key: const Key('confirm_vehicle_online_button'),
+                          onPressed: () {
+                            final typed = plateController.text
+                                .trim()
+                                .replaceAll(RegExp(r'[\s\-]'), '')
+                                .toUpperCase();
+                            final expected = selected.licensePlate
+                                .trim()
+                                .replaceAll(RegExp(r'[\s\-]'), '')
+                                .toUpperCase();
+                            if (typed != expected) {
+                              setSheetState(() {
+                                plateError =
+                                    'Plate number does not match (${selected.licensePlate})';
+                              });
+                              return;
+                            }
+                            Navigator.pop(ctx, selected);
+                          },
+                          child: const Text('Confirm & Go Online'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             );
           },
@@ -652,13 +977,23 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         setState(() {
           _activeVehicle = selectedVehicle;
           _isOnline = true;
+          _sessionOverriddenOnOtherDevice = false;
+          _currentSessionId = decision.sessionId;
+          _streaks.activeSessionId = decision.sessionId;
         });
         // Audio feedback: online chime.
         // ignore: discarded_futures
         AppSoundService.instance.playOnlineSound();
-        // Overlay bubble readiness + driver-topic push subscription.
+        // Overlay bubble readiness + sticky foreground signal + driver-topic
+        // push subscription. Background location is best-effort: foreground
+        // fixes work without it, but the OS only keeps delivering fixes
+        // while minimized when it is granted.
         // ignore: discarded_futures
-        DriverOverlayService.instance.ensurePermission();
+        DriverOverlayService.instance.ensurePermission(context: context);
+        // ignore: discarded_futures
+        MediaPermissionService.ensureBackgroundLocation();
+        // ignore: discarded_futures
+        PushNotificationService.showOngoingOnlineAlert();
         // ignore: discarded_futures
         PushNotificationService.subscribe('driver_${widget.driverId}');
       } else {
@@ -688,6 +1023,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         builder: (_) => DriverFleetScreen(
           fleetService: widget.fleetService,
           driverId: widget.driverId,
+          isOnline: _isOnline,
           config: widget.config,
         ),
       ),
@@ -695,25 +1031,195 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _loadFleet();
   }
 
+  // ── Module 4: Driver Resting Break ──────────────────────────────────────────
+
+  /// Displays the break-options bottom sheet and starts a countdown when the
+  /// driver picks a duration. Duration values come from [RemoteKeysConfig] so
+  /// hub admins can tune them without an app release.
+  ///
+  /// If the break feature is globally disabled via [RemoteKeysConfig.driverBreakEnabled]
+  /// the sheet is skipped — the tap is treated as a no-op.
+  ///
+  /// If the driver is already on break, tapping the slider cancels the break
+  /// immediately (sets Firestore `isOnBreak = false` and resets the timer).
+  Future<void> _showBreakOptions() async {
+    // Cancel an active break on tap while on break.
+    if (_isOnBreak) {
+      _endBreak();
+      return;
+    }
+
+    // Fetch remote config for break durations.
+    RemoteKeysConfig remoteKeys;
+    try {
+      remoteKeys = await RemoteKeysService().fetchRemoteKeys();
+    } catch (_) {
+      remoteKeys = const RemoteKeysConfig();
+    }
+
+    if (!remoteKeys.driverBreakEnabled) return; // feature flag off
+    if (!mounted) return;
+
+    final option1 = remoteKeys.driverBreakOption1Minutes;
+    final option2 = remoteKeys.driverBreakOption2Minutes;
+
+    final chosen = await showModalBottomSheet<int>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        // 16px gutters so session-vehicle options span edge-to-edge.
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                alignment: Alignment.center,
+              ),
+              const Text(
+                'Take a Break',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'How long do you need? Quick-Order pool stays open during your break.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                key: const Key('break_option_1'),
+                icon: const Icon(Icons.coffee_outlined),
+                label: Text('$option1-Minute Break'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 52),
+                  backgroundColor: AppColors.seseGold,
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () => Navigator.pop(ctx, option1),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                key: const Key('break_option_2'),
+                icon: const Icon(Icons.hotel_outlined),
+                label: Text('$option2-Minute Break (${option2 == 60 ? '1 Hour' : '$option2 min'})'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 52),
+                  backgroundColor: AppColors.seseGold,
+                  foregroundColor: Colors.black,
+                ),
+                onPressed: () => Navigator.pop(ctx, option2),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+                child: const Text('Stay Online'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (chosen == null || !mounted) return;
+    _startBreak(chosen * 60);
+  }
+
+  /// Starts a break countdown of [durationSeconds]. Updates Firestore
+  /// `drivers/{uid}.isOnBreak = true` best-effort (non-blocking).
+  void _startBreak(int durationSeconds) {
+    _breakTimer?.cancel();
+    setState(() {
+      _isOnBreak = true;
+      _breakRemainingSeconds = durationSeconds;
+    });
+    // Best-effort Firestore write — never blocks the UI or throws.
+    FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(widget.driverId)
+        .set({'isOnBreak': true}, SetOptions(merge: true))
+        .catchError((_) {});
+
+    _breakTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        _breakRemainingSeconds--;
+      });
+      if (_breakRemainingSeconds <= 0) {
+        t.cancel();
+        _endBreak();
+      }
+    });
+  }
+
+  /// Ends the current break: resets state, cancels the timer, and updates
+  /// Firestore `drivers/{uid}.isOnBreak = false`.
+  void _endBreak() {
+    _breakTimer?.cancel();
+    _breakTimer = null;
+    setState(() {
+      _isOnBreak = false;
+      _breakRemainingSeconds = 0;
+    });
+    FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(widget.driverId)
+        .set({'isOnBreak': false}, SetOptions(merge: true))
+        .catchError((_) {});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Break ended — you are back online.')),
+      );
+    }
+  }
+
+  /// Returns the compact timer label shown inside the [SlideToOffline] thumb
+  /// during an active break. Shows minutes when > 60s remaining, seconds
+  /// otherwise (so the driver can see the final countdown precisely).
+  String? _breakThumbText() {
+    if (!_isOnBreak) return null;
+    if (_breakRemainingSeconds > 60) {
+      return '${(_breakRemainingSeconds / 60).ceil()}m';
+    }
+    return '${_breakRemainingSeconds}s';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Scaffold color comes from AppTheme (light/dark variants) — never a
+    // hardcoded hex, so the screen can never diverge from brightness.
     if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: const Center(
+          child: CircularProgressIndicator(
+            color: AppColors.seseGold,
+          ),
+        ),
       );
     }
 
-    // Full-screen map canvas base. Offline renders the same tiles through
-    // a grayscale filter; online is full color. The OSM view lives here
-    // (plus the offer-sheet route preview) and nowhere else on this tab.
-    // No AppBar: the home occupies the top space. Fleet and document
-    // management live in Settings.
+    // Full-screen map canvas base adapting to system theme.
     return Scaffold(
-      body: SafeArea(
-        child: SizedBox.expand(
-          child: _buildMapStack(),
-        ),
-      ),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SizedBox.expand(child: _buildMapStack()),
     );
   }
 
@@ -725,8 +1231,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   ///   (online only), then the verification banner;
   /// - center shows the radar overlay while online with no live trip and an
   ///   empty pool (the pulsing badge already draws the eye otherwise);
-  /// - bottom shows the live-trip card, else the offline snapshot card, else
-  ///   the streak banner. Tier 1/2 offers arrive as full-screen sheets via
+  /// - bottom shows the live-trip card when a trip is active, else the
+  ///   streak banner while online, else nothing (offline is just the map —
+  ///   there is deliberately no earnings/status overlay card). Tier 1/2
   ///   [_PingListener], never inline — the inline [OrderFeed] list is
   ///   superseded by the pool sheet and is no longer mounted here.
   Widget _buildMapStack() {
@@ -737,67 +1244,123 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 0. Map canvas base.
-            Positioned.fill(child: _buildMapBase()),
-            // Invisible listeners: incoming-offer page + grand-award
+            // 0. Map canvas base. Context flips to realtime tracking while
+            // a trip is live so the policy pins the OSM renderer even after
+            // Google Maps is provisioned for idle browsing.
+            Positioned.fill(child: _buildMapBase(active != null)),
+            // Zero-size listeners: incoming-offer page + grand-award
             // celebration modal (dialogs driven by Firestore streams).
-            _PingListener(
-              service: _streaks,
-              driverId: widget.driverId,
-              currencySymbol: _currencySymbol,
-              driverPosition: _driverPosition,
-              isAppPaused: () => _appPaused,
+            Positioned(
+              top: 0,
+              left: 0,
+              width: 0,
+              height: 0,
+              child: _PingListener(
+                service: _streaks,
+                driverId: widget.driverId,
+                currencySymbol: _currencySymbol,
+                driverPosition: _driverPosition,
+                isAppPaused: () => _appPaused,
+                isOnBreak: () => _isOnBreak,
+              ),
             ),
-            _CelebrationListener(
-              service: _streaks,
-              driverId: widget.driverId,
-              currencySymbol: _currencySymbol,
+            Positioned(
+              top: 0,
+              left: 0,
+              width: 0,
+              height: 0,
+              child: _CelebrationListener(
+                service: _streaks,
+                driverId: widget.driverId,
+                currencySymbol: _currencySymbol,
+              ),
             ),
             // New pool arrivals chime once while browsing the map.
-            _PoolArrivalChime(
-              streakService: _streaks,
-              driverPosition: _driverPosition,
-              enabled: _isOnline && active == null,
+            Positioned(
+              top: 0,
+              left: 0,
+              width: 0,
+              height: 0,
+              child: _PoolArrivalChime(
+                streakService: _streaks,
+                driverPosition: _driverPosition,
+                enabled: _isOnline && active == null,
+              ),
             ),
-            // 1. Floating top controls.
             Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildOnlineHeader(),
-                  if (_isOnline)
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_sessionOverriddenOnOtherDevice) ...[
+                      _buildSessionTerminatedBanner(),
+                    ],
+                    const SizedBox(height: 8),
                     Padding(
-                      padding:
-                          const EdgeInsets.only(top: 8, left: 12, right: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: _buildOnlineHeader(),
+                    ),
+                    const SizedBox(height: 6),
+                    // Notification bell: positioned directly beneath the GO ONLINE / status banner.
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
-                          PoolBadge(
-                            streakService: _streaks,
-                            driverPosition: _driverPosition,
-                            onTap: _openPoolSheet,
+                          Material(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surface
+                                .withValues(alpha: 0.9),
+                            shape: const CircleBorder(),
+                            elevation: 2,
+                            child: NotificationBellButton(
+                                uid: widget.driverId),
                           ),
                         ],
                       ),
                     ),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: VerificationBanner(driverId: widget.driverId),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    _buildLowBalanceBanner(),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: VerificationBanner(driverId: widget.driverId),
+                    ),
+                    _DocExpiryBanner(driverId: widget.driverId),
+                  ],
+                ),
               ),
             ),
-            // 2. Center radar while online, idle, and pool-empty.
-            if (_isOnline && active == null)
-              _PoolRadarOverlay(
-                streakService: _streaks,
-                driverPosition: _driverPosition,
+            // 1. Recenter FAB (Module 1): bottom-right — above the bottom card
+            // while ONLINE, near the edge while OFFLINE (no bottom card).
+            // Shown in both states so the driver can always recenter on GPS.
+            Positioned(
+              right: 16,
+              bottom: _isOnline ? 210 : 16,
+              child: Material(
+                key: const Key('driver_recenter_fab'),
+                color: Theme.of(context).colorScheme.surface,
+                elevation: 4,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  // Re-engages GPS follow AND snaps back (see home map).
+                  onTap: () =>
+                      _mapController.recenterTo(_driverPosition, 16.0),
+                  child: const Padding(
+                    padding: EdgeInsets.all(10),
+                    child: Icon(Icons.my_location, size: 22, color: Color(0xFF4285F4)),
+                  ),
+                ),
               ),
-            // 3. Bottom card: live trip, else offline snapshot, else streak.
+            ),
+            // 2. (Radar moved into the Order Pool sheet — map stays clean.)
+            // 3. Bottom card: live trip, else streak while online, else map
+            // alone. OSM attribution shows only when the OSM renderer is
+            // live (Google renders its own logo/terms — never double-credit).
             Positioned(
               left: 12,
               right: 12,
@@ -806,11 +1369,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Align(
-                    alignment: Alignment.centerRight,
-                    child: _OsmCredit(),
-                  ),
+                  if (MapProviderPolicy.resolve(active != null
+                          ? MapContext.realtimeTracking
+                          : MapContext.idlePositioning) !=
+                      MapProvider.googleMaps)
+                    const Align(
+                      alignment: Alignment.centerRight,
+                      child: _RasterCredit(),
+                    ),
                   const SizedBox(height: 4),
+                  // Gold "Quick Order" badge floats above the streak/bottom card
+                  // when online and idle (no active trip).
+                  if (_isOnline && active == null)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: PoolBadge(
+                          streakService: _streaks,
+                          driverPosition: _driverPosition,
+                          onTap: _openPoolSheet,
+                        ),
+                      ),
+                    ),
                   if (active != null)
                     ConstrainedBox(
                       constraints: BoxConstraints(
@@ -822,15 +1403,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       ),
                     )
                   else if (_isOnline)
-                    _buildBottomStreakSlot()
-                  else
-                    _OfflineSnapshotCard(
-                      driverId: widget.driverId,
-                      streakService: _streaks,
-                      earnings: _earnings,
-                      driverPosition: _driverPosition,
-                      currencySymbol: _currencySymbol,
-                    ),
+                    _buildBottomStreakSlot(),
                 ],
               ),
             ),
@@ -840,31 +1413,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  /// Tile canvas with a driver-position marker. Offline mutes the tiles to
-  /// grayscale; the marker stays gold either way.
-  Widget _buildMapBase() {
-    final map = OsmMapView(
+  /// Tile canvas using the native blue-dot my-location indicator for the
+  /// driver's current position. Routed through [SeSeMapView] so the map
+  /// provider policy applies: idle positioning may use Google Maps once
+  /// provisioned, live-trip tracking stays on OpenStreetMap.
+  Widget _buildMapBase([bool hasActiveTrip = false]) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SeSeMapView(
+      mapContext: hasActiveTrip
+          ? MapContext.realtimeTracking
+          : MapContext.idlePositioning,
       mapController: _mapController,
       initialCenter: _driverPosition,
       initialZoom: 15.0,
-      markers: [
-        OsmMapView.pin(
-          point: _driverPosition,
-          color: AppColors.seseGold,
-        ),
-      ],
-    );
-    if (_isOnline) return map;
-    // Standard luminance grayscale — signals "not receiving orders" while
-    // keeping streets readable underneath.
-    return ColorFiltered(
-      colorFilter: const ColorFilter.matrix(<double>[
-        0.2126, 0.7152, 0.0722, 0, 0,
-        0.2126, 0.7152, 0.0722, 0, 0,
-        0.2126, 0.7152, 0.0722, 0, 0,
-        0, 0, 0, 1, 0,
-      ]),
-      child: map,
+      isDarkOverride: isDark,
+      showMyLocation: true,
+      showRecenterFab: false,
+      // Live fix per GPS refine: raster dot tracks the driver, and the
+      // camera follows until the driver pans (FAB re-engages via recenter).
+      userLocation: _driverPosition,
+      // No manual driver pin — the native blue dot is shown instead.
+      markers: const [],
     );
   }
 
@@ -874,61 +1443,249 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   ///   immediately (verification guard + server grant still apply).
   /// - ONLINE: "Slide to go offline" slider thumb; completing the slide
   ///   opens the go-offline confirmation sheet.
+  Widget _buildDailyEarningsCounter() {
+    return StreamBuilder<List<TripEarning>>(
+      stream: EarningsService().completedTripEarningsStream(widget.driverId),
+      builder: (context, snapshot) {
+        final earnings = snapshot.data ?? const [];
+        final todaySummary = EarningsService.summarizeDay(earnings, DateTime.now());
+        final dailyTotal = todaySummary.day.gross;
+
+        // WHY: hide the pill when offline with zero earnings so the driver
+        // never sees a static "₦0.00" badge that implies active tracking.
+        // While ONLINE, always show it (even at zero) so they see real-time
+        // progress. While OFFLINE with prior earnings, show it as a recap.
+        if (!_isOnline && dailyTotal == 0) return const SizedBox.shrink();
+
+        return Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFF2A900), width: 1),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.insights_rounded,
+                color: Color(0xFFF2A900),
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'Daily Earnings: ',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '₦${dailyTotal.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
   Widget _buildOnlineHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      child: _isOnline
-          ? SlideToOffline(
-              key: const Key('slide_to_offline'),
-              enabled: !_syncing,
-              onSlideComplete: _showGoOfflineConfirmation,
-            )
-          : GestureDetector(
-              key: const Key('power_toggle'),
-              onTap: _syncing ? null : _goOnlineNow,
-              child: Container(
-                height: 52,
-                decoration: BoxDecoration(
-                  color: _offlineColor,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _offlineColor.withValues(alpha: 0.5),
-                      blurRadius: 12,
-                      offset: const Offset(0, 3),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _isOnline
+              ? SlideToOffline(
+                  key: const Key('slide_to_offline'),
+                  enabled: !_syncing,
+                  onSlideComplete: _showGoOfflineConfirmation,
+                  onTapBreak: _showBreakOptions,
+                  breakTimerText: _breakThumbText(),
+                )
+              : GestureDetector(
+                  key: const Key('power_toggle'),
+                  onTap: _syncing ? null : _goOnlineNow,
+                  child: Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Colors.black26,
+                          blurRadius: 8,
+                          offset: Offset(0, 3),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: _syncing
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.black),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.power_settings_new,
-                              color: Colors.black, size: 22),
-                          const SizedBox(width: 8),
-                          Text(
-                            'GO ONLINE',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                ),
-                            overflow: TextOverflow.ellipsis,
+                    alignment: Alignment.center,
+                    child: _syncing
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Theme.of(context).colorScheme.onPrimary),
+                          )
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.power_settings_new,
+                                  color: Theme.of(context).colorScheme.onPrimary,
+                                  size: 22),
+                              const SizedBox(width: 8),
+                              Text(
+                                'GO ONLINE',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      color: Theme.of(context).colorScheme.onPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                  ),
+                ),
+          _buildDailyEarningsCounter(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionTerminatedBanner() {
+    return Container(
+      key: const ValueKey('session_terminated_banner'),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2411),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: const Color(0xFFE5A93C).withValues(alpha: 0.6),
+          width: 1.2,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 4,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.devices_other_rounded,
+            color: Color(0xFFE5A93C),
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'You went online on another device. This session is now offline.',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
               ),
             ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18, color: Colors.white70),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            splashRadius: 16,
+            onPressed: () {
+              setState(() => _sessionOverriddenOnOtherDevice = false);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLowBalanceBanner() {
+    return StreamBuilder<DualWallet>(
+      stream: const SeseCoinService().walletStream(widget.driverId),
+      builder: (context, wSnap) {
+        final wallet = wSnap.data ?? const DualWallet();
+        return StreamBuilder<FinancialConfig>(
+          stream: const FinancialConfigService().configStream(),
+          builder: (context, cSnap) {
+            final config = cSnap.data ?? const FinancialConfig();
+            final lowBalance = wallet.mainWalletBalance < config.minWalletBalanceToOnline;
+            if (!_isOnline || !lowBalance) return const SizedBox.shrink();
+
+            return Container(
+              margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade900,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Warning: Your wallet balance is below ₦${config.minWalletBalanceToOnline.toStringAsFixed(2)}. '
+                      'You are online, but you will not receive trip requests until you top up your wallet.',
+                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.amber.shade900,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    ),
+                    onPressed: () {
+                      final u = widget.user ??
+                          AppUser(
+                            uid: widget.driverId,
+                            fullName: 'Driver',
+                            email: '',
+                            phoneNumber: '',
+                            createdAt: DateTime.now(),
+                            role: UserRole.driver,
+                          );
+                      showTopUpSheet(context, PaymentService(), u);
+                    },
+                    child: const Text('Top Up Now', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -945,14 +1702,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           streakService: _streaks,
           waitThresholdMinutes: cfg.noShowWaitMinutes,
           driverId: widget.driverId,
+          driverPosition: _driverPosition,
+          autoArrivalEnabled: cfg.autoArrivalEnabled,
+          autoArrivalCountdownSeconds: cfg.autoArrivalCountdownSeconds,
         );
       },
     );
   }
 
-  /// Bottom slot: daily streak banner (+ live arrived wait timer), floating
-  /// above the map canvas while online and idle.
-  Widget _buildBottomStreakSlot() {    return StreamBuilder<DailyStreakConfig>(
+  /// Bottom slot: daily streak banner — starts collapsed as a floating round
+  /// badge (tappable to expand). When the driver has arrived at a pickup it
+  /// stays expanded so the wait timer is always visible.
+  Widget _buildBottomStreakSlot() {
+    return StreamBuilder<DailyStreakConfig>(
       stream: _streaks.streakConfigStream(),
       builder: (context, cfgSnap) {
         final cfg = cfgSnap.data ?? const DailyStreakConfig();
@@ -965,17 +1727,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               builder: (context, streakSnap) {
                 final streak = streakSnap.data ??
                     DriverStreakState(driverId: widget.driverId);
-                return Material(
-                  elevation: 8,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: StreakProgressBanner(
-                      streak: streak,
-                      fareAmount: active?.fareAmount ?? 0,
-                      currencySymbol: _currencySymbol,
-                      waitThresholdMinutes: cfg.noShowWaitMinutes,
-                      arrivedAt: active?.arrivedAt,
-                    ),
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: StreakProgressBanner(
+                    streak: streak,
+                    fareAmount: active?.fareAmount ?? 0,
+                    currencySymbol: _currencySymbol,
+                    waitThresholdMinutes: cfg.noShowWaitMinutes,
+                    arrivedAt: active?.arrivedAt,
+                    collapsible: true,
                   ),
                 );
               },
@@ -985,145 +1745,30 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       },
     );
   }
+
 }
 
-/// Visible OSM attribution credit.
-///
-/// The tile layer's built-in credit sits bottom-right, which the bottom card
-/// covers — so this chip renders just above the card, right-aligned, keeping
-/// the required OpenStreetMap credit visible at all times.
-class _OsmCredit extends StatelessWidget {
-  const _OsmCredit();
+/// Raster tile attribution rendered just above the bottom card.
+class _RasterCredit extends StatelessWidget {
+  const _RasterCredit();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Text(
-        '© OpenStreetMap contributors',
-        style: TextStyle(fontSize: 10, color: Colors.white70),
-      ),
-    );
-  }
-}
-
-/// Center radar overlay while online, idle, and pool-empty.
-///
-/// The badge already pulses when orders exist, so this draws the eye only
-/// when there is nothing to tap — a breathing radar glyph plus the idle
-/// line. Ignores pointers so map gestures pass straight through.
-class _PoolRadarOverlay extends StatefulWidget {
-  final DriverStreakService streakService;
-  final LatLng driverPosition;
-
-  const _PoolRadarOverlay({
-    required this.streakService,
-    required this.driverPosition,
-  });
-
-  @override
-  State<_PoolRadarOverlay> createState() => _PoolRadarOverlayState();
-}
-
-class _PoolRadarOverlayState extends State<_PoolRadarOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<ActiveTrip>>(
-      stream: widget.streakService.marketplaceStream(),
-      builder: (context, snap) {
-        final count = (snap.data ?? const <ActiveTrip>[])
-            .where((t) => OrderFeedState.withinPoolRadius(
-                t, widget.driverPosition))
-            .length;
-        // Pool non-empty: the pulsing badge owns attention; stay out of
-        // the way (but keep the layout slot stable to avoid jumps).
-        if (count > 0) return const SizedBox.shrink();
-        return IgnorePointer(
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AnimatedBuilder(
-                  animation: _pulse,
-                  builder: (context, child) => Transform.scale(
-                    scale: 1.0 + _pulse.value * 0.12,
-                    child: Opacity(
-                      opacity: 0.65 + _pulse.value * 0.35,
-                      child: child,
-                    ),
-                  ),
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withValues(alpha: 0.75),
-                    ),
-                    child: Icon(
-                      Icons.radar,
-                      size: 34,
-                      color:
-                          Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Text(
-                    'Searching for available orders...',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    final isMapbox = MapConfigController.instance.isMapbox;
+    return Text(
+      isMapbox ? '© Mapbox © OpenStreetMap' : '© CARTO',
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
-        );
-      },
     );
   }
 }
 
-/// One-shot chime when fresh pool orders arrive while browsing the map.
-///
-/// Fires only on count *increases* past the first snapshot (initial load
-/// never chimes), and only while [enabled] (online, no live trip). Uses the
-/// short message chime rather than the 6s order loop — the loop belongs to
-/// exclusive pings with a countdown, not to background pool arrivals.
+
+/// One-shot chime on pool-count *increases* past the first snapshot: the
+/// initial load never chimes. Gated by [enabled] (online + trip-free) at
+/// fire time. Uses the short message chime — the 6s order loop belongs to
+/// exclusive pings.
 class _PoolArrivalChime extends StatefulWidget {
   final DriverStreakService streakService;
   final LatLng driverPosition;
@@ -1140,25 +1785,29 @@ class _PoolArrivalChime extends StatefulWidget {
 }
 
 class _PoolArrivalChimeState extends State<_PoolArrivalChime> {
-  int? _lastCount;
+  bool _seenFirst = false;
+  int _lastCount = 0;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ActiveTrip>>(
       stream: widget.streakService.marketplaceStream(),
       builder: (context, snap) {
-        if (snap.hasData) {
-          final count = snap.data!
-              .where((t) => OrderFeedState.withinPoolRadius(
-                  t, widget.driverPosition))
-              .length;
-          final prev = _lastCount;
+        final trips = snap.data ?? const <ActiveTrip>[];
+        final count = trips
+            .where((t) => OrderFeedState.withinPoolRadius(
+                t, widget.driverPosition))
+            .length;
+        if (!_seenFirst) {
+          // First snapshot seeds the baseline — never chimes.
+          _seenFirst = true;
           _lastCount = count;
-          if (widget.enabled &&
-              prev != null &&
-              count > prev &&
-              mounted) {
+        } else if (count != _lastCount) {
+          final grew = count > _lastCount;
+          _lastCount = count;
+          if (grew && widget.enabled) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
               // ignore: discarded_futures
               AppSoundService.instance.playIncomingMessageSound();
             });
@@ -1170,165 +1819,7 @@ class _PoolArrivalChimeState extends State<_PoolArrivalChime> {
   }
 }
 
-/// Offline snapshot card: today's earnings, today's completed trips, and a
-/// live demand hint derived from the current pool (count + nearest pickup
-/// area). Pool reads require a driver doc, not online status, so an offline
-/// driver can still see real demand — with neutral copy when empty.
-class _OfflineSnapshotCard extends StatelessWidget {
-  final String driverId;
-  final DriverStreakService streakService;
-  final EarningsService earnings;
-  final LatLng driverPosition;
-  final String currencySymbol;
 
-  const _OfflineSnapshotCard({
-    required this.driverId,
-    required this.streakService,
-    required this.earnings,
-    required this.driverPosition,
-    required this.currencySymbol,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 8,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "You're offline",
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            StreamBuilder<List<TripEarning>>(
-              stream: earnings.completedTripEarningsStream(driverId),
-              builder: (context, snap) {
-                final day = EarningsService.summarizeDay(
-                  snap.data ?? const <TripEarning>[],
-                  DateTime.now(),
-                ).day;
-                return Row(
-                  children: [
-                    Expanded(
-                      child: _SnapshotStat(
-                        label: "Today's earnings",
-                        value: PaymentService.formatNaira(day.gross),
-                      ),
-                    ),
-                    Expanded(
-                      child: _SnapshotStat(
-                        label: 'Trips today',
-                        value: '${day.tripCount}',
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 10),
-            StreamBuilder<List<ActiveTrip>>(
-              stream: streakService.marketplaceStream(),
-              builder: (context, snap) {
-                final trips = (snap.data ?? const <ActiveTrip>[])
-                    .where((t) => OrderFeedState.withinPoolRadius(
-                        t, driverPosition))
-                    .toList();
-                final hotspot = _hotspotText(trips);
-                return Row(
-                  children: [
-                    Icon(
-                      trips.isEmpty
-                          ? Icons.nights_stay_outlined
-                          : Icons.local_fire_department_outlined,
-                      size: 16,
-                      color: trips.isEmpty
-                          ? scheme.onSurfaceVariant
-                          : Colors.orange.shade800,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        hotspot,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Demand hint from live pool density: count plus the nearest pickup area.
-  /// Falls back to neutral copy when the pool is empty — never invented.
-  String _hotspotText(List<ActiveTrip> trips) {
-    if (trips.isEmpty) {
-      return 'No open requests nearby right now.';
-    }
-    ActiveTrip? nearest;
-    var best = double.infinity;
-    for (final t in trips) {
-      final d = OrderFeedState.haversineKm(
-        driverPosition.latitude,
-        driverPosition.longitude,
-        t.pickupLat,
-        t.pickupLng,
-      );
-      if (d < best) {
-        best = d;
-        nearest = t;
-      }
-    }
-    final area = ((nearest?.pickupAddress ?? '').split(',').first).trim();
-    final where_ = area.isEmpty ? 'near you' : 'near $area';
-    final n = trips.length;
-    return 'High demand $where_ — $n open request${n == 1 ? '' : 's'}.';
-  }
-}
-
-class _SnapshotStat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _SnapshotStat({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 /// Invisible listener: opens the full-screen incoming offer page
 /// ([IncomingOfferSheet]) whenever the backend pings this driver, with the
@@ -1346,12 +1837,18 @@ class _PingListener extends StatefulWidget {
   /// True while the activity is backgrounded (overlay owns the UI).
   final bool Function() isAppPaused;
 
+  /// True while the driver is on a rest break. When true, Stage 1 & Stage 2
+  /// exclusive pings are suppressed so the driver is not interrupted. The
+  /// Quick-Order pool (Tier 3) remains visible and manually browseable.
+  final bool Function() isOnBreak;
+
   const _PingListener({
     required this.service,
     required this.driverId,
     required this.currencySymbol,
     required this.driverPosition,
     required this.isAppPaused,
+    required this.isOnBreak,
   });
 
   @override
@@ -1387,10 +1884,16 @@ class _PingListenerState extends State<_PingListener> {
                 _sheetForTrip = null;
               }
             } else if (_sheetForTrip != ping.tripId && !_sheetOpen) {
-              _sheetForTrip = ping.tripId;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _showPing(ping, streak);
-              });
+              // Gate: suppress exclusive ping popups while driver is on break.
+              // The pool badge (Tier 3 marketplace) remains accessible.
+              if (widget.isOnBreak()) {
+                // Driver is resting — don't auto-popup the offer sheet.
+              } else {
+                _sheetForTrip = ping.tripId;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _showPing(ping, streak);
+                });
+              }
             }
             return const SizedBox.shrink();
           },
@@ -1418,6 +1921,10 @@ class _PingListenerState extends State<_PingListener> {
         dropoff: ping.dropoffAddress,
         distanceKm: ping.distanceKm.toStringAsFixed(1),
         fare: fareLabel,
+        pickupLat: ping.pickupLat,
+        pickupLng: ping.pickupLng,
+        dropoffLat: ping.dropoffLat,
+        dropoffLng: ping.dropoffLng,
       );
       if (mounted) setState(() => _sheetOpen = false);
       // The overlay plays no sound itself, so stop the loop here — mirroring
@@ -1510,4 +2017,121 @@ class _CelebrationListenerState extends State<_CelebrationListener> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Document Expiry Warning Banner
+// ---------------------------------------------------------------------------
 
+/// Streams `drivers/{driverId}` and shows a collapsible amber/red banner when
+/// any mandatory document (license, inspection, insurance) is expired or
+/// expiring within 7 days. Renders nothing when all dates are in-date or
+/// not yet entered.
+class _DocExpiryBanner extends StatelessWidget {
+  final String driverId;
+
+  const _DocExpiryBanner({required this.driverId});
+
+  /// Null when Firebase isn't initialized (widget tests, offline cold start)
+  /// — the builder then renders nothing instead of throwing `[core/no-app]`.
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _driverDocStream() {
+    if (driverId.isEmpty) return null;
+    try {
+      return FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(driverId)
+          .snapshots();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _driverDocStream(),
+      builder: (context, snap) {
+        if (!snap.hasData || snap.data?.data() == null) {
+          return const SizedBox.shrink();
+        }
+        final data = snap.data!.data()!;
+        final today = DateTime.now();
+        final warnCutoff = today.add(const Duration(days: 7));
+
+        DateTime? parseTs(dynamic v) {
+          if (v == null) return null;
+          try {
+            return (v as dynamic).toDate() as DateTime;
+          } catch (_) {
+            if (v is String) return DateTime.tryParse(v);
+            return null;
+          }
+        }
+
+        final expiries = {
+          "Driver's License": parseTs(data['licenseExpiry']),
+          'Vehicle Inspection': parseTs(data['inspectionExpiry']),
+          'Vehicle Insurance': parseTs(data['insuranceExpiry']),
+        };
+
+        // Find the most critical issue first: expired → expiring soon.
+        String? message;
+        Color bannerColor = Colors.orange;
+
+        for (final entry in expiries.entries) {
+          final d = entry.value;
+          if (d == null) continue;
+          if (d.isBefore(today)) {
+            message =
+                '${entry.key} expired. Update in Profile → Document Expiry to go online.';
+            bannerColor = Colors.red.shade700;
+            break; // expired is the most severe — stop scanning
+          }
+        }
+
+        if (message == null) {
+          for (final entry in expiries.entries) {
+            final d = entry.value;
+            if (d == null) continue;
+            if (d.isBefore(warnCutoff)) {
+              final days = d.difference(today).inDays;
+              message =
+                  '${entry.key} expires in $days day${days == 1 ? '' : 's'}. '
+                  'Update soon to avoid account suspension.';
+              bannerColor = Colors.orange.shade700;
+              break;
+            }
+          }
+        }
+
+        if (message == null) return const SizedBox.shrink();
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: Material(
+            color: bannerColor,
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded,
+                      color: Colors.white, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}

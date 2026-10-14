@@ -30,7 +30,7 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(active);
 
   @override
-  Future<void> cancelTrip(String tripId) async {}
+  Future<void> cancelTrip(String tripId, {String? reason}) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}

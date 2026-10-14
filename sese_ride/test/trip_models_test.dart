@@ -104,6 +104,23 @@ void main() {
       expect(trip.driver, isNull);
       expect(trip.driverLat, isNull);
       expect(trip.pickupPhone, isEmpty);
+      // Booker line defaults empty on pre-migration trips (driver card
+      // falls back to the pickup contact, then to in-app chat).
+      expect(trip.customerPhone, isEmpty);
+    });
+
+    test('fromMap reads the booker lifeline number', () {
+      final trip = ActiveTrip.fromMap('trip-9', {
+        'status': 'DRIVER_ACCEPTED',
+        'customerId': 'cust-1',
+        'customerPhone': '+2348012345678',
+        'pickup': {'lat': 6.5, 'lng': 3.3, 'phone': ''},
+        'dropoff': {'lat': 6.6, 'lng': 3.4, 'phone': ''},
+      });
+
+      expect(trip.customerPhone, '+2348012345678');
+      expect(trip.pickupPhone, isEmpty);
+      expect(trip.dropoffPhone, isEmpty);
     });
   });
 

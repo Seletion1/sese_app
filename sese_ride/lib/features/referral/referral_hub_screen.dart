@@ -52,13 +52,17 @@ class ReferralHubScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _share(String code) async {
+  Future<void> _share(BuildContext context, String code) async {
     if (code.isEmpty) return;
+    final box = context.findRenderObject() as RenderBox?;
+    final origin =
+        box != null ? (box.localToGlobal(Offset.zero) & box.size) : null;
     await SharePlus.instance.share(
       ShareParams(
         text: 'Ride with me on SeSe! Use my referral code $code when you sign '
             'up. Earn bonuses on every trip. #SeSeRide',
         subject: 'My SeSe referral code: $code',
+        sharePositionOrigin: origin,
       ),
     );
   }
@@ -113,7 +117,7 @@ class ReferralHubScreen extends StatelessWidget {
                               label: const Text('Share'),
                               onPressed: code.isEmpty
                                   ? null
-                                  : () => _share(code),
+                                  : () => _share(context, code),
                             ),
                           ),
                         ],

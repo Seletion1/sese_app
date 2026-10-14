@@ -54,9 +54,11 @@ class GoogleSignInButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           side: BorderSide.none,
         ),
-        // Inner content cap (package defaults to 220,
-        // which overflows the larger logo + text).
-        width: 320,
+        // Full-width content so the button spans edge-to-edge like the
+        // email/password fields (a fixed 320 cap left dead space on
+        // larger phones and overflowed nothing on small ones — the outer
+        // SizedBox already bounds the width).
+        width: double.infinity,
         onPressed: onPressed,
       ),
     );

@@ -7,6 +7,8 @@ void main() {
       expect(PushChannels.orders, 'sese_orders');
       expect(PushChannels.chat, 'sese_chat');
       expect(PushChannels.system, 'sese_system');
+      expect(PushChannels.driverOnline, 'sese_driver_online');
+      expect(PushChannels.broadcast, 'sese_high_priority_alerts');
       expect(PushChannels.alertSound, 'sese_alert_chime');
     });
 
@@ -18,7 +20,11 @@ void main() {
       expect(await PushNotificationService.token(), isNull);
       await PushNotificationService.subscribe('user_x');
       await PushNotificationService.unsubscribe('user_x');
-      await PushNotificationService.showReturnToAppAlert();
+      // Token registration is best-effort: empty uid and missing Firebase
+      // resolve to no-ops, never throws.
+      await PushNotificationService.registerToken(uid: '');
+      await PushNotificationService.registerToken(
+          uid: 'user_x', country: 'NG');
     });
   });
 }

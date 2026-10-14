@@ -91,11 +91,18 @@ class StreakRewardConfig {
   static const double defaultGrandAward = 15000.0;
   static const int defaultGrandTargetTrips = 30;
 
+  final bool enabled;
+
+  /// Completion cycle: 'daily', 'weekly', or 'monthly'.
+  final String cycle;
+
   final List<StreakTier> tiers;
   final double grandCompletionCashAward; // e.g. ₦10,000 for completing full cycle
   final int grandCompletionTargetTrips;  // e.g. 30 trips
 
   const StreakRewardConfig({
+    this.enabled = true,
+    this.cycle = 'daily',
     this.tiers = const [
       StreakTier(completedTripsTrigger: 5, bonusPayout: 1000.0),
       StreakTier(completedTripsTrigger: 10, bonusPayout: 2500.0),
@@ -107,6 +114,8 @@ class StreakRewardConfig {
 
   Map<String, dynamic> toMap() {
     return {
+      'enabled': enabled,
+      'cycle': cycle,
       'tiers': tiers.map((e) => e.toMap()).toList(),
       'grandCompletionCashAward': grandCompletionCashAward,
       'grandCompletionTargetTrips': grandCompletionTargetTrips,
@@ -125,6 +134,8 @@ class StreakRewardConfig {
         ];
 
     return StreakRewardConfig(
+      enabled: (map['enabled'] as bool?) ?? true,
+      cycle: (map['cycle'] as String?) ?? 'daily',
       tiers: tiersList,
       grandCompletionCashAward:
           (map['grandCompletionCashAward'] as num?)?.toDouble() ?? 15000.0,
@@ -134,11 +145,15 @@ class StreakRewardConfig {
   }
 
   StreakRewardConfig copyWith({
+    bool? enabled,
+    String? cycle,
     List<StreakTier>? tiers,
     double? grandCompletionCashAward,
     int? grandCompletionTargetTrips,
   }) {
     return StreakRewardConfig(
+      enabled: enabled ?? this.enabled,
+      cycle: cycle ?? this.cycle,
       tiers: tiers ?? this.tiers,
       grandCompletionCashAward:
           grandCompletionCashAward ?? this.grandCompletionCashAward,
@@ -169,6 +184,13 @@ class DailyStreakConfig {
   /// Level 3 grand award (all 3 levels complete). Default: ₦10,000.
   final double completionCashAward;
 
+  /// Whether proximity auto-arrival at pickup or drop-off is enabled.
+  /// Default: true.
+  final bool autoArrivalEnabled;
+
+  /// Duration in seconds for the auto-arrival countdown. Default: 5 seconds.
+  final int autoArrivalCountdownSeconds;
+
   /// Country codes (e.g. ["KE"]) where the streak is explicitly disabled.
   /// Country-level disables cascade to all states within that country.
   final List<String> disabledCountries;
@@ -182,6 +204,8 @@ class DailyStreakConfig {
     this.baseCommissionRate = 0.20,
     this.noShowWaitMinutes = 10,
     this.completionCashAward = 10000.0,
+    this.autoArrivalEnabled = true,
+    this.autoArrivalCountdownSeconds = 5,
     this.disabledCountries = const [],
     this.disabledStates = const [],
   });
@@ -205,6 +229,8 @@ class DailyStreakConfig {
         'baseCommissionRate': baseCommissionRate,
         'noShowWaitMinutes': noShowWaitMinutes,
         'completionCashAward': completionCashAward,
+        'autoArrivalEnabled': autoArrivalEnabled,
+        'autoArrivalCountdownSeconds': autoArrivalCountdownSeconds,
         'disabledCountries': disabledCountries,
         'disabledStates': disabledStates,
       };
@@ -218,6 +244,9 @@ class DailyStreakConfig {
       noShowWaitMinutes: (map['noShowWaitMinutes'] as num?)?.toInt() ?? 10,
       completionCashAward:
           (map['completionCashAward'] as num?)?.toDouble() ?? 10000.0,
+      autoArrivalEnabled: (map['autoArrivalEnabled'] as bool?) ?? true,
+      autoArrivalCountdownSeconds:
+          (map['autoArrivalCountdownSeconds'] as num?)?.toInt() ?? 5,
       disabledCountries: (map['disabledCountries'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -234,6 +263,8 @@ class DailyStreakConfig {
     double? baseCommissionRate,
     int? noShowWaitMinutes,
     double? completionCashAward,
+    bool? autoArrivalEnabled,
+    int? autoArrivalCountdownSeconds,
     List<String>? disabledCountries,
     List<String>? disabledStates,
   }) {
@@ -242,6 +273,9 @@ class DailyStreakConfig {
       baseCommissionRate: baseCommissionRate ?? this.baseCommissionRate,
       noShowWaitMinutes: noShowWaitMinutes ?? this.noShowWaitMinutes,
       completionCashAward: completionCashAward ?? this.completionCashAward,
+      autoArrivalEnabled: autoArrivalEnabled ?? this.autoArrivalEnabled,
+      autoArrivalCountdownSeconds:
+          autoArrivalCountdownSeconds ?? this.autoArrivalCountdownSeconds,
       disabledCountries: disabledCountries ?? this.disabledCountries,
       disabledStates: disabledStates ?? this.disabledStates,
     );
@@ -277,8 +311,11 @@ class RegionConfig {
   /// Dynamic car tier thresholds and multipliers
   final CarTierThresholds carTierThresholds;
 
-  /// Dynamic streak & reward configuration (legacy milestone model).
+  /// Dynamic streak & reward configuration for drivers.
   final StreakRewardConfig streakRewards;
+
+  /// Dynamic streak & reward configuration for customers.
+  final StreakRewardConfig customerStreakRewards;
 
   /// New 3-level daily commission tiering configuration.
   /// Active by default for all regions; admins may disable per country/state.
@@ -296,6 +333,7 @@ class RegionConfig {
     required this.pricingRates,
     this.carTierThresholds = const CarTierThresholds(),
     this.streakRewards = const StreakRewardConfig(),
+    this.customerStreakRewards = const StreakRewardConfig(cycle: 'weekly'),
     this.dailyStreakConfig = const DailyStreakConfig(),
     required this.updatedAt,
   });
@@ -325,6 +363,7 @@ class RegionConfig {
       'pricingRates': pricingMap,
       'carTierThresholds': carTierThresholds.toMap(),
       'streakRewards': streakRewards.toMap(),
+      'customerStreakRewards': customerStreakRewards.toMap(),
       'dailyStreakConfig': dailyStreakConfig.toMap(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -363,11 +402,27 @@ class RegionConfig {
       streakRewards: StreakRewardConfig.fromMap(
         map['streakRewards'] as Map<String, dynamic>?,
       ),
+      customerStreakRewards: StreakRewardConfig.fromMap(
+        (map['customerStreakRewards'] ?? map['customerRewards'])
+            as Map<String, dynamic>?,
+      ),
       dailyStreakConfig: DailyStreakConfig.fromMap(
         map['dailyStreakConfig'] as Map<String, dynamic>?,
       ),
-      updatedAt: DateTime.tryParse(map['updatedAt'] ?? '') ?? DateTime.now(),
+      updatedAt: _parseDateTime(map['updatedAt']),
     );
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+    try {
+      final dynamic dyn = value;
+      return dyn.toDate() as DateTime;
+    } catch (_) {}
+    return DateTime.now();
   }
 
   /// Default baseline configuration.
@@ -415,6 +470,7 @@ class RegionConfig {
       pricingRates: rates,
       carTierThresholds: const CarTierThresholds(),
       streakRewards: const StreakRewardConfig(),
+      customerStreakRewards: const StreakRewardConfig(cycle: 'weekly'),
       updatedAt: DateTime.now(),
     );
   }
@@ -477,6 +533,7 @@ class RegionConfig {
     Map<VehicleCategory, VehiclePricingRate>? pricingRates,
     CarTierThresholds? carTierThresholds,
     StreakRewardConfig? streakRewards,
+    StreakRewardConfig? customerStreakRewards,
     DailyStreakConfig? dailyStreakConfig,
     DateTime? updatedAt,
   }) {
@@ -491,6 +548,8 @@ class RegionConfig {
       pricingRates: pricingRates ?? this.pricingRates,
       carTierThresholds: carTierThresholds ?? this.carTierThresholds,
       streakRewards: streakRewards ?? this.streakRewards,
+      customerStreakRewards:
+          customerStreakRewards ?? this.customerStreakRewards,
       dailyStreakConfig: dailyStreakConfig ?? this.dailyStreakConfig,
       updatedAt: updatedAt ?? this.updatedAt,
     );

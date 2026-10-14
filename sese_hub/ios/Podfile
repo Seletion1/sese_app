@@ -1,5 +1,5 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '15.0'
+# Platform deployment target matching IPHONEOS_DEPLOYMENT_TARGET in project.pbxproj
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -39,5 +39,43 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+  end
+
+  # Patch flutter_contacts 1.1.9+2 Swift runtime & compiler issues:
+  # 1. FlutterContacts.getGroups() does not throw, so `try` and `do-catch` fail to compile.
+  # 2. Force unwrapping UIApplication.shared.delegate!.window!!.rootViewController! crashes when SceneDelegate is used.
+  [
+    File.expand_path('.symlinks/plugins/flutter_contacts/ios/Classes/SwiftFlutterContactsPlugin.swift', __dir__),
+    File.join(installer.sandbox.root, 'flutter_contacts/ios/Classes/SwiftFlutterContactsPlugin.swift'),
+  ].each do |plugin_path|
+    if File.exist?(plugin_path)
+      content = File.read(plugin_path)
+      changed = false
+      if content.include?('let groups = try FlutterContacts.getGroups()')
+        content = content.gsub(
+          /do\s*\{\s*let groups = try FlutterContacts\.getGroups\(\)\s*result\(groups\)\s*\}\s*catch\s*\{[\s\S]*?details:\s*error\.localizedDescription[\s\S]*?\}\s*\}/,
+          "let groups = FlutterContacts.getGroups()\n                    result(groups)"
+        )
+        changed = true
+      end
+      if content.include?('let rootViewController = UIApplication.shared.delegate!.window!!.rootViewController!')
+        content = content.gsub(
+          "private let rootViewController: UIViewController\n    private var externalResult: FlutterResult?",
+          "private var externalResult: FlutterResult?\n\n    private var rootViewController: UIViewController? {\n        if let root = UIApplication.shared.delegate?.window??.rootViewController { return root }\n        if #available(iOS 13.0, *) {\n            for scene in UIApplication.shared.connectedScenes {\n                if let ws = scene as? UIWindowScene {\n                    for w in ws.windows { if w.isKeyWindow, let r = w.rootViewController { return r } }\n                    if let r = ws.windows.first?.rootViewController { return r }\n                }\n            }\n        }\n        return nil\n    }"
+        )
+        content = content.gsub(
+          "let rootViewController = UIApplication.shared.delegate!.window!!.rootViewController!\n        let instance = SwiftFlutterContactsPlugin(rootViewController)",
+          "let instance = SwiftFlutterContactsPlugin()"
+        )
+        content = content.gsub(
+          "init(_ rootViewController: UIViewController) {\n        self.rootViewController = rootViewController\n    }",
+          "override init() {\n        super.init()\n    }"
+        )
+        content = content.gsub("self.rootViewController.present", "self.rootViewController?.present")
+        content = content.gsub("UIApplication.shared.delegate?.window??.rootViewController", "self.rootViewController")
+        changed = true
+      end
+      File.write(plugin_path, content) if changed
+    end
   end
 end

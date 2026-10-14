@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/driver_fleet_service.dart';
 
@@ -44,6 +43,8 @@ class _OnlineVerificationShieldModalState
   bool _isProcessing = false;
   XFile? _capturedPhoto;
   String? _captureError;
+  final TextEditingController _shieldPlateController = TextEditingController();
+  String? _shieldPlateError;
 
   @override
   void initState() {
@@ -53,21 +54,52 @@ class _OnlineVerificationShieldModalState
     }
   }
 
+  @override
+  void dispose() {
+    _shieldPlateController.dispose();
+    super.dispose();
+  }
+
   void _proceedToCameraSnapshot() {
-    if (_selectedVehicle == null) {
+    final vehicle = _selectedVehicle;
+    if (vehicle == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a verified vehicle for this session.')),
       );
       return;
     }
+    final typed = _shieldPlateController.text.trim().replaceAll(RegExp(r'[\s\-]'), '').toUpperCase();
+    final expected = vehicle.licensePlate.trim().replaceAll(RegExp(r'[\s\-]'), '').toUpperCase();
+    if (typed != expected) {
+      setState(() {
+        _shieldPlateError = 'Plate number does not match selected vehicle (${vehicle.licensePlate})';
+      });
+      return;
+    }
     setState(() {
       _currentStep = 1;
+      _shieldPlateError = null;
     });
   }
 
   /// Opens the device camera ONLY. Gallery (`ImageSource.gallery`) is never
   /// offered anywhere in this flow, so a stored photo cannot be submitted.
+  /// The OS camera permission is handshaked first; a permanent denial sets
+  /// [_captureError] with a settings hint instead of opening a dead picker.
   Future<void> _takeLiveSnapshot() async {
+    // Runtime permission handshake BEFORE the native camera picker.
+    final permission =
+        await MediaPermissionService.ensureFor(ImageSource.camera);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      setState(() {
+        _captureError = permission == MediaPermissionOutcome.permanentlyDenied
+            ? 'Camera access is turned off. Enable it in Settings, then retry.'
+            : 'Camera permission is needed for the live plate snapshot.';
+      });
+      return;
+    }
     setState(() {
       _isCapturing = true;
       _captureError = null;
@@ -77,10 +109,8 @@ class _OnlineVerificationShieldModalState
       if (widget.captureOverride != null) {
         photo = await widget.captureOverride!.call();
       } else {
-        photo = await ImagePicker().pickImage(
+        photo = await ImageCompressionService.pickAndCompressImage(
           source: ImageSource.camera,
-          maxWidth: 1600,
-          imageQuality: 85,
         );
       }
       if (!mounted) return;
@@ -146,11 +176,16 @@ class _OnlineVerificationShieldModalState
 
   @override
   Widget build(BuildContext context) {
+    // insetPadding 16 + width double.infinity keeps the shield
+    // edge-to-edge on phones (default dialog insets + 24 padding left a
+    // narrow ~230px column); the 480 cap only centers it on wide screens.
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
+        width: double.infinity,
         constraints: const BoxConstraints(maxWidth: 480),
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(16),
         child: SingleChildScrollView(
           child: _currentStep == 0
               ? _buildVehicleSelectionView()
@@ -235,6 +270,31 @@ class _OnlineVerificationShieldModalState
               );
             }).toList(),
           ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Confirm Plate Number:',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+        const SizedBox(height: 6),
+        TextField(
+          key: const Key('shield_plate_verification_input'),
+          controller: _shieldPlateController,
+          autocorrect: false,
+          textCapitalization: TextCapitalization.characters,
+          decoration: InputDecoration(
+            hintText: _selectedVehicle != null
+                ? 'Type plate (e.g. ${_selectedVehicle!.licensePlate})'
+                : 'Type plate number',
+            errorText: _shieldPlateError,
+            border: const OutlineInputBorder(),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+          onChanged: (_) {
+            if (_shieldPlateError != null) {
+              setState(() => _shieldPlateError = null);
+            }
+          },
         ),
         const SizedBox(height: 20),
         FilledButton.icon(

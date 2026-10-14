@@ -86,7 +86,7 @@ void main() {
     });
   });
 
-  group('HubDashboardScreen unified tabs', () {
+  group('HubDashboardScreen unified tabs (3-slot + More)', () {
     Future<void> pumpShell(
       WidgetTester tester, {
       required UserRole role,
@@ -106,21 +106,24 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('fleet + support grants render exactly those tabs',
+    testWidgets('fleet + support grants render exactly those tabs in bottom bar',
         (tester) async {
       await pumpShell(tester,
           role: UserRole.admin,
           permissions: const [permFleetVerify, permSupportChat]);
 
+      // Both granted module tabs appear in the 3-slot bottom bar.
       expect(find.text('Fleet & Security'), findsOneWidget);
       expect(find.text('Support Inbox'), findsOneWidget);
+      // Un-granted tabs are absent entirely — not in bar, not in More.
       expect(find.text('Dynamic Config'), findsNothing);
       expect(find.text('Staff'), findsNothing);
       expect(find.text('Agent Console'), findsNothing);
       expect(find.text('Logout'), findsNothing);
     });
 
-    testWidgets('dynamic_config grant renders the config tab', (tester) async {
+    testWidgets('dynamic_config grant renders the config tab in bottom bar',
+        (tester) async {
       await pumpShell(tester,
           role: UserRole.agent, permissions: const [permDynamicConfig]);
 
@@ -129,11 +132,24 @@ void main() {
       expect(find.text('Support Inbox'), findsNothing);
     });
 
-    testWidgets('owner sees every tab including Staff', (tester) async {
+    testWidgets(
+        'owner sees first 3 tabs in bottom bar; Config and Staff accessible via More',
+        (tester) async {
       await pumpShell(tester, role: UserRole.superRole, isOwner: true);
 
+      // Owner has 6 tabs total. The first 3 module tabs (fleet, support, payouts)
+      // occupy the bottom bar; config + staff spill into the More sheet.
       expect(find.text('Fleet & Security'), findsOneWidget);
       expect(find.text('Support Inbox'), findsOneWidget);
+      expect(find.text('Payouts'), findsOneWidget);
+
+      // More button is always present when overflow tabs exist.
+      expect(find.text('More'), findsOneWidget);
+
+      // Open the More sheet and verify overflow tabs are accessible.
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+
       expect(find.text('Dynamic Config'), findsOneWidget);
       expect(find.text('Staff'), findsOneWidget);
     });
@@ -149,6 +165,23 @@ void main() {
       expect(find.text('Logout'), findsNothing);
       // ...Profile renders directly (bar-less single tab) hosting Sign Out.
       expect(find.text('Sign Out'), findsWidgets);
+    });
+
+    testWidgets('tapping a More tab promotes it to the bottom bar',
+        (tester) async {
+      // Owner: fleet, support, payouts in bar; config, staff in More.
+      await pumpShell(tester, role: UserRole.superRole, isOwner: true);
+
+      // Open More and tap Dynamic Config.
+      await tester.tap(find.text('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dynamic Config'));
+      await tester.pumpAndSettle();
+
+      // Dynamic Config should now be in the bottom bar (LRU-promoted).
+      expect(find.text('Dynamic Config'), findsOneWidget);
+      // The bar now has Dynamic Config as one of its 3 module slots.
+      expect(find.byKey(const Key('hub_navigation_bar')), findsOneWidget);
     });
   });
 }

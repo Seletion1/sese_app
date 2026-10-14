@@ -46,9 +46,10 @@ const DEFAULT_REPING_INTERVAL_MS = 30 * 1000;
 const DEFAULT_TIER1_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_TIER2_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_TIER2_COUNT = 2;
-const DEFAULT_DISPATCH_RADIUS_KM = 15;
+const DEFAULT_DISPATCH_RADIUS_KM = 10;
 const DEFAULT_TIER1_RADIUS_KM = 3;
-const DEFAULT_TIER2_RADIUS_KM = 5;
+const DEFAULT_TIER2_RADIUS_KM = 6;
+const DEFAULT_TIER3_RADIUS_KM = 10;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
 const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
 const DEFAULT_MAX_RECYCLES = 5;
@@ -57,6 +58,7 @@ interface DispatchTuning {
   dispatchRadiusKm: number;
   tier1RadiusKm: number;
   tier2RadiusKm: number;
+  tier3RadiusKm: number;
   tier1TimeoutMs: number;
   tier2TimeoutMs: number;
   pingTimeoutMs: number;
@@ -71,6 +73,7 @@ const DEFAULT_TUNING: DispatchTuning = {
   dispatchRadiusKm: DEFAULT_DISPATCH_RADIUS_KM,
   tier1RadiusKm: DEFAULT_TIER1_RADIUS_KM,
   tier2RadiusKm: DEFAULT_TIER2_RADIUS_KM,
+  tier3RadiusKm: DEFAULT_TIER3_RADIUS_KM,
   tier1TimeoutMs: DEFAULT_TIER1_TIMEOUT_MS,
   tier2TimeoutMs: DEFAULT_TIER2_TIMEOUT_MS,
   pingTimeoutMs: DEFAULT_PING_TIMEOUT_MS,
@@ -102,20 +105,27 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       typeof v === "number" && Number.isFinite(v)
         ? Math.min(max, Math.max(min, v))
         : fb;
+    const tier3Radius = num(
+      d.tier3RadiusKm ?? d.dispatchRadiusKm,
+      DEFAULT_DISPATCH_RADIUS_KM,
+      1,
+      50
+    );
     const value: DispatchTuning = {
-      dispatchRadiusKm: num(d.dispatchRadiusKm, 15, 1, 50),
-      // Per-stage radii: Tier 1 offers the single nearest driver (1-3km),
-      // Tier 2 the next group (up to 5km). Both clamp inside the outer
-      // dispatchRadiusKm cap so a misconfigured stage can never out-broadcast
-      // the pool. Applied within ~60s via the tuning cache.
+      dispatchRadiusKm: tier3Radius,
+      // Per-stage radii: Tier 1 offers the single nearest driver (~0-3km),
+      // Tier 2 the next group (up to 6km), Tier 3 marketplace pool (~10km).
+      // Both clamp inside the outer dispatchRadiusKm cap so a misconfigured stage
+      // can never out-broadcast the pool. Applied within ~60s via the tuning cache.
       tier1RadiusKm: Math.min(
         num(d.tier1RadiusKm, DEFAULT_TIER1_RADIUS_KM, 1, 50),
-        num(d.dispatchRadiusKm, 15, 1, 50)
+        tier3Radius
       ),
       tier2RadiusKm: Math.min(
         num(d.tier2RadiusKm, DEFAULT_TIER2_RADIUS_KM, 1, 50),
-        num(d.dispatchRadiusKm, 15, 1, 50)
+        tier3Radius
       ),
+      tier3RadiusKm: tier3Radius,
       tier1TimeoutMs: num(d.tier1TimeoutSec, 15, 5, 120) * 1000,
       tier2TimeoutMs: num(d.tier2TimeoutSec, 15, 5, 120) * 1000,
       pingTimeoutMs: num(d.pingTimeoutSec, 60, 10, 600) * 1000,
@@ -272,6 +282,30 @@ const NG_PHONE = /^(\+?234|0)(70|71|80|81|90|91)\d{8}$/;
 const normPhone = (v: unknown) =>
   String(v ?? "").replace(/[\s\-()]/g, "");
 
+/**
+ * Allow-listed cancellation reason codes (mirrors `CancelTripDialog` in
+ * `sese_ride/lib/features/trips/presentation/cancel_trip_dialog.dart`).
+ * Unknown codes collapse to `other` at the gate, so keep this set in step
+ * with the client lists when reasons are added or renamed.
+ */
+const CANCEL_REASONS = new Set([
+  "driver_taking_too_long",
+  "changed_my_mind",
+  "wrong_pickup",
+  "wrong_dropoff",
+  "fare_too_high",
+  "booked_by_mistake",
+  "driver_asked_to_cancel",
+  "customer_no_show",
+  "customer_asked_to_cancel",
+  "pickup_too_far",
+  "vehicle_issue",
+  "emergency",
+  "wrong_trip_match",
+  "fare_too_low",
+  "other",
+]);
+
 const isCoord = (lat: unknown, lng: unknown) =>
   typeof lat === "number" &&
   typeof lng === "number" &&
@@ -343,53 +377,69 @@ async function maskedPhones(
   dropoffPhone: string,
   d: CreateTripData
 ): Promise<Record<string, unknown>> {
+  const pickupName = String(d.pickup?.name ?? d.pickupName ?? "").trim();
+  const dropoffName = String(d.dropoff?.name ?? d.dropoffName ?? "").trim();
   if (!(await hidePhonesEnabled(customerId))) {
     return {
       pickup: {
         lat: d.pickup.lat,
         lng: d.pickup.lng,
         address: String(d.pickup.address ?? ""),
+        ...(pickupName ? { name: pickupName } : {}),
         phone: pickupPhone,
       },
       dropoff: {
         lat: d.dropoff.lat,
         lng: d.dropoff.lng,
         address: String(d.dropoff.address ?? ""),
+        ...(dropoffName ? { name: dropoffName } : {}),
         phone: dropoffPhone,
       },
       pickupPhone,
       dropoffPhone,
+      ...(pickupName ? { pickupName } : {}),
+      ...(dropoffName ? { dropoffName } : {}),
     };
   }
-  const maskedPickup = maskPhone(pickupPhone);
-  const maskedDropoff = maskPhone(dropoffPhone);
+  // Empty stays empty: masking an absent number into a placeholder would
+  // fabricate a contact that was never given.
+  const maskedPickup = pickupPhone === "" ? "" : maskPhone(pickupPhone);
+  const maskedDropoff = dropoffPhone === "" ? "" : maskPhone(dropoffPhone);
   return {
     phoneMasked: true,
     pickup: {
       lat: d.pickup.lat,
       lng: d.pickup.lng,
       address: String(d.pickup.address ?? ""),
+      ...(pickupName ? { name: pickupName } : {}),
       phone: maskedPickup,
     },
     dropoff: {
       lat: d.dropoff.lat,
       lng: d.dropoff.lng,
       address: String(d.dropoff.address ?? ""),
+      ...(dropoffName ? { name: dropoffName } : {}),
       phone: maskedDropoff,
     },
     pickupPhone: maskedPickup,
     dropoffPhone: maskedDropoff,
+    ...(pickupName ? { pickupName } : {}),
+    ...(dropoffName ? { dropoffName } : {}),
   };
 }
 
 // ── createTrip ─────────────────────────────────────────────────────────────
 
 interface CreateTripData {
-  pickup: { lat: number; lng: number; address?: string; phone?: string };
-  dropoff: { lat: number; lng: number; address?: string; phone?: string };
+  pickup: { lat: number; lng: number; address?: string; phone?: string; name?: string };
+  dropoff: { lat: number; lng: number; address?: string; phone?: string; name?: string };
   pickupPhone?: string;
   dropoffPhone?: string;
+  pickupName?: string;
+  dropoffName?: string;
   serviceType?: string;
+  vehicleCategory?: string;
+  category?: string;
   selectedTiers?: string[];
   fareToken?: string;
   distanceKm?: number;
@@ -409,10 +459,15 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
 
   const pickupPhone = normPhone(d.pickupPhone ?? d.pickup?.phone);
   const dropoffPhone = normPhone(d.dropoffPhone ?? d.dropoff?.phone);
-  if (!NG_PHONE.test(pickupPhone) || !NG_PHONE.test(dropoffPhone)) {
+  // Secondary contact numbers are OPTIONAL: empty means the customer offers
+  // no extra contact ("call me when you get there"). Only a malformed
+  // non-empty entry is rejected. The booker's own account number is minted
+  // onto the trip below and stays reachable regardless.
+  const phoneOk = (p: string) => p === "" || NG_PHONE.test(p);
+  if (!phoneOk(pickupPhone) || !phoneOk(dropoffPhone)) {
     throw new HttpsError(
       "invalid-argument",
-      "Valid pickup and drop-off phone numbers are required."
+      "Phone numbers are optional, but when provided they must be valid."
     );
   }
   if (!d.pickup || !d.dropoff || !isCoord(d.pickup.lat, d.pickup.lng) ||
@@ -479,35 +534,129 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     ? rawPayment
     : "cash";
 
+  // Check system-wide force PIN setting
+  let forceDeliveryPinSystemWide = false;
+  try {
+    const remoteKeysSnap = await db().collection("system_config").doc("remote_keys").get();
+    if (remoteKeysSnap.exists && remoteKeysSnap.data()?.forceDeliveryPinSystemWide === true) {
+      forceDeliveryPinSystemWide = true;
+    }
+  } catch (_) {}
+
+  // Rides never take a drop-off PIN: there is no recipient handoff, and
+  // the driver completion path never asks for one on rides. Deliveries
+  // keep the standing behavior (always PIN'd — the toggle + admin force
+  // stay wired as explicit markers of that intent). The raw-field check
+  // (not the narrowed `serviceType`) keeps tsc's literal-narrowing happy.
+  const isPinRequired = serviceType !== "ride" &&
+    (forceDeliveryPinSystemWide || (d as any).requireDeliveryPin === true ||
+      (d as any).serviceType !== "ride");
+  const pinCode = isPinRequired ? String(Math.floor(1000 + Math.random() * 9000)) : null;
+
+  // Split payment validation if split selected
+  let splitPaymentData: Record<string, unknown> | null = null;
+  if (paymentMethod === "split" || (d as any).paymentMode === "split") {
+    const recPhone = normPhone((d as any).receiverPhone ?? dropoffPhone);
+    if (recPhone === "") {
+      throw new HttpsError(
+        "invalid-argument",
+        "Split payment needs the receiver's phone number so their share " +
+        "can be settled. Add it, or use Sender/Receiver Pays."
+      );
+    }
+    const byE164 = await db()
+      .collection("users")
+      .where("phoneNumberE164", "==", recPhone.startsWith("234") ? `+${recPhone}` : recPhone)
+      .limit(1)
+      .get();
+    let recSnap = byE164.empty ? null : byE164.docs[0];
+    if (!recSnap) {
+      const byLocal = await db()
+        .collection("users")
+        .where("phoneNumber", "==", recPhone)
+        .limit(1)
+        .get();
+      recSnap = byLocal.empty ? null : byLocal.docs[0];
+    }
+    if (!recSnap) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Split payment requires both parties to be registered users. Ask the receiver to sign up, or select 'Sender Pays' / 'Receiver Pays'."
+      );
+    }
+    const senderShare = Number((d as any).senderShareAmount ?? baselineFare / 2);
+    const receiverShare = Number((d as any).receiverShareAmount ?? baselineFare / 2);
+    splitPaymentData = {
+      status: "pending_receiver_consent",
+      senderShare,
+      receiverShare,
+      senderPaymentMethod: String((d as any).senderPaymentMethod ?? "cash"),
+      receiverPaymentMethod: String((d as any).receiverPaymentMethod ?? "cash"),
+      senderPhone: pickupPhone,
+      receiverPhone: recPhone,
+      receiverUid: recSnap.id,
+      receiverConsentStatus: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+  }
+
+  let customerName = "Customer";
+  // Booker lifeline: the account holder's own number is minted onto every
+  // trip as `customerPhone` — raw, NEVER masked — so the assigned driver
+  // can always reach the person who ordered and paid, even when no
+  // secondary pickup/drop-off numbers were given or number hiding is on.
+  // Secondary contacts keep the masking above; this one deliberately does
+  // not. The assigned-driver read branch in firestore.rules already covers
+  // the whole trip doc, so no rules change is needed for this field.
+  let customerPhone = "";
+  try {
+    const custSnap = await db().collection("users").doc(customerId).get();
+    if (custSnap.exists) {
+      const cData = custSnap.data()!;
+      customerName = String(cData.fullName ?? cData.name ?? "Customer");
+      customerPhone = normPhone(
+        cData.phoneNumberE164 ?? cData.phoneNumber ?? ""
+      );
+    }
+  } catch (_) {}
+
   const ref = await db().collection("trips").add({
     customerId,
+    customerName,
+    customerPhone,
+    // Permanent trip booker profile snapshot (retained even if contacts change)
+    tripBooker: {
+      uid: customerId,
+      customerId,
+      name: customerName,
+      fullName: customerName,
+      phone: customerPhone,
+      phoneNumber: customerPhone,
+    },
+    createdBy: {
+      uid: customerId,
+      name: customerName,
+      fullName: customerName,
+      phone: customerPhone,
+    },
     serviceType,
     status: "SEARCHING_DRIVER",
     // Server-resolved (never trust the client flag): verified customers
     // broadcast `isVerifiedCustomer: true` so drivers see a
     // [Verified Customer] badge on the incoming request.
     isVerifiedCustomer: await isVerifiedCustomer(customerId),
-    // Owner-side privacy enforcement, applied ONCE here so every reader
-    // sees the same values: when the CUSTOMER enabled
-    // `settings.hidePhoneNumber`, all coordination numbers on the minted
-    // trip are masked placeholders. The assigned driver (and any client)
-    // never receives the raw values — there is nothing to leak, regardless
-    // of what a hostile client renders. Parties coordinate through the
-    // in-app trip chat for masked trips. The customer viewing their own
-    // trip sees the masked values too; their own number remains in their
-    // profile. Validation above already ran on the RAW numbers, so masking
-    // here cannot smuggle an invalid number past the NG_PHONE gate.
+    // Owner-side privacy enforcement
     ...(await maskedPhones(customerId, pickupPhone, dropoffPhone, d)),
-    // Delivery verification PIN (send_item / receive_item only): a random
-    // 4-digit code the recipient must give the driver at drop-off. The code
-    // itself lives in `delivery_pins/{tripId}` — readable ONLY by the
-    // customer and admins — because the assigned driver reads the whole trip
-    // document, and a PIN the driver can read is theater, not verification.
-    // Only the `deliveryPinVerified` flag lives on the trip. Verified by
-    // `verifyDeliveryPin` (Admin SDK), which is the only completion path
-    // for deliveries. Rides never carry one.
-    ...(serviceType === "ride" ? {} : { deliveryPinVerified: false }),
+    deliveryPinRequired: isPinRequired,
+    deliveryPinVerified: !isPinRequired,
+    deliveryPin: pinCode,
+    order: {
+      deliveryPin: pinCode,
+      requireDeliveryPin: isPinRequired,
+    },
+    ...(splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {}),
     selectedTiers: d.selectedTiers,
+    vehicleCategory: String(d.vehicleCategory ?? d.category ?? (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(),
     fareToken: d.fareToken,
     fareTiers: verified.tiers,
     baselineFare,
@@ -532,18 +681,13 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  // Delivery PIN notice: the customer (sender) receives the code and shares
-  // it with the recipient out-of-band. The recipient is identified only by a
-  // phone number — not necessarily a SeSe user — so there is no uid to push
-  // to; the sender is the distribution channel. The code is also readable on
-  // `delivery_pins/{tripId}` by the customer.
-  if (serviceType !== "ride") {
+  // Save PIN doc for secure driver verification
+  if (isPinRequired && pinCode != null) {
     try {
-      const pin = String(Math.floor(1000 + Math.random() * 9000));
       await db().collection("delivery_pins").doc(ref.id).set({
         tripId: ref.id,
         customerId,
-        pin,
+        pin: pinCode,
         verified: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -551,7 +695,7 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
         customerId,
         ref.id,
         "Delivery PIN",
-        `Your delivery verification code is ${pin}. Share it with your recipient — the driver will ask for it at drop-off.`,
+        `Your delivery verification code is ${pinCode}. Share it with your recipient — the driver will ask for it at drop-off.`,
         "delivery_pin_issued"
       );
     } catch (e) {
@@ -587,14 +731,26 @@ function pickupOf(data: admin.firestore.DocumentData): { lat: number; lng: numbe
  * goOnline handshake and every GPS heartbeat). Drivers without a fix sort
  * last. Results are capped to the coverage radius, nearest first.
  */
+async function getMinWalletBalanceToOnline(): Promise<number> {
+  try {
+    const snap = await db().collection("system_configs").doc("financials").get();
+    const raw = snap.data()?.minWalletBalanceToOnline;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  } catch (_) {}
+  return 1.00;
+}
+
 async function findNearestDrivers(
   attempted: string[],
   serviceType: string,
   pickup: { lat: number; lng: number },
   count: number,
   tuning: DispatchTuning,
-  radiusKm?: number
+  radiusKm?: number,
+  vehicleCategory?: string
 ): Promise<NearbyDriver[]> {
+  const minBalance = await getMinWalletBalanceToOnline();
+
   const snap = await db()
     .collection("drivers")
     .where("isOnline", "==", true)
@@ -605,7 +761,31 @@ async function findNearestDrivers(
   const ranked: NearbyDriver[] = [];
   for (const doc of snap.docs) {
     if (attempted.includes(doc.id)) continue;
+
     const data = doc.data();
+
+    // Strict Vehicle Category Matching Guard:
+    // When order specifies a category (e.g. bicycle, motorcycle, tricycle, car, van, truck),
+    // skip drivers whose active vehicle category does not match.
+    if (vehicleCategory) {
+      const activeCat = String(data.activeVehicleCategory ?? data.vehicleCategory ?? "").toLowerCase();
+      if (activeCat && activeCat !== vehicleCategory.toLowerCase()) {
+        continue;
+      }
+    }
+
+    // Dispatch Guard: filter drivers with balance below minWalletBalanceToOnline
+    try {
+      const walletSnap = await db().collection("wallets").doc(doc.id).get();
+      if (walletSnap.exists) {
+        const wData = walletSnap.data() ?? {};
+        const mainBal = typeof wData.mainWalletBalance === "number"
+          ? wData.mainWalletBalance
+          : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
+        if (mainBal < minBalance) continue;
+      }
+    } catch (_) {}
+
     const tiers: string[] = Array.isArray(data.serviceTiers)
       ? data.serviceTiers.map(String)
       : [];
@@ -643,6 +823,7 @@ async function startTier1(
   const pickup = pickupOf(data);
   const attempted = attemptedIdsOf(data);
   const serviceType = String(data.serviceType ?? "ride");
+  const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
   const nearest =
     pickup == null
       ? []
@@ -652,7 +833,8 @@ async function startTier1(
           pickup,
           1,
           tuning,
-          tuning.tier1RadiusKm
+          tuning.tier1RadiusKm,
+          vehicleCategory
         );
   if (nearest.length === 0) return false; // Nobody online — sweep retries.
 
@@ -680,6 +862,7 @@ async function startTier2(
   const pickup = pickupOf(data);
   const attempted = attemptedIdsOf(data);
   const serviceType = String(data.serviceType ?? "ride");
+  const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
   const nearest =
     pickup == null
       ? []
@@ -689,7 +872,8 @@ async function startTier2(
           pickup,
           tuning.tier2Count,
           tuning,
-          tuning.tier2RadiusKm
+          tuning.tier2RadiusKm,
+          vehicleCategory
         );
   if (nearest.length === 0) {
     await startTier3(tripRef);
@@ -1051,6 +1235,27 @@ export const acceptTrip = onCall(async (request) => {
     if (!snap.exists) {
       throw new HttpsError("not-found", "Trip not found.");
     }
+
+    // Multi-device session guard: ensure driver is currently online and
+    // that this device session has not been superseded by another device.
+    const statusDoc = await tx.get(db().collection("driver_status").doc(driverId));
+    if (statusDoc.exists) {
+      const sData = statusDoc.data() ?? {};
+      if (sData.isOnline !== true) {
+        throw new HttpsError(
+          "failed-precondition",
+          "You are currently offline. Go online to accept trips."
+        );
+      }
+      const clientSessionId = request.data?.sessionId ? String(request.data.sessionId) : null;
+      if (clientSessionId && sData.activeSessionId && sData.activeSessionId !== clientSessionId) {
+        throw new HttpsError(
+          "failed-precondition",
+          "This session is no longer active. You went online on another device."
+        );
+      }
+    }
+
     const data = snap.data()!;
     const status = String(data.status ?? "");
 
@@ -1076,11 +1281,15 @@ export const acceptTrip = onCall(async (request) => {
       // enough. Verification or the fleet may have been revoked mid-session
       // after goOnline granted, so re-check inside the transaction.
       const claimer = driverDoc.data()!;
+      const claimerStatus = String(
+        claimer.verificationStatus ?? claimer.status ?? ""
+      ).toLowerCase();
       const claimerVerified =
-        claimer.verificationStatus === "verified" ||
-        claimer.verificationStatus === "active_verified" ||
-        claimer.status === "active_verified" ||
-        claimer.isVerified === true;
+        claimerStatus === "verified" ||
+        claimerStatus === "approved" ||
+        claimerStatus === "active_verified" ||
+        claimer.isVerified === true ||
+        claimer.isProfileVerified === true;
       if (!claimerVerified) {
         throw new HttpsError(
           "permission-denied",
@@ -1092,10 +1301,20 @@ export const acceptTrip = onCall(async (request) => {
           .collection("drivers")
           .doc(driverId)
           .collection("vehicles")
-          .where("verificationStatus", "==", "APPROVED")
-          .limit(1)
+          .limit(20)
       );
-      if (fleetSnap.empty) {
+      const hasApprovedVehicle = fleetSnap.docs.some((vDoc) => {
+        const vData = vDoc.data() ?? {};
+        const vStatus = String(
+          vData.verificationStatus ?? vData.status ?? ""
+        ).toUpperCase();
+        return (
+          vStatus === "APPROVED" ||
+          vStatus === "VERIFIED" ||
+          vData.isVerified === true
+        );
+      });
+      if (!hasApprovedVehicle) {
         throw new HttpsError(
           "failed-precondition",
           "An approved vehicle is required to claim marketplace requests."
@@ -1268,7 +1487,7 @@ export const updateDriverLocation = onCall(async (request) => {
 });
 
 const DRIVER_TRANSITIONS: Record<string, string[]> = {
-  DRIVER_ACCEPTED: ["DRIVER_ARRIVING"],
+  DRIVER_ACCEPTED: ["DRIVER_ARRIVING", "DRIVER_ARRIVED"],
   DRIVER_ARRIVING: ["DRIVER_ARRIVED"],
   DRIVER_ARRIVED: ["IN_PROGRESS"],
   IN_PROGRESS: ["COMPLETED"],
@@ -1347,11 +1566,71 @@ export const cancelTrip = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "Trip is already closed.");
   }
 
+  // ── Cancellation reason (audited, allow-listed) ──────────────────────
+  // Unknown/absent codes land as `other` — the audit stays complete while
+  // a hostile client can never inject a free-form value into the trail.
+  const rawReason = String(request.data?.reason ?? "other").trim();
+  const reason = CANCEL_REASONS.has(rawReason) ? rawReason : "other";
+  const role = isCustomer ? "customer" : "driver";
+
+  // ── Spam-cancel rate limit (10/hour per account, no index needed) ────
+  // A per-user `cancelStats {count, windowStartMs}` counter lives on the
+  // user doc and is bumped transactionally, so two racing cancels cannot
+  // both slip under the cap. The window is fixed (not sliding): exceeding
+  // it rejects with `resource-exhausted` and a user-safe message.
+  const CANCEL_WINDOW_MS = 60 * 60 * 1000;
+  const CANCEL_MAX_PER_HOUR = 10;
+  const userRef = db().collection("users").doc(callerId);
+  await db().runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    const stats = (userSnap.data()?.cancelStats ?? {}) as {
+      count?: unknown; windowStartMs?: unknown;
+    };
+    const now = nowMs();
+    let count = typeof stats.count === "number" ? stats.count : 0;
+    let windowStart = typeof stats.windowStartMs === "number"
+      ? stats.windowStartMs
+      : 0;
+    if (!windowStart || now - windowStart >= CANCEL_WINDOW_MS) {
+      count = 0;
+      windowStart = now;
+    }
+    if (count >= CANCEL_MAX_PER_HOUR) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "Too many cancellations in the last hour. Please wait before cancelling again."
+      );
+    }
+    tx.set(
+      userRef,
+      { cancelStats: { count: count + 1, windowStartMs: windowStart } },
+      { merge: true }
+    );
+  });
+
+  // ── Immutable audit row (server-only writes via rules) ───────────────
+  // Timestamp, actor, role, reason, trip id, and the status at cancel time.
+  // Best-effort ordering after the rate-limit gate: a failed audit write
+  // must never block a legitimate cancellation, so it never throws.
+  try {
+    await db().collection("cancellation_audits").add({
+      tripId,
+      userId: callerId,
+      role,
+      reason,
+      statusAtCancel: String(data.status ?? ""),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn(`cancelTrip: audit write failed for ${tripId}: ${e}`);
+  }
+
   // Customer cancellation
   if (isCustomer) {
     await ref.update({
       status: "CANCELLED",
       cancellationSource: "customer",
+      cancellationReason: reason,
       pingDriverId: null,
       pingExpiresAt: null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1389,6 +1668,7 @@ export const cancelTrip = onCall(async (request) => {
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(callerId),
         status: "SEARCHING_DRIVER",
         cancellationSource: "driver_cancelled_reassigning",
+        cancellationReason: reason,
         statusMessage: `Driver cancelled. Reassigning to next available driver (Attempt ${nextCount} of 3)...`,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -1420,6 +1700,7 @@ export const cancelTrip = onCall(async (request) => {
         pingExpiresAt: null,
         tierExpiresAt: null,
         cancellationSource: "driver_cancelled_max_reached",
+        cancellationReason: reason,
         statusMessage:
           "Multiple drivers had to cancel. Please raise your fare/bid to attract nearby drivers.",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1450,6 +1731,7 @@ export const cancelTrip = onCall(async (request) => {
   await ref.update({
     status: "CANCELLED",
     cancellationSource,
+    cancellationReason: reason,
     pingDriverId: null,
     pingExpiresAt: null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1485,11 +1767,15 @@ export const submitBid = onCall(async (request) => {
       "You must be online to submit bids."
     );
   }
+  const driverStatus = String(
+    driverData.verificationStatus ?? driverData.status ?? ""
+  ).toLowerCase();
   const isVerified =
-    driverData.verificationStatus === "verified" ||
-    driverData.verificationStatus === "active_verified" ||
-    driverData.status === "active_verified" ||
-    driverData.isVerified === true;
+    driverStatus === "verified" ||
+    driverStatus === "approved" ||
+    driverStatus === "active_verified" ||
+    driverData.isVerified === true ||
+    driverData.isProfileVerified === true;
   if (!isVerified) {
     throw new HttpsError(
       "permission-denied",
@@ -1852,4 +2138,79 @@ export const verifyDeliveryPin = onCall(async (request) => {
   });
   await batch.commit();
   return { ok: true };
+});
+
+// ── Hub Admin Dispute Actions ──────────────────────────────────────────────
+
+/** Hub Admin: Force Complete a trip during live support/dispute resolution */
+export const hubForceCompleteTrip = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Hub authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+
+  await ref.update({
+    status: "COMPLETED",
+    deliveryPinVerified: true,
+    forceCompletedBy: adminUid,
+    forceCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
+    completedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, tripId };
+});
+
+/** Hub Admin: Cancel trip & refund any held escrow */
+export const hubCancelRefundTrip = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Hub authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const reason = String(request.data?.reason ?? "Cancelled by Hub admin");
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+
+  await ref.update({
+    status: "CANCELLED",
+    cancellationSource: "admin_hub",
+    cancellationReason: reason,
+    cancelledByAdmin: adminUid,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, tripId };
+});
+
+/** Hub Admin: Manual PIN Bypass during call verification */
+export const hubManualPinBypass = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Hub authentication required.");
+  }
+  const adminUid = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+
+  await ref.update({
+    deliveryPinVerified: true,
+    manualPinBypassBy: adminUid,
+    manualPinBypassAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, tripId };
 });

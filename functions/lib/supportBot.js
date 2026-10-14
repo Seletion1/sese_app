@@ -125,9 +125,9 @@ async function askGemini(userText, history) {
     if (!apiKey)
         return null;
     const contents = [
-        ...history.slice(-8).map((text, i) => ({
-            role: i % 2 === 0 ? "user" : "model",
-            parts: [{ text }],
+        ...history.slice(-8).map((turn) => ({
+            role: turn.senderType === "user" ? "user" : "model",
+            parts: [{ text: turn.text }],
         })),
         { role: "user", parts: [{ text: userText }] },
     ];
@@ -181,6 +181,7 @@ async function escalateChat(chatId, reason, reasonDetail) {
     });
     batch.update(chatRef, {
         status: "pending_agent",
+        assignedTo: "human_queue",
         escalateReason: reason,
         escalateDetail: reasonDetail !== null && reasonDetail !== void 0 ? reasonDetail : null,
         escalatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -349,7 +350,7 @@ exports.onSupportMessageCreated = (0, firestore_1.onDocumentCreated)("support_ch
         }
         return;
     }
-    // Recent thread context for the model / follow-up resolution.
+    // Recent 10 thread context turns for persistent memory & multi-turn dialogue engine.
     let history = [];
     try {
         const recent = await db()
@@ -357,12 +358,18 @@ exports.onSupportMessageCreated = (0, firestore_1.onDocumentCreated)("support_ch
             .doc(chatId)
             .collection("messages")
             .orderBy("timestamp", "desc")
-            .limit(9)
+            .limit(10)
             .get();
         history = recent.docs
-            .map((d) => { var _a; return String((_a = d.data()["text"]) !== null && _a !== void 0 ? _a : ""); })
-            .filter((t) => t.length > 0)
-            .reverse();
+            .reverse()
+            .map((d) => {
+            var _a, _b, _c;
+            return ({
+                senderType: String((_b = (_a = d.data()["senderType"]) !== null && _a !== void 0 ? _a : d.data()["sender"]) !== null && _b !== void 0 ? _b : "user"),
+                text: String((_c = d.data()["text"]) !== null && _c !== void 0 ? _c : ""),
+            });
+        })
+            .filter((t) => t.text.length > 0);
     }
     catch (e) {
         console.warn(`supportBot: history read failed: ${e}`);

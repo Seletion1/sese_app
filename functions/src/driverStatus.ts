@@ -11,6 +11,8 @@ const db = () => admin.firestore();
 
 interface GoOnlineData {
   driverId?: string;
+  sessionId?: string;
+  fcmToken?: string;
   fix?: {
     latitude: number;
     longitude: number;
@@ -93,11 +95,10 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
   }
 
   // Fleet verification guard: at least one APPROVED vehicle.
-  // Tolerant across writer generations: hub writes canonical
-  // `verificationStatus: "APPROVED"` + `isVerified: true` + `status: "active"`,
-  // but legacy docs may carry "VERIFIED", "approved" (any casing), or only
-  // the `isVerified` alias. A strict exact-match query would wrongly reject
-  // hub-approved drivers, so scan the fleet and match case-insensitively.
+  let activeVehicleId: string | null = null;
+  let activeVehicleCategory: string | null = null;
+  let activePlateNumber: string | null = null;
+
   try {
     const fleetSnap = await db()
       .collection("drivers")
@@ -105,16 +106,28 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
       .collection("vehicles")
       .limit(20)
       .get();
-    const hasApproved = fleetSnap.docs.some((d) => {
+    
+    let activeDoc = fleetSnap.docs.find((d) => {
       const data = d.data() ?? {};
       const canonical = String(data.verificationStatus ?? "").toUpperCase();
-      const legacyStatus = String(data.status ?? "").toUpperCase();
-      if (canonical === "APPROVED" || canonical === "VERIFIED") return true;
-      if (data.isVerified === true) return true;
-      if (legacyStatus === "ACTIVE" || legacyStatus === "APPROVED") return true;
-      return false;
+      const isAppr = canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
+      return data.isActiveSelected === true && isAppr;
     });
-    if (!hasApproved) {
+
+    if (!activeDoc) {
+      activeDoc = fleetSnap.docs.find((d) => {
+        const data = d.data() ?? {};
+        const canonical = String(data.verificationStatus ?? "").toUpperCase();
+        return canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
+      });
+    }
+
+    if (activeDoc) {
+      const vData = activeDoc.data();
+      activeVehicleId = activeDoc.id;
+      activeVehicleCategory = String(vData.category ?? "car").toLowerCase();
+      activePlateNumber = String(vData.licensePlate ?? vData.plateNumber ?? "");
+    } else {
       console.warn(
         `goOnline[${uid}]: no approved vehicle ` +
           `(${fleetSnap.size} vehicle docs scanned)`
@@ -148,6 +161,55 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
+  const newSessionId = String(data.sessionId ?? db().collection("_").doc().id);
+  const newFcmToken = data.fcmToken ? String(data.fcmToken) : null;
+
+  // Single-device online session lock:
+  // If the driver is already online on Device A and now goes online on Device B,
+  // notify Device A via silent FCM and supersede its session.
+  try {
+    const prevStatusDoc = await db().collection("driver_status").doc(uid).get();
+    if (prevStatusDoc.exists) {
+      const prevData = prevStatusDoc.data() ?? {};
+      const prevIsOnline = prevData.isOnline === true;
+      const prevSessionId = prevData.activeSessionId ? String(prevData.activeSessionId) : null;
+      const prevFcmToken = prevData.activeFcmToken ? String(prevData.activeFcmToken) : null;
+
+      if (prevIsOnline && prevSessionId && prevSessionId !== newSessionId) {
+        console.log(`[goOnline] Driver ${uid} superseding session ${prevSessionId} with ${newSessionId}`);
+        let targetToken = prevFcmToken;
+        if (!targetToken) {
+          const userDoc = await db().collection("users").doc(uid).get();
+          targetToken = userDoc.data()?.fcmToken;
+        }
+        if (targetToken && typeof targetToken === "string") {
+          try {
+            await admin.messaging().send({
+              token: targetToken,
+              data: {
+                type: "DRIVER_SESSION_TERMINATED",
+                reason: "MULTI_DEVICE_ONLINE",
+                message: "You went online on another device. This session is now offline.",
+                terminatedSessionId: prevSessionId,
+                activeSessionId: newSessionId,
+              },
+              android: { priority: "high" },
+              apns: {
+                payload: {
+                  aps: { "content-available": 1 },
+                },
+              },
+            });
+            console.log(`[goOnline] Silent FCM session termination sent for driver ${uid}`);
+          } catch (fcmErr) {
+            console.warn(`[goOnline] Failed to send termination FCM for driver ${uid}:`, fcmErr);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[goOnline] Session lock check error for driver ${uid}:`, e);
+  }
 
   // Write authoritative online mirror (admin SDK bypasses firestore.rules which denies client writes)
   await db().collection("driver_status").doc(uid).set(
@@ -155,8 +217,14 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
       driverId: uid,
       isOnline: true,
       status: "active",
+      activeSessionId: newSessionId,
+      activeFcmToken: newFcmToken,
       lastFix: fix,
+      activeVehicleId,
+      activeVehicleCategory,
+      activePlateNumber,
       updatedAt: now,
+      onlineAt: now,
     },
     { merge: true }
   );
@@ -164,17 +232,28 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
   await db().collection("drivers").doc(uid).set(
     {
       isOnline: true,
+      activeSessionId: newSessionId,
       lastSeen: now,
       lastLocation: { lat: fix.latitude, lng: fix.longitude, updatedAt: Date.now() },
+      activeVehicleId,
+      activeVehicleCategory,
+      activePlateNumber,
     },
     { merge: true }
   );
 
-  return { granted: true, confirmed: true, status: "active", message: "You are now ONLINE." };
+  return {
+    granted: true,
+    confirmed: true,
+    status: "active",
+    sessionId: newSessionId,
+    message: "You are now ONLINE.",
+  };
 });
 
 interface GoOfflineData {
   driverId?: string;
+  sessionId?: string;
 }
 
 export const goOffline = onCall<GoOfflineData>(async (request) => {
@@ -212,6 +291,7 @@ export const goOffline = onCall<GoOfflineData>(async (request) => {
       driverId: uid,
       isOnline: false,
       status: "offline",
+      activeSessionId: null,
       updatedAt: now,
     },
     { merge: true }
@@ -220,6 +300,7 @@ export const goOffline = onCall<GoOfflineData>(async (request) => {
   await db().collection("drivers").doc(uid).set(
     {
       isOnline: false,
+      activeSessionId: null,
       lastSeen: now,
     },
     { merge: true }
@@ -227,3 +308,158 @@ export const goOffline = onCall<GoOfflineData>(async (request) => {
 
   return { granted: true, confirmed: true, status: "offline", message: "You are now OFFLINE." };
 });
+
+interface HubSetDriverOnlineStatusData {
+  driverId: string;
+  isOnline: boolean;
+  reason?: string;
+}
+
+/**
+ * Hub Admin control callable to manually switch a driver between Online and Offline.
+ * Synchronizes both `drivers/{driverId}` and `driver_status/{driverId}` mirrors and
+ * notifies the driver via high-priority FCM.
+ */
+export const hubSetDriverOnlineStatus = onCall<HubSetDriverOnlineStatusData>(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Staff must sign in to manage driver status.");
+  }
+
+  const callerUid = request.auth.uid;
+  const callerEmail = (request.auth.token.email ?? "").trim().toLowerCase();
+  const token = request.auth.token ?? {};
+  const isSuperOrAdmin =
+    token.admin === true ||
+    token.adminAuth === true ||
+    callerEmail === "bamiduromichael2@gmail.com";
+
+  if (!isSuperOrAdmin) {
+    let isStaff = false;
+    if (callerEmail) {
+      const snap = await db().collection("hub_staff").doc(callerEmail).get();
+      if (snap.exists && snap.data()?.active !== false) {
+        isStaff = true;
+      }
+    }
+    if (!isStaff) {
+      throw new HttpsError("permission-denied", "Only Hub staff or administrators can change driver status.");
+    }
+  }
+
+  const { driverId, isOnline, reason } = request.data ?? {};
+  if (!driverId || typeof isOnline !== "boolean") {
+    throw new HttpsError("invalid-argument", "driverId and boolean isOnline status are required.");
+  }
+
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  if (isOnline) {
+    const driverSnap = await db().collection("drivers").doc(driverId).get();
+    if (!driverSnap.exists) {
+      throw new HttpsError("not-found", "Driver profile not found.");
+    }
+    const driverData = driverSnap.data() ?? {};
+    const lastLoc = driverData.lastLocation ?? { lat: 6.5244, lng: 3.3792 };
+    const newSessionId = "hub_admin_" + db().collection("_").doc().id;
+
+    await db().collection("driver_status").doc(driverId).set(
+      {
+        driverId,
+        isOnline: true,
+        status: "active",
+        activeSessionId: newSessionId,
+        lastFix: {
+          latitude: lastLoc.lat,
+          longitude: lastLoc.lng,
+          accuracy: 10,
+          timestamp: new Date().toISOString(),
+        },
+        updatedAt: now,
+        onlineAt: now,
+        manuallySetByAdmin: callerEmail || callerUid,
+      },
+      { merge: true }
+    );
+
+    await db().collection("drivers").doc(driverId).set(
+      {
+        isOnline: true,
+        activeSessionId: newSessionId,
+        lastSeen: now,
+        manuallySetByAdmin: callerEmail || callerUid,
+      },
+      { merge: true }
+    );
+
+    // Notify driver device
+    const userDoc = await db().collection("users").doc(driverId).get();
+    const fcm = userDoc.data()?.fcmToken;
+    if (fcm) {
+      try {
+        await admin.messaging().send({
+          token: fcm,
+          notification: {
+            title: "Status Updated by Operations Desk",
+            body: "Your driver account status was switched to ONLINE by an administrator.",
+          },
+          data: {
+            type: "ADMIN_STATUS_TOGGLE",
+            isOnline: "true",
+          },
+        });
+      } catch (err) {
+        console.warn(`[hubSetDriverOnlineStatus] Failed to notify driver ${driverId}:`, err);
+      }
+    }
+
+    return { success: true, isOnline: true, message: `Driver status switched to ONLINE.` };
+  } else {
+    // Going offline
+    await db().collection("driver_status").doc(driverId).set(
+      {
+        driverId,
+        isOnline: false,
+        status: "offline",
+        activeSessionId: null,
+        updatedAt: now,
+        manuallySetByAdmin: callerEmail || callerUid,
+        offlineReason: reason || "Switched offline by Hub Operations Desk",
+      },
+      { merge: true }
+    );
+
+    await db().collection("drivers").doc(driverId).set(
+      {
+        isOnline: false,
+        activeSessionId: null,
+        lastSeen: now,
+        manuallySetByAdmin: callerEmail || callerUid,
+      },
+      { merge: true }
+    );
+
+    // Notify driver device
+    const userDoc = await db().collection("users").doc(driverId).get();
+    const fcm = userDoc.data()?.fcmToken;
+    if (fcm) {
+      try {
+        await admin.messaging().send({
+          token: fcm,
+          notification: {
+            title: "Status Updated by Operations Desk",
+            body: reason || "Your driver account was switched to OFFLINE by an administrator.",
+          },
+          data: {
+            type: "ADMIN_STATUS_TOGGLE",
+            isOnline: "false",
+          },
+        });
+      } catch (err) {
+        console.warn(`[hubSetDriverOnlineStatus] Failed to notify driver ${driverId}:`, err);
+      }
+    }
+
+    return { success: true, isOnline: false, message: `Driver status switched to OFFLINE.` };
+  }
+});
+

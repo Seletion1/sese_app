@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
@@ -38,11 +39,13 @@ class DriverStatusDecision {
   final bool granted;
   final String status;
   final String message;
+  final String? sessionId;
 
   const DriverStatusDecision({
     required this.granted,
     required this.status,
     required this.message,
+    this.sessionId,
   });
 
   factory DriverStatusDecision.fromMap(Map<String, dynamic> map) {
@@ -50,6 +53,32 @@ class DriverStatusDecision {
       granted: map['granted'] == true || map['confirmed'] == true,
       status: (map['status'] ?? 'unknown').toString(),
       message: (map['message'] ?? '').toString(),
+      sessionId: map['sessionId']?.toString(),
+    );
+  }
+}
+
+/// Snapshot of the server-authoritative driver availability record
+/// from `driver_status/{driverId}`.
+class DriverStatusSnapshot {
+  final bool isOnline;
+  final String status;
+  final String? activeSessionId;
+
+  const DriverStatusSnapshot({
+    required this.isOnline,
+    required this.status,
+    this.activeSessionId,
+  });
+
+  factory DriverStatusSnapshot.fromMap(Map<String, dynamic>? map) {
+    if (map == null) {
+      return const DriverStatusSnapshot(isOnline: false, status: 'offline');
+    }
+    return DriverStatusSnapshot(
+      isOnline: map['isOnline'] == true,
+      status: (map['status'] ?? 'offline').toString(),
+      activeSessionId: map['activeSessionId']?.toString(),
     );
   }
 }
@@ -59,8 +88,9 @@ class DriverStatusDecision {
 class DriverStatusException implements Exception {
   final String code;
   final String message;
+  final String printMessage;
 
-  const DriverStatusException(this.code, this.message);
+  const DriverStatusException(this.code, this.message, [this.printMessage = '']);
 
   @override
   String toString() => 'DriverStatusException($code): $message';
@@ -72,10 +102,13 @@ abstract class DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? sessionId,
+    String? fcmToken,
   });
 
   Future<Map<String, dynamic>> callGoOffline({
     required String driverId,
+    String? sessionId,
   });
 }
 
@@ -100,6 +133,8 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? sessionId,
+    String? fcmToken,
   }) async {
     final fn = _fn;
     if (fn == null) {
@@ -109,13 +144,18 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
       );
     }
     try {
-      final result = await fn.httpsCallable('goOnline').call({
+      final payload = <String, dynamic>{
         'driverId': driverId,
         'fix': fix,
-        // Callable already carries the verified ID token; echoed explicitly
-        // so HTTP-gateway deployments can validate the Bearer token too.
         'idToken': idToken,
-      });
+      };
+      if (sessionId != null && sessionId.isNotEmpty) {
+        payload['sessionId'] = sessionId;
+      }
+      if (fcmToken != null && fcmToken.isNotEmpty) {
+        payload['fcmToken'] = fcmToken;
+      }
+      final result = await fn.httpsCallable('goOnline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
       throw DriverStatusException(e.code, e.message ?? 'Online request denied.');
@@ -125,6 +165,7 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
   @override
   Future<Map<String, dynamic>> callGoOffline({
     required String driverId,
+    String? sessionId,
   }) async {
     final fn = _fn;
     if (fn == null) {
@@ -134,9 +175,13 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
       );
     }
     try {
-      final result = await fn.httpsCallable('goOffline').call({
+      final payload = <String, dynamic>{
         'driverId': driverId,
-      });
+      };
+      if (sessionId != null && sessionId.isNotEmpty) {
+        payload['sessionId'] = sessionId;
+      }
+      final result = await fn.httpsCallable('goOffline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
       throw DriverStatusException(e.code, e.message ?? 'Offline request denied.');
@@ -149,12 +194,10 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
 /// The client is presentation-only: it NEVER flips `_isOnline` itself.
 /// Every transition requires a server grant:
 /// - `requestGoOnline` → `goOnline()` callable with Bearer ID token + signed
-///   GPS fix. Server verifies JWT, licence/vehicle approval, suspension,
-///   fleet attachment, and GPS spoof sanity, then writes `isOnline: true`,
-///   `status: 'active'` + geo index and returns the grant.
-/// - `requestGoOffline` → `goOffline()` callable. Server refuses while a trip
-///   is mid-ride, otherwise clears the geo registry, writes
-///   `isOnline: false`, and returns confirmation.
+///   GPS fix + unique session ID.
+/// - `requestGoOffline` → `goOffline()` callable.
+/// - `driverStatusStream` → real-time Firestore listener on `driver_status/{uid}`
+///   to immediately sync multi-device session terminations.
 class DriverStatusService {
   final DriverStatusBackend _backend;
   final Future<String?> Function()? _idTokenProvider;
@@ -206,6 +249,8 @@ class DriverStatusService {
   Future<DriverStatusDecision> requestGoOnline({
     required String driverId,
     required DriverGpsFix fix,
+    String? sessionId,
+    String? fcmToken,
   }) async {
     _precheckFix(fix);
     final idToken = await _resolveIdToken();
@@ -219,14 +264,37 @@ class DriverStatusService {
       idToken,
       driverId: driverId,
       fix: fix.toMap(),
+      sessionId: sessionId,
+      fcmToken: fcmToken,
     );
     return DriverStatusDecision.fromMap(data);
   }
 
   Future<DriverStatusDecision> requestGoOffline({
     required String driverId,
+    String? sessionId,
   }) async {
-    final data = await _backend.callGoOffline(driverId: driverId);
+    final data = await _backend.callGoOffline(
+      driverId: driverId,
+      sessionId: sessionId,
+    );
     return DriverStatusDecision.fromMap(data);
   }
+
+  /// Real-time stream of `driver_status/{driverId}` document.
+  Stream<DriverStatusSnapshot> driverStatusStream(String driverId) {
+    if (driverId.isEmpty) {
+      return Stream.value(const DriverStatusSnapshot(isOnline: false, status: 'offline'));
+    }
+    try {
+      return FirebaseFirestore.instance
+          .collection('driver_status')
+          .doc(driverId)
+          .snapshots()
+          .map((doc) => DriverStatusSnapshot.fromMap(doc.data()));
+    } catch (_) {
+      return Stream.value(const DriverStatusSnapshot(isOnline: false, status: 'offline'));
+    }
+  }
 }
+

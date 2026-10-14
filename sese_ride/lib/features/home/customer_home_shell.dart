@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../customer/presentation/customer_verification_screen.dart';
@@ -54,12 +55,27 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
     // Customer-topic push (trip updates, bids, arrivals, announcements).
     // ignore: discarded_futures
     PushNotificationService.subscribe('user_${widget.user.uid}');
+    // Device token for targeted broadcasts (admin inbox + urgent alerts).
+    // ignore: discarded_futures
+    PushNotificationService.registerToken(
+      uid: widget.user.uid,
+      country: CountryDetectionService.instance.currentCountryCode,
+    );
     // Approved drivers entering Customer Mode: mirror driver profile/KYC
     // into users/{uid} so verified drivers are never asked to re-verify.
     // Fire-and-forget; the banner + profile screens react to the live
     // Firestore streams once the merge lands.
     // ignore: discarded_futures
     DriverToCustomerSync.syncIfApprovedDriver(widget.user.uid);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        MandatoryLegalAcceptanceDialog.checkAndShow(
+          context,
+          userId: widget.user.uid,
+          userRole: 'customer',
+        );
+      }
+    });
   }
 
   @override
@@ -93,8 +109,12 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
       return;
     }
 
-    // Second press within 2s window: pop and exit app
-    Navigator.of(context).pop();
+    // Second press within 2s window: exit app cleanly without popping root route
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      SystemNavigator.pop();
+    }
   }
 
   @override
@@ -142,9 +162,13 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
                     customerId: widget.user.uid,
                     tripRepository: widget.tripRepository,
                   ),
-                  CustomerHomeMapScreen(user: widget.user),
+                  CustomerHomeMapScreen(
+                    user: widget.user,
+                    tripRepository: widget.tripRepository,
+                  ),
                   CustomerProfileScreen(
                     user: widget.user,
+                    auth: widget.auth,
                     onSelectTab: (index) =>
                         setState(() => _selectedNavIndex = index),
                   ),
@@ -252,17 +276,56 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
             ),
           ],
         ),
-        bottomNavigationBar: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          currentIndex: _selectedNavIndex, // 0: Trips, 1: Home, 2: Profile
-          onTap: (index) => setState(() => _selectedNavIndex = index),
-          selectedItemColor: Theme.of(context).primaryColor,
-          unselectedItemColor: Colors.grey,
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Trips'),
-            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
-          ],
+        bottomNavigationBar: Builder(
+          builder: (context) {
+            // Bar colors come from AppTheme.bottomNavigationBarTheme (which
+            // follows Theme brightness) — never hardcoded here.
+            final barTheme = Theme.of(context).bottomNavigationBarTheme;
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final barBg =
+                barTheme.backgroundColor ?? Theme.of(context).cardColor;
+            return Container(
+              decoration: BoxDecoration(
+                color: barBg,
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark ? Colors.black54 : Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: BottomNavigationBar(
+                type: barTheme.type ?? BottomNavigationBarType.fixed,
+                currentIndex: _selectedNavIndex, // 0: Trips, 1: Home, 2: Profile
+                onTap: (index) => setState(() => _selectedNavIndex = index),
+                selectedItemColor:
+                    barTheme.selectedItemColor ?? AppColors.seseGold,
+                unselectedItemColor: barTheme.unselectedItemColor,
+                backgroundColor: barBg,
+                elevation: 0,
+                selectedFontSize: 12,
+                unselectedFontSize: 12,
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.history_outlined),
+                    activeIcon: Icon(Icons.history),
+                    label: 'Trips',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.home_outlined),
+                    activeIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.person_outline),
+                    activeIcon: Icon(Icons.person_rounded),
+                    label: 'Profile',
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

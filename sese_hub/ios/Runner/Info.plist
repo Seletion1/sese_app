@@ -82,5 +82,22 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Camera access is used to take live verification photos during driver and customer onboarding.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo library access is used to attach screenshots and images in support chat conversations.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Photo library access is used to save support and verification images to your device.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>SeSe Hub does not access your address book directly.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Location access is used to display current regional hub context.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>sms</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
 </dict>
 </plist>

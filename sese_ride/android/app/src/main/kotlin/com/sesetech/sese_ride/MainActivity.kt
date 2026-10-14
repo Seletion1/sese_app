@@ -1,33 +1,80 @@
 package com.sesetech.sese_ride
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
-// Maps render 100% with OpenStreetMap raster tiles via flutter_map — no
-// Google Maps SDK, no API key, no renderer pinning needed on this Activity.
 class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pinAppCheckDebugToken()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
         super.onCreate(savedInstanceState)
     }
 
-    /**
-     * Pins the Firebase App Check debug secret for sese_ride to [PINNED_DEBUG_TOKEN]
-     * so every debug build/install reuses the same token registered in the
-     * Firebase console (App Check > Apps > Manage debug tokens).
-     *
-     * - Runs on debuggable builds ONLY; release builds are untouched.
-     * - Uses reflection so nothing breaks when Firebase / App Check is not
-     *   integrated yet; it simply no-ops until firebase-appcheck-debug is added.
-     * - Must run before the first App Check token fetch (Dart Firebase init),
-     *   which is guaranteed here since Activity.onCreate precedes the engine.
-     *
-     * WARNING: internal SharedPreferences keys of the App Check SDK. If a future
-     * SDK version changes them, update the constants below.
-     */
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "bringToForeground") {
+                bringAppToForeground()
+                result.success(true)
+            } else {
+                result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, GMS_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "isAvailable") {
+                result.success(isGooglePlayServicesAvailable())
+            } else {
+                result.notImplemented()
+            }
+        }
+    }
+
+    // singleTop delivery: notification/bubble taps that resolve to the
+    // existing MainActivity arrive here instead of recreating it.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    // Restores sese_ride to the foreground (bubble tap + "SeSe Driver
+    // Active" notification tap path). REORDER_TO_FRONT reuses the existing
+    // singleTop MainActivity instead of stacking a second copy; the unified
+    // tray notification's content PendingIntent is built with
+    // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE per Android 12+ requirements.
+    private fun bringAppToForeground() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        startActivity(intent)
+    }
+
+    // Reports whether Google Play Services can render maps on this device.
+    // Used by SeSeMapView to fall back to OpenStreetMap tiles where GMS is
+    // missing (e.g. Huawei devices without Google services) instead of
+    // showing a beige void. Fail-open: any reflection/classes failure
+    // returns true so GMS devices never change behavior.
+    private fun isGooglePlayServicesAvailable(): Boolean {
+        return try {
+            val apiClass = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
+            val instance = apiClass.getMethod("getInstance").invoke(null)
+            val code = apiClass.getMethod("isGooglePlayServicesAvailable", Context::class.java)
+                .invoke(instance, this) as Int
+            code == 0 // ConnectionResult.SUCCESS
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     private fun pinAppCheckDebugToken() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         try {
@@ -50,7 +97,9 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val TAG = "sese_ride"
-        // Mirrors AppCheckConfig.seseRideDebugToken in sese_core.
+        const val CHANNEL = "com.sesetech.sese_ride/app_launcher"
+        const val GMS_CHANNEL = "com.sesetech.sese_ride/gms_availability"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"
     }
 }
+

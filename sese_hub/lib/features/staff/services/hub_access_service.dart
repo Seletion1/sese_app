@@ -26,15 +26,144 @@ const String permSupportChat = 'support_chat';
 /// `processPayouts` scope; staff with this grant see the automated
 /// withdrawal audit trail for support follow-up.
 const String permPayouts = 'process_payouts';
+const String permActiveRides = 'active_rides';
+
+/// Scoped Sub-Admin permission toggles.
+const String permEditFares = 'edit_fares';
+const String permSuspendUsers = 'suspend_users';
+const String permP2pLimits = 'p2p_limits';
+const String permDocumentReview = 'document_review';
+
+/// User and Driver Onboarding / Registration module permission code.
+const String permUserOnboarding = 'user_onboarding';
+
+/// Targeted push broadcast module (announcements + urgent alerts).
+/// Super Admins always hold it; Admins/Agents need the explicit grant.
+/// The `sendTargetedBroadcast` callable enforces the same rule server-side.
+const String permBroadcast = 'broadcast_notifications';
+
+/// ── Sub-section permission codes (Req: granular per-section grants) ──────
+/// Each gates ONE card/section inside its module tab (see `HubModuleShell`).
+/// A staffer needs the module grant AND the section code — except legacy
+/// records provisioned before fine-grained codes existed (no fine codes at
+/// all): those fail OPEN to every section under their granted modules so
+/// existing staff are never locked out by the upgrade. Owner/Super always
+/// pass. See [canSeeSection].
+
+// Dynamic Config sections (map engine controls live inside API & Remote Keys,
+// next to the keys they depend on).
+const String secConfigPricing = 'config_pricing';
+const String secConfigApiKeys = 'config_api_keys';
+const String secConfigWallet = 'config_wallet';
+const String secConfigReferral = 'config_referral';
+const String secConfigDispatch = 'config_dispatch';
+const String secConfigEngagement = 'config_engagement';
+
+// Fleet & Security sections (mirrors the 7 desk tabs).
+const String secFleetVehicles = 'fleet_vehicles';
+const String secFleetDrivers = 'fleet_drivers';
+const String secFleetCustomers = 'fleet_customers';
+const String secFleetDriverKyc = 'fleet_driver_kyc';
+const String secFleetCustomerKyc = 'fleet_customer_kyc';
+const String secFleetCameraAudit = 'fleet_camera_audit';
+const String secFleetDispatchQueue = 'fleet_dispatch_queue';
+
+// Active Rides sections.
+const String secRidesLive = 'rides_live';
+const String secRidesScheduled = 'rides_scheduled';
+
+/// Every sub-section code. Used to detect legacy records (none of these
+/// present → module grant covers all its sections).
+const Set<String> hubSectionCodes = {
+  secConfigPricing,
+  secConfigApiKeys,
+  secConfigWallet,
+  secConfigReferral,
+  secConfigDispatch,
+  secConfigEngagement,
+  secFleetVehicles,
+  secFleetDrivers,
+  secFleetCustomers,
+  secFleetDriverKyc,
+  secFleetCustomerKyc,
+  secFleetCameraAudit,
+  secFleetDispatchQueue,
+  secRidesLive,
+  secRidesScheduled,
+};
+
+/// Human labels for the Staff Management section picker.
+const Map<String, String> hubSectionCatalog = {
+  secConfigPricing: 'Pricing Engines',
+  secConfigApiKeys: 'API & Remote Keys',
+  secConfigWallet: 'Wallet & Payout Rules',
+  secConfigReferral: 'Referral & Revenue',
+  secConfigDispatch: 'Dispatch & Trips Tuning',
+  secConfigEngagement: 'Driver Engagement',
+  secFleetVehicles: 'Vehicle Registrations',
+  secFleetDrivers: 'Driver Directory',
+  secFleetCustomers: 'Customer Directory',
+  secFleetDriverKyc: 'Driver KYC Approvals',
+  secFleetCustomerKyc: 'Customer KYC Approvals',
+  secFleetCameraAudit: 'Camera Audit Logs',
+  secFleetDispatchQueue: 'Dispatch Queue',
+  secRidesLive: 'Live Rides',
+  secRidesScheduled: 'Scheduled Rides',
+};
+
+/// Section visibility gate for [HubModuleShell].
+///
+/// - Owner/Super: always true.
+/// - Otherwise the module grant is required; when [sectionPermission] is
+///   null the module grant suffices; when set, legacy records carrying NO
+///   fine-grained codes at all fail open (backward compat), while records
+///   with any fine code must hold the specific one.
+bool canSeeSection({
+  required bool isOwner,
+  required UserRole role,
+  required List<String> permissions,
+  required String modulePermission,
+  String? sectionPermission,
+}) {
+  if (isOwner || role == UserRole.superRole) return true;
+  if (!permissions.contains(modulePermission)) return false;
+  if (sectionPermission == null) return true;
+  final hasAnyFine = permissions.any(hubSectionCodes.contains);
+  if (!hasAnyFine) return true;
+  return permissions.contains(sectionPermission);
+}
+
+/// Country scope values. `global` = all jurisdictions; otherwise an
+/// ISO-3166 alpha-2 code (e.g. `NG`) restricting the staffer to that
+/// country's data wherever the data model carries a country field
+/// (today: Active Rides trip docs via `pickupCountryCode`).
+const String countryScopeGlobal = 'global';
+
+/// Normalizes a stored scope: empty/unknown → `global`; otherwise the
+/// upper-cased country code.
+String normalizeCountryScope(String? raw) {
+  final code = (raw ?? '').trim().toUpperCase();
+  if (code.isEmpty || code == 'GLOBAL' || code == 'ALL') {
+    return countryScopeGlobal;
+  }
+  return code;
+}
 
 /// Every permission the Super Admin may check off in Staff Management.
 /// `staff_manage` is Super-only (enforced in the dialog and on write).
 const Map<String, String> hubModuleCatalog = {
+  permActiveRides: 'Active Rides Console',
   permFleetVerify: 'Fleet & Security',
+  permUserOnboarding: 'User & Driver Onboarding',
   permDynamicConfig: 'Dynamic Config',
-  permStaffManage: 'Staff Management',
   permSupportChat: 'Support Inbox',
   permPayouts: 'Payout Desk',
+  permEditFares: 'Edit Fares & Pricing',
+  permSuspendUsers: 'Suspend Users & Drivers',
+  permP2pLimits: 'P2P Limits & Wallet Rules',
+  permDocumentReview: 'Document Review & KYC',
+  permBroadcast: 'Broadcast Notifications',
+  permStaffManage: 'Staff Management',
 };
 
 /// Permissions a non-Super staffer may retain on write. `staff_manage`
@@ -48,7 +177,7 @@ List<String> filterPermissionsForRole(UserRole role, List<String> permissions) {
 
 /// Tabs available inside Sese Hub. There are no separate Agent views:
 /// everyone navigates this single permission-filtered tab set.
-enum HubTab { fleet, support, payouts, config, staff, profile }
+enum HubTab { activeRides, fleet, onboarding, support, payouts, broadcast, config, staff, profile }
 
 /// Unified permission-based tab rendering for the nav shell
 /// (HubDashboardScreen rail + bottom bar):
@@ -68,9 +197,12 @@ List<HubTab> visibleTabs({
   if (isOwner) return HubTab.values;
   if (role == UserRole.superRole) {
     return [
+      HubTab.activeRides,
       HubTab.fleet,
+      HubTab.onboarding,
       HubTab.support,
       HubTab.payouts,
+      HubTab.broadcast,
       HubTab.config,
       if (permissions.contains(permStaffManage)) HubTab.staff,
       HubTab.profile,
@@ -81,9 +213,14 @@ List<HubTab> visibleTabs({
   }
   final granted = permissions.toSet();
   final out = <HubTab>[];
+  if (granted.contains(permActiveRides)) out.add(HubTab.activeRides);
   if (granted.contains(permFleetVerify)) out.add(HubTab.fleet);
+  if (granted.contains(permUserOnboarding) || granted.contains(permDocumentReview)) {
+    out.add(HubTab.onboarding);
+  }
   if (granted.contains(permSupportChat)) out.add(HubTab.support);
   if (granted.contains(permPayouts)) out.add(HubTab.payouts);
+  if (granted.contains(permBroadcast)) out.add(HubTab.broadcast);
   if (granted.contains(permDynamicConfig)) out.add(HubTab.config);
   if (granted.contains(permStaffManage)) out.add(HubTab.staff);
   out.add(HubTab.profile);
@@ -130,6 +267,10 @@ String hubStaffRoleName(UserRole role) {
 /// `assignedPermissions` is the authoritative module list driving
 /// [visibleTabs]. `scopes` is retained read-only for records provisioned
 /// before the unified permission model.
+/// `countryScope` is `global` or an ISO country code (`NG`, …): staff see
+/// only data from their jurisdiction wherever the data model carries a
+/// country field (Active Rides today; server-side enforcement + data
+/// migration for the remaining collections is tracked follow-up work).
 class HubStaffRecord {
   final String email;
   final String roleRaw;
@@ -138,6 +279,9 @@ class HubStaffRecord {
   final String assignedBy;
   final bool active;
 
+  /// Normalized jurisdiction scope (`global` or e.g. `NG`).
+  final String countryScope;
+
   const HubStaffRecord({
     required this.email,
     required this.roleRaw,
@@ -145,6 +289,7 @@ class HubStaffRecord {
     this.assignedPermissions = const [],
     this.assignedBy = '',
     this.active = true,
+    this.countryScope = countryScopeGlobal,
   });
 
   factory HubStaffRecord.fromMap(Map<String, dynamic> map) {
@@ -161,6 +306,10 @@ class HubStaffRecord {
           : const [],
       assignedBy: (map['assignedBy'] ?? '').toString(),
       active: map['active'] != false,
+      countryScope: normalizeCountryScope(
+        (map['countryScope'] ?? map['country_scope'] ?? map['country'])
+            ?.toString(),
+      ),
     );
   }
 
@@ -171,6 +320,7 @@ class HubStaffRecord {
         'assignedPermissions': assignedPermissions,
         'assignedBy': assignedBy,
         'active': active,
+        'countryScope': countryScope,
       };
 }
 
@@ -207,6 +357,10 @@ class HubAccessResult {
   /// or every module for the owner (permanent full access).
   final List<String> assignedPermissions;
 
+  /// Effective jurisdiction scope (`global` or a country code). Owner and
+  /// records without a stored scope resolve to `global`.
+  final String countryScope;
+
   /// Convenience for callers that only care about pass/fail: true only when
   /// [status] is [HubAccessStatus.qualified].
   bool get qualified => status == HubAccessStatus.qualified;
@@ -217,6 +371,7 @@ class HubAccessResult {
     required this.isOwner,
     this.record,
     this.assignedPermissions = const [],
+    this.countryScope = countryScopeGlobal,
     this.error,
   });
 
@@ -240,12 +395,14 @@ class HubAccessResult {
     required bool isOwner,
     HubStaffRecord? record,
     List<String> assignedPermissions = const [],
+    String countryScope = countryScopeGlobal,
   }) : this._(
           status: HubAccessStatus.qualified,
           role: role,
           isOwner: isOwner,
           record: record,
           assignedPermissions: assignedPermissions,
+          countryScope: countryScope,
         );
 }
 
@@ -297,17 +454,13 @@ class HubAccessService {
     }
 
     // Owner bootstrap: permanent Super authority, no document required —
-    // full access to every module.
+    // full access to every module (all catalog grants, including broadcast).
     if (isPrimaryOwnerEmail(clean)) {
-      return const HubAccessResult.qualified(
+      return HubAccessResult.qualified(
         role: UserRole.superRole,
         isOwner: true,
-        assignedPermissions: [
-          permFleetVerify,
-          permDynamicConfig,
-          permStaffManage,
-          permSupportChat,
-        ],
+        assignedPermissions: hubModuleCatalog.keys.toList(),
+        countryScope: countryScopeGlobal,
       );
     }
 
@@ -350,6 +503,7 @@ class HubAccessService {
             isOwner: false,
             record: record,
             assignedPermissions: record.assignedPermissions,
+            countryScope: record.countryScope,
           );
         }
       } catch (e) {
@@ -381,11 +535,14 @@ class HubAccessService {
   /// `firestore.rules` enforces the same constraint server-side.
   /// `staff_manage` is stripped for non-Super roles (Super Admin only),
   /// even if a stale client offers it.
+  /// [countryScope] is `global` or an ISO country code (`NG`, …) bounding
+  /// the staffer's data jurisdiction (see [HubStaffRecord.countryScope]).
   Future<void> provisionStaff({
     required String provisionerEmail,
     required String candidateEmail,
     required UserRole role,
     required List<String> assignedPermissions,
+    String countryScope = countryScopeGlobal,
   }) async {
     if (!isPrimaryOwnerEmail(provisionerEmail)) {
       throw StateError(
@@ -412,6 +569,7 @@ class HubAccessService {
         'email': candidate,
         'role': hubStaffRoleName(role),
         'assignedPermissions': validPermissions,
+        'countryScope': normalizeCountryScope(countryScope),
         'assignedBy': primaryOwnerEmail,
         'active': true,
         'createdAt': FieldValue.serverTimestamp(),

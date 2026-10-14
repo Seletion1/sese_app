@@ -19,6 +19,10 @@ class StreakProgressBanner extends StatefulWidget {
   /// Server timestamp of the "Arrived" tap, if the driver has arrived.
   final DateTime? arrivedAt;
 
+  /// When true, renders as a compact floating round badge showing the level
+  /// number. Tapping expands to the full banner and auto-collapses after 3 seconds.
+  final bool collapsible;
+
   const StreakProgressBanner({
     super.key,
     required this.streak,
@@ -26,6 +30,7 @@ class StreakProgressBanner extends StatefulWidget {
     this.currencySymbol = '₦',
     this.waitThresholdMinutes = 10,
     this.arrivedAt,
+    this.collapsible = false,
   });
 
   @override
@@ -34,9 +39,12 @@ class StreakProgressBanner extends StatefulWidget {
 
 class _StreakProgressBannerState extends State<StreakProgressBanner> {
   Timer? _ticker;
+  Timer? _collapseTimer;
   Duration _elapsed = Duration.zero;
+  bool _expanded = false;
 
   bool get _waiting => widget.arrivedAt != null;
+  bool get _isExpanded => !widget.collapsible || _expanded || _waiting;
 
   @override
   void initState() {
@@ -65,7 +73,28 @@ class _StreakProgressBannerState extends State<StreakProgressBanner> {
   @override
   void dispose() {
     _ticker?.cancel();
+    _collapseTimer?.cancel();
     super.dispose();
+  }
+
+  void _onBadgeTap() {
+    setState(() {
+      _expanded = !_expanded;
+    });
+    _resetCollapseTimer();
+  }
+
+  void _resetCollapseTimer() {
+    _collapseTimer?.cancel();
+    if (_expanded && widget.collapsible && !_waiting) {
+      _collapseTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _expanded = false;
+          });
+        }
+      });
+    }
   }
 
   String get _nextMilestone {
@@ -105,6 +134,53 @@ class _StreakProgressBannerState extends State<StreakProgressBanner> {
   Widget build(BuildContext context) {
     final s = widget.streak;
     final scheme = Theme.of(context).colorScheme;
+
+    if (!_isExpanded) {
+      return GestureDetector(
+        key: const Key('streak_compact_badge'),
+        onTap: _onBadgeTap,
+        child: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: scheme.primary,
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'LVL',
+                style: TextStyle(
+                  color: scheme.onPrimary.withValues(alpha: 0.8),
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                '${s.currentLevel.number}',
+                style: TextStyle(
+                  color: scheme.onPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  height: 1.0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final threshold =
         Duration(minutes: widget.waitThresholdMinutes <= 0 ? 10 : widget.waitThresholdMinutes);
     final protected = _waiting && _elapsed >= threshold;
@@ -128,13 +204,13 @@ class _StreakProgressBannerState extends State<StreakProgressBanner> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppColors.seseGold,
+                  color: scheme.primary,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
                   'LEVEL ${s.currentLevel.number}',
-                  style: const TextStyle(
-                      color: Colors.black,
+                  style: TextStyle(
+                      color: scheme.onPrimary,
                       fontWeight: FontWeight.bold,
                       fontSize: 12),
                 ),
@@ -155,6 +231,23 @@ class _StreakProgressBannerState extends State<StreakProgressBanner> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (widget.collapsible && !_waiting) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () {
+                    _collapseTimer?.cancel();
+                    setState(() => _expanded = false);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),

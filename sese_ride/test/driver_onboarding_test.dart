@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/testing.dart';
-import 'package:http/http.dart' as http;
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/driver/presentation/driver_onboarding_screen.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/verified_customer_badge.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
+import 'package:sese_ride/widgets/osm_map_view.dart';
 
 void main() {
+  // Onboarding embeds the address LocationPickerMap: placeholder seam so
+  // widget tests never touch network tiles or a native platform view.
+  setUp(() {
+    OsmMapView.debugTileProviderOverride = const BlankTileProvider();
+  });
+  tearDown(() {
+    OsmMapView.debugTileProviderOverride = null;
+  });
+
   group('DriverOnboardingService.isAdult', () {
     test('requires 18 years', () {
       final now = DateTime(2026, 9, 25);
@@ -108,29 +115,58 @@ void main() {
     });
   });
 
-  group('Nominatim address search', () {
-    test('parses display_name/lat/lon results', () async {
-      final mock = MockClient((request) async {
-        expect(request.url.host, 'nominatim.openstreetmap.org');
-        return http.Response(
-          '[{"display_name":"Ikeja, Lagos, Nigeria","lat":"6.6018","lon":"3.3515"}]',
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      });
-      final svc = DriverOnboardingService(httpClient: mock);
-      final results = await svc.searchAddress('Ikeja');
-      expect(results, hasLength(1));
-      expect(results.first.displayName, contains('Ikeja'));
-      expect(results.first.lat, closeTo(6.6018, 0.0001));
-      expect(results.first.lng, closeTo(3.3515, 0.0001));
+  group('Google Places address search', () {
+    tearDown(() {
+      GoogleMapsService.callableOverride = null;
     });
 
-    test('returns empty on server error', () async {
-      final mock = MockClient(
-          (request) async => http.Response('error', 500));
-      final svc = DriverOnboardingService(httpClient: mock);
-      expect(await svc.searchAddress('Lagos'), isEmpty);
+    test('parses autocomplete predictions', () async {
+      GoogleMapsService.callableOverride = (action, params) async {
+        expect(action, 'autocomplete');
+        return {
+          'predictions': [
+            {
+              'placeId': 'ChIJ-Ikeja-001',
+              'description': 'Ikeja, Lagos, Nigeria',
+              'mainText': 'Ikeja',
+              'secondaryText': 'Lagos, Nigeria',
+            }
+          ],
+        };
+      };
+      final svc = DriverOnboardingService();
+      final results = await svc.searchPlacePredictions('Ikeja');
+      expect(results, hasLength(1));
+      expect(results.first.placeId, 'ChIJ-Ikeja-001');
+      expect(results.first.mainText, contains('Ikeja'));
+    });
+
+    test('returns empty on proxy failure', () async {
+      GoogleMapsService.callableOverride = (action, params) async {
+        return <String, dynamic>{};
+      };
+      final svc = DriverOnboardingService();
+      expect(await svc.searchPlacePredictions('Lagos'), isEmpty);
+    });
+
+    test('resolves place details to coordinates', () async {
+      GoogleMapsService.callableOverride = (action, params) async {
+        expect(action, 'details');
+        expect(params['input'], 'ChIJ-Ikeja-001');
+        return {
+          'details': {
+            'placeId': 'ChIJ-Ikeja-001',
+            'lat': 6.6018,
+            'lng': 3.3515,
+            'formattedAddress': 'Ikeja, Lagos, Nigeria',
+            'name': 'Ikeja',
+          },
+        };
+      };
+      final svc = DriverOnboardingService();
+      final details = await svc.resolvePlaceDetails('ChIJ-Ikeja-001');
+      expect(details.lat, closeTo(6.6018, 0.0001));
+      expect(details.lng, closeTo(3.3515, 0.0001));
     });
   });
 

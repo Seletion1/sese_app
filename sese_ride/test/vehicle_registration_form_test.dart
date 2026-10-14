@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/photo_guide_modal.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/vehicle_registration_form.dart';
 import 'package:sese_ride/features/driver/services/driver_fleet_service.dart';
-import 'package:sese_ride/features/driver/services/vehicle_catalog.dart';
 
 Future<XFile?> _fakePick({required ImageSource source}) async =>
     XFile('/tmp/fake_upload.jpg');

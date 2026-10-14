@@ -35,7 +35,11 @@ abstract class TripRepository {
   Stream<List<ActiveTrip>> activeTripsStream(String customerId);
 
   /// Customer cancellation (server transitions to CANCELLED).
-  Future<void> cancelTrip(String tripId);
+  ///
+  /// [reason] is a [CancelTripDialog] reason code, audited server-side into
+  /// the immutable `cancellation_audits` collection and counted toward the
+  /// hourly spam-cancel rate limit. Null/unknown codes land as `other`.
+  Future<void> cancelTrip(String tripId, {String? reason});
 
   // ── Bidding API ────────────────────────────────────────────────────────────
 
@@ -122,9 +126,12 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   @override
-  Future<void> cancelTrip(String tripId) async {
+  Future<void> cancelTrip(String tripId, {String? reason}) async {
     try {
-      await _fn.httpsCallable('cancelTrip').call({'tripId': tripId});
+      await _fn.httpsCallable('cancelTrip').call({
+        'tripId': tripId,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      });
     } on FirebaseFunctionsException catch (e) {
       throw TripException(e.code, _mapError(e.code, e.message));
     }

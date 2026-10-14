@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../home/security_pin_screen.dart';
+import '../../referral/referral_hub_screen.dart';
 import '../../trips/models/trip_models.dart';
 import '../../../widgets/verified_badge.dart';
 import '../services/driver_profile_service.dart';
@@ -39,6 +41,34 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       widget.streakService ?? DriverStreakService();
 
   bool _uploadingAvatar = false;
+  bool _savingExpiry = false;
+
+  Future<void> _saveExpiry({
+    DateTime? license,
+    DateTime? inspection,
+    DateTime? insurance,
+  }) async {
+    if (_savingExpiry) return;
+    setState(() => _savingExpiry = true);
+    try {
+      await _profiles.saveDocumentExpiry(
+        widget.user.uid,
+        licenseExpiry: license,
+        inspectionExpiry: inspection,
+        insuranceExpiry: insurance,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Document expiry date updated.')),
+      );
+    } on DriverProfileException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } finally {
+      if (mounted) setState(() => _savingExpiry = false);
+    }
+  }
 
   Future<void> _captureAvatar() async {
     if (_uploadingAvatar) return;
@@ -84,12 +114,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Driver Profile')),
+      appBar: const SeseAppBar(title: 'Driver Profile'),
       body: StreamBuilder<DriverProfile?>(
         stream: _profiles.profileStream(widget.user.uid),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: CircularProgressIndicator(),
+              ),
+            );
           }
           final profile = snap.data;
           // Fall back to the signed-in account when the driver doc is
@@ -149,7 +184,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         if (profile?.isProfileVerified == true) ...[
                           const SizedBox(width: 6),
                           const Icon(Icons.verified,
-                              size: 20, color: Colors.blue),
+                              size: 20, color: AppColors.seseGold),
                         ],
                       ],
                     ),
@@ -238,6 +273,100 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     value: widget.user.uid.length > 12
                         ? '${widget.user.uid.substring(0, 12)}…'
                         : widget.user.uid,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Document Expiry Dates',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Keep your license, inspection, and insurance dates current. '
+                    'Expired documents will prevent you from going online.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  _ExpiryDateField(
+                    key: const Key('license_expiry_field'),
+                    label: "Driver's License Expiry",
+                    icon: Icons.badge_outlined,
+                    value: profile?.licenseExpiry,
+                    saving: _savingExpiry,
+                    onPicked: (d) => _saveExpiry(license: d),
+                  ),
+                  _ExpiryDateField(
+                    key: const Key('inspection_expiry_field'),
+                    label: 'Vehicle Inspection Expiry',
+                    icon: Icons.car_repair,
+                    value: profile?.inspectionExpiry,
+                    saving: _savingExpiry,
+                    onPicked: (d) => _saveExpiry(inspection: d),
+                  ),
+                  _ExpiryDateField(
+                    key: const Key('insurance_expiry_field'),
+                    label: 'Vehicle Insurance Expiry',
+                    icon: Icons.security_outlined,
+                    value: profile?.insuranceExpiry,
+                    saving: _savingExpiry,
+                    onPicked: (d) => _saveExpiry(insurance: d),
+                  ),
+                  const SizedBox(height: 16),
+                  SettingsTile(
+                    tileKey: const Key('driver_referral_tile'),
+                    leading: const Icon(Icons.card_giftcard_outlined,
+                        color: AppColors.seseGold),
+                    title: 'Refer & Earn',
+                    infoDescription:
+                        'Invite friends & drivers to earn lifetime bonus coins.',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ReferralHubScreen(user: widget.user),
+                    )),
+                  ),
+                  const SizedBox(height: 16),
+                  SettingsTile(
+                    tileKey: const Key('driver_security_pin_tile'),
+                    leading: const Icon(Icons.lock_outline,
+                        color: AppColors.seseGold),
+                    title: 'Security PIN',
+                    infoDescription:
+                        'Protect your wallet and payouts with a 4-digit PIN.',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => SecurityPinScreen(uid: widget.user.uid),
+                    )),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Legal & Compliance',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  SettingsTile(
+                    tileKey: const Key('driver_profile_terms_tile'),
+                    leading: const Icon(Icons.description_outlined),
+                    title: 'Terms of Use',
+                    infoDescription:
+                        'Review terms governing driver partner operations on SESE.',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => LegalDocumentViewer.showTerms(context),
+                  ),
+                  SettingsTile(
+                    tileKey: const Key('driver_profile_privacy_tile'),
+                    leading: const Icon(Icons.privacy_tip_outlined),
+                    title: 'Privacy Policy',
+                    infoDescription:
+                        'Learn how SESE handles driver location, identity, and personal data.',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => LegalDocumentViewer.showPrivacy(context),
                   ),
                 ],
               );
@@ -445,11 +574,12 @@ class _PhoneEditorSheetState extends State<_PhoneEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // 16px gutters so the phone field + save bar span edge-to-edge.
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
+          left: 16,
+          right: 16,
           top: 12,
           bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
@@ -484,6 +614,113 @@ class _PhoneEditorSheetState extends State<_PhoneEditorSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Expiry date picker row
+// ---------------------------------------------------------------------------
+
+/// Tappable Card that shows the current expiry date for one compliance
+/// document and opens a [showDatePicker] modal to update it.
+///
+/// Status chip colour:
+/// - Red   → already expired
+/// - Amber → expiring within 7 days
+/// - Green → valid (>7 days remaining)
+/// - Grey  → not yet entered
+class _ExpiryDateField extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final DateTime? value;
+  final bool saving;
+  final void Function(DateTime picked) onPicked;
+
+  const _ExpiryDateField({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.value,
+    required this.saving,
+    required this.onPicked,
+  });
+
+  Color _chipColor(DateTime? v) {
+    if (v == null) return Colors.grey;
+    final today = DateTime.now();
+    if (v.isBefore(today)) return Colors.red;
+    if (v.isBefore(today.add(const Duration(days: 7)))) return Colors.orange;
+    return Colors.green;
+  }
+
+  String _chipLabel(DateTime? v) {
+    if (v == null) return 'Not set';
+    final today = DateTime.now();
+    if (v.isBefore(today)) return 'EXPIRED';
+    final diff = v.difference(today).inDays;
+    if (diff < 7) return 'Expires in $diff day${diff == 1 ? '' : 's'}';
+    return 'Valid';
+  }
+
+  String _formatDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final chipColor = _chipColor(value);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(icon, color: scheme.primary),
+        title: Text(
+          label,
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        subtitle: Row(
+          children: [
+            Text(
+              value != null ? _formatDate(value!) : 'Tap to set',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            const SizedBox(width: 8),
+            Chip(
+              label: Text(
+                _chipLabel(value),
+                style: const TextStyle(fontSize: 10, color: Colors.white),
+              ),
+              backgroundColor: chipColor,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ],
+        ),
+        trailing: saving
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(Icons.edit_calendar_outlined,
+                size: 20, color: scheme.onSurfaceVariant),
+        onTap: saving
+            ? null
+            : () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate:
+                      value ?? DateTime.now().add(const Duration(days: 365)),
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2035),
+                  helpText: 'Select $label date',
+                );
+                if (picked != null) onPicked(picked);
+              },
       ),
     );
   }

@@ -5,6 +5,8 @@ import 'package:sese_core/sese_core.dart';
 ///
 /// 1 SeSe Coin = ₦1 of local currency. All referral / promo / streak
 /// credits land in `seseCoinBalance` (never directly withdrawable).
+/// Feeds: referral commissions, streak awards, campaign prizes, all bonuses.
+/// Does NOT receive: card/bank top-ups, P2P transfers, or trip cash payouts.
 class SeseCoinHeader extends StatelessWidget {
   final String uid;
   final SeseCoinService? service;
@@ -52,9 +54,19 @@ class SeseCoinHeader extends StatelessWidget {
   }
 }
 
-/// "Convert to Wallet" card: active once `seseCoinBalance >=
-/// minConvertibleBonus`; moves funds into `mainWalletBalance` via the
-/// server callable. SeSe Coins can never be withdrawn directly.
+/// SeSe Coin Bonus card: routing-rule summary + manual conversion + auto-sweep info.
+///
+/// ### Routing rules (mirrored from Cloud Functions)
+/// - `mainWalletBalance` — card/bank top-ups, P2P transfers, trip cash payouts.
+/// - `seseCoinBalance` — ALL promotional rewards, referral commissions,
+///   campaign prizes, and system streak bonuses.
+///
+/// ### Conversion thresholds
+/// - **Manual**: once `seseCoinBalance >= minConvertibleBonus` (default ₦5,000),
+///   the "Convert to Main Balance" button becomes active.
+/// - **Auto-sweep**: when `seseCoinBalance >= maxBonusThreshold` (default ₦10,000),
+///   the full coin balance sweeps into `mainWalletBalance` in real time via the
+///   `processReferralCredit` Cloud Function. The client never triggers this.
 class SeseCoinConvertCard extends StatelessWidget {
   final String uid;
   final SeseCoinService? coinService;
@@ -89,6 +101,7 @@ class SeseCoinConvertCard extends StatelessWidget {
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
                   children: [
+                    // ── Header row ─────────────────────────────
                     Row(
                       children: [
                         const Icon(Icons.monetization_on,
@@ -108,15 +121,61 @@ class SeseCoinConvertCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '1 SeSe Coin = ₦1. Use coins for trips or convert '
-                      'them to your cash wallet. Coins cannot be withdrawn '
-                      'directly.',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey),
+                    const SizedBox(height: 8),
+
+                    // ── Routing rules summary ───────────────────
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF8E1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: const Color(0xFFEAA200)
+                                .withValues(alpha: 0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'What goes into SeSe Coins:',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                                color: Color(0xFF7A5300)),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '• Referral commissions\n'
+                            '• Streak & completion bonuses\n'
+                            '• Campaign prizes & promo rewards',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF7A5300)),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            'Your Main Cash Wallet receives:',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                                color: Color(0xFF555555)),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '• Card / bank top-ups\n'
+                            '• P2P transfers ("Send to a SeSe user")\n'
+                            '• Completed trip cash payouts',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF555555)),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
+
+                    // ── Convert button ──────────────────────────
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
@@ -126,13 +185,32 @@ class SeseCoinConvertCard extends StatelessWidget {
                             Icons.swap_horiz_outlined),
                         label: Text(
                           eligible
-                              ? 'Convert to Wallet'
+                              ? 'Convert to Main Balance'
                               : 'Convert unlocks at ₦${config.minConvertibleBonus.toStringAsFixed(0)}',
                         ),
                         onPressed: eligible
                             ? () => _convert(context)
                             : null,
                       ),
+                    ),
+
+                    // ── Auto-sweep label ────────────────────────
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Icon(Icons.autorenew,
+                            size: 13, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            'Auto-sweeps to main wallet at '
+                            '₦${config.maxBonusThreshold.toStringAsFixed(0)} — no action needed.',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -143,6 +221,7 @@ class SeseCoinConvertCard extends StatelessWidget {
       },
     );
   }
+
 
   Future<void> _convert(BuildContext context) async {
     final svc = coinService ?? const SeseCoinService();

@@ -1,6 +1,10 @@
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+import 'image_compression_service.dart';
+import 'media_permission_service.dart';
 
 /// Shared support-media uploader for `sese_ride` and `sese_hub`.
 ///
@@ -33,20 +37,40 @@ class SupportMediaService {
         '${DateTime.now().millisecondsSinceEpoch}_$suffix';
   }
 
-  /// Picks a photo from the gallery. Returns null on cancel/failure.
+  /// Picks a photo, handshaking the OS runtime permission FIRST
+  /// ([MediaPermissionService.ensureFor]) so the native picker never opens
+  /// onto a dead preview. Returns null on cancel, denial, or failure.
   /// Separated from [upload] so widget tests can skip the plugin.
-  Future<XFile?> pickPhoto() async {
+  ///
+  /// [source] defaults to the gallery; pass [ImageSource.camera] for
+  /// capture flows. On permanent denial the outcome is recorded on
+  /// [MediaPermissionService.lastPermanentDenial] — the caller should show
+  /// [MediaPermissionService.promptIfPermanentlyDenied] next.
+  Future<XFile?> pickPhoto({ImageSource source = ImageSource.gallery}) async {
     try {
-      return await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1600,
+      final outcome = await MediaPermissionService.ensureFor(source);
+      if (outcome != MediaPermissionOutcome.granted) {
+        if (outcome == MediaPermissionOutcome.permanentlyDenied) {
+          MediaPermissionService.lastPermanentDenial =
+              source == ImageSource.camera
+                  ? Permission.camera
+                  : Permission.photos;
+        }
+        return null;
+      }
+      return await ImageCompressionService.pickAndCompressImage(
+        source: source,
+        maxDimension: ImageCompressionService.defaultMaxDimension,
+        quality: ImageCompressionService.defaultQuality,
       );
     } catch (e) {
       debugPrint('SupportMediaService.pickPhoto failed: $e');
       return null;
     }
   }
+
+  /// Camera capture shorthand for [pickPhoto] with [ImageSource.camera].
+  Future<XFile?> takePhoto() => pickPhoto(source: ImageSource.camera);
 
   /// Uploads [file] to [storagePath] and returns the download URL.
   /// Throws [SupportMediaException] (user-safe message) on failure.

@@ -184,8 +184,24 @@ class _LoginPageState extends State<LoginPage> {
         return 'Too many failed attempts. Please wait a moment.';
       case 'user-disabled':
         return 'This account has been disabled. Contact an administrator.';
+      case 'account-exists-with-different-credential':
+        return 'This email is already registered with a different sign-in method. '
+            'Sign in with email & password instead.';
+      case 'credential-already-in-use':
+      case 'provider-already-linked':
+        return 'This sign-in method is already linked. Please sign in normally.';
+      case 'requires-recent-login':
+        return 'For security, please sign out and sign back in, then try again.';
+      case 'operation-not-allowed':
+        return 'This sign-in method is currently disabled. Contact an administrator.';
+      case 'user-token-expired':
+        return 'Your session expired. Please sign in again.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'channel-error':
+        return 'Unable to connect to authentication service. Please check your credentials and internet connection.';
       default:
-        return 'Sign-in failed ($code). Please try again.';
+        return 'Sign-in failed. Please verify your credentials and try again.';
     }
   }
 
@@ -195,7 +211,9 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+            // 16px gutters keep the form edge-to-edge on phones; the 400
+            // cap only centers the column on tablets/desktop.
+            padding: const EdgeInsets.all(16),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 400),
               child: Form(
@@ -268,6 +286,8 @@ class _LoginPageState extends State<LoginPage> {
                             )
                           : const Text('Sign in'),
                     ),
+                    const SizedBox(height: 12),
+                    const LegalAuthDisclaimer(),
                     const SizedBox(height: 12),
                     const Text(
                       'No self-registration. Contact the system owner for access.',

@@ -13,6 +13,8 @@ class _FakeBackend implements DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? sessionId,
+    String? fcmToken,
   }) async {
     goOnlineCalls++;
     return {
@@ -25,6 +27,7 @@ class _FakeBackend implements DriverStatusBackend {
   @override
   Future<Map<String, dynamic>> callGoOffline({
     required String driverId,
+    String? sessionId,
   }) async {
     goOfflineCalls++;
     return {

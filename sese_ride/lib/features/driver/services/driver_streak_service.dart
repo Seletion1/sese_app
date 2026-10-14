@@ -19,13 +19,13 @@ class DriverStreakException implements Exception {
 
 /// Transport seam for driver trip-action callables (unit-testable).
 abstract class DriverStreakBackend {
-  Future<Map<String, dynamic>> callAcceptTrip(String tripId);
+  Future<Map<String, dynamic>> callAcceptTrip(String tripId, {String? sessionId});
   Future<Map<String, dynamic>> callDeclineTrip(String tripId);
   Future<Map<String, dynamic>> callAdvanceTripStatus(
     String tripId,
     String status,
   );
-  Future<Map<String, dynamic>> callCancelTrip(String tripId);
+  Future<Map<String, dynamic>> callCancelTrip(String tripId, {String? reason});
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
     String tripId,
     String pin,
@@ -52,8 +52,11 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
   }
 
   @override
-  Future<Map<String, dynamic>> callAcceptTrip(String tripId) =>
-      _call('acceptTrip', {'tripId': tripId});
+  Future<Map<String, dynamic>> callAcceptTrip(String tripId, {String? sessionId}) =>
+      _call('acceptTrip', {
+        'tripId': tripId,
+        'sessionId': ?sessionId,
+      });
 
   @override
   Future<Map<String, dynamic>> callDeclineTrip(String tripId) =>
@@ -66,8 +69,11 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
   ) => _call('advanceTripStatus', {'tripId': tripId, 'status': status});
 
   @override
-  Future<Map<String, dynamic>> callCancelTrip(String tripId) =>
-      _call('cancelTrip', {'tripId': tripId});
+  Future<Map<String, dynamic>> callCancelTrip(String tripId, {String? reason}) =>
+      _call('cancelTrip', {
+        'tripId': tripId,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      });
 
   @override
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
@@ -101,6 +107,10 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
 class DriverStreakService {
   final FirebaseFirestore? _firestore;
   final DriverStreakBackend? _backend;
+
+  /// Multi-device active session ID. Forwarded to `acceptTrip` when set
+  /// to ensure only the currently active session can accept incoming trips.
+  String? activeSessionId;
 
   DriverStreakService({this._firestore, this._backend});
 
@@ -252,8 +262,8 @@ class DriverStreakService {
         .handleError((Object _) => fallback);
   }
 
-  Future<void> acceptTrip(String tripId) =>
-      _guard(() => _ops.callAcceptTrip(tripId));
+  Future<void> acceptTrip(String tripId, {String? sessionId}) =>
+      _guard(() => _ops.callAcceptTrip(tripId, sessionId: sessionId ?? activeSessionId));
 
   /// Rejecting an incoming request breaks the streak (server-enforced).
   Future<void> declineTrip(String tripId) =>
@@ -265,9 +275,11 @@ class DriverStreakService {
       _guard(() => _ops.callAdvanceTripStatus(tripId, status));
 
   /// Cancels the assigned trip. The server decides streak protection
-  /// (customer cancel / arrived + waited no-show are protected).
-  Future<void> cancelTrip(String tripId) =>
-      _guard(() => _ops.callCancelTrip(tripId));
+  /// (customer cancel / arrived + waited no-show are protected). [reason]
+  /// is a [CancelTripDialog] code, audited server-side like the customer
+  /// path; unknown codes land as `other`.
+  Future<void> cancelTrip(String tripId, {String? reason}) =>
+      _guard(() => _ops.callCancelTrip(tripId, reason: reason));
 
   /// Submits the recipient's 4-digit delivery PIN to complete a delivery.
   /// The server verifies the code and settles through the normal completion

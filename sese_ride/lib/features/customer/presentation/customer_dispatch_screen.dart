@@ -1,18 +1,36 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../../../widgets/osm_map_view.dart';
+import '../../../widgets/map_provider.dart';
 import '../models/fare_models.dart';
 import '../services/fare_service.dart';
 import '../services/location_service.dart';
 import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
+import 'pick_on_map_screen.dart';
+
+/// Minimal model for a saved Home or Work place fetched from
+/// `users/{uid}.savedPlaces`. Private to this file — no separate model
+/// file needed for this screen-local type.
+class _SavedDispatchPlace {
+  final String address;
+  final double? lat;
+  final double? lng;
+
+  const _SavedDispatchPlace({
+    required this.address,
+    this.lat,
+    this.lng,
+  });
+
+  bool get hasCoords => lat != null && lng != null;
+}
 
 /// Validates a Nigerian phone number (strict, server-aligned).
 ///
@@ -22,7 +40,32 @@ import '../../trips/services/trip_service.dart';
 /// numbers the server rejects (e.g. US numbers), failing bookings after
 /// the client already accepted them.
 bool isValidNigerianPhoneNumber(String? input) {
-  return SesePhoneSanitizer.isValidNigerianNumber(input);
+  if (input == null || input.trim().isEmpty) return false;
+  return SesePhoneSanitizer.isValidNigerianNumber(input) ||
+      SesePhoneSanitizer.isValidE164(
+        SesePhoneSanitizer.normalize(input),
+      );
+}
+
+/// Optional variant of [isValidNigerianPhoneNumber] for the Step 3 contact
+/// fields: empty (no secondary contact — e.g. "call me when you get there")
+/// is valid; a non-empty entry must still validate. Never blocks confirm.
+bool isOptionalNigerianPhoneNumber(String? input) {
+  if (input == null || input.trim().isEmpty) return true;
+  return isValidNigerianPhoneNumber(input);
+}
+
+/// Strips any hardcoded country prefix from a stored/profile number down to
+/// the national digits the [SesePhoneInputField] box expects.
+///
+/// The widget renders its own +234 prefix in the selector, so seeding its
+/// controller with a full E.164 value (`+234801...` from `user.phoneNumber`
+/// or a device contact) would duplicate the code (`+234 +23481...`). The
+/// widget also self-heals this on init — this is the defense-in-depth half
+/// at the call site, so controller text is clean even before first build.
+String nationalDisplayDigits(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return '';
+  return SesePhoneSanitizer.parse(raw).nationalNumber;
 }
 
 /// Step-by-step booking screen for both Ride-Hailing and Package Delivery.
@@ -32,8 +75,8 @@ bool isValidNigerianPhoneNumber(String? input) {
 ///      forward-geocode drop-off as user types; inline route-map preview.
 ///   2. **Choose Option** — server fares from [FareService]; delivery
 ///      pre-selects Motorcycle (recommended); ride shows car tiers.
-///   3. **Review & Confirm** — tagged pickup/drop-off summary with mandatory
-///      contact phone numbers + server-authoritative fare breakdown + fareToken.
+///   3. **Review & Confirm** — tagged pickup/drop-off summary with optional
+///      secondary contact phone numbers + server-authoritative fare breakdown + fareToken.
 class CustomerDispatchScreen extends StatefulWidget {
   final RegionConfig? initialConfig;
   final AppUser? user;
@@ -46,6 +89,13 @@ class CustomerDispatchScreen extends StatefulWidget {
 
   /// AppBar title used when the mode toggle is hidden.
   final String? focusedTitle;
+
+  /// Delivery direction requested by the entry route (`{'isReceiving': true}`
+  /// from the Home "Receive Item" card). Seeds the Sending/Receiving toggle
+  /// so "Receiving Package" is highlighted on open, GPS pre-fills the
+  /// drop-off field, and initial focus lands on pickup. Defaults to false
+  /// (Send Item / Book a Ride behavior).
+  final bool isReceiving;
 
   /// Injectable [FareService] seam for testing.
   final FareService? fareService;
@@ -76,6 +126,7 @@ class CustomerDispatchScreen extends StatefulWidget {
     this.initialModeIndex = 0,
     this.showModeSelector = true,
     this.focusedTitle,
+    this.isReceiving = false,
     this.fareService,
     this.initialPickupLatLng,
     this.initialPickupAddress,
@@ -92,7 +143,6 @@ class CustomerDispatchScreen extends StatefulWidget {
 
 class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   late final FareService _fareService;
-  late RegionConfig _config;
 
   /// Live-dispatch transport. The production Firestore implementation is
   /// created on first use so widget construction never touches Firebase.
@@ -129,20 +179,70 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Gates Step 1 Next the same way [_pickupGeocoding] does.
   bool _dropoffGeocoding = false;
 
-  // Autocomplete suggestions
+  // Autocomplete suggestions (shared list; _suggestingForPickup disambiguates)
   Timer? _debounceTimer;
   List<PlaceSuggestion> _suggestions = [];
   bool _isLoadingSuggestions = false;
   bool _isSelectingSuggestion = false;
 
-  // Route preview
+  // Whether the in-progress suggestion session is for the pickup field.
+  // When false (default) the session belongs to drop-off.
+  bool _suggestingForPickup = false;
+
+  // Pickup-specific autocomplete guards — mirrors the drop-off path.
+  Timer? _pickupDebounceTimer;
+  bool _isSelectingPickupSuggestion = false;
+  String? _resolvedPickupQuery;
+
+  // Overlay infrastructure: LayerLinks anchor the floating suggestions panel
+  // to whichever text field is currently being typed into, without
+  // disturbing the Column's layout.
+  final _pickupLayerLink = LayerLink();
+  final _dropoffLayerLink = LayerLink();
+  OverlayEntry? _suggestionsOverlay;
+
+  // ── Zero-cost recents (Google Places cache) ──────────────────────────────
+  // Served instantly with 0 API calls when the drop-off field is empty;
+  // tapping one fills coordinates from storage. New predictions resolve
+  // via one Details call and persist here on selection.
+  final RecentLocationsRepository _recents = RecentLocationsRepository();
+
+  // Route preview — points + distance/duration from Google Directions or OSRM.
   List<LatLng> _routePoints = [];
   bool _fetchingRoute = false;
+  int _routeDistanceM = 0;
+  int _routeDurationS = 0;
+
+  // ── GPS-fix caches (tab-switch fast path) ───────────────────────────────
+  // Last GPS-derived fix per slot: raw position + reverse-geocoded address.
+  // The Sending/Receiving toggle restores its auto-filled slot synchronously
+  // from these instead of re-running GPS + reverse-geocode, so switching
+  // tabs is one synchronous setState with no spinner and no network. Set
+  // only from the GPS init paths below — never from manual typing — so the
+  // cached fix is always the device's own position, not an edited address.
+  LatLng? _gpsPickupFix;
+  String? _gpsPickupAddress;
+  LatLng? _gpsDropoffFix;
+  String? _gpsDropoffAddress;
+
+  // ── Sticky preview pair (no map teardown on toggle) ─────────────────────
+  // Last pair with both ends known. The route preview stays mounted on this
+  // pair across Sending/Receiving toggles, so the native map view, its tiles,
+  // and its controller survive the switch. The Next gate still requires the
+  // live pair ([_addressesReady]); route overlay/stats below only render
+  // when the live pair matches the preview pair (see [_previewMatchesLive]).
+  LatLng? _previewPickup;
+  LatLng? _previewDropoff;
+
+  // Last pair a route was fetched for. Skips redundant Directions calls when
+  // coordinates resolve to an already-routed pair (e.g. a toggle round-trip
+  // back to the previous A/B restores the cached geometry instantly).
+  LatLng? _routedPickup;
+  LatLng? _routedDropoff;
 
   // ── Step 1→2 fare loading ─────────────────────────────────────────────────
   FareResponse? _fareResponse;
   bool _fareLoading = false;
-  String? _fareError;
 
   // ── Smart Dynamic Recommendation Engine ───────────────────────────────────
   // Distance thresholds (system_configs/vehicle_recommendations, editable in
@@ -151,14 +251,26 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   VehicleRecommendationConfig _recConfig =
       const VehicleRecommendationConfig();
 
-  // ── Step 3: Contact phones ────────────────────────────────────────────────
+  // ── Step 3: Contact phones & names ───────────────────────────────────────
   // Cached validity driving the guarded _onPhoneChanged refresh.
   bool _lastPhonesValid = false;
-  // Mandatory Nigerian-format numbers for driver/rider coordination. Pickup
-  // is pre-filled from the signed-in user's number but stays editable (e.g.
-  // booking for someone else); drop-off is the recipient's number.
+  // OPTIONAL secondary numbers and names for driver coordination. Pickup
+  // phone + name are pre-filled from the signed-in user's credentials
+  // (editable — e.g. booking for someone else); drop-off carries the
+  // recipient's details. Either may be left empty — the booker's account
+  // number is minted onto the trip server-side and stays reachable regardless.
   final _pickupPhoneController = TextEditingController();
   final _dropoffPhoneController = TextEditingController();
+
+  /// Contact name at the pickup endpoint. Pre-filled from [AppUser.fullName]
+  /// in Send / Ride mode (the booker is at pickup); empty in Receive mode
+  /// (the remote sender is unknown). Editable for third-party bookings.
+  final _pickupNameController = TextEditingController();
+
+  /// Contact name at the drop-off endpoint. Pre-filled from [AppUser.fullName]
+  /// in Receive mode (the booker is the recipient); empty in Send mode.
+  /// Editable so the booker can name a third-party receiver.
+  final _dropoffNameController = TextEditingController();
 
   // ── Step 2: Delivery selection ────────────────────────────────────────────
   final Set<VehicleCategory> _selectedDeliveryCategories = {
@@ -175,6 +287,23 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Only populated when the customer raises a fare above the baseline.
   /// Sent to the backend as [TripDraft.customTierFares].
   final Map<String, double> _customTierFares = {};
+
+  // ── Context-Aware, Security PIN & Payment selection state ─────────────────
+  bool _isReceivePackageMode = false;
+  bool _requireDeliveryPin = false;
+  String _paymentMode = 'sender_pays'; // 'sender_pays', 'receiver_pays', 'split'
+
+  // ── Remote config (HUB overrides: splitPaymentMasterEnabled, forceDeliveryPinSystemWide)
+  // Loaded once in initState from Firestore; falls back to safe defaults when
+  // Firestore is absent (widget tests, offline). Never throws.
+  RemoteKeysConfig _remoteKeys = const RemoteKeysConfig();
+
+  // ── Module 3: Saved Places (Home / Work) ─────────────────────────────────
+  // Loaded once from Firestore on open. Each field is a nullable record
+  // so we don't hard-depend on Dart 3 records on all SDK targets —
+  // plain named fields in a tiny private class instead.
+  _SavedDispatchPlace? _savedHomePlace;
+  _SavedDispatchPlace? _savedWorkPlace;
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
   static const Map<VehicleCategory, String> _deliveryTierIds = {
@@ -207,13 +336,21 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   @override
   void initState() {
     super.initState();
-    _config = widget.initialConfig ?? RegionConfig.globalDefault();
     _fareService = widget.fareService ?? FareService();
     _selectedModeIndex = widget.initialModeIndex;
+    // Seed the Sending/Receiving toggle from the entry route (`isReceiving`
+    // from the Home "Receive Item" card). The `focusedTitle` text match is a
+    // fallback so older call sites without the flag keep working.
+    _isReceivePackageMode = widget.isReceiving ||
+        (widget.focusedTitle?.toLowerCase().contains('receive') == true);
     // Receive Item: the user's own location is the DELIVERY destination, so
     // GPS auto-detect fills the drop-off field and Pickup stays empty for
     // manual entry. Send Item / Ride: GPS fills Pickup as before.
     if (widget.initialPickupAddress != null) {
+      // Lock the resolved query BEFORE setting text so the pickup listener
+      // (added below) treats the seeded text as already resolved and does
+      // not launch an autocomplete fetch for it.
+      _resolvedPickupQuery = widget.initialPickupAddress;
       _pickupController.text = widget.initialPickupAddress!;
       _pickupLatLng = widget.initialPickupLatLng;
       _pickupGeocoding = false;
@@ -227,18 +364,61 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } else if (_isReceiveMode) {
       _initDropoffLocation();
     }
-    // Pre-fill contact phones: explicit seams win, otherwise the pickup
-    // phone defaults to the signed-in user's number.
-    _pickupPhoneController.text = widget.initialPickupPhone ??
-        widget.user?.phoneNumber ??
-        '';
-    _dropoffPhoneController.text = widget.initialDropoffPhone ?? '';
-    // Rebuild on phone edits so the Confirm button enables live once both
-    // numbers validate. NOTE: no controller listeners here — the phone
+    // Pre-fill contact phones: explicit seams win. In Receive mode the user
+    // is the recipient, so their number belongs to drop-off (mirrors the
+    // manual toggle handler below); otherwise pickup carries it. Numbers
+    // are reduced to national digits — the phone field renders its own
+    // country prefix, so a raw E.164 value would double it (`+234 +234…`).
+    // Both fields are optional: empty means "no secondary contact".
+    if (_isReceiveMode) {
+      _pickupPhoneController.text =
+          nationalDisplayDigits(widget.initialPickupPhone);
+      _dropoffPhoneController.text = nationalDisplayDigits(
+          widget.initialDropoffPhone ?? widget.user?.phoneNumber);
+    } else {
+      _pickupPhoneController.text = nationalDisplayDigits(
+          widget.initialPickupPhone ?? widget.user?.phoneNumber);
+      _dropoffPhoneController.text =
+          nationalDisplayDigits(widget.initialDropoffPhone);
+    }
+    // Pre-fill contact names with the same mode split as phones above.
+    // In Send / Ride mode the booker is at pickup, so their name pre-fills
+    // the pickup name field. In Receive mode they ARE the recipient, so their
+    // name goes into the drop-off field. The OTHER endpoint starts blank —
+    // the booker must explicitly name a third-party sender / recipient rather
+    // than having their own name accidentally appear on the wrong endpoint.
+    if (_isReceiveMode) {
+      _pickupNameController.text = ''; // remote sender — must be entered
+      _dropoffNameController.text = widget.user?.fullName ?? '';
+    } else {
+      _pickupNameController.text = widget.user?.fullName ?? '';
+      _dropoffNameController.text = ''; // recipient — enter if third-party
+    }
+    // Rebuild on phone edits so the Confirm button enablement tracks
+    // validity live (a malformed non-empty entry still blocks; empty never
+    // does). NOTE: no controller listeners here — the phone
     // fields already refresh via their onChanged callbacks, and the
     // formatter rewrites controller text on every keystroke; listening on
     // top would echo those writes back into setState indefinitely.
     _dropoffController.addListener(_onDropoffChanged);
+    _pickupController.addListener(_onPickupChanged);
+    // Dismiss the suggestions overlay when the active field loses focus.
+    // A 200ms delay lets the suggestion ListTile onTap fire first; without
+    // the delay the overlay is removed before the tap event is processed.
+    _pickupFocusNode.addListener(_onPickupFocusChanged);
+    _dropoffFocusNode.addListener(_onDropoffFocusChanged);
+    // Zero-cost recents: merge the Firestore backup (heals new devices),
+    // then serve the top-5 instantly whenever the drop-off field is empty.
+    // ignore: discarded_futures
+    _loadRecents();
+    // Load Hub override flags once; never rethrows — safe in tests.
+    // ignore: discarded_futures
+    RemoteKeysService().fetchRemoteKeys().then((cfg) {
+      if (mounted) setState(() => _remoteKeys = cfg);
+    });
+    // Load saved places (Home/Work) for quick-select chips.
+    // ignore: discarded_futures
+    _loadSavedPlaces();
     if (_pickupLatLng != null && _dropoffLatLng != null) {
       _updateMapBoundsAndRoute();
     }
@@ -253,11 +433,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
   }
 
-  /// True when opened as "Receive Item": the sender's pickup address is the
-  /// unknown field, so initial focus belongs on pickup. Send Item / Book
-  /// Ride focus the drop-off destination instead.
-  bool get _isReceiveMode =>
-      widget.focusedTitle?.toLowerCase().contains('receive') == true;
+  /// True when the delivery direction is "Receive Item": the sender's pickup
+  /// address is the unknown field, so GPS pre-fills drop-off and initial
+  /// focus belongs on pickup. Single source of truth — seeded from the entry
+  /// route (`isReceiving`) in [initState] and flipped by the toggle after.
+  /// Send Item / Book Ride focus the drop-off destination instead.
+  bool get _isReceiveMode => _isReceivePackageMode;
 
   /// Requests focus on the mode-appropriate location field.
   void _focusInitialField() {
@@ -268,6 +449,140 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
   }
 
+  // ── Module 3: Saved Places ────────────────────────────────────────────────
+
+  /// Fetches the user's saved Home and Work places from Firestore.
+  /// Gracefully handles missing/offline (no throw). Uses an inner private
+  /// type so no new file is needed.
+  Future<void> _loadSavedPlaces() async {
+    final uid = widget.user?.uid;
+    if (uid == null || uid.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final data = doc.data() ?? {};
+      final raw =
+          (data['savedPlaces'] as Map<String, dynamic>?) ?? {};
+      final home = _parseSavedPlace(raw['home'] ?? data['home_address'] ?? data['homeAddress']);
+      final work = _parseSavedPlace(raw['work'] ?? data['work_address'] ?? data['workAddress']);
+      if (mounted) {
+        setState(() {
+          _savedHomePlace = home;
+          _savedWorkPlace = work;
+        });
+      }
+    } catch (_) {
+      // Fail silently — chips just won't appear.
+    }
+  }
+
+  /// Parses either the new `{address, lat, lng}` map or the legacy
+  /// plain-string format into a [_SavedDispatchPlace].
+  _SavedDispatchPlace? _parseSavedPlace(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is String) {
+      return raw.trim().isEmpty ? null : _SavedDispatchPlace(address: raw.trim());
+    }
+    if (raw is Map<String, dynamic>) {
+      final address = (raw['address'] as String? ?? '').trim();
+      if (address.isEmpty) return null;
+      final lat = ((raw['lat'] ?? raw['latitude']) as num?)?.toDouble();
+      final lng = ((raw['lng'] ?? raw['longitude']) as num?)?.toDouble();
+      return _SavedDispatchPlace(
+        address: address,
+        lat: lat,
+        lng: lng,
+      );
+    }
+    return null;
+  }
+
+  /// Applies a saved-place chip tap to the drop-off field.
+  ///
+  /// When the place has stored coordinates we resolve immediately at zero
+  /// API cost. When only the address text is stored (legacy or geocoding
+  /// previously failed) we run one autocomplete + Details call to resolve
+  /// coordinates before populating the field.
+  Future<void> _applySavedPlace(_SavedDispatchPlace place) async {
+    if (place.hasCoords) {
+      _applyResolvedSuggestion(
+        place.address,
+        LatLng(place.lat!, place.lng!),
+      );
+      return;
+    }
+    // Legacy fallback: no coords stored — geocode once.
+    setState(() => _isLoadingSuggestions = true);
+    try {
+      final suggestions =
+          await LocationAutocompleteService.fetchSuggestions(place.address);
+      if (!mounted) return;
+      if (suggestions.isEmpty) {
+        setState(() => _isLoadingSuggestions = false);
+        _dropoffController.text = place.address;
+        return;
+      }
+      final top = suggestions.first;
+      final placeId = top.placeId;
+      if (placeId != null && placeId.isNotEmpty) {
+        final resolved = await LocationService.resolvePrediction(top);
+        if (!mounted) return;
+        if (resolved != null) {
+          _applyResolvedSuggestion(
+              resolved.description, LatLng(resolved.lat, resolved.lng));
+          return;
+        }
+      }
+      _applyResolvedSuggestion(
+          top.description, LatLng(top.lat, top.lng));
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoadingSuggestions = false);
+        _dropoffController.text = place.address;
+      }
+    }
+  }
+
+  /// Renders Home / Work quick-select chip row beneath the drop-off field.
+  ///
+  /// Only shown when the drop-off field is empty (no query typed yet) and at
+  /// least one saved place is loaded. Chips are not shown if the user has
+  /// already started typing or selected a destination.
+  Widget _buildSavedPlaceChips() {
+    final dropText = _dropoffController.text.trim();
+    if (dropText.isNotEmpty) return const SizedBox.shrink();
+    if (_savedHomePlace == null && _savedWorkPlace == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 2),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          if (_savedHomePlace != null)
+            ActionChip(
+              key: const Key('saved_place_home_chip'),
+              avatar: const Icon(Icons.home_outlined,
+                  size: 16, color: AppColors.seseGold),
+              label: const Text('Home'),
+              onPressed: () => _applySavedPlace(_savedHomePlace!),
+            ),
+          if (_savedWorkPlace != null)
+            ActionChip(
+              key: const Key('saved_place_work_chip'),
+              avatar: const Icon(Icons.work_outline,
+                  size: 16, color: AppColors.seseGold),
+              label: const Text('Work'),
+              onPressed: () => _applySavedPlace(_savedWorkPlace!),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _pickupController.dispose();
@@ -276,7 +591,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _dropoffFocusNode.dispose();
     _pickupPhoneController.dispose();
     _dropoffPhoneController.dispose();
+    _pickupNameController.dispose();
+    _dropoffNameController.dispose();
     _debounceTimer?.cancel();
+    _pickupDebounceTimer?.cancel();
+    _hideSuggestionsOverlay();
     super.dispose();
   }
 
@@ -305,10 +624,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         final address =
             await LocationService.reverseGeocode(latLng.latitude, latLng.longitude);
         if (!mounted) return;
+        // Cache the raw device fix for the tab-switch fast path (always the
+        // device position even if the user edits the field afterwards).
+        _gpsPickupFix = latLng;
+        _gpsPickupAddress = address;
+        // Lock BEFORE setting text — the pickup controller listener fires
+        // synchronously on assignment and must see the address as already
+        // resolved, or it would clear _pickupLatLng and start an autocomplete
+        // fetch for the GPS-derived string.
+        _resolvedPickupQuery = address;
         _pickupController.text = address;
         // Pan / fit the map immediately on the auto-detected position.
         _updateMapBoundsAndRoute();
       } else {
+        // Suppress autocomplete for the placeholder text — it is not a real
+        // query. The guard is cleared the moment the user edits the field.
+        _resolvedPickupQuery = 'Location unavailable — tap to enter';
         _pickupController.text = 'Location unavailable — tap to enter';
       }
     } finally {
@@ -347,6 +678,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         final address =
             await LocationService.reverseGeocode(latLng.latitude, latLng.longitude);
         if (!mounted) return;
+        // Cache the raw device fix for the tab-switch fast path (see pickup).
+        _gpsDropoffFix = latLng;
+        _gpsDropoffAddress = address;
         // Lock the resolved query BEFORE setting text: the controller
         // listener fires synchronously on set and must see the address as
         // already resolved, or it would wipe these coordinates.
@@ -355,6 +689,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         // Pan / fit the map immediately on the auto-detected position.
         _updateMapBoundsAndRoute();
       } else {
+        // Mirror the pickup pattern: suppress suggestions for placeholder text.
+        _resolvedDropoffQuery = 'Location unavailable — tap to enter';
         _dropoffController.text = 'Location unavailable — tap to enter';
       }
     } finally {
@@ -369,8 +705,78 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
   }
 
-  // ── Drop-off autocomplete suggestions (debounced 300ms) ───────────────────
+  /// Loads cached recents and merges the cloud backup (best-effort, never
+  /// throws — an empty list simply hides the recents section).
+  Future<void> _loadRecents() async {
+    final uid = widget.user?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      await _recents.syncFromCloud(uid);
+    }
+  }
 
+  // ── Location-field autocomplete suggestions (300ms debounce, ≥ 3 chars) ────
+
+  /// Fires whenever the pickup [TextEditingController] value changes.
+  /// Mirrors [_onDropoffChanged] but populates [_suggestions] for the
+  /// pickup slot and routes taps to [_selectPickupSuggestion].
+  void _onPickupChanged() {
+    if (_isSelectingPickupSuggestion) return;
+    if (_pickupDebounceTimer?.isActive ?? false) _pickupDebounceTimer!.cancel();
+
+    final query = _pickupController.text.trim();
+
+    // Re-notify with the same resolved text — keep coordinates.
+    if (query == _resolvedPickupQuery) return;
+
+    // Manual typing invalidates coordinates immediately so Next button stays safely disabled.
+    _resolvedPickupQuery = null;
+    if (mounted) {
+      setState(() {
+        _pickupLatLng = null;
+        _routePoints = [];
+      });
+    }
+
+    if (query.isEmpty || query.length < 3) {
+      if (mounted) {
+        setState(() {
+          if (_suggestingForPickup) {
+            _suggestions = [];
+            _isLoadingSuggestions = false;
+          }
+        });
+      }
+      if (_suggestingForPickup) _hideSuggestionsOverlay();
+      return;
+    }
+
+    _pickupDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
+      setState(() {
+        _suggestingForPickup = true;
+        _isLoadingSuggestions = true;
+      });
+      _showOrRefreshSuggestionsOverlay();
+
+      final bias = _pickupLatLng ?? LocationService.lastKnownPosition;
+      final results = await LocationAutocompleteService.fetchSuggestions(
+        query,
+        biasLatLng: bias,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _suggestions = results;
+        _isLoadingSuggestions = false;
+      });
+      _suggestionsOverlay?.markNeedsBuild();
+      if (results.isEmpty) _hideSuggestionsOverlay();
+    });
+  }
+
+  /// Fires whenever the drop-off [TextEditingController] value changes.
+  /// 300ms debounce; requires ≥ 3 characters before hitting the proxy
+  /// to avoid single-keystroke API noise.
   void _onDropoffChanged() {
     if (_isSelectingSuggestion) return;
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
@@ -380,72 +786,262 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // Selection/focus noise (e.g. auto-focus on open) re-notifies with the
     // same text that already resolved — keep the coordinates.
     if (query == _resolvedDropoffQuery) return;
-    _resolvedDropoffQuery = null;
 
-    if (query.isEmpty) {
+    // Manual typing invalidates coordinates immediately so Next button stays safely disabled.
+    _resolvedDropoffQuery = null;
+    if (mounted) {
+      setState(() {
+        _dropoffLatLng = null;
+        _routePoints = [];
+      });
+    }
+
+    if (query.isEmpty || query.length < 3) {
       if (mounted) {
         setState(() {
           _suggestions = [];
           _isLoadingSuggestions = false;
-          _dropoffLatLng = null;
-          _routePoints = [];
         });
       }
+      _hideSuggestionsOverlay();
       return;
     }
 
-    // Invalidate previous coordinates while user is typing a new query
-    if (_dropoffLatLng != null) {
-      if (mounted) {
-        setState(() {
-          _dropoffLatLng = null;
-          _routePoints = [];
-        });
-      }
-    }
-
-    // Debounce API calls by 300ms while user is actively typing
+    // 300ms debounce: one proxy call per typing pause; recents cover the rest.
     _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
-      setState(() => _isLoadingSuggestions = true);
+      setState(() {
+        _suggestingForPickup = false;
+        _isLoadingSuggestions = true;
+      });
+      _showOrRefreshSuggestionsOverlay();
 
-      // Fetch place suggestions WITHOUT mutating TextField value
-      final results = await LocationAutocompleteService.fetchSuggestions(query);
+      final bias = _pickupLatLng ?? LocationService.lastKnownPosition;
+      final results = await LocationAutocompleteService.fetchSuggestions(
+        query,
+        biasLatLng: bias,
+      );
 
       if (!mounted) return;
       setState(() {
         _suggestions = results;
         _isLoadingSuggestions = false;
       });
+      _suggestionsOverlay?.markNeedsBuild();
+      if (results.isEmpty) _hideSuggestionsOverlay();
     });
   }
 
   void _selectSuggestion(PlaceSuggestion suggestion) {
-    // Explicit user selection: populate text & lock lat/lng
+    // Google predictions carry a placeId but no coordinates: resolve with
+    // one Details call, then persist to recents (the next tap costs 0).
+    // Seam/legacy results without a placeId already carry coordinates.
+    final placeId = suggestion.placeId;
+    if (placeId == null || placeId.isEmpty) {
+      _applyResolvedSuggestion(
+        suggestion.description,
+        LatLng(suggestion.lat, suggestion.lng),
+      );
+      return;
+    }
+    // ignore: discarded_futures
+    LocationService.resolvePrediction(suggestion).then((resolved) {
+      if (!mounted) return;
+      if (resolved == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not resolve that place. Try another.'),
+          ),
+        );
+        return;
+      }
+      // Persist the fresh resolution for zero-cost reuse next time.
+      // ignore: discarded_futures
+      _recents.saveRecent(
+        RecentLocation(
+          placeId: placeId,
+          formattedAddress: resolved.description,
+          mainText: resolved.description,
+          secondaryText: '',
+          lat: resolved.lat,
+          lng: resolved.lng,
+          lastUsedMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+        uid: widget.user?.uid,
+      ).then((_) {
+        if (mounted) _loadRecents();
+      });
+      _applyResolvedSuggestion(
+        resolved.description,
+        LatLng(resolved.lat, resolved.lng),
+      );
+    });
+  }
+
+  /// Explicit user selection: populate text & lock lat/lng.
+  void _applyResolvedSuggestion(String address, LatLng latLng) {
     _isSelectingSuggestion = true;
-    _dropoffController.text = suggestion.description;
-    _dropoffLatLng = LatLng(suggestion.lat, suggestion.lng);
-    _resolvedDropoffQuery = suggestion.description;
+    _dropoffController.text = address;
+    _dropoffLatLng = latLng;
+    _resolvedDropoffQuery = address;
 
     setState(() {
-      _suggestions = []; // Clear dropdown list
+      _suggestions = [];
       _isLoadingSuggestions = false;
     });
 
-    FocusScope.of(context).unfocus(); // Dismiss keyboard
+    _hideSuggestionsOverlay();
+    FocusScope.of(context).unfocus();
     _isSelectingSuggestion = false;
     _updateMapBoundsAndRoute();
   }
 
-  /// Fetches the route polyline whenever pickup or drop-off coordinates
-  /// change, and rebuilds so [_RouteMapPreview] receives updated route points.
-  /// Camera fitting is handled inside [_RouteMapPreview.didUpdateWidget] so
-  /// both markers and the connecting route stay fully visible.
+  // ── Pickup suggestion selection ───────────────────────────────────────────
+
+  /// Resolves a pickup [PlaceSuggestion] from the overlay, mirroring the
+  /// drop-off [_selectSuggestion] path. Predictions with a `placeId` require
+  /// one Details call; seam results carry coordinates directly.
+  void _selectPickupSuggestion(PlaceSuggestion suggestion) {
+    final placeId = suggestion.placeId;
+    if (placeId == null || placeId.isEmpty) {
+      _applyResolvedPickupSuggestion(
+        suggestion.description,
+        LatLng(suggestion.lat, suggestion.lng),
+      );
+      return;
+    }
+    // ignore: discarded_futures
+    LocationService.resolvePrediction(suggestion).then((resolved) {
+      if (!mounted) return;
+      if (resolved == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not resolve that place. Try another.'),
+          ),
+        );
+        return;
+      }
+      _applyResolvedPickupSuggestion(
+        resolved.description,
+        LatLng(resolved.lat, resolved.lng),
+      );
+    });
+  }
+
+  /// Populates the pickup field with a resolved address and coordinates,
+  /// then updates the route preview.
+  void _applyResolvedPickupSuggestion(String address, LatLng latLng) {
+    _isSelectingPickupSuggestion = true;
+    _resolvedPickupQuery = address; // lock before setText to silence listener
+    _pickupController.text = address;
+    _pickupLatLng = latLng;
+
+    setState(() {
+      _suggestions = [];
+      _isLoadingSuggestions = false;
+    });
+
+    _hideSuggestionsOverlay();
+    FocusScope.of(context).unfocus();
+    _isSelectingPickupSuggestion = false;
+    _updateMapBoundsAndRoute();
+  }
+
+  // ── Suggestions overlay ───────────────────────────────────────────────────
+
+  /// Focus-change callback for the pickup [FocusNode].
+  /// Hides the overlay 200ms after focus is lost so that a suggestion
+  /// tap (which fires before focus leaves) has time to complete.
+  void _onPickupFocusChanged() {
+    if (mounted) setState(() {});
+    if (!_pickupFocusNode.hasFocus) {
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && _suggestingForPickup) _hideSuggestionsOverlay();
+      });
+    }
+  }
+
+  /// Focus-change callback for the drop-off [FocusNode].
+  void _onDropoffFocusChanged() {
+    if (mounted) setState(() {});
+    if (!_dropoffFocusNode.hasFocus) {
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && !_suggestingForPickup) _hideSuggestionsOverlay();
+      });
+    }
+  }
+
+  /// Creates or refreshes the floating suggestions [OverlayEntry].
   ///
-  /// Called whenever either text field resolves to new coordinates — on
-  /// GPS auto-detect, on suggestion selection, and when both deep-link /
-  /// initial points are present.
+  /// The panel is positioned beneath the active input via
+  /// [CompositedTransformFollower], so it floats above all sibling widgets
+  /// without affecting the Step 1 [Column] layout. Safe to call while
+  /// the overlay is already visible — it calls [OverlayEntry.markNeedsBuild]
+  /// instead of re-inserting a duplicate.
+  void _showOrRefreshSuggestionsOverlay() {
+    if (!mounted) return;
+    if (_suggestionsOverlay != null) {
+      _suggestionsOverlay!.markNeedsBuild();
+      return;
+    }
+    _suggestionsOverlay = OverlayEntry(
+      builder: (_) {
+        final link =
+            _suggestingForPickup ? _pickupLayerLink : _dropoffLayerLink;
+        final screenWidth = MediaQuery.of(context).size.width;
+        // top: 0 + left: 0 anchor the Positioned in the Overlay stack;
+        // CompositedTransformFollower then moves the child to sit directly
+        // below the active text field. Without explicit top/left the widget
+        // is unpositioned and may render off-screen on some device sizes.
+        return Positioned(
+          top: 0,
+          left: 0,
+          width: screenWidth - 32, // matches the 16px horizontal padding
+          child: CompositedTransformFollower(
+            link: link,
+            showWhenUnlinked: false,
+            targetAnchor: Alignment.bottomLeft,
+            followerAnchor: Alignment.topLeft,
+            offset: const Offset(0, 4),
+            child: Material(
+              elevation: 8,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                // Cap height so the panel never pushes off the bottom of the
+                // screen even for long result sets.
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: _buildSuggestionsContent(),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    Overlay.of(context).insert(_suggestionsOverlay!);
+  }
+
+  /// Removes the suggestions overlay if one is currently displayed.
+  void _hideSuggestionsOverlay() {
+    _suggestionsOverlay?.remove();
+    _suggestionsOverlay = null;
+  }
+
+  /// Pins the last both-known pair for the sticky preview and kicks off the
+  /// route fetch. Called whenever either text field resolves to new
+  /// coordinates — on GPS auto-detect, on suggestion selection, and when
+  /// both deep-link / initial points are present.
   void _updateMapBoundsAndRoute() {
+    final pickup = _pickupLatLng;
+    final dropoff = _dropoffLatLng;
+    if (pickup != null && dropoff != null) {
+      if (pickup != _previewPickup || dropoff != _previewDropoff) {
+        setState(() {
+          _previewPickup = pickup;
+          _previewDropoff = dropoff;
+        });
+      }
+    }
     _fetchRoutePreview();
   }
 
@@ -453,20 +1049,34 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final pickup = _pickupLatLng;
     final dropoff = _dropoffLatLng;
     if (pickup == null || dropoff == null) return;
-    setState(() => _fetchingRoute = true);
-    // Production safeguard: route geometry should come from an authorized
-    // backend (e.g. `seseRoutingHttp` Cloud Function with caching) at scale.
-    // The direct OSRM public-server call inside LocationService is a
-    // zero-key dev fallback — no routing API keys are hardcoded on the client.
-    final points = await LocationService.fetchRoutePolyline(pickup, dropoff);
-    if (mounted) {
-      setState(() {
-        // Direct straight-line fallback so the preview always connects
-        // Point A → Point B even when the routing service is unreachable.
-        _routePoints = points.isNotEmpty ? points : [pickup, dropoff];
-        _fetchingRoute = false;
-      });
+    // Already routed this exact pair with geometry on hand — nothing to do.
+    // Makes toggle round-trips back to a previous A/B instant (no spinner,
+    // no Directions call); the preview re-shows the cached polyline.
+    if (pickup == _routedPickup &&
+        dropoff == _routedDropoff &&
+        _routePoints.isNotEmpty) {
+      return;
     }
+    setState(() => _fetchingRoute = true);
+    // Route geometry: Google Directions primary → OSRM free fallback.
+    // Straight-line [pickup, dropoff] is only used when both sources fail
+    // (no connection at all); `_routeDistanceM`/`_routeDurationS` stay 0
+    // in that case so the distance badge is hidden.
+    final result = await LocationService.fetchRoute(pickup, dropoff);
+    if (!mounted) return;
+    // Superseded: the user toggled tabs or edited a field while this fetch
+    // was in flight. Drop the stale result — the newer pair's own fetch
+    // owns the route state now.
+    if (_pickupLatLng != pickup || _dropoffLatLng != dropoff) return;
+    setState(() {
+      _routePoints =
+          result.points.isNotEmpty ? result.points : [pickup, dropoff];
+      _routeDistanceM = result.distanceM;
+      _routeDurationS = result.durationS;
+      _routedPickup = pickup;
+      _routedDropoff = dropoff;
+      _fetchingRoute = false;
+    });
   }
 
   // ── Fare calculation (called on Step 1 → 2 transition) ───────────────────
@@ -478,7 +1088,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
     setState(() {
       _fareLoading = true;
-      _fareError = null;
       _fareResponse = null;
     });
 
@@ -580,7 +1189,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } on FareException catch (e) {
       if (mounted) {
         setState(() {
-          _fareError = e.userMessage;
           _fareLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -630,11 +1238,24 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   bool get _addressesReady =>
       _pickupLatLng != null && _dropoffLatLng != null;
 
-  /// Both Step 3 contact numbers must be valid Nigerian phone numbers
-  /// (080… / +234…) before the booking can be confirmed.
+  /// True when the preview's pinned pair is exactly the live pair, so the
+  /// route polyline + distance/duration badge describe the trip on screen.
+  /// After a tab toggle the preview keeps showing the last pair (tiles stay
+  /// warm) while this is false — pins without a route claim.
+  bool get _previewMatchesLive =>
+      _pickupLatLng != null &&
+      _dropoffLatLng != null &&
+      _pickupLatLng == _previewPickup &&
+      _dropoffLatLng == _previewDropoff;
+
+  /// Step 3 contact numbers are OPTIONAL: empty means the customer offers
+  /// no secondary contact ("call me when you get there" — the booker's own
+  /// account number stays reachable on the trip regardless). A non-empty
+  /// entry must still be a valid Nigerian number, so a typo'd digit can
+  /// never silently become the driver's only coordination line.
   bool get _phonesValid =>
-      isValidNigerianPhoneNumber(_pickupPhoneController.text) &&
-      isValidNigerianPhoneNumber(_dropoffPhoneController.text);
+      isOptionalNigerianPhoneNumber(_pickupPhoneController.text) &&
+      isOptionalNigerianPhoneNumber(_dropoffPhoneController.text);
 
   void _onPhoneChanged() {
     // Refresh Confirm-button enablement + inline validation errors.
@@ -674,105 +1295,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } else if (_currentStep == 1) {
       if (_canProceedFrom(1)) setState(() => _currentStep = 2);
     }
-  }
-
-  /// True while a heavy-duty vehicle (Van/Truck) is selected: small-vehicle
-  /// cards render disabled so a heavy-cargo broadcast never pages
-  /// bicycle/tricycle/motorcycle riders.
-  bool get _heavyDutyLocked => _selectedDeliveryCategories
-      .any(VehicleRecommendationEngine.isHeavyDuty);
-
-  /// Toggles a delivery category with heavy-duty rules:
-  /// - selecting Truck first asks for explicit confirmation (heavy cargo);
-  /// - selecting Van/Truck strips + disables the small-vehicle options;
-  /// - tapping a disabled small vehicle explains the lock instead of acting.
-  Future<void> _toggleDeliveryCategory(VehicleCategory category) async {
-    if (!mounted) return;
-    if (_heavyDutyLocked &&
-        VehicleRecommendationEngine.isSmallVehicle(category) &&
-        !_selectedDeliveryCategories.contains(category)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-              'Deselect Van/Truck first — heavy-duty broadcasts exclude small vehicles.'),
-        ),
-      );
-      return;
-    }
-    if (!_selectedDeliveryCategories.contains(category) &&
-        category == VehicleCategory.truck) {
-      final confirmed = await _showTruckConfirmDialog();
-      if (!mounted || confirmed != true) return;
-    }
-    setState(() {
-      if (_selectedDeliveryCategories.contains(category)) {
-        if (_selectedDeliveryCategories.length > 1) {
-          _selectedDeliveryCategories.remove(category);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('At least one vehicle category must be selected.'),
-            ),
-          );
-        }
-      } else {
-        _selectedDeliveryCategories.add(category);
-        // Heavy-duty mutual exclusion: adding Van/Truck evicts the small
-        // options (server rejects mixed payloads — see createTrip).
-        if (VehicleRecommendationEngine.isHeavyDuty(category)) {
-          _selectedDeliveryCategories
-              .removeWhere(VehicleRecommendationEngine.isSmallVehicle);
-        }
-      }
-    });
-  }
-
-  /// Heavy-duty confirmation for Truck: explicit opt-in before the option
-  /// checks. Returns true only on "Confirm".
-  Future<bool?> _showTruckConfirmDialog() {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Heavy-Duty Cargo?'),
-        content: const Text(
-          'Please confirm you are selecting a Truck for heavy-duty cargo. '
-          'Bicycle, Tricycle, and Motorcycle options will be disabled for '
-          'this broadcast.',
-          style: TextStyle(fontSize: 13),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Toggles a ride-hailing tier in the multi-select broadcast set.
-  /// Mirrors [_toggleDeliveryCategory]: at least one tier stays selected.
-  void _toggleRideTier(String tierId) {
-    setState(() {
-      if (_selectedRideTierIds.contains(tierId)) {
-        if (_selectedRideTierIds.length > 1) {
-          // Retain at least 1 selection.
-          _selectedRideTierIds.remove(tierId);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('At least one ride tier must be selected.'),
-            ),
-          );
-        }
-      } else {
-        _selectedRideTierIds.add(tierId);
-      }
-    });
   }
 
   /// Selected ride tiers in canonical server order (comfort → premium → luxe
@@ -904,13 +1426,16 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Future<void> _confirmAndDispatch() async {
     final fareResp = _fareResponse;
     if (fareResp == null || _creatingTrip) return;
+    // Phones are optional — only a malformed non-empty entry blocks. Empty
+    // normalizes to '' and travels that way; the backend accepts empties
+    // and the driver still reaches the booker via the minted customerPhone.
     if (!_phonesValid) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Enter valid pickup and drop-off phone numbers '
-              '(e.g. 08012345678 or +2348012345678).',
+              'Phone numbers are optional, but entries must be valid '
+              '(e.g. 08012345678 or +2348012345678) — fix or clear the field.',
             ),
           ),
         );
@@ -957,6 +1482,61 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       if (!mounted || proceed != true) return;
     }
 
+    if (_paymentMode == 'split') {
+      if (!_remoteKeys.splitPaymentMasterEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Split Payment is currently disabled by Hub admin.')),
+          );
+        }
+        return;
+      }
+      // Split settles against a REGISTERED receiver, so it is the one flow
+      // that still needs a drop-off number — everything else may ship
+      // without secondary contacts.
+      if (dropoffPhone.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Split payment needs the receiver\'s phone number so their '
+                'share can be settled. Add it, or use Sender/Receiver Pays.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      setState(() => _creatingTrip = true);
+      try {
+        final result = await P2pService().lookupRecipient(recipientPhone: dropoffPhone);
+        if (result.recipientId.isEmpty) {
+          throw const P2pException('not-found', 'Unregistered user');
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _creatingTrip = false);
+          await showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Split Payment Restricted'),
+              content: const Text(
+                'Split payment requires both parties to be registered users. '
+                'Ask the receiver to sign up, or select "Sender Pays" / "Receiver Pays".',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+    }
+
     // 1. Mint the live trip on the server. From here the backend owns
     // matchmaking, ping timeouts, and re-broadcasts — the request stays
     // active even if the customer closes the app.
@@ -974,6 +1554,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   CustomerVerification.verified ||
               userData?[CustomerVerification.fieldIsVerified] == true;
     } catch (_) {}
+    final pickupName = _pickupNameController.text.trim();
+    final dropoffName = _dropoffNameController.text.trim();
     setState(() => _creatingTrip = true);
     late final String tripId;
     try {
@@ -983,17 +1565,29 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           pickupLat: pickup.latitude,
           pickupLng: pickup.longitude,
           pickupAddress: _pickupController.text,
+          pickupName: pickupName,
           pickupPhone: pickupPhone,
           dropoffLat: dropoff.latitude,
           dropoffLng: dropoff.longitude,
           dropoffAddress: _dropoffController.text,
+          dropoffName: dropoffName,
           dropoffPhone: dropoffPhone,
-          serviceType: isDelivery ? 'send_item' : 'ride',
+          serviceType: isDelivery
+              ? (_isReceivePackageMode ? 'receive_item' : 'send_item')
+              : 'ride',
           selectedTiers: selectedTiers,
           fareToken: fareResp.fareToken,
           distanceKm: fareResp.distanceKm,
           durationMins: fareResp.durationMins,
           isVerifiedCustomer: verifiedCustomer,
+          paymentMethod: _paymentMode == 'split' ? 'split' : 'cash',
+          // Rides never request a PIN (no toggle exists in the ride review;
+          // gating here also covers Delivery→Ride toggles carrying a stale
+          // `_requireDeliveryPin`). The server mints rides PIN-free anyway —
+          // this keeps the intent honest at the source.
+          requireDeliveryPin: isDelivery &&
+              (_requireDeliveryPin || _remoteKeys.forceDeliveryPinSystemWide),
+          receiverPhone: dropoffPhone,
           customTierFares:
               _customTierFares.isNotEmpty ? Map.from(_customTierFares) : null,
         ),
@@ -1015,7 +1609,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (!mounted) return;
 
     // Payload mirror for the createTrip / createDelivery Cloud Functions
-    // (route + server-verified fare + mandatory contact numbers). Sent via
+    // (route + server-verified fare + optional contact numbers). Sent via
     // the authenticated callable above — never hardcode credentials.
     final dispatchPayload = <String, dynamic>{
       'tripId': tripId,
@@ -1023,17 +1617,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         'lat': pickup.latitude,
         'lng': pickup.longitude,
         'address': _pickupController.text,
+        if (pickupName.isNotEmpty) 'name': pickupName,
         'phone': pickupPhone,
       },
       'dropoff': {
         'lat': dropoff.latitude,
         'lng': dropoff.longitude,
         'address': _dropoffController.text,
+        if (dropoffName.isNotEmpty) 'name': dropoffName,
         'phone': dropoffPhone,
       },
       'pickupPhone': pickupPhone,
       'dropoffPhone': dropoffPhone,
-      'serviceType': isDelivery ? 'send_item' : 'ride',
+      if (pickupName.isNotEmpty) 'pickupName': pickupName,
+      if (dropoffName.isNotEmpty) 'dropoffName': dropoffName,
+      'serviceType':
+          isDelivery ? (_isReceivePackageMode ? 'receive_item' : 'send_item') : 'ride',
       'selectedTiers': selectedTiers,
       'fareToken': fareResp.fareToken,
       'distanceKm': fareResp.distanceKm,
@@ -1079,7 +1678,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(title),
+          // The 1-2-3 step counter lives HERE as a slim header badge
+          // (not a standalone row below) so the map canvas below reclaims
+          // the full ~64px block. The title flexes with ellipsis on narrow
+          // screens; the badge keeps a fixed mini size.
+          title: Row(
+            children: [
+              Expanded(
+                child: Text(title, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              _buildHeaderStepBadge(),
+            ],
+          ),
           leading: BackButton(
             // Steps back sequentially (Step 3 → 2 → 1); pops to Home only
             // from the first step. Shared handler with PopScope + the
@@ -1090,7 +1701,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         ),
         body: Column(
           children: [
-            _buildTopStepIndicator(_currentStep),
             // Step 1 (locations) is a bounded, non-scrolling layout: the
             // map preview below takes all remaining vertical space via
             // Expanded. Steps 2-3 keep their scrolling content.
@@ -1144,30 +1754,45 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
-  /// Compact horizontal step indicator: circles 1 · 2 · 3 joined by thin
-  /// divider lines. Completed steps show a check, the active step a
-  /// highlighted number, upcoming steps a subtle grey number. Tapping a
-  /// completed circle steps back (same as tapping a previous Stepper step).
-  Widget _buildTopStepIndicator(int currentStep) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 24.0),
+  /// Slim step badge pinned in the AppBar title row: three mini circles
+  /// (1 · 2 · 3) joined by fixed connectors. Completed steps show a check
+  /// and stay tappable shortcuts back to that step; the active step is
+  /// highlighted. Replaces the old full-width indicator row — same state,
+  /// same tap-back contract, zero vertical block in the body.
+  Widget _buildHeaderStepBadge() {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildStepCircle(stepNumber: 1, currentStep: currentStep),
-          _buildStepConnector(isCompleted: currentStep > 1),
-          _buildStepCircle(stepNumber: 2, currentStep: currentStep),
-          _buildStepConnector(isCompleted: currentStep > 2),
-          _buildStepCircle(stepNumber: 3, currentStep: currentStep),
+          _buildStepCircle(
+              stepNumber: 1, currentStep: _currentStep, compact: true),
+          _buildStepConnector(
+              isCompleted: _currentStep > 1, compact: true),
+          _buildStepCircle(
+              stepNumber: 2, currentStep: _currentStep, compact: true),
+          _buildStepConnector(
+              isCompleted: _currentStep > 2, compact: true),
+          _buildStepCircle(
+              stepNumber: 3, currentStep: _currentStep, compact: true),
         ],
       ),
     );
   }
 
-  Widget _buildStepCircle({required int stepNumber, required int currentStep}) {
+  Widget _buildStepCircle(
+      {required int stepNumber,
+      required int currentStep,
+      bool compact = false}) {
     // Step indices are 0-based internally; circles are 1-based.
     final int stepIndex = stepNumber - 1;
-    final bool isCompleted = _currentStep > stepIndex;
-    final bool isActive = _currentStep == stepIndex;
+    final bool isCompleted = currentStep > stepIndex;
+    final bool isActive = currentStep == stepIndex;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -1181,22 +1806,27 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       textColor = theme.colorScheme.onPrimary;
     }
 
+    // Compact badge size fits the AppBar title row; the regular size is
+    // kept for any future in-body use.
+    final diameter = compact ? 20.0 : 32.0;
     final circle = Container(
-      width: 32,
-      height: 32,
+      width: diameter,
+      height: diameter,
       decoration: BoxDecoration(
         color: backgroundColor,
         shape: BoxShape.circle,
       ),
       child: Center(
         child: isCompleted
-            ? Icon(Icons.check, size: 18, color: theme.colorScheme.onPrimary)
+            ? Icon(Icons.check,
+                size: compact ? 12 : 18,
+                color: theme.colorScheme.onPrimary)
             : Text(
                 '$stepNumber',
                 style: TextStyle(
                   color: textColor,
                   fontWeight: FontWeight.bold,
-                  fontSize: 14,
+                  fontSize: compact ? 11 : 14,
                 ),
               ),
       ),
@@ -1213,19 +1843,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     return circle;
   }
 
-  Widget _buildStepConnector({required bool isCompleted}) {
+  Widget _buildStepConnector({required bool isCompleted, bool compact = false}) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    return Expanded(
-      child: Container(
-        height: 2,
-        color: isCompleted
-            ? theme.colorScheme.primary
-            : (isDark
-                ? theme.colorScheme.outlineVariant
-                : Colors.grey.shade300),
-      ),
+    final line = Container(
+      // Fixed width in the header badge (Expanded would claim the whole
+      // title row); the regular variant flexes for in-body rows.
+      width: compact ? 8 : null,
+      height: 2,
+      color: isCompleted
+          ? theme.colorScheme.primary
+          : (isDark
+              ? theme.colorScheme.outlineVariant
+              : Colors.grey.shade300),
     );
+    if (compact) return line;
+    return Expanded(child: line);
   }
 
   /// Current step header (title + subtitle) shown above the step content.
@@ -1293,7 +1926,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             Expanded(
               child: isLast
                   ? FilledButton.icon(
-                      // Gated on valid pickup + drop-off contact numbers, and
+                      // Gated on a routed fare plus phone validity (empty
+                      // phones pass — only malformed entries block), and
                       // disabled while the trip-creation call is in flight.
                       onPressed: (canContinue && !_creatingTrip)
                           ? _confirmAndDispatch
@@ -1348,327 +1982,338 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Step 1: Locations ─────────────────────────────────────────────────────
 
   Widget _buildStep1Content() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildStepHeader(),
-          // ── Pickup field ──────────────────────────────────────────────────
-          TextField(
-            controller: _pickupController,
-            focusNode: _pickupFocusNode,
-            decoration: InputDecoration(
-              labelText: 'Pickup Location',
-              alignLabelWithHint: true,
-              prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
-              suffixIcon: _pickupGeocoding
-                  ? const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2)))
-                  : IconButton(
-                      icon: const Icon(Icons.my_location),
-                      tooltip: 'Re-detect my location',
-                      onPressed: _initPickupLocation,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Map claims everything the fields don't need: the step counter now
+        // lives in the AppBar badge and the duplicate Pick-on-Map buttons
+        // are gone, so the fixed chrome above the map is just the step
+        // header + address fields (~240px). The 180px floor keeps typing
+        // usable when the keyboard halves the viewport.
+        final mapHeight = math.max(
+          180.0,
+          constraints.maxHeight - 240.0,
+        );
+
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildStepHeader(),
+                if (_selectedModeIndex == 0) _buildContextAwareModeSelector(),
+                // ── Pickup field ── anchored for the floating suggestions overlay ──
+                CompositedTransformTarget(
+                  link: _pickupLayerLink,
+                  child: TextField(
+                    controller: _pickupController,
+                    focusNode: _pickupFocusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Pickup Location',
+                      hintText: 'Where from?',
+                      alignLabelWithHint: true,
+                      prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
+                      suffixIcon: (_pickupGeocoding || (_isLoadingSuggestions && _suggestingForPickup))
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2)))
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_pickupLatLng != null)
+                                  const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                                IconButton(
+                                  key: const Key('pickup_pick_on_map_icon'),
+                                  icon: const Icon(Icons.map_outlined),
+                                  tooltip: 'Pick pickup on map',
+                                  onPressed: () => _openPickOnMap(target: 'pickup'),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.my_location),
+                                  tooltip: 'Re-detect my location',
+                                  onPressed: _initPickupLocation,
+                                ),
+                              ],
+                            ),
+                      helperText: 'Auto-detected — tap to edit',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      isDense: false,
+                      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
                     ),
-              helperText: 'Auto-detected — tap to edit',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-              // Roomy (non-dense) layout with explicit top padding so the
-              // floating label never clips against the outline border.
-              isDense: false,
-              contentPadding:
-                  const EdgeInsets.fromLTRB(12, 16, 12, 12),
-            ),
-            onChanged: (_) {
-              // Clear stored coords if user manually edits pickup, and drop
-              // the stale route so bounds recalculate on the next fix.
-              setState(() {
-                _pickupLatLng = null;
-                _routePoints = [];
-              });
-            },
-          ),
-          const SizedBox(height: 12),
-
-          // ── Drop-off field ────────────────────────────────────────────────
-          TextField(
-            controller: _dropoffController,
-            focusNode: _dropoffFocusNode,
-            decoration: InputDecoration(
-              labelText: 'Destination / Drop-off',
-              hintText: 'Where to?',
-              alignLabelWithHint: true,
-              prefixIcon: const Icon(Icons.location_on, color: Colors.red),
-              suffixIcon: (_isLoadingSuggestions || _dropoffGeocoding)
-                  ? const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: SizedBox(
-                          width: 16, height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2)))
-                  : _dropoffLatLng != null
-                      ? const Icon(Icons.check_circle, color: Colors.green)
-                      : null,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              filled: true,
-              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-              // Same roomy layout as pickup — prevents floating-label clip.
-              isDense: false,
-              contentPadding:
-                  const EdgeInsets.fromLTRB(12, 16, 12, 12),
-            ),
-          ),
-
-          // ── Autocomplete suggestions dropdown ─────────────────────────────
-          // Flexible (not fixed-height) so the non-scrolling Step 1 column
-          // never overflows: the list takes only remaining space and
-          // scrolls internally; the map below keeps the rest.
-          Flexible(
-            child: _buildSuggestionsDropdown(),
-          ),
-
-          // ── Hint ──────────────────────────────────────────────────────────
-          if (!_addressesReady && !_pickupGeocoding && _suggestions.isEmpty && !_isLoadingSuggestions)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      size: 14, color: Colors.grey.shade500),
-                  const SizedBox(width: 6),
-                  Text(
-                    _pickupLatLng == null
-                        ? 'Enter your pickup address'
-                        : 'Type a destination to continue',
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade500),
+                    // Coordinate invalidation is handled by _onPickupChanged listener.
                   ),
-                ],
-              ),
-            ),
-
-          // ── Inline route map ──────────────────────────────────────────────
-          // Expands to fill all remaining vertical space between the
-          // location inputs and the pinned Next button.
-          if (_addressesReady)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 12),
-                child: _RouteMapPreview(
-                  pickup: _pickupLatLng!,
-                  dropoff: _dropoffLatLng!,
-                  routePoints: _routePoints,
-                  isLoadingRoute: _fetchingRoute,
                 ),
-              ),
+                const SizedBox(height: 12),
+                // ── Drop-off field ── anchored for the floating suggestions overlay ──
+                CompositedTransformTarget(
+                  link: _dropoffLayerLink,
+                  child: TextField(
+                    controller: _dropoffController,
+                    focusNode: _dropoffFocusNode,
+                    decoration: InputDecoration(
+                      labelText: 'Destination / Drop-off',
+                      hintText: 'Where to?',
+                      alignLabelWithHint: true,
+                      prefixIcon: const Icon(Icons.location_on, color: Colors.red),
+                      suffixIcon: ((_isLoadingSuggestions && !_suggestingForPickup) || _dropoffGeocoding)
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(
+                                  width: 16, height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2)))
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (_dropoffLatLng != null)
+                                  const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                                IconButton(
+                                  key: const Key('dropoff_pick_on_map_icon'),
+                                  icon: const Icon(Icons.map_outlined),
+                                  tooltip: 'Pick destination on map',
+                                  onPressed: () => _openPickOnMap(target: 'destination'),
+                                ),
+                              ],
+                            ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      isDense: false,
+                      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                    ),
+                  ),
+                ),
+                // Map picking lives in the inline field icons above
+                // (`pickup_pick_on_map_icon` / `dropoff_pick_on_map_icon`) —
+                // no duplicate text buttons here, so the map below starts
+                // higher and claims the reclaimed space.
+
+                // Module 3: Home / Work quick-select chips (shown when drop-off is empty).
+                _buildSavedPlaceChips(),
+                if (!_addressesReady && !_pickupGeocoding && _suggestions.isEmpty && !_isLoadingSuggestions)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
+                        const SizedBox(width: 6),
+                        Text(
+                          _pickupLatLng == null
+                              ? 'Enter your pickup address'
+                              : 'Type a destination to continue',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                        ),
+                      ],
+                    ),
+                  ),
+                // Sticky preview: stays mounted on the last both-known pair across
+                // Sending/Receiving toggles so the native map view + tiles survive
+                // the switch (no teardown, no grey reload). Route polyline, spinner,
+                // and badge only render while the live pair matches the preview
+                // pair — otherwise pins alone, no stale route claim.
+                if (_previewPickup != null && _previewDropoff != null)
+                  SizedBox(
+                    height: mapHeight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 12, bottom: 12),
+                      child: _RouteMapPreview(
+                        pickup: _previewPickup!,
+                        dropoff: _previewDropoff!,
+                        routePoints:
+                            _previewMatchesLive ? _routePoints : const <LatLng>[],
+                        isLoadingRoute: _fetchingRoute && _previewMatchesLive,
+                        distanceM: _previewMatchesLive ? _routeDistanceM : 0,
+                        durationS: _previewMatchesLive ? _routeDurationS : 0,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-        ],
+          ),
+        );
+      },
     );
   }
 
-  // ── Autocomplete suggestions dropdown builder ─────────────────────────────
+  // ── Missing step-content builders ─────────────────────────────────────────
 
-  Widget _buildSuggestionsDropdown() {
-    if (_isLoadingSuggestions) {
+  /// Content widget for the floating suggestions [OverlayEntry].
+  ///
+  /// Displays a compact spinner while results are loading, then a
+  /// [ListView] of [PlaceSuggestion] tiles. Taps route to the pickup
+  /// or drop-off selection path depending on [_suggestingForPickup].
+  ///
+  /// This widget is intentionally **stateless within the builder** — the
+  /// [OverlayEntry] builder accesses state directly, so calling
+  /// [OverlayEntry.markNeedsBuild] after each [setState] propagates the
+  /// latest [_suggestions] list without re-inserting the overlay.
+  Widget _buildSuggestionsContent() {
+    if (_isLoadingSuggestions && _suggestions.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.all(12.0),
+        padding: EdgeInsets.all(16),
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-
     if (_suggestions.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: ListView.separated(
-          shrinkWrap: true,
-          physics: const ClampingScrollPhysics(),
-          itemCount: _suggestions.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (context, index) {
-            final suggestion = _suggestions[index];
-            return ListTile(
-              dense: true,
-              leading: const Icon(Icons.location_on_outlined, color: Colors.amber),
-              title: Text(
-                suggestion.description,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              onTap: () => _selectSuggestion(suggestion),
-            );
-          },
-        ),
-      ),
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const ClampingScrollPhysics(),
+      itemCount: _suggestions.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final s = _suggestions[index];
+        return ListTile(
+          leading: const Icon(Icons.place_outlined, size: 20),
+          title: Text(s.description, style: const TextStyle(fontSize: 13)),
+          dense: true,
+          onTap: () => _suggestingForPickup
+              ? _selectPickupSuggestion(s)
+              : _selectSuggestion(s),
+        );
+      },
     );
   }
 
-  // ── Step 2: Choose Option ─────────────────────────────────────────────────
-
+  /// Step 2 content: vehicle / tier selection.
+  ///
+  /// For delivery the customer chooses one or more [VehicleCategory] vehicle
+  /// types that will be broadcast simultaneously. For ride-hailing the
+  /// customer picks from [_rideTierIds] tier cards.
   Widget _buildStep2Content() {
+    final isDelivery = _selectedModeIndex == 0;
+    return isDelivery
+        ? _buildDeliveryVehicleSelector()
+        : _buildRideTierSelector();
+  }
+
+  /// Step 3 content: full route & fare review before final confirmation.
+  ///
+  /// Delegates to [_buildDeliveryReview] or [_buildRideReview] depending on
+  /// the active mode tab, both of which render [_RouteReviewCard],
+  /// the Security PIN toggle, payment options, and the server fare table.
+  Widget _buildStep3Content() {
+    final isDelivery = _selectedModeIndex == 0;
     if (_fareResponse == null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepHeader(),
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          ),
-        ],
-      );
+      return const Center(child: CircularProgressIndicator());
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildStepHeader(),
-        _selectedModeIndex == 0
-            ? _buildDeliverySelector()
-            : _buildRideSelector(),
-      ],
+    return SingleChildScrollView(
+      // No horizontal padding here: the steps' outer scroll view already
+      // owns the single 16px bezel gutter, so cards/tables below span
+      // edge-to-edge within it instead of stacking into a narrow column.
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
+      child: isDelivery ? _buildDeliveryReview() : _buildRideReview(),
     );
   }
 
-  Widget _buildDeliverySelector() {
-    final resp = _fareResponse!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  // ── Step 2 sub-builders ────────────────────────────────────────────────────
+
+  /// Delivery vehicle multi-selector (Step 2 delivery path).
+  ///
+  /// Rendered inside the steps' outer [SingleChildScrollView], so this list
+  /// must not scroll itself: `shrinkWrap` + non-scrollable physics, otherwise
+  /// the viewport gets unbounded height and layout throws.
+  ///
+  /// Each row shows the server fare (loaded before advancing from Step 1)
+  /// and the engine/server "Recommended" badge, plus a live selection
+  /// counter — the dispatch review table reuses the same data downstream.
+  Widget _buildDeliveryVehicleSelector() {
+    const categories = VehicleCategory.values;
+    final resp = _fareResponse;
+    return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      // Horizontal gutter comes from the outer scroll view — zero here so
+      // vehicle rows run edge-to-edge instead of double-insetting.
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Multi-Vehicle Broadcast',
-                style:
-                    TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            Chip(
-              label:
-                  Text('${_selectedDeliveryCategories.length} selected'),
-              backgroundColor:
-                  Theme.of(context).colorScheme.primaryContainer,
-              side: BorderSide.none,
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
-        ),
+        const Text('Select Vehicle Type(s)',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         const Text(
-          'All selected types are broadcast simultaneously — first to accept gets the order.',
+          'Select all vehicle types to broadcast — first driver to accept wins.',
           style: TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 12),
-        ...VehicleCategory.values
-            .where((c) => c.isDeliveryEligible)
-            .map((cat) {
-          final tierId = _deliveryTierIds[cat] ?? cat.name;
-          final tier = resp.tierById(tierId);
-          final isSelected = _selectedDeliveryCategories.contains(cat);
-          // Heavy-duty lock: small options disable (not hide) while Van or
-          // Truck is selected, so the exclusion is visible, not mysterious.
-          final enabled = isSelected ||
-              !_heavyDutyLocked ||
-              !VehicleRecommendationEngine.isSmallVehicle(cat);
-          return _DeliveryVehicleCard(
-            category: cat,
-            serverFare: tier?.fareFormatted,
-            isRecommended:
-                tier == null ? false : _deliveryRecommended(cat, resp),
-            isSelected: isSelected,
-            enabled: enabled,
-            onTap: () => _toggleDeliveryCategory(cat),
-          );
-        }),
-
-        // Fare error hint
-        if (_fareError != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(_fareError!,
-                style:
-                    const TextStyle(color: Colors.red, fontSize: 12)),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildRideSelector() {
-    final resp = _fareResponse!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Passenger Car Tiers',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            Chip(
-              label: Text('${_selectedRideTierIds.length} selected'),
-              backgroundColor:
-                  Theme.of(context).colorScheme.primaryContainer,
-              side: BorderSide.none,
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
         ),
         const SizedBox(height: 4),
-        const Text(
-          'All selected tiers are broadcast simultaneously — first to accept gets the ride.',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
+        Text(
+          '${_selectedDeliveryCategories.length} selected',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
-        ...resp.tiers.map((tier) {
-          final display = _displayRideTier(tier, resp.distanceKm);
-          final isSelected = _selectedRideTierIds.contains(display.tierId);
-          return _RideTierCard(
-            tier: display,
-            isSelected: isSelected,
-            description: _rideTierDescription(display.tierId),
-            onTap: () => _toggleRideTier(display.tierId),
-            customFare: _customTierFares[display.tierId],
-            onCustomFareChanged: (val) {
+        ...categories.map((cat) {
+          final selected = _selectedDeliveryCategories.contains(cat);
+          final tier = resp?.tierById(_deliveryTierIds[cat] ?? cat.name);
+          final recommended =
+              resp != null && _deliveryRecommended(cat, resp);
+          return CheckboxListTile(
+            value: selected,
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _vehicleCategoryLabel(cat),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (recommended)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.seseGold.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Recommended',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.seseGold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            subtitle: tier == null
+                ? null
+                : Text(tier.fareFormatted,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+            secondary: VehicleIllustration(
+              art: VehicleArt.fromCategory(cat),
+              height: 38,
+              selected: selected,
+            ),
+            onChanged: (_) {
               setState(() {
-                if (val == null) {
-                  _customTierFares.remove(display.tierId);
-                } else {
-                  _customTierFares[display.tierId] = val;
+                if (selected && _selectedDeliveryCategories.length > 1) {
+                  _selectedDeliveryCategories.remove(cat);
+                } else if (!selected) {
+                  _selectedDeliveryCategories.add(cat);
                 }
               });
             },
@@ -1678,24 +2323,348 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
-  // ── Step 3: Review & Confirm ──────────────────────────────────────────────
-
-  Widget _buildStep3Content() {
-    if (_fareResponse == null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildStepHeader(),
-          const Center(child: CircularProgressIndicator()),
-        ],
-      );
-    }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  /// Ride tier multi-selector (Step 2 ride-hailing path).
+  ///
+  /// Customers broadcast to multiple car tiers simultaneously — the first
+  /// driver of any matching tier who accepts wins. Mirrors the delivery
+  /// vehicle multi-selector: [CheckboxListTile] rows, minimum one selected,
+  /// server fare per card, "Recommended" badge, Keke card appears only for
+  /// short trips (same engine logic as delivery).
+  Widget _buildRideTierSelector() {
+    final resp = _fareResponse;
+    final distanceKm = resp?.distanceKm ?? -1;
+    // Canonical server order; Keke joins only while offered for this distance.
+    final ids = [
+      ..._rideTierIds,
+      if (resp != null &&
+          resp.tierById(_rideTricycleTierId) != null &&
+          VehicleRecommendationEngine.offerKekeForRide(
+              distanceKm, _recConfig))
+        _rideTricycleTierId,
+    ];
+    return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      // Same single-gutter rule as the delivery selector above.
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       children: [
-        _buildStepHeader(),
-        _selectedModeIndex == 0 ? _buildDeliveryReview() : _buildRideReview(),
+        const Text('Select Car Tier(s)',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        const Text(
+          'Select all tiers to broadcast — first driver to accept wins.',
+          style: TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${_selectedRideTierIds.length} selected',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 12),
+        ...ids.map((id) {
+          final raw = resp?.tierById(id);
+          final tier = raw == null
+              ? null
+              : _displayRideTier(raw, distanceKm < 0 ? 0 : distanceKm);
+          final label = tier?.name ??
+              (id[0].toUpperCase() + id.substring(1));
+          final recommended = tier?.isRecommended ?? false;
+          final selected = _selectedRideTierIds.contains(id);
+          return CheckboxListTile(
+            value: selected,
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (recommended)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.seseGold.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Recommended',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.seseGold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            subtitle: tier == null
+                ? null
+                : Text(tier.fareFormatted,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+            secondary: VehicleIllustration(
+              art: VehicleArt.fromTierId(id),
+              height: 36,
+              selected: selected,
+            ),
+            // Keep at least one tier selected so the broadcast payload is
+            // never empty (mirrors the delivery at-least-one constraint).
+            onChanged: (_) {
+              setState(() {
+                if (selected && _selectedRideTierIds.length > 1) {
+                  _selectedRideTierIds.remove(id);
+                } else if (!selected) {
+                  _selectedRideTierIds.add(id);
+                }
+              });
+            },
+          );
+        }),
       ],
+    );
+  }
+
+  String _vehicleCategoryLabel(VehicleCategory cat) {
+    switch (cat) {
+      case VehicleCategory.bicycle: return 'Bicycle';
+      case VehicleCategory.motorcycle: return 'Motorcycle';
+      case VehicleCategory.tricycle: return 'Tricycle (Keke)';
+      case VehicleCategory.car: return 'Car / Sedan';
+      case VehicleCategory.van: return 'Van';
+      case VehicleCategory.truck: return 'Truck';
+    }
+  }
+
+  /// Synchronously restores the GPS auto-fill slot from the cached device fix.
+  ///
+  /// Returns true when a cached fix existed and the slot was filled (no work
+  /// left — the toggle completes as one synchronous setState); false when
+  /// the caller must fall back to the async [_initPickupLocation] /
+  /// [_initDropoffLocation] GPS round-trip. Either cache slot holds the same
+  /// device position, so the pickup-side and drop-off-side fixes are
+  /// interchangeable here. Must run inside setState with the
+  /// `_isSelecting*` guards held (see the toggle handler) so the controller
+  /// listeners treat the assigned text as already resolved.
+  bool _restoreGpsSlot({required bool isPickup}) {
+    final fix = _gpsPickupFix ?? _gpsDropoffFix;
+    final address =
+        _gpsPickupFix != null ? _gpsPickupAddress : _gpsDropoffAddress;
+    if (fix == null || address == null || address.isEmpty) return false;
+    if (isPickup) {
+      _resolvedPickupQuery = address;
+      _pickupController.text = address;
+      _pickupLatLng = fix;
+      _gpsPickupFix = fix;
+      _gpsPickupAddress = address;
+    } else {
+      _resolvedDropoffQuery = address;
+      _dropoffController.text = address;
+      _dropoffLatLng = fix;
+      _gpsDropoffFix = fix;
+      _gpsDropoffAddress = address;
+    }
+    return true;
+  }
+
+  /// Opens the full-screen [PickOnMapScreen] so the customer can drag a pin
+  /// to any location on the map to set either the pickup or drop-off location.
+  ///
+  /// [target] specifies whether we are picking the 'pickup' or 'destination'
+  /// point. When omitted, it resolves automatically based on the currently
+  /// focused field or the active workflow mode (Receive vs Send).
+  ///
+  /// On success the field is populated identically to a suggestion selection —
+  /// locked query, coordinates set, route preview updated.
+  Future<void> _openPickOnMap({String? target}) async {
+    _hideSuggestionsOverlay();
+    FocusScope.of(context).unfocus();
+
+    final effectiveTarget = target ??
+        (_pickupFocusNode.hasFocus
+            ? 'pickup'
+            : _dropoffFocusNode.hasFocus
+                ? 'destination'
+                : (_isReceiveMode && _pickupLatLng == null)
+                    ? 'pickup'
+                    : 'destination');
+
+    final center = (effectiveTarget == 'pickup'
+            ? (_pickupLatLng ??
+                LocationService.lastKnownPosition ??
+                _dropoffLatLng)
+            : (_dropoffLatLng ??
+                _pickupLatLng ??
+                LocationService.lastKnownPosition)) ??
+        const LatLng(6.4550575, 3.3839020); // Lagos Island fallback
+
+    final result = await Navigator.of(context).push<PickOnMapResult>(
+      MaterialPageRoute(
+        builder: (_) => PickOnMapScreen(
+          initialCenter: center,
+          targetType: effectiveTarget,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+    if (result.targetType == 'pickup' || effectiveTarget == 'pickup') {
+      _applyResolvedPickupSuggestion(result.address, result.latLng);
+    } else {
+      _applyResolvedSuggestion(result.address, result.latLng);
+    }
+  }
+
+  Widget _buildContextAwareModeSelector() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SegmentedButton<bool>(
+        showSelectedIcon: false,
+        segments: const [
+          ButtonSegment(
+            value: false,
+            label: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Sending Package', maxLines: 1),
+            ),
+            icon: Icon(Icons.outbox),
+          ),
+          ButtonSegment(
+            value: true,
+            label: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text('Receiving Package', maxLines: 1),
+            ),
+            icon: Icon(Icons.inbox),
+          ),
+        ],
+        selected: {_isReceivePackageMode},
+        onSelectionChanged: (set) {
+          final isReceive = set.first;
+          // Silence the controller listeners for the synchronous slot swap:
+          // every assignment below is an explicit resolve, not user typing,
+          // so invalidation (coord wipe + route clear) must not run. The
+          // flags reset before any await, keeping the async init paths
+          // guarded the same way the suggestion-apply paths already are.
+          _isSelectingSuggestion = true;
+          _isSelectingPickupSuggestion = true;
+          setState(() {
+            _isReceivePackageMode = isReceive;
+            if (isReceive) {
+              _pickupController.clear();
+              _pickupLatLng = null;
+              _resolvedPickupQuery = null;
+              // Swap names: booker is now the recipient (drop-off).
+              _pickupNameController.clear();
+              _pickupPhoneController.clear();
+              _dropoffPhoneController.text = widget.user?.phoneNumber ?? '';
+              _dropoffNameController.text = widget.user?.fullName ?? '';
+              if (!_restoreGpsSlot(isPickup: false)) _initDropoffLocation();
+            } else {
+              _dropoffController.clear();
+              _dropoffLatLng = null;
+              _resolvedDropoffQuery = null;
+              // Swap names: booker is now the sender (pickup).
+              _dropoffNameController.clear();
+              _dropoffPhoneController.clear();
+              _pickupPhoneController.text = widget.user?.phoneNumber ?? '';
+              _pickupNameController.text = widget.user?.fullName ?? '';
+              if (!_restoreGpsSlot(isPickup: true)) _initPickupLocation();
+            }
+          });
+          _isSelectingSuggestion = false;
+          _isSelectingPickupSuggestion = false;
+        },
+      ),
+    );
+  }
+
+  Widget _buildSecurityPinToggle() {
+    final forced = _remoteKeys.forceDeliveryPinSystemWide;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: SwitchListTile(
+        value: forced ? true : _requireDeliveryPin,
+        onChanged: forced ? null : (val) => setState(() => _requireDeliveryPin = val),
+        title: const Text('Require Delivery PIN Verification', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(
+          forced
+              ? 'Enforced System-Wide by Admin Override'
+              : 'Recipient gives driver a 4-digit PIN at drop-off to complete delivery',
+          style: const TextStyle(fontSize: 12),
+        ),
+        secondary: Icon(
+          Icons.lock_clock,
+          color: (_requireDeliveryPin || forced) ? Colors.amber.shade700 : Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  /// Who-pays selector. Values are mode-agnostic on the wire (non-split
+  /// collapses to `cash` at dispatch) — only the LABELS switch: delivery
+  /// talks Sender/Receiver (a parcel changes hands), rides talk
+  /// Booker/Rider (a person is moving). Split is identical in both.
+  Widget _buildPaymentOptionSelector({required bool isDelivery}) {
+    final splitMasterEnabled = _remoteKeys.splitPaymentMasterEnabled;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Payment Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              segments: [
+                ButtonSegment(
+                  value: 'sender_pays',
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                        isDelivery ? 'Sender Pays' : 'Booker Pays',
+                        maxLines: 1),
+                  ),
+                ),
+                ButtonSegment(
+                  value: 'receiver_pays',
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                        isDelivery ? 'Receiver Pays' : 'Rider Pays',
+                        maxLines: 1),
+                  ),
+                ),
+                ButtonSegment(
+                  value: 'split',
+                  label: const FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text('Split Payment', maxLines: 1),
+                  ),
+                  enabled: splitMasterEnabled,
+                ),
+              ],
+              selected: {_paymentMode},
+              onSelectionChanged: (set) => setState(() => _paymentMode = set.first),
+            ),
+            if (!splitMasterEnabled)
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  'Split payment disabled globally by admin.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1717,11 +2686,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           dropoff: _dropoffController.text,
           distanceKm: resp.distanceKm,
           durationMins: resp.durationMins,
+          pickupNameController: _pickupNameController,
+          dropoffNameController: _dropoffNameController,
           pickupPhoneController: _pickupPhoneController,
           dropoffPhoneController: _dropoffPhoneController,
           onPhoneChanged: _onPhoneChanged,
         ),
         const SizedBox(height: 12),
+        _buildSecurityPinToggle(),
+        _buildPaymentOptionSelector(isDelivery: true),
         const Text('Fare by Vehicle Type',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
         const SizedBox(height: 8),
@@ -1746,6 +2719,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         .map((t) => _displayRideTier(t, resp.distanceKm))
         .toList();
 
+    // NOTE: no delivery-PIN card here — rides have no recipient handoff,
+    // so there is nothing to verify at drop-off. The toggle + card live
+    // in [_buildDeliveryReview] only, and the server mints rides PIN-free
+    // (see `isPinRequired` in functions/src/trips.ts).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1754,11 +2731,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           dropoff: _dropoffController.text,
           distanceKm: resp.distanceKm,
           durationMins: resp.durationMins,
+          pickupNameController: _pickupNameController,
+          dropoffNameController: _dropoffNameController,
           pickupPhoneController: _pickupPhoneController,
           dropoffPhoneController: _dropoffPhoneController,
           onPhoneChanged: _onPhoneChanged,
         ),
         const SizedBox(height: 12),
+        _buildPaymentOptionSelector(isDelivery: false),
         const Text('Fare Summary',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
         const SizedBox(height: 8),
@@ -1775,26 +2755,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  String _rideTierDescription(String tierId) {
-    final t = _config.carTierThresholds;
-    switch (tierId) {
-      case 'comfort':
-        return 'Before ${t.premiumMinYear} · Affordable & comfortable';
-      case 'premium':
-        return '${t.premiumMinYear}–${t.premiumMaxYear} · Modern & spacious';
-      case 'luxe':
-        return '${t.luxeMinYear}+ · Luxury & newest models';
-      case _rideTricycleTierId:
-        return 'Short hops · Open-air Keke';
-      default:
-        return '';
-    }
-  }
 }
 
-/// Inline OpenStreetMap preview showing route between pickup & dropoff.
+/// Inline route map preview showing route between pickup & dropoff.
 ///
 /// Auto-fits camera bounds whenever both points are set or change, so
 /// markers and the connecting route polyline stay fully visible. Renders a
@@ -1806,11 +2769,21 @@ class _RouteMapPreview extends StatefulWidget {
   final List<LatLng> routePoints;
   final bool isLoadingRoute;
 
+  /// Road distance in metres returned by the routing service.
+  /// 0 when routing failed and a straight line is shown.
+  final int distanceM;
+
+  /// Road travel time in seconds returned by the routing service.
+  /// 0 when routing failed and a straight line is shown.
+  final int durationS;
+
   const _RouteMapPreview({
     required this.pickup,
     required this.dropoff,
     required this.routePoints,
     required this.isLoadingRoute,
+    this.distanceM = 0,
+    this.durationS = 0,
   });
 
   @override
@@ -1819,6 +2792,16 @@ class _RouteMapPreview extends StatefulWidget {
 
 class _RouteMapPreviewState extends State<_RouteMapPreview> {
   final SeSeMapController _mapController = SeSeMapController();
+
+  /// Bounded auto-fit attempts for the current A/B pair. `newLatLngBounds`
+  /// throws when the native view has no size yet (the common first-mount
+  /// case) and the controller swallows it — so a single shot is not enough
+  /// and the camera would sit at the midpoint zoom forever. Every attempt
+  /// is idempotent (same bounds, dynamically zoomed for short and long
+  /// trips alike); attempts stop after [_maxFitAttempts].
+  int _fitAttempts = 0;
+  static const int _maxFitAttempts = 4;
+  static const Duration _fitRetryDelay = Duration(milliseconds: 400);
 
   @override
   void initState() {
@@ -1834,23 +2817,39 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     if (oldWidget.pickup != widget.pickup ||
         oldWidget.dropoff != widget.dropoff ||
         oldWidget.routePoints.length != widget.routePoints.length) {
+      // New bounds — restart the attempt budget so the reframe lands even
+      // if the first post-layout shot misses.
+      _fitAttempts = 0;
       _fitBounds();
     }
   }
 
-  Future<void> _fitBounds() async {
+  /// Fits the camera to contain both pins with padding, retrying on a short
+  /// delay until the view is laid out. Never calls setState (camera moves
+  /// don't rebuild), so delayed retries are safe under `mounted` alone and
+  /// schedule no extra test frames.
+  void _fitBounds() {
+    if (!mounted || _fitAttempts >= _maxFitAttempts) return;
+    _fitAttempts++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      try {
-        _mapController.fitPoints(
-          widget.pickup,
-          widget.dropoff,
-          padding: 56,
-        );
-      } catch (_) {
-        // Map not attached yet — initialCenter below already frames
-        // both points; the next update will fit.
+      if (!mounted) return;
+      // ignore: discarded_futures
+      _mapController.fitPoints(
+        widget.pickup,
+        widget.dropoff,
+        padding: 56,
+      );
+      if (_fitAttempts < _maxFitAttempts) {
+        Future.delayed(_fitRetryDelay, _fitBounds);
       }
     });
+  }
+
+  /// Manual reframe (fit-route FAB): restarts the attempt budget so one tap
+  /// always drives a fresh fit, even long after mount.
+  void _refitFromButton() {
+    _fitAttempts = 0;
+    _fitBounds();
   }
 
   @override
@@ -1865,13 +2864,13 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     );
 
     final markers = [
-      OsmMapView.pin(point: pickup, color: Colors.green),
-      OsmMapView.pin(point: dropoff, color: Colors.red),
+      SeSeMapView.pin(point: pickup, color: Colors.green),
+      SeSeMapView.pin(point: dropoff, color: Colors.red),
     ];
 
     final polylines = [
       if (widget.routePoints.isNotEmpty)
-        OsmMapView.route(points: widget.routePoints),
+        SeSeMapView.route(points: widget.routePoints),
     ];
 
     return Container(
@@ -1887,10 +2886,13 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       ),
       child: Stack(
         children: [
-          OsmMapView(
+          SeSeMapView(
+            // Route preview while browsing options: Google Maps.
+            mapContext: MapContext.browsing,
             mapController: _mapController,
             initialCenter: center,
             initialZoom: 13.0,
+            showMyLocation: true,
             markers: markers,
             polylines: polylines,
           ),
@@ -1902,7 +2904,7 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
             child: MapRecenterButton(
               key: const Key('route_fit_button'),
               icon: Icons.fit_screen,
-              onTap: _fitBounds,
+              onTap: _refitFromButton,
             ),
           ),
           if (widget.isLoadingRoute)
@@ -1925,383 +2927,90 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
                 ),
               ),
             ),
+          // Route info badge — shown once real road data is available.
+          // Hidden when distance is 0 (straight-line fallback) or while loading.
+          if (!widget.isLoadingRoute &&
+              widget.distanceM > 0 &&
+              widget.durationS > 0)
+            Positioned(
+              top: 10,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withAlpha(165),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.route_outlined,
+                          size: 14, color: Colors.white70),
+                      const SizedBox(width: 5),
+                      Text(
+                        _formatDistance(widget.distanceM),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600),
+                      ),
+                      const Text('  ·  ',
+                          style: TextStyle(
+                              color: Colors.white54, fontSize: 13)),
+                      const Icon(Icons.access_time,
+                          size: 13, color: Colors.white70),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatDuration(widget.durationS),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
-}
 
-/// Delivery vehicle selection card with optional "Recommended" badge.
-class _DeliveryVehicleCard extends StatelessWidget {
-  final VehicleCategory category;
-  final String? serverFare; // null while loading
-  final bool isRecommended;
-  final bool isSelected;
-
-  /// False while a heavy-duty vehicle locks out small options: the card
-  /// renders muted and taps explain the lock instead of selecting.
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _DeliveryVehicleCard({
-    required this.category,
-    required this.serverFare,
-    required this.isRecommended,
-    required this.isSelected,
-    this.enabled = true,
-    required this.onTap,
-  });
-
-  IconData get _icon {
-    switch (category) {
-      case VehicleCategory.bicycle:
-        return Icons.pedal_bike;
-      case VehicleCategory.motorcycle:
-        return Icons.two_wheeler;
-      case VehicleCategory.tricycle:
-        return Icons.electric_rickshaw;
-      case VehicleCategory.van:
-        return Icons.airport_shuttle;
-      case VehicleCategory.truck:
-        return Icons.local_shipping;
-      case VehicleCategory.car:
-        return Icons.directions_car;
+  /// Formats metres as "X.X km" (≥1 km) or "X m" (< 1 km).
+  static String _formatDistance(int metres) {
+    if (metres >= 1000) {
+      return '${(metres / 1000).toStringAsFixed(1)} km';
     }
+    return '$metres m';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted = !enabled && !isSelected;
-    return Card(
-      elevation: isSelected ? 3 : 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide.none,
-      ),
-      color: isDark ? cs.surfaceContainerHighest : Colors.grey.shade100,
-      margin: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Opacity(
-          opacity: muted ? 0.45 : 1.0,
-          child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Checkbox(
-                  value: isSelected,
-                  onChanged: enabled ? (_) => onTap() : null),
-              Icon(_icon,
-                  color: isSelected ? cs.primary : (isDark ? cs.onSurfaceVariant : Colors.grey), size: 28),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(category.displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                              color: isSelected ? cs.primary : cs.onSurface,
-                            )),
-                        if (isRecommended) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.green.shade900.withValues(alpha: 0.3)
-                                  : Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text('Recommended',
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    color: isDark
-                                        ? Colors.greenAccent
-                                        : Colors.green)),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Text('Fastest & most available',
-                        style: TextStyle(
-                            fontSize: 11, color: isDark ? cs.onSurfaceVariant : Colors.grey.shade500)),
-                  ],
-                ),
-              ),
-              serverFare != null
-                  ? Text(serverFare!,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16))
-                  : Text('Unavailable',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontStyle: FontStyle.italic,
-                          color: isDark ? cs.onSurfaceVariant : Colors.grey.shade500)),
-            ],
-          ),
-          ),
-        ),
-      ),
-    );
+  /// Formats seconds as "X h Y min" or "Y min".
+  static String _formatDuration(int seconds) {
+    final mins = (seconds / 60).round();
+    if (mins >= 60) {
+      final h = mins ~/ 60;
+      final m = mins % 60;
+      return m > 0 ? '$h h $m min' : '$h h';
+    }
+    return '$mins min';
   }
 }
 
-/// Ride tier selection card using server-supplied fare.
-///
-/// Checkbox (multi-select) broadcast: several tiers can be checked at once.
-/// Also surfaces a "Recommended" badge for the server-flagged tier.
-/// The fare display is tappable — customers may raise it above the server
-/// baseline; values below baseline are blocked.
-class _RideTierCard extends StatelessWidget {
-  final FareTier tier;
-  final bool isSelected;
-  final String description;
-  final VoidCallback onTap;
 
-  /// Current customer-overridden fare, or null if using the server baseline.
-  final double? customFare;
-
-  /// Called with the new fare (or null to reset to baseline).
-  final void Function(double? fare) onCustomFareChanged;
-
-  const _RideTierCard({
-    required this.tier,
-    required this.isSelected,
-    required this.description,
-    required this.onTap,
-    required this.onCustomFareChanged,
-    this.customFare,
-  });
-
-  IconData get _icon {
-    switch (tier.tierId) {
-      case 'luxe':
-        return Icons.star;
-      case 'premium':
-        return Icons.workspace_premium;
-      default:
-        return Icons.directions_car;
-    }
-  }
-
-  /// Opens a dialog for the customer to enter a boosted fare.
-  Future<void> _editFare(BuildContext context) async {
-    final baseline = tier.fareAmount;
-    final controller = TextEditingController(
-      text: (customFare ?? baseline).toStringAsFixed(0),
-    );
-    String? error;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSt) => AlertDialog(
-          title: Text('Set fare — ${tier.name}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Baseline: ${tier.fareFormatted}. You can only increase the fare to attract drivers faster.',
-                style: const TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 12),
-              // Quick boost presets: +5% / +10% / +20% over baseline.
-              Wrap(
-                spacing: 8,
-                children: [5, 10, 20].map((pct) {
-                  final boosted =
-                      (tier.fareAmount * (100 + pct) / 100).round().toString();
-                  return OutlinedButton(
-                    onPressed: () {
-                      controller.text = boosted;
-                      setSt(() => error = null);
-                    },
-                    child: Text('+$pct%'),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: false),
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Your offer',
-                  prefixText: '₦ ',
-                  border: const OutlineInputBorder(
-                      borderSide: BorderSide.none),
-                  enabledBorder: const OutlineInputBorder(
-                      borderSide: BorderSide.none),
-                  focusedBorder: const OutlineInputBorder(
-                      borderSide: BorderSide.none),
-                  filled: true,
-                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  errorText: error,
-                ),
-                onChanged: (v) {
-                  final val = double.tryParse(v);
-                  setSt(() {
-                    error = (val == null || val < baseline)
-                        ? 'Must be ≥ ${tier.fareFormatted}'
-                        : null;
-                  });
-                },
-              ),
-            ],
-          ),
-          actions: [
-            if (customFare != null)
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Reset to baseline'),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: error != null
-                  ? null
-                  : () => Navigator.pop(ctx, true),
-              child: const Text('Confirm'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (confirmed == null) return; // cancelled
-    if (confirmed == false) {
-      onCustomFareChanged(null); // reset to baseline
-      return;
-    }
-    final val = double.tryParse(controller.text);
-    if (val != null && val >= baseline) {
-      onCustomFareChanged(val);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hasBoostedFare = customFare != null && customFare! > tier.fareAmount;
-    final fareDisplay = hasBoostedFare
-        ? '₦${customFare!.toStringAsFixed(0)}'
-        : tier.fareFormatted;
-
-    return Card(
-      elevation: isSelected ? 3 : 1,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(10)),
-        side: BorderSide.none,
-      ),
-      color: isDark ? cs.surfaceContainerHighest : Colors.grey.shade100,
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Checkbox(value: isSelected, onChanged: (_) => onTap()),
-              Icon(_icon,
-                  color: isSelected ? cs.primary : (isDark ? cs.onSurfaceVariant : Colors.grey), size: 28),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(tier.name,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: isSelected
-                                    ? cs.primary
-                                    : cs.onSurface,
-                              )),
-                        ),
-                        if (tier.isRecommended) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.green.shade900.withValues(alpha: 0.3)
-                                  : Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text('Recommended',
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    color: isDark
-                                        ? Colors.greenAccent
-                                        : Colors.green)),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Text(description,
-                        style: TextStyle(
-                            fontSize: 11, color: isDark ? cs.onSurfaceVariant : Colors.grey)),
-                  ],
-                ),
-              ),
-              // ── Fare display / boost button ────────────────────────────
-              GestureDetector(
-                onTap: () => _editFare(context),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(fareDisplay,
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                            color: hasBoostedFare ? cs.primary : null)),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.edit, size: 11, color: cs.onSurfaceVariant),
-                        const SizedBox(width: 2),
-                        Text('Boost',
-                            style: TextStyle(
-                                fontSize: 10, color: cs.onSurfaceVariant)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Route summary card shown in Step 3, with tagged pickup / drop-off
-/// sections and mandatory contact phone fields for driver coordination.
+/// sections, contact name fields, and contact phone fields for driver coordination.
 class _RouteReviewCard extends StatelessWidget {
   final String pickup;
   final String dropoff;
   final double distanceKm;
   final double durationMins;
+  final TextEditingController pickupNameController;
+  final TextEditingController dropoffNameController;
   final TextEditingController pickupPhoneController;
   final TextEditingController dropoffPhoneController;
   final VoidCallback? onPhoneChanged;
@@ -2311,6 +3020,8 @@ class _RouteReviewCard extends StatelessWidget {
     required this.dropoff,
     required this.distanceKm,
     required this.durationMins,
+    required this.pickupNameController,
+    required this.dropoffNameController,
     required this.pickupPhoneController,
     required this.dropoffPhoneController,
     this.onPhoneChanged,
@@ -2359,17 +3070,62 @@ class _RouteReviewCard extends StatelessWidget {
             const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.only(left: 22.0),
+              child: TextField(
+                controller: pickupNameController,
+                decoration: InputDecoration(
+                  labelText: 'Pickup Contact Name (Optional)',
+                  hintText: 'e.g. Sender or pickup contact name',
+                  prefixIcon: const Icon(Icons.person_outline, size: 20),
+                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: pickupNameController,
+                    builder: (context, value, _) {
+                      if (value.text.isEmpty) return const SizedBox.shrink();
+                      return IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          pickupNameController.clear();
+                          onPhoneChanged?.call();
+                        },
+                      );
+                    },
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                onChanged: (_) => onPhoneChanged?.call(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 22.0),
               child: SesePhoneInputField(
                 controller: pickupPhoneController,
-                labelText: 'Pickup Phone Number',
+                labelText: 'Pickup Phone Number (Optional)',
+                hintText: 'Leave empty to skip — e.g. call me on arrival',
                 autoValidateMode: AutovalidateMode.onUserInteraction,
+                onPickContact: () async {
+                  final res = await ContactsService.pickContact(context);
+                  if (res != null && res.phoneNumber.isNotEmpty) {
+                    pickupPhoneController.text =
+                        nationalDisplayDigits(res.phoneNumber);
+                    if (res.displayName.isNotEmpty &&
+                        pickupNameController.text.trim().isEmpty) {
+                      pickupNameController.text = res.displayName;
+                    }
+                    onPhoneChanged?.call();
+                  }
+                },
                 onChanged: (e164) {
                   // No echo-back write: the formatter owns the text field
                   // (see onPhoneChanged guard below).
                   onPhoneChanged?.call();
                 },
                 validator: (value) {
-                  return isValidNigerianPhoneNumber(value)
+                  // Optional: empty passes, non-empty must validate.
+                  return isOptionalNigerianPhoneNumber(value)
                       ? null
                       : 'Enter a valid phone number';
                 },
@@ -2408,16 +3164,61 @@ class _RouteReviewCard extends StatelessWidget {
             const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.only(left: 24.0),
+              child: TextField(
+                controller: dropoffNameController,
+                decoration: InputDecoration(
+                  labelText: 'Drop-off Contact Name (Optional)',
+                  hintText: 'e.g. Recipient name',
+                  prefixIcon: const Icon(Icons.person_outline, size: 20),
+                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: dropoffNameController,
+                    builder: (context, value, _) {
+                      if (value.text.isEmpty) return const SizedBox.shrink();
+                      return IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          dropoffNameController.clear();
+                          onPhoneChanged?.call();
+                        },
+                      );
+                    },
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                ),
+                onChanged: (_) => onPhoneChanged?.call(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 24.0),
               child: SesePhoneInputField(
                 controller: dropoffPhoneController,
-                labelText: 'Drop-off Contact Phone Number',
+                labelText: 'Drop-off Contact Phone Number (Optional)',
+                hintText: 'Leave empty to skip — e.g. call me on arrival',
                 autoValidateMode: AutovalidateMode.onUserInteraction,
+                onPickContact: () async {
+                  final res = await ContactsService.pickContact(context);
+                  if (res != null && res.phoneNumber.isNotEmpty) {
+                    dropoffPhoneController.text =
+                        nationalDisplayDigits(res.phoneNumber);
+                    if (res.displayName.isNotEmpty &&
+                        dropoffNameController.text.trim().isEmpty) {
+                      dropoffNameController.text = res.displayName;
+                    }
+                    onPhoneChanged?.call();
+                  }
+                },
                 onChanged: (e164) {
                   // No echo-back (see pickup field + onPhoneChanged guard).
                   onPhoneChanged?.call();
                 },
                 validator: (value) {
-                  return isValidNigerianPhoneNumber(value)
+                  // Optional: empty passes, non-empty must validate.
+                  return isOptionalNigerianPhoneNumber(value)
                       ? null
                       : 'Enter a valid phone number';
                 },

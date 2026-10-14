@@ -2,8 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/home/driver_home_shell.dart';
+import 'package:sese_ride/widgets/osm_map_view.dart';
 
 void main() {
+  // The shell's IndexedStack builds the driver map tab eagerly: render the
+  // map placeholder (both OSM and Google branches honor this seam) so no
+  // test depends on network tiles or a native platform view.
+  setUp(() {
+    OsmMapView.debugTileProviderOverride = const BlankTileProvider();
+  });
+  tearDown(() {
+    OsmMapView.debugTileProviderOverride = null;
+  });
+
   AppUser driverUser() => AppUser(
         uid: 'driver_1',
         fullName: 'Test Driver',
@@ -34,9 +45,9 @@ void main() {
       await tester.tap(find.text('Menu'));
       await tester.pumpAndSettle();
 
-      // Strict menu order: Wallet, Earnings, Trips, Support, Settings,
-      // Switch-to-Customer at the very bottom. Go Online lives on Home;
-      // Fleet, Theme, Sign Out, Delete live in Settings.
+      // Strict menu order: Wallet, Earnings, Trips, Support, Settings.
+      // Go Online lives on Home; Fleet, Theme, App Mode, Sign Out, Delete
+      // live in Settings.
       expect(find.text('Go Online (Home)'), findsNothing);
       expect(find.text('Manage Fleet & Documents'), findsNothing);
 
@@ -53,7 +64,8 @@ void main() {
               'View daily, weekly, and monthly trip earnings and '
               'streak progress'),
           findsOneWidget);
-      // Tile order: Wallet first, Settings near bottom, Switch last.
+      // Tile order: Wallet first, Settings near the bottom (mode
+      // switching moved to Settings → App Mode).
       final walletY =
           tester.getTopLeft(find.byKey(const Key('menu_wallet_tile'))).dy;
       final earningsY =
@@ -61,18 +73,23 @@ void main() {
       expect(walletY, lessThan(earningsY));
       final settingsY =
           tester.getTopLeft(find.byKey(const Key('menu_settings_tile'))).dy;
-      final switchY =
-          tester.getTopLeft(find.byKey(const Key('menu_switch_mode_tile'))).dy;
       expect(earningsY, lessThan(settingsY));
-      expect(settingsY, lessThan(switchY));
+      expect(find.byKey(const Key('menu_switch_mode_tile')), findsNothing);
 
       // Wallet tile pushes the wallet screen: balance card with both
-      // actions plus the chronological ledger (no earnings card).
+      // actions plus the chronological ledger (no earnings card). The
+      // ledger header sits below the fold — scroll it into view first
+      // (ListView builds lazily).
       await tester.tap(find.byKey(const Key('menu_wallet_tile')));
       await tester.pumpAndSettle();
       expect(find.text('Wallet Balance'), findsOneWidget);
       expect(find.text('+ Top Up'), findsOneWidget);
       expect(find.text('Withdraw / Payout'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Transaction history'),
+        300,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Transaction history'), findsOneWidget);
       expect(find.text('Earnings breakdown'), findsNothing);
     });
@@ -194,7 +211,22 @@ void main() {
       expect(find.text('Settings'), findsWidgets);
       expect(find.text('Manage Fleet & Documents'), findsOneWidget);
       expect(find.text('Alert Tone'), findsOneWidget);
+      // Lower sections build lazily — scroll each into view first.
+      await tester.scrollUntilVisible(
+        find.text('Hide Phone Number'),
+        300,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Hide Phone Number'), findsOneWidget);
+      // Mode switching lives in Settings → App Mode for drivers.
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('settings_switch_mode_tile')),
+        300,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('settings_switch_mode_tile')),
+          findsOneWidget);
+      expect(find.text('Switch to Customer Mode'), findsOneWidget);
     });
   });
 }

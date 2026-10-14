@@ -9,6 +9,8 @@ Future<void> showVehiclePhotoGuide(
   return showDialog<void>(
     context: context,
     builder: (ctx) => AlertDialog(
+      // 16px insets keep the guide edge-to-edge on phones.
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       title: Row(
         children: [
           const Icon(Icons.photo_camera_outlined),
@@ -21,8 +23,10 @@ Future<void> showVehiclePhotoGuide(
           ),
         ],
       ),
+      // double.infinity (not a fixed 420) so the guide spans the dialog
+      // width on phones instead of overflowing a narrow viewport.
       content: SizedBox(
-        width: 420,
+        width: double.infinity,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,

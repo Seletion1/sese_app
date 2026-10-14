@@ -46,7 +46,7 @@ class EarningsScreenState extends State<EarningsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Earnings')),
+      appBar: const SeseAppBar(title: 'Earnings'),
       body: Column(
         children: [
           Padding(
@@ -109,19 +109,25 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label,
-                style:
-                    const TextStyle(fontSize: 11, color: Colors.grey)),
-            const SizedBox(height: 4),
-            Text(value,
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: valueColor)),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: valueColor,
+                  ),
+            ),
           ],
         ),
       ),
@@ -180,15 +186,44 @@ class _DailyView extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        const Text("Today's trips",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 16),
+        Text(
+          "Today's trips",
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+        ),
         const SizedBox(height: 8),
         if (summary.trips.isEmpty)
-          const ListTile(
-            leading: Icon(Icons.directions_car_outlined),
-            title: Text('No trips completed today'),
-            subtitle: Text('Go online to start earning.'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.directions_car_outlined,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No trips completed today',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Go online to start receiving ride requests.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           )
         else
           for (final t in summary.trips) _TripRow(earning: t),

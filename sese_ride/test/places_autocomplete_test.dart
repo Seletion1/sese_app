@@ -55,8 +55,8 @@ void main() {
 
       // User types "Ikosi"
       await tester.enterText(dropoffField, 'Ikosi');
-      // Advance by debounce buffer (300ms)
-      await tester.pump(const Duration(milliseconds: 350));
+      // Advance by debounce buffer (400ms quota discipline)
+      await tester.pump(const Duration(milliseconds: 450));
       await tester.pumpAndSettle();
 
       // 1. Text must NOT be hijacked or replaced by the first suggestion
@@ -104,7 +104,7 @@ void main() {
 
       final dropoffField = find.widgetWithText(TextField, 'Destination / Drop-off');
       await tester.enterText(dropoffField, 'Ikosi');
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pump(const Duration(milliseconds: 450));
       await tester.pumpAndSettle();
 
       expect(find.text('Ikosi Road, Ketu, Lagos'), findsOneWidget);

@@ -29,13 +29,17 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   bool _busy = false;
   String? _error;
   FinancialConfig _config = const FinancialConfig();
-  bool _configLoaded = false;
+
+  /// Guards the controller echo when a quick-chip writes into the field:
+  /// setting [_amountCtrl.text] fires `onChanged` synchronously, which must
+  /// not clear the chip that was just selected.
+  bool _chipEcho = false;
 
   /// Set once the checkout page is open: a single auto-verify on resume.
   PaymentAuthorization? _pending;
   bool _autoVerified = false;
 
-  static const _quickAmounts = [500.0, 1000.0, 2000.0, 5000.0, 10000.0];
+  static const _quickAmounts = [1300.0, 2000.0, 5000.0, 10000.0, 20000.0];
 
   @override
   void initState() {
@@ -45,7 +49,6 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _config = c;
-        _configLoaded = true;
       });
     });
   }
@@ -78,8 +81,8 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
     final amount = _amount;
     final min = _config.minTopUpAmount;
     if (amount == null || amount < min) {
-      setState(() => _error =
-          'Minimum top-up amount is ₦${min.toStringAsFixed(0)}.');
+      final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
+      setState(() => _error = 'Minimum top-up amount is ₦$minStr.');
       return;
     }
     setState(() {
@@ -167,9 +170,11 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         _amount! >= min;
     return SafeArea(
       child: Padding(
+        // 16px side gutters: chips, input, and Pay button span
+        // edge-to-edge instead of a 20px-inset column.
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
+          left: 16,
+          right: 16,
           top: 12,
           bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
@@ -206,10 +211,18 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                       selected: _selectedQuick == q,
                       onSelected: _busy
                           ? null
-                          : (v) => setState(() {
+                          : (v) {
+                              // Mirror the chip into the amount field so the
+                              // user sees exactly what they will pay.
+                              _chipEcho = true;
+                              _amountCtrl.text =
+                                  v ? q.toStringAsFixed(0) : '';
+                              _chipEcho = false;
+                              setState(() {
                                 _selectedQuick = v ? q : null;
                                 _error = null;
-                              }),
+                              });
+                            },
                     ),
                 ],
               ),
@@ -220,7 +233,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
                   labelText: 'Amount (₦)',
-                  hintText: 'Min ₦100',
+                  hintText: 'Min ₦${min.toStringAsFixed(0)}',
                   prefixText: '₦ ',
                   filled: true,
                   fillColor: Colors.grey.shade100,
@@ -246,10 +259,20 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                   ),
                 ),
                 enabled: !_busy,
-                onChanged: (_) => setState(() {
-                  _selectedQuick = null;
-                  _error = null;
-                }),
+                onChanged: (val) {
+                  // Ignore the synchronous echo from a quick-chip write.
+                  if (_chipEcho) return;
+                  final parsed = double.tryParse(val.replaceAll(',', '').trim());
+                  setState(() {
+                    _selectedQuick = null;
+                    if (parsed != null && parsed < min) {
+                      final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
+                      _error = 'Minimum top-up amount is ₦$minStr.';
+                    } else {
+                      _error = null;
+                    }
+                  });
+                },
               ),
               if (_error != null) ...[
                 const SizedBox(height: 8),
@@ -268,7 +291,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                 label: Text(_busy ? 'Contacting Paystack…' : 'Pay Securely'),
                 style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(50)),
-                onPressed: _busy ? null : _start,
+                onPressed: canProceed ? _start : null,
               ),
               const SizedBox(height: 8),
               const Text(

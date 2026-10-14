@@ -107,23 +107,23 @@ class AppSoundService {
   // When assets live in sese_core, consuming apps reference via
   // `packages/sese_core/...`.
   static const String _onlineChime =
-      'packages/sese_core/assets/sounds/online_chime.mp3';
+      'packages/sese_core/assets/sounds/online_chime.wav';
   static const String _offlineChime =
-      'packages/sese_core/assets/sounds/offline_chime.mp3';
+      'packages/sese_core/assets/sounds/offline_chime.wav';
   static const String _incomingMessage =
-      'packages/sese_core/assets/sounds/incoming_message.mp3';
+      'packages/sese_core/assets/sounds/incoming_message.wav';
   static const String _incomingOrderAlert =
-      'packages/sese_core/assets/sounds/incoming_order_alert.mp3';
+      'packages/sese_core/assets/sounds/incoming_order_alert.wav';
 
   // Fallback paths if package prefix fails (e.g., when running sese_core
   // tests directly).
-  static const String _onlineChimeFallback = 'assets/sounds/online_chime.mp3';
+  static const String _onlineChimeFallback = 'assets/sounds/online_chime.wav';
   static const String _offlineChimeFallback =
-      'assets/sounds/offline_chime.mp3';
+      'assets/sounds/offline_chime.wav';
   static const String _incomingMessageFallback =
-      'assets/sounds/incoming_message.mp3';
+      'assets/sounds/incoming_message.wav';
   static const String _incomingOrderAlertFallback =
-      'assets/sounds/incoming_order_alert.mp3';
+      'assets/sounds/incoming_order_alert.wav';
 
   /// Currently selected order alert tone (defaults to chime until prefs
   /// load). Call [loadSelectedTone] at startup to restore the saved choice.

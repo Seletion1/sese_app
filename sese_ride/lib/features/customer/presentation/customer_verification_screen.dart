@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../../../widgets/document_upload_card.dart';
-
 /// Full KYC verification screen for customers.
 ///
 /// Collects:
@@ -89,7 +87,6 @@ class _CustomerVerificationScreenState
   bool _editingRejected = false;
 
   late final CustomerKycService _service;
-  ImagePicker get _picker => widget.imagePicker ?? ImagePicker();
 
   String get _status =>
       widget.currentStatus ?? CustomerVerification.unverified;
@@ -167,8 +164,15 @@ class _CustomerVerificationScreenState
       source = ImageSource.camera;
     }
     if (source == null) return;
-    final file =
-        await _picker.pickImage(source: source, imageQuality: 85);
+    // Runtime permission handshake BEFORE the native picker.
+    final permission = await MediaPermissionService.ensureFor(source);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
+    final file = await ImageCompressionService.pickAndCompressImage(
+        source: source);
     if (file == null) return;
     onPicked(file);
   }

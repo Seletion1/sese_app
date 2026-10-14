@@ -62,6 +62,18 @@ class StubAuthRepository implements AuthRepository {
   Future<void> deleteAccount({String? password}) async {}
 
   @override
+  Future<List<String>> authProviders() async => const [];
+
+  @override
+  Future<void> setAccountPassword({
+    String? currentPassword,
+    required String newPassword,
+    UserRole? role,
+  }) {
+    throw UnimplementedError('StubAuthRepository: setAccountPassword');
+  }
+
+  @override
   Future<void> signOut() async {}
 }
 

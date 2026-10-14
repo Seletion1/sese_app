@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
@@ -45,9 +44,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   bool _sending = false;
   bool _uploading = false;
   int _seenCount = 0;
-
-  /// Test seam: inject a picker so widget tests never hit the real plugin.
-  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -168,12 +164,19 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   /// there is intentionally no audio counterpart here.
   Future<void> _pickAndSendImage(String chatId, String status) async {
     if (SupportChatStatus.isLocked(status)) return;
+    // Runtime permission handshake BEFORE the native picker (otherwise the
+    // gallery can open dead on first install with no error surfaced).
+    final permission =
+        await MediaPermissionService.ensureFor(ImageSource.gallery);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
     XFile? picked;
     try {
-      picked = await _picker.pickImage(
+      picked = await ImageCompressionService.pickAndCompressImage(
         source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 1600,
       );
     } catch (e) {
       debugPrint('SupportChatScreen: image pick failed: $e');
@@ -798,8 +801,13 @@ class _CsatPromptState extends State<_CsatPrompt> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             color: scheme.surfaceContainerHighest,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Wrap (not Row) so stars + label flow to two lines on narrow
+            // phones instead of overflowing or squeezing the text.
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 2,
+              runSpacing: 4,
               children: [
                 for (var i = 1; i <= 5; i++)
                   Icon(
@@ -811,6 +819,8 @@ class _CsatPromptState extends State<_CsatPrompt> {
                 Text(
                   'Thanks for rating your support chat.',
                   style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                  softWrap: true,
+                  textAlign: TextAlign.center,
                 ),
               ],
             ),
@@ -822,12 +832,18 @@ class _CsatPromptState extends State<_CsatPrompt> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
           color: scheme.surfaceContainerHighest,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // Wrap (not Row) so the label + 5 star buttons flow to two lines
+          // on narrow phones instead of overflowing.
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 2,
+            runSpacing: 4,
             children: [
               Text(
                 'Rate this support chat:',
                 style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
+                softWrap: true,
               ),
               const SizedBox(width: 8),
               for (var i = 1; i <= 5; i++)

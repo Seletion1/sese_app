@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../../../widgets/osm_map_view.dart';
+import '../../../widgets/map_provider.dart';
+import '../../notifications/notification_inbox_screen.dart';
+import '../../trips/models/trip_models.dart';
+import '../../trips/presentation/live_trip_screen.dart';
+import '../../trips/services/trip_service.dart';
 import 'customer_dispatch_screen.dart';
 
-/// Main customer home view: full-screen OpenStreetMap view with a blue-dot
+/// Main customer home view: full-screen Google Maps view with a blue-dot
 /// position marker, a re-center button, and a bottom action sheet with
 /// Book Ride / Send Item / Receive Item entry cards.
 ///
@@ -15,6 +21,7 @@ import 'customer_dispatch_screen.dart';
 class CustomerHomeMapScreen extends StatefulWidget {
   final AppUser? user;
   final VoidCallback? onSignOut;
+  final TripRepository? tripRepository;
 
   /// Test seam: seed map position without touching platform location APIs.
   final LatLng? initialPosition;
@@ -23,6 +30,7 @@ class CustomerHomeMapScreen extends StatefulWidget {
     super.key,
     this.user,
     this.onSignOut,
+    this.tripRepository,
     this.initialPosition,
   });
 
@@ -33,8 +41,15 @@ class CustomerHomeMapScreen extends StatefulWidget {
 class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
   static const Color _brandAmber = Color(0xFFFFB800);
 
+  TripRepository get _tripRepo =>
+      widget.tripRepository ?? FirestoreTripRepository();
+
   late LatLng _position;
   final SeSeMapController _mapController = SeSeMapController();
+
+  /// Live GPS subscription feeding the blue dot + camera follow. Cancelled
+  /// in dispose; never throws (platform absence keeps the seeded default).
+  StreamSubscription<Position>? _positionSub;
 
   @override
   void initState() {
@@ -42,6 +57,12 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     _position =
         widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
     _resolvePosition();
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    super.dispose();
   }
 
   /// Best-effort platform fix for map centering. Never throws: falls back
@@ -52,26 +73,68 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
       if (!enabled) return;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
+        if (mounted) {
+          final agreed = await ProminentLocationDisclosureDialog.showForeground(
+            context,
+            userId: widget.user?.uid,
+          );
+          if (!agreed) return;
+        }
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return;
       }
-      final pos = await Geolocator.getCurrentPosition();
+      // Request the highest-accuracy fix the device can provide.
+      // Without explicit locationSettings the platform defaults to
+      // LocationAccuracy.medium (~100 m), which causes the blue dot and
+      // initial pickup pin to land on a road centroid far from the true
+      // position.  bestForNavigation uses GPS + sensor fusion and gives
+      // sub-10 m accuracy on modern hardware; the 8 s limit prevents an
+      // indefinite stall on devices where GPS takes long to acquire.
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _position = LatLng(pos.latitude, pos.longitude);
       });
-      _mapController.move(_position, 15.0);
+      // Zoom 16 shows roughly 200 m per side — tight enough to confirm the
+      // pin is on the correct building, not just the correct street block.
+      _mapController.move(_position, 16.0);
+      // Continuous fixes from here on: the blue dot tracks the ground truth
+      // and the camera follows until the user pans (see SeSeMapController).
+      // Best-effort — a dead stream simply leaves the one-shot fix in place.
+      try {
+        await _positionSub?.cancel();
+        _positionSub = Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            distanceFilter: 5,
+          ),
+        ).listen((fix) {
+          if (!mounted) return;
+          setState(() {
+            _position = LatLng(fix.latitude, fix.longitude);
+          });
+        });
+      } catch (_) {}
     } catch (_) {
       // No platform location (e.g. widget tests) — keep seeded default.
     }
   }
 
-  void _openBooking({required int modeIndex, required String title}) {
+  void _openBooking(
+      {required int modeIndex, required String title, bool isReceiving = false}) {
     // Every card opens a focused page without the mode toggle:
     // Book Ride -> ride-hailing only; Send/Receive Item -> delivery only.
+    // The Receive Item card passes the delivery direction so the location
+    // picker opens with "Receiving Package" highlighted, GPS in drop-off,
+    // and focus on pickup.
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CustomerDispatchScreen(
@@ -79,6 +142,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           initialModeIndex: modeIndex,
           showModeSelector: false,
           focusedTitle: title,
+          isReceiving: isReceiving,
           initialPickupLatLng: _position,
         ),
       ),
@@ -96,35 +160,65 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: OsmMapView(
+                  child: SeSeMapView(
+                    // Initial customer browsing: Google Maps with native blue dot.
+                    mapContext: MapContext.browsing,
                     mapController: _mapController,
                     initialCenter: _position,
-                    initialZoom: 15.0,
-                    markers: [
-                      OsmMapView.pin(point: _position, color: Colors.blue),
-                    ],
+                    // 16.0 matches the zoom used after the high-accuracy GPS
+                    // fix lands, so the map never jumps when re-centering.
+                    initialZoom: 16.0,
+                    showMyLocation: true,
+                    myLocationButtonEnabled: false,
+                    showRecenterFab: true,
+                    // Google-style overlay standard: fixed center dot +
+                    // bottom-right target button on every engine.
+                    showCenterBlueDot: true,
+                    recenterBottom: 16,
+                    recenterRight: 16,
+                    // Re-engages GPS follow AND snaps back (bare move() would
+                    // track once without restoring follow state).
+                    userLocation: _position,
+                    onRecenterTap: () =>
+                        _mapController.recenterTo(_position, 16.0),
+                    markers: const [],
                   ),
                 ),
-                Positioned(
-                  right: 16,
-                  bottom: 16,
-                  child: Material(
-                    shape: const CircleBorder(),
-                    elevation: 4,
-                    color: Colors.white,
-                    child: InkWell(
-                      key: const Key('recenter_button'),
-                      customBorder: const CircleBorder(),
-                      onTap: () {
-                        _mapController.move(_position, 15.0);
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.all(14),
-                        child: Icon(
-                          Icons.gps_fixed,
-                          color: Colors.green,
-                          size: 28,
+                // Real-time active order synchronization across customer devices.
+                if (widget.user != null)
+                  Positioned(
+                    top: 0,
+                    left: 16,
+                    right: 68, // Leave clearance for notification bell button on the right
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: StreamBuilder<List<ActiveTrip>>(
+                          stream: _tripRepo.activeTripsStream(widget.user!.uid),
+                          builder: (context, snapshot) {
+                            final activeTrips =
+                                (snapshot.data ?? []).where((t) => t.isLive).toList();
+                            if (activeTrips.isEmpty) return const SizedBox.shrink();
+                            final trip = activeTrips.first;
+                            return _buildActiveTripFloatingPill(trip);
+                          },
                         ),
+                      ),
+                    ),
+                  ),
+                // Notification bell: top-right over the map canvas.
+                Positioned(
+                  top: 0,
+                  right: 8,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Material(
+                        shape: const CircleBorder(),
+                        elevation: 4,
+                        color: Colors.white,
+                        child: NotificationBellButton(
+                            uid: widget.user?.uid ?? ''),
                       ),
                     ),
                   ),
@@ -134,6 +228,118 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           ),
           _buildActionSheet(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActiveTripFloatingPill(ActiveTrip trip) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final String statusText;
+    final Color badgeColor;
+    switch (trip.status) {
+      case TripStatus.driverAccepted:
+      case TripStatus.driverArriving:
+        statusText = 'Driver En Route';
+        badgeColor = const Color(0xFF2E7D32); // green
+        break;
+      case TripStatus.driverArrived:
+        statusText = 'Driver Arrived';
+        badgeColor = const Color(0xFF2E7D32);
+        break;
+      case TripStatus.inProgress:
+        statusText = 'Trip In Progress';
+        badgeColor = const Color(0xFF1976D2); // blue
+        break;
+      case TripStatus.needsCustomerAction:
+        statusText = 'Action Needed: Boost Fare';
+        badgeColor = Colors.orange.shade800;
+        break;
+      case TripStatus.searchingDriver:
+      default:
+        statusText = 'Searching for driver...';
+        badgeColor = const Color(0xFFE5A93C); // gold/amber
+        break;
+    }
+
+    return Material(
+      key: const Key('active_trip_sync_pill'),
+      elevation: 6,
+      borderRadius: BorderRadius.circular(30),
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(30),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => LiveTripScreen(
+                tripId: trip.tripId,
+                repository: _tripRepo,
+              ),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: badgeColor,
+                  boxShadow: [
+                    BoxShadow(
+                      color: badgeColor.withValues(alpha: 0.5),
+                      blurRadius: 6,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                trip.serviceType == 'send_item' ||
+                        trip.serviceType == 'receive_item'
+                    ? Icons.local_shipping
+                    : Icons.directions_car,
+                size: 16,
+                color: _brandAmber,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  statusText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Track',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isDark
+                      ? const Color(0xFFFFD54F)
+                      : const Color(0xFFB78103),
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 12,
+                color: Color(0xFFB78103),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -156,7 +362,8 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+      // 16px gutters so the action cards span edge-to-edge on phones.
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -175,10 +382,9 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
             children: [
               Expanded(
                 child: _ActionCard(
-                  icon: const Icon(
-                    Icons.directions_car_filled,
-                    color: _brandAmber,
-                    size: 44,
+                  icon: const VehicleIllustration(
+                    art: VehicleArt.sedan,
+                    height: 44,
                   ),
                   title: 'Book Ride',
                   subtitle: "Let's get moving",
@@ -189,18 +395,9 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: _ActionCard(
-                  icon: Container(
-                    width: 44,
+                  icon: const VehicleIllustration(
+                    art: VehicleArt.packageSend,
                     height: 44,
-                    decoration: BoxDecoration(
-                      color: _brandAmber,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_upward_rounded,
-                      color: Colors.white,
-                      size: 28,
-                    ),
                   ),
                   title: 'Send Item',
                   subtitle: 'Courier delivery',
@@ -210,23 +407,14 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: _ActionCard(
-                  icon: Container(
-                    width: 44,
+                  icon: const VehicleIllustration(
+                    art: VehicleArt.packageReceive,
                     height: 44,
-                    decoration: BoxDecoration(
-                      color: _brandAmber,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_downward_rounded,
-                      color: Colors.white,
-                      size: 28,
-                    ),
                   ),
                   title: 'Receive Item',
                   subtitle: 'Package pickup',
-                  onTap: () =>
-                      _openBooking(modeIndex: 0, title: 'Receive Item'),
+                  onTap: () => _openBooking(
+                      modeIndex: 0, title: 'Receive Item', isReceiving: true),
                 ),
               ),
             ],

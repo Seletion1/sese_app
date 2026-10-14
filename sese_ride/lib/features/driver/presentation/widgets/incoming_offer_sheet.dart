@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../../../../widgets/osm_map_view.dart';
+import '../../../../widgets/map_provider.dart';
 import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
 import 'verified_customer_badge.dart';
 
-/// Full-screen incoming offer, Bolt-style: OpenStreetMap route preview from
+/// Full-screen incoming offer, Bolt-style: route preview from
 /// pickup (A) to drop-off (B) with the driver's leg, address labels,
 /// distance/time pills, the live streak commission tag, and a single
 /// Accept CTA for the trip fare.
@@ -183,28 +183,31 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: OsmMapView(
+                  child: SeSeMapView(
+                    // Offer route preview (pre-accept browsing): Google Maps.
+                    mapContext: MapContext.browsing,
                     mapController: _mapController,
                     initialCenter: _pickup,
                     initialZoom: 13.0,
+                    showMyLocation: true,
                     markers: [
-                      OsmMapView.pin(
+                      SeSeMapView.pin(
                           point: _pickup, color: Colors.blue, label: 'A'),
-                      OsmMapView.pin(
+                      SeSeMapView.pin(
                           point: _dropoff, color: Colors.green, label: 'B'),
-                      OsmMapView.pin(
+                      SeSeMapView.pin(
                           point: widget.driverPosition, color: Colors.amber),
                     ],
                     polylines: [
                       if (_routePoints.isNotEmpty)
-                        OsmMapView.route(
+                        SeSeMapView.route(
                           points: _routePoints,
                           color: Colors.green.shade700,
                           width: 5,
                           id: 'offer-route',
                         ),
                       if (_driverLegPoints.isNotEmpty)
-                        OsmMapView.route(
+                        SeSeMapView.route(
                           points: _driverLegPoints,
                           color: Colors.blue,
                           width: 4,

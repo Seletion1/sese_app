@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.paystackWebhook = exports.verifyPayment = exports.initializePayment = void 0;
+exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = void 0;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const https_1 = require("firebase-functions/v2/https");
@@ -57,8 +57,9 @@ const payouts_1 = require("./payouts");
  *      the second one no-ops via the idempotency guard.
  *
  * Secrets: the Paystack SECRET key lives ONLY here, read from
- * `process.env.PAYSTACK_SECRET_KEY`
- * (`firebase functions:secrets:set PAYSTACK_SECRET_KEY="sk_test_..."`).
+ * `process.env.PAYSTACK_API_KEY` (plain `.env` var, git-ignored) with a
+ * fallback to `process.env.PAYSTACK_SECRET_KEY` (stale Secret Manager
+ * binding from the defineSecret era — see payouts.ts).
  * The public key (`pk_test_...`) is safe to embed in the client.
  */
 const db = () => admin.firestore();
@@ -66,12 +67,40 @@ const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== vo
 /** Floor/ceiling per payment in kobo (₦100 – ₦500,000). */
 const MIN_AMOUNT_KOBO = 10000;
 const MAX_AMOUNT_KOBO = 50000000;
-function paystackSecret() {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
-    if (!secret) {
-        throw new https_1.HttpsError("failed-precondition", "Paystack is not configured yet. Ask support to enable payments.");
+async function paystackSecret() {
+    var _a, _b, _c;
+    const envSecret = (_a = process.env.PAYSTACK_API_KEY) !== null && _a !== void 0 ? _a : process.env.PAYSTACK_SECRET_KEY;
+    if (envSecret && envSecret.trim()) {
+        return envSecret.trim();
     }
-    return secret;
+    const docPaths = [
+        "system_config/remote_keys",
+        "system_config/financial",
+        "system_config/keys",
+        "system_configs/global_default",
+    ];
+    for (const docPath of docPaths) {
+        try {
+            const snap = await db().doc(docPath).get();
+            if (snap.exists) {
+                const data = snap.data();
+                if (data) {
+                    const raw = (_c = (_b = data.paystackSecretKey) !== null && _b !== void 0 ? _b : data.paystack_secret_key) !== null && _c !== void 0 ? _c : data.secret_key;
+                    if (typeof raw === "string" && raw.trim()) {
+                        return raw.trim();
+                    }
+                }
+            }
+        }
+        catch (e) {
+            console.error(`Failed to read ${docPath} for paystackSecretKey:`, e);
+        }
+    }
+    // No valid secret anywhere: fail fast with a machine-readable code instead
+    // of calling Paystack with a dead key (which surfaces as a confusing
+    // "Invalid key"). Rotate/paste the current test secret from the Paystack
+    // dashboard into `functions/.env` as PAYSTACK_API_KEY and redeploy.
+    throw new https_1.HttpsError("failed-precondition", "PAYSTACK_NOT_CONFIGURED");
 }
 function newReference(uid) {
     const rand = Math.random().toString(36).slice(2, 10);
@@ -115,7 +144,7 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to pay.");
     }
     const uid = request.auth.uid;
-    const secret = paystackSecret();
+    const secret = await paystackSecret();
     const d = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     const amountKobo = typeof d.amountKobo === "number" ? Math.round(d.amountKobo) : NaN;
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_AMOUNT_KOBO) {
@@ -152,7 +181,18 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
     let accessCode = "";
     let authorizationUrl = "";
     try {
-        const data = await paystackPost("/transaction/initialize", { email, amount: amountKobo, currency: "NGN", reference }, secret);
+        const data = await paystackPost("/transaction/initialize", {
+            email,
+            amount: amountKobo,
+            currency: "NGN",
+            reference,
+            metadata: {
+                userId: uid,
+                amount: amountKobo,
+                transactionType: "wallet_topup",
+                purpose,
+            },
+        }, secret);
         accessCode = String((_c = data["access_code"]) !== null && _c !== void 0 ? _c : "");
         authorizationUrl = String((_d = data["authorization_url"]) !== null && _d !== void 0 ? _d : "");
         if (!authorizationUrl) {
@@ -174,6 +214,8 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
     }
     return { authorizationUrl, accessCode, reference };
 });
+/** Alias export for initializePayment */
+exports.initializePaystackTopUp = exports.initializePayment;
 /**
  * Settles a PENDING intent after a successful Paystack verification.
  * Idempotent: concurrent callers (verify callable + webhook) settle once —
@@ -183,7 +225,7 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
 async function settleIntent(reference, verifiedAmountKobo) {
     const intentRef = db().collection("payment_intents").doc(reference);
     return db().runTransaction(async (tx) => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d, _e;
         const snap = await tx.get(intentRef);
         if (!snap.exists) {
             throw new https_1.HttpsError("not-found", "Payment reference not found.");
@@ -204,9 +246,41 @@ async function settleIntent(reference, verifiedAmountKobo) {
             throw new https_1.HttpsError("data-loss", "Payment intent has no owner.");
         }
         const walletRef = db().collection("wallets").doc(uid);
+        // ── Automatic split-debt recovery ──────────────────────────────────
+        // Trusted split partners may settle into a negative balance (see
+        // `settleSplitPayment`, tracked as `users/{uid}.splitStats.splitDebtKobo`).
+        // The next self-funding repays it first: up to the outstanding debt is
+        // diverted from this credit before it lands. Same-transaction reads, so
+        // a racing spend cannot dodge the diversion.
+        let creditKobo = verifiedAmountKobo;
+        let recoveredKobo = 0;
+        try {
+            const userSnap = await tx.get(db().collection("users").doc(uid));
+            const statsRaw = ((_d = (_c = userSnap.data()) === null || _c === void 0 ? void 0 : _c.splitStats) !== null && _d !== void 0 ? _d : {});
+            const debt = typeof statsRaw.splitDebtKobo === "number" && Number.isFinite(statsRaw.splitDebtKobo)
+                ? Math.max(0, Math.floor(statsRaw.splitDebtKobo))
+                : 0;
+            if (debt > 0) {
+                recoveredKobo = Math.min(debt, verifiedAmountKobo);
+                creditKobo = verifiedAmountKobo - recoveredKobo;
+                tx.set(db().collection("users").doc(uid), {
+                    splitStats: {
+                        splitDebtKobo: admin.firestore.FieldValue.increment(-recoveredKobo),
+                    },
+                }, { merge: true });
+            }
+        }
+        catch (e) {
+            // Fail open toward the user: a stats-read failure must never block a
+            // paid-for top-up. The debt simply waits for the next funding.
+            console.warn(`verifyPayment: debt-recovery skipped for ${uid}: ${e}`);
+            creditKobo = verifiedAmountKobo;
+            recoveredKobo = 0;
+        }
         tx.set(walletRef, {
             userId: uid,
-            balance: admin.firestore.FieldValue.increment(verifiedAmountKobo),
+            balance: admin.firestore.FieldValue.increment(creditKobo),
+            mainWalletBalance: admin.firestore.FieldValue.increment(creditKobo / 100),
             currency: "NGN",
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
@@ -215,11 +289,23 @@ async function settleIntent(reference, verifiedAmountKobo) {
             type: intent["purpose"] === "trip_payment" ? "trip_payment" : "wallet_topup",
             amountKobo: verifiedAmountKobo,
             amount: verifiedAmountKobo / 100,
+            status: "success",
             currency: "NGN",
             paymentReference: reference,
-            tripId: (_c = intent["tripId"]) !== null && _c !== void 0 ? _c : null,
+            tripId: (_e = intent["tripId"]) !== null && _e !== void 0 ? _e : null,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        if (recoveredKobo > 0) {
+            tx.set(walletRef.collection("transactions").doc(), {
+                type: "SPLIT_DEBT_RECOVERY",
+                amountKobo: -recoveredKobo,
+                amount: -recoveredKobo / 100,
+                status: "success",
+                currency: "NGN",
+                note: `Recovered ₦${(recoveredKobo / 100).toLocaleString("en-NG")} of split debt from this top-up.`,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
         tx.update(intentRef, {
             status: "SUCCEEDED",
             settledAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -252,7 +338,7 @@ exports.verifyPayment = (0, https_1.onCall)(async (request) => {
     if (intentSnap.data()["userId"] !== request.auth.uid) {
         throw new https_1.HttpsError("permission-denied", "Not your payment.");
     }
-    const secret = paystackSecret();
+    const secret = await paystackSecret();
     const data = await paystackGet(`/transaction/verify/${encodeURIComponent(reference)}`, secret);
     if (data["status"] !== "success") {
         await intentSnap.ref.update({
@@ -285,8 +371,12 @@ exports.paystackWebhook = (0, https_1.onRequest)(async (req, res) => {
         res.status(405).send("Method not allowed");
         return;
     }
-    const secret = process.env.PAYSTACK_SECRET_KEY;
-    if (!secret) {
+    let secret = "";
+    try {
+        secret = await paystackSecret();
+    }
+    catch (e) {
+        console.error("paystackWebhook secret error:", e);
         res.status(500).send("Payments not configured");
         return;
     }

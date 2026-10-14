@@ -5,6 +5,7 @@ import 'package:sese_ride/features/customer/presentation/customer_dispatch_scree
 import 'package:sese_ride/features/customer/presentation/customer_home_map_screen.dart';
 
 import 'package:sese_ride/features/customer/services/location_service.dart';
+import 'package:sese_ride/widgets/map_provider.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
 
 void main() {
@@ -37,7 +38,9 @@ void main() {
         (tester) async {
       await pumpHome(tester);
 
-      expect(find.byType(OsmMapView), findsOneWidget);
+      // Renderer-agnostic: tile tests force the placeholder container via
+      // debugTileProviderOverride, so assert the policy map view itself.
+      expect(find.byType(SeSeMapView), findsOneWidget);
       expect(find.byKey(const Key('recenter_button')), findsOneWidget);
       expect(find.text('Book Ride'), findsOneWidget);
       expect(find.text("Let's get moving"), findsOneWidget);
@@ -84,6 +87,11 @@ void main() {
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
       expect(find.text('Ride-Hailing'), findsNothing);
+      // Toggle seeded from the entry route: Receiving Package highlighted.
+      final toggle = tester.widget<SegmentedButton<bool>>(
+        find.byWidgetPredicate((w) => w is SegmentedButton<bool>),
+      );
+      expect(toggle.selected, {true});
     });
 
     testWidgets('pickup defaults to location and drop-off is empty with Where to?',

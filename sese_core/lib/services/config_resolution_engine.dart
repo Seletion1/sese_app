@@ -117,22 +117,14 @@ class ConfigResolutionEngine {
     );
 
     // Merge streak rewards per-field: a child doc that never customized a
-    // field carries the model default, which must not wipe a customized
-    // parent value (same sentinel convention as the year thresholds above).
-    final mergedStreak = StreakRewardConfig(
-      tiers: _isDefaultStreakTiers(child.streakRewards.tiers)
-          ? parent.streakRewards.tiers
-          : child.streakRewards.tiers,
-      grandCompletionCashAward:
-          child.streakRewards.grandCompletionCashAward !=
-                  StreakRewardConfig.defaultGrandAward
-              ? child.streakRewards.grandCompletionCashAward
-              : parent.streakRewards.grandCompletionCashAward,
-      grandCompletionTargetTrips:
-          child.streakRewards.grandCompletionTargetTrips !=
-                  StreakRewardConfig.defaultGrandTargetTrips
-              ? child.streakRewards.grandCompletionTargetTrips
-              : parent.streakRewards.grandCompletionTargetTrips,
+    final mergedStreak = _mergeStreakRewards(
+      parent.streakRewards,
+      child.streakRewards,
+    );
+
+    final mergedCustomerStreak = _mergeStreakRewards(
+      parent.customerStreakRewards,
+      child.customerStreakRewards,
     );
 
     // Merge daily commission-tiering config. Disable cascades down the
@@ -157,6 +149,7 @@ class ConfigResolutionEngine {
       pricingRates: mergedRates,
       carTierThresholds: mergedThresholds,
       streakRewards: mergedStreak,
+      customerStreakRewards: mergedCustomerStreak,
       dailyStreakConfig: mergedDailyStreak,
       updatedAt: child.updatedAt.isAfter(parent.updatedAt)
           ? child.updatedAt
@@ -195,11 +188,40 @@ class ConfigResolutionEngine {
           child.completionCashAward != defaults.completionCashAward
               ? child.completionCashAward
               : parent.completionCashAward,
+      autoArrivalEnabled:
+          parent.autoArrivalEnabled && child.autoArrivalEnabled,
+      autoArrivalCountdownSeconds:
+          child.autoArrivalCountdownSeconds != defaults.autoArrivalCountdownSeconds
+              ? child.autoArrivalCountdownSeconds
+              : parent.autoArrivalCountdownSeconds,
       disabledCountries:
           union(parent.disabledCountries, child.disabledCountries).toList()
             ..sort(),
       disabledStates:
           union(parent.disabledStates, child.disabledStates).toList()..sort(),
+    );
+  }
+
+  static StreakRewardConfig _mergeStreakRewards(
+    StreakRewardConfig parent,
+    StreakRewardConfig child,
+  ) {
+    return StreakRewardConfig(
+      enabled: child.enabled && parent.enabled,
+      cycle: child.cycle.isNotEmpty && child.cycle != 'daily'
+          ? child.cycle
+          : parent.cycle,
+      tiers: _isDefaultStreakTiers(child.tiers)
+          ? parent.tiers
+          : child.tiers,
+      grandCompletionCashAward:
+          child.grandCompletionCashAward != StreakRewardConfig.defaultGrandAward
+              ? child.grandCompletionCashAward
+              : parent.grandCompletionCashAward,
+      grandCompletionTargetTrips:
+          child.grandCompletionTargetTrips != StreakRewardConfig.defaultGrandTargetTrips
+              ? child.grandCompletionTargetTrips
+              : parent.grandCompletionTargetTrips,
     );
   }
 

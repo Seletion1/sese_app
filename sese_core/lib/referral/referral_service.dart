@@ -65,18 +65,63 @@ class ReferralService {
   /// user id when valid, null when blank/invalid. Never throws — returns
   /// null on offline/permission errors so onboarding never blocks.
   Future<String?> resolveReferrerId(String input) async {
+    final details = await resolveReferrerDetails(input);
+    return details?['referrerId'];
+  }
+
+  /// Validates [input] against `/referral_codes` and fetches the referrer's
+  /// ID and first name for visual UI confirmation.
+  Future<Map<String, String>?> resolveReferrerDetails(String input) async {
     final code = normalizeReferralCode(input);
     if (code.isEmpty) return null;
     final db = _db;
     if (db == null) return null;
     try {
-      final snap =
-          await db.collection('referral_codes').doc(code).get();
-      if (!snap.exists || snap.data() == null) return null;
-      final id = (snap.data()!['referrerId'] ?? '').toString();
-      return id.isEmpty ? null : id;
+      String id = '';
+      String coll = 'users';
+      final snap = await db.collection('referral_codes').doc(code).get();
+      if (snap.exists && snap.data() != null) {
+        final data = snap.data()!;
+        id = (data['referrerId'] ?? '').toString();
+        coll = (data['collection'] ?? 'users').toString();
+      }
+
+      if (id.isEmpty) {
+        final userQuery = await db
+            .collection('users')
+            .where('referralCode', isEqualTo: code)
+            .limit(1)
+            .get();
+        if (userQuery.docs.isNotEmpty) {
+          id = userQuery.docs.first.id;
+          coll = 'users';
+        }
+      }
+
+      if (id.isEmpty) return null;
+
+      String firstName = 'Referrer';
+      try {
+        final userSnap = await db.collection(coll).doc(id).get();
+        if (userSnap.exists && userSnap.data() != null) {
+          final uData = userSnap.data()!;
+          final fullName = (uData['fullName'] ??
+                  uData['displayName'] ??
+                  uData['firstName'] ??
+                  '')
+              .toString();
+          if (fullName.isNotEmpty) {
+            firstName = fullName.trim().split(RegExp(r'\s+')).first;
+          }
+        }
+      } catch (_) {}
+
+      return {
+        'referrerId': id,
+        'firstName': firstName,
+      };
     } catch (e) {
-      debugPrint('ReferralService.resolveReferrerId: $e');
+      debugPrint('ReferralService.resolveReferrerDetails: $e');
       return null;
     }
   }

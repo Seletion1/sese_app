@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/driver_fleet_service.dart';
 import 'widgets/vehicle_registration_form.dart';
@@ -16,10 +15,13 @@ class DriverFleetScreen extends StatefulWidget {
     required String localPath,
   })? uploadDocument;
 
+  final bool isOnline;
+
   const DriverFleetScreen({
     super.key,
     required this.fleetService,
     this.driverId = 'current_driver',
+    this.isOnline = false,
     this.config,
     this.pickImage,
     this.uploadDocument,
@@ -148,6 +150,29 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (widget.isOnline) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.shade700, width: 1.5),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900, size: 24),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Vehicle switching is disabled while ONLINE. You must toggle to OFFLINE state before changing your active shift vehicle.',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             _buildFleetSummaryCard(),
             const SizedBox(height: 16),
             Row(

@@ -68,7 +68,7 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(const []);
 
   @override
-  Future<void> cancelTrip(String tripId) async {}
+  Future<void> cancelTrip(String tripId, {String? reason}) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
@@ -115,6 +115,38 @@ void main() {
       expect(isValidNigerianPhoneNumber('080123456789'), isFalse);
       expect(isValidNigerianPhoneNumber('+15551234567'), isFalse);
       expect(isValidNigerianPhoneNumber('not-a-number'), isFalse);
+    });
+  });
+
+  group('isOptionalNigerianPhoneNumber', () {
+    test('accepts empty (no secondary contact)', () {
+      expect(isOptionalNigerianPhoneNumber(null), isTrue);
+      expect(isOptionalNigerianPhoneNumber(''), isTrue);
+      expect(isOptionalNigerianPhoneNumber('   '), isTrue);
+    });
+
+    test('still rejects malformed non-empty entries', () {
+      expect(isOptionalNigerianPhoneNumber('12345'), isFalse);
+      expect(isOptionalNigerianPhoneNumber('not-a-number'), isFalse);
+      expect(isOptionalNigerianPhoneNumber('+15551234567'), isFalse);
+    });
+
+    test('accepts valid numbers', () {
+      expect(isOptionalNigerianPhoneNumber('08012345678'), isTrue);
+      expect(isOptionalNigerianPhoneNumber('+2348012345678'), isTrue);
+    });
+  });
+
+  group('nationalDisplayDigits', () {
+    test('strips hardcoded country prefixes for the phone box', () {
+      // The widget renders its own +234 selector prefix — seeding the box
+      // with E.164 would duplicate it (`+234 +23481...`).
+      expect(nationalDisplayDigits('+2348012345678'), '8012345678');
+      expect(nationalDisplayDigits('+234 801 234 5678'), '8012345678');
+      expect(nationalDisplayDigits('2348012345678'), '8012345678');
+      expect(nationalDisplayDigits('08012345678'), '08012345678');
+      expect(nationalDisplayDigits(null), isEmpty);
+      expect(nationalDisplayDigits(''), isEmpty);
     });
   });
 
@@ -255,45 +287,46 @@ void main() {
       expect(find.text('Test Pickup, Lagos'), findsWidgets);
       expect(find.text('Test Dropoff, Lagos'), findsWidgets);
       expect(
-        find.widgetWithText(TextFormField, 'Pickup Phone Number'),
+        find.widgetWithText(
+            TextFormField, 'Pickup Phone Number (Optional)'),
         findsOneWidget,
       );
       expect(
-        find.widgetWithText(TextFormField, 'Drop-off Contact Phone Number'),
+        find.widgetWithText(
+            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
         findsOneWidget,
       );
     });
 
-    testWidgets('confirm stays disabled until both phones are valid', (
+    testWidgets('confirm stays enabled with empty phones (optional contacts)', (
       tester,
     ) async {
       await pumpBooking(tester);
       await goToStep3(tester);
 
-      // Both empty → disabled.
-      expect(confirmButton(tester).onPressed, isNull);
+      // Both empty → enabled: no secondary contact is a valid booking.
+      expect(confirmButton(tester).onPressed, isNotNull);
 
-      // Only pickup valid → still disabled.
+      // A malformed non-empty entry still blocks, with an inline error.
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Pickup Phone Number'),
-        '08012345678',
-      );
-      await tester.pumpAndSettle();
-      expect(confirmButton(tester).onPressed, isNull);
-
-      // Invalid drop-off → still disabled with inline error.
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Drop-off Contact Phone Number'),
+        find.widgetWithText(
+            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
         '12345',
       );
       await tester.pumpAndSettle();
       expect(confirmButton(tester).onPressed, isNull);
       expect(find.textContaining('valid phone'), findsWidgets);
 
-      // Both valid → enabled.
+      // Clearing it re-enables; valid entries keep it enabled.
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Drop-off Contact Phone Number'),
-        '+2348087654321',
+        find.widgetWithText(
+            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
+        '',
+      );
+      await tester.enterText(
+        find.widgetWithText(
+            TextFormField, 'Pickup Phone Number (Optional)'),
+        '08012345678',
       );
       await tester.pumpAndSettle();
       expect(confirmButton(tester).onPressed, isNotNull);
@@ -314,15 +347,42 @@ void main() {
       await goToStep3(tester);
 
       final field = tester.widget<TextFormField>(
-        find.widgetWithText(TextFormField, 'Pickup Phone Number'),
+        find.widgetWithText(
+            TextFormField, 'Pickup Phone Number (Optional)'),
       );
       expect(field.controller?.text, '08012345678');
 
       // Drop-off starts empty and stays editable.
       final dropField = tester.widget<TextFormField>(
-        find.widgetWithText(TextFormField, 'Drop-off Contact Phone Number'),
+        find.widgetWithText(
+            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
       );
       expect(dropField.controller?.text ?? '', isEmpty);
+    });
+
+    testWidgets('E.164 profile numbers pre-fill without a doubled prefix', (
+      tester,
+    ) async {
+      final user = AppUser(
+        uid: 'u1',
+        fullName: 'Test User',
+        email: 'test@example.com',
+        // Stored E.164: the box must show national digits only, since the
+        // selector already renders +234 (`+234 +23481...` regression).
+        phoneNumber: '+2348012345678',
+        role: UserRole.customer,
+        createdAt: DateTime(2024),
+      );
+      await pumpBooking(tester, user: user);
+      await goToStep3(tester);
+
+      final field = tester.widget<TextFormField>(
+        find.widgetWithText(
+            TextFormField, 'Pickup Phone Number (Optional)'),
+      );
+      final text = field.controller?.text ?? '';
+      expect(text.startsWith('+'), isFalse);
+      expect(text, endsWith('8012345678'));
     });
 
     testWidgets('confirm dispatches the trip with both contact numbers',

@@ -388,15 +388,36 @@ class PaymentService {
     }
   }
 
-  /// Opens the Paystack hosted checkout in the external browser.
-  /// Returns false when the URL could not be launched.
+  /// Opens the Paystack hosted checkout, preferring the external browser and
+  /// falling back to the platform default handler. Returns false when no
+  /// app on the device can open the URL (e.g. no browser / WebView disabled)
+  /// so the caller can say exactly that instead of a generic failure.
   Future<bool> launchCheckout(String authorizationUrl) async {
-    final uri = Uri.tryParse(authorizationUrl);
-    if (uri == null) return false;
+    final uri = Uri.tryParse(authorizationUrl.trim());
+    if (uri == null || !uri.hasScheme) {
+      debugPrint('PaymentService.launchCheckout: malformed url');
+      return false;
+    }
+    debugPrint(
+        'PaymentService.launchCheckout: opening ${uri.host} (scheme ${uri.scheme})');
     try {
-      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (await canLaunchUrl(uri)) {
+        final ok =
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+        debugPrint('PaymentService.launchCheckout external: $ok');
+        if (ok) return true;
+      } else {
+        debugPrint('PaymentService.launchCheckout: no handler (canLaunchUrl)');
+      }
     } catch (e) {
-      debugPrint('PaymentService.launchCheckout error: $e');
+      debugPrint('PaymentService.launchCheckout external error: $e');
+    }
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
+      debugPrint('PaymentService.launchCheckout platformDefault: $ok');
+      return ok;
+    } catch (e) {
+      debugPrint('PaymentService.launchCheckout platformDefault error: $e');
       return false;
     }
   }
@@ -413,9 +434,22 @@ class PaymentService {
   }
 
   static String _mapError(String code, String? message) {
+    // The backend has no usable Paystack secret (revoked key or nothing
+    // configured): tell the user what is actually wrong instead of
+    // "Invalid key". Matches both Paystack's own rejection and the
+    // backend's PAYSTACK_NOT_CONFIGURED fail-fast code.
+    final msg = (message ?? '').toLowerCase();
+    if (msg.contains('invalid key') ||
+        msg.contains('paystack_not_configured')) {
+      return 'Online payment is not set up yet. Please top up via bank '
+          'transfer or contact support.';
+    }
     switch (code) {
       case 'unauthenticated':
         return 'Your session has expired. Please sign in again.';
+      case 'unavailable':
+        return 'Could not reach the payment server. Check your connection '
+            'and try again.';
       case 'invalid-argument':
         return message ?? 'Invalid payment details.';
       case 'not-found':

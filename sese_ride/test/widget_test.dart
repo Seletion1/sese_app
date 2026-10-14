@@ -45,41 +45,41 @@ Future<void> _pumpLogin(WidgetTester tester, AuthRepository auth) async {
 }
 
 void main() {
-  testWidgets('Login shows role cards, Google + password options',
+  testWidgets('Welcome role selection shows logo, headlines, role cards, sign-in & legal disclaimer',
       (WidgetTester tester) async {
     await _pumpLogin(tester, const _SignedOutAuth());
 
-    expect(find.text('SeSe Ride'), findsOneWidget);
-    expect(find.textContaining('Welcome back!'), findsOneWidget);
-    expect(find.text('Customer'), findsOneWidget);
-    expect(find.text('Book rides & deliveries'), findsOneWidget);
-    expect(find.text('Driver'), findsOneWidget);
-    expect(find.text('Earn on your schedule'), findsOneWidget);
-    expect(find.text('Continue with Google'), findsOneWidget);
-    expect(find.text('Email Address'), findsOneWidget);
-    expect(find.text('Password'), findsOneWidget);
-    // Sign In labels both the mode toggle and the submit button.
-    expect(find.text('Sign In'), findsNWidgets(2));
-    expect(find.text('Create Account'), findsOneWidget);
+    expect(find.text('Welcome to SeSe'), findsOneWidget);
+    expect(find.text('Choose how you want to use the app'), findsOneWidget);
+    expect(find.byKey(const Key('role_card_customer')), findsOneWidget);
+    expect(find.text('Rider / Customer'), findsOneWidget);
+    expect(find.text('Book rides & send deliveries'), findsOneWidget);
+    expect(find.byKey(const Key('role_card_driver')), findsOneWidget);
+    expect(find.text('Driver / Delivery Partner'), findsOneWidget);
+    expect(find.text('Get a vehicle and start earning with us'), findsOneWidget);
+    expect(find.byKey(const Key('direct_sign_in_button')), findsOneWidget);
+    expect(find.textContaining('Terms of Use'), findsOneWidget);
+    expect(find.textContaining('Privacy Policy'), findsOneWidget);
   });
 
-  testWidgets('Create-account toggle opens registration form',
+  testWidgets('Customer role card navigates to AuthScreen form',
       (WidgetTester tester) async {
     await _pumpLogin(tester, const _SignedOutAuth());
 
+    await tester.tap(find.byKey(const Key('role_card_customer')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome back! Sign in as Customer'), findsOneWidget);
+    expect(find.text('Email Address'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+
+    // Switch to Create Account mode
     await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
 
-    expect(
-        find.text('Create your account to get started'), findsOneWidget);
+    expect(find.text('Create your Customer account'), findsOneWidget);
     expect(find.text('First Name'), findsOneWidget);
     expect(find.text('Last Name'), findsOneWidget);
-    expect(find.text('Phone Number'), findsOneWidget);
-    expect(find.text('Sign up with Google'), findsOneWidget);
-    // Submit button is keyed (the toggle shares the label text).
-    expect(
-        find.byKey(const Key('create_account_submit_button')),
-        findsOneWidget);
   });
 
   testWidgets('Driver signup routes to Step 2 onboarding UI',
@@ -90,10 +90,12 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     await _pumpLogin(tester, const _SignupAuth());
 
-    // Switch to Create Account, then pick the Driver role card.
-    await tester.tap(find.text('Create Account'));
+    // Pick Driver role card from the Welcome screen
+    await tester.tap(find.byKey(const Key('role_card_driver')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('role_driver_tile')));
+
+    // Toggle to Create Account mode
+    await tester.tap(find.text('Create Account'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -119,3 +121,4 @@ void main() {
     expect(find.text('License No.'), findsNothing);
   });
 }
+

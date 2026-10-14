@@ -11,7 +11,6 @@ import 'package:sese_ride/features/trips/services/trip_service.dart';
 import 'package:sese_ride/features/driver/presentation/driver_dashboard_screen.dart';
 import 'package:sese_ride/features/driver/presentation/driver_fleet_screen.dart';
 import 'package:sese_ride/features/driver/presentation/online_verification_shield_modal.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
 import 'package:sese_ride/features/driver/services/driver_fleet_service.dart';
 
@@ -119,7 +118,7 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(const []);
 
   @override
-  Future<void> cancelTrip(String tripId) async {}
+  Future<void> cancelTrip(String tripId, {String? reason}) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
@@ -189,7 +188,7 @@ void main() {
             initialPickupLatLng: pickupLatLng,
             initialDropoffAddress: dropoffAddress,
             initialDropoffLatLng: dropoffLatLng,
-            // Step 3 requires valid contact numbers to confirm.
+            // Secondary contact numbers (empty passes; valid ones ride along).
             initialPickupPhone: '08012345678',
             initialDropoffPhone: '08087654321',
             tripRepository: _FakeTripRepository(),
@@ -701,6 +700,12 @@ void main() {
         fieldByLabel(tester, 'Pickup Location').focusNode?.hasFocus,
         isTrue,
       );
+
+      // The Sending/Receiving toggle highlights Receiving Package.
+      final toggle = tester.widget<SegmentedButton<bool>>(
+        find.byWidgetPredicate((w) => w is SegmentedButton<bool>),
+      );
+      expect(toggle.selected, {true});
     });
 
     testWidgets('Send Item maps GPS fix to pickup and focuses drop-off',

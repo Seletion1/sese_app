@@ -65,6 +65,53 @@ class CountryDetectionService {
   /// Synchronous getter for current detected country code (defaults to 'NG').
   String get currentCountryCode => _cachedCountryCode ?? defaultCountryCode;
 
+  /// Converts 2-letter ISO country code to Unicode Flag Emoji (e.g. 'NG' -> '🇳🇬', 'CA' -> '🇨🇦').
+  static String countryCodeToEmoji(String isoCode) {
+    final clean = isoCode.trim().toUpperCase();
+    if (clean.length != 2) return '🌐';
+    final int firstLetter = clean.codeUnitAt(0) - 0x41 + 0x1F1E6;
+    final int secondLetter = clean.codeUnitAt(1) - 0x41 + 0x1F1E6;
+    return String.fromCharCode(firstLetter) + String.fromCharCode(secondLetter);
+  }
+
+  /// Formats country item with Flag Emoji + Full Name + ISO Code / Dial Code.
+  /// Example: '🇳🇬 Nigeria (NG +234)'
+  static String formatCountryItem({
+    required String isoCode,
+    required String countryName,
+    required String dialCode,
+  }) {
+    final flag = countryCodeToEmoji(isoCode);
+    final cleanDial = dialCode.startsWith('+') ? dialCode : '+$dialCode';
+    return '$flag  $countryName ($isoCode $cleanDial)';
+  }
+
+  /// Auto-detects and updates country code from reverse-geocoded address string.
+  void updateFromAddress(String address) {
+    if (address.isEmpty) return;
+    final upper = address.toUpperCase();
+
+    const countryMap = <String, String>{
+      'NIGERIA': 'NG',
+      'CANADA': 'CA',
+      'GHANA': 'GH',
+      'KENYA': 'KE',
+      'UNITED KINGDOM': 'GB',
+      'GREAT BRITAIN': 'GB',
+      'UNITED STATES': 'US',
+      'SOUTH AFRICA': 'ZA',
+      'CAMEROON': 'CM',
+      'BENIN': 'BJ',
+    };
+
+    for (final entry in countryMap.entries) {
+      if (upper.contains(entry.key)) {
+        setCountryCode(entry.value);
+        return;
+      }
+    }
+  }
+
   /// Manually override or prime the detected country code (useful in tests or user settings).
   void setCountryCode(String isoCode) {
     if (_isValidAlpha2(isoCode)) {

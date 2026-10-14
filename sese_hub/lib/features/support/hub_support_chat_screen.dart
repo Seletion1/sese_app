@@ -284,7 +284,13 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
     if (_isSending) return;
     final media = const SupportMediaService();
     final picked = await media.pickPhoto();
-    if (picked == null || picked.path.isEmpty || !mounted) return;
+    if (!mounted) return;
+    if (picked == null || picked.path.isEmpty) {
+      // No-op unless the denial was permanent (cancel/plain-denial return
+      // silently — the OS already dialogued).
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
 
     setState(() => _isSending = true);
     final storagePath = SupportMediaService.pathFor(userId, 'agent.jpg');
@@ -778,106 +784,142 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
 
         return Column(
           children: [
-            // Chat Header
+            // Chat Header — stacks actions below identity on narrow phones
+            // so the name/role text keeps word-wrap instead of squeezing
+            // beside Claim/Resolve buttons.
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
               ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    child: Icon(
-                      userRole == 'driver' ? Icons.directions_car : Icons.person,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          userName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final identity = Row(
+                    children: [
+                      CircleAvatar(
+                        child: Icon(
+                          userRole == 'driver' ? Icons.directions_car : Icons.person,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              softWrap: true,
+                            ),
+                            Text(
+                              'Role: ${userRole.toUpperCase()} | Chat ID: ${chatId.substring(0, chatId.length > 8 ? 8 : chatId.length)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                              softWrap: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                  // Status & Action buttons
+                  final actions = Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (isPending)
+                        FilledButton.icon(
+                          key: const Key('claim_chat_header_button'),
+                          icon: const Icon(Icons.touch_app, size: 16),
+                          label: const Text('Claim Chat'),
+                          onPressed: _isClaiming ? null : () => _claimChat(chatId, isMobile: false),
+                        ),
+                      if (isConnected) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.green.shade100,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.lens, size: 8, color: Colors.green.shade800),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Live Session',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green.shade900,
+                                ),
+                                softWrap: false,
+                              ),
+                            ],
                           ),
                         ),
-                        Text(
-                          'Role: ${userRole.toUpperCase()} | Chat ID: ${chatId.substring(0, chatId.length > 8 ? 8 : chatId.length)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        FilledButton.icon(
+                          key: const Key('resolve_close_chat_button'),
+                          icon: const Icon(Icons.check_circle, size: 16),
+                          label: const Text('Resolve & Close Chat'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red.shade700,
+                            foregroundColor: Colors.white,
                           ),
+                          onPressed: _isResolving ? null : () => _resolveAndCloseChat(chatId),
                         ),
                       ],
-                    ),
-                  ),
-                  // Status & Action buttons
-                  if (isPending)
-                    FilledButton.icon(
-                      key: const Key('claim_chat_header_button'),
-                      icon: const Icon(Icons.touch_app, size: 16),
-                      label: const Text('Claim Chat'),
-                      onPressed: _isClaiming ? null : () => _claimChat(chatId, isMobile: false),
-                    ),
-                  if (isConnected) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade100,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.lens, size: 8, color: Colors.green.shade800),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Live Session',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade900,
-                            ),
+                      if (isResolved)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(6),
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      key: const Key('resolve_close_chat_button'),
-                      icon: const Icon(Icons.check_circle, size: 16),
-                      label: const Text('Resolve & Close Chat'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _isResolving ? null : () => _resolveAndCloseChat(chatId),
-                    ),
-                  ],
-                  if (isResolved)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.archive, size: 16, color: Colors.grey),
-                          SizedBox(width: 6),
-                          Text(
-                            'Resolved & Closed',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.archive, size: 16, color: Colors.grey),
+                              SizedBox(width: 6),
+                              Text(
+                                'Resolved & Closed',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black87,
+                                ),
+                                softWrap: false,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                ],
+                        ),
+                    ],
+                  );
+                  if (constraints.maxWidth < 560) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        identity,
+                        const SizedBox(height: 10),
+                        actions,
+                      ],
+                    );
+                  }
+                  return Row(
+                    children: [
+                      Expanded(child: identity),
+                      const SizedBox(width: 12),
+                      Flexible(child: actions),
+                    ],
+                  );
+                },
               ),
             ),
 

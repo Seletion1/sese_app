@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
-import 'auth_screen.dart';
+import 'welcome_role_selection_screen.dart';
 
-/// Legacy shim bridging [LoginPage] to the refactored [AuthScreen].
+/// Legacy shim bridging [LoginPage] to [WelcomeRoleSelectionScreen].
 /// Keeps backward compatibility with existing tests and imports.
 class LoginPage extends StatelessWidget {
   final AuthRepository? auth;
@@ -11,6 +11,7 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AuthScreen(auth: auth);
+    return WelcomeRoleSelectionScreen(auth: auth);
   }
 }
+

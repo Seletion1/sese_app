@@ -17,8 +17,9 @@ Future<void> showInsufficientWalletSheet({
           BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (ctx) => SafeArea(
+      // 16px gutters so the CTA spans edge-to-edge on phones.
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

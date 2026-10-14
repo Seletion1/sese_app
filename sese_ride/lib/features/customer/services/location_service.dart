@@ -4,44 +4,45 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
+import 'package:sese_core/sese_core.dart';
 
 /// Represents a place suggestion from an address search.
+///
+/// [placeId] is set for Google predictions (resolved to coordinates with
+/// one Details call); test seams and legacy inline results leave it null
+/// and carry coordinates directly.
 class PlaceSuggestion {
   final String description;
   final double lat;
   final double lng;
+  final String? placeId;
 
   PlaceSuggestion({
     required this.description,
     required this.lat,
     required this.lng,
+    this.placeId,
   });
 
   LatLng get latLng => LatLng(lat, lng);
 }
 
-/// GPS + Geocoding + Routing utilities powered 100% by OpenStreetMap.
+/// GPS + Geocoding + Routing utilities, 100% Google Maps Platform.
 ///
-///   - Reverse geocode: OSM Nominatim (`lat/lng` → human-readable address).
-///   - Forward geocode / Autocomplete: OSM Nominatim search.
-///   - Route geometry: OSRM public demo server (driving profile, GeoJSON).
+///   - Reverse geocode: Google Geocoding API via the `googleMapsProxy`
+///     callable (server holds the key — none exists in Dart).
+///   - Forward geocode / Autocomplete: Google Places API via the proxy.
+///   - Route geometry: Google Directions API via the proxy (encoded
+///     polyline decoded client-side).
 ///
-/// No API key, no billing, no quota tied to a cloud account.
+/// The legacy OSM Nominatim/OSRM direct calls are gone: every network
+/// hop goes through the proxy, and every failure degrades to the same
+/// fallbacks as before (coord string / empty list / straight line), so
+/// the booking flow is never blocked by search.
 ///
-/// Production note: the public Nominatim (`nominatim.openstreetmap.org`) and
-/// OSRM (`router.project-osrm.org`) demo endpoints carry fair-use limits
-/// (Nominatim: max 1 req/s, valid `User-Agent` required). At scale, self-host
-/// Nominatim + OSRM/Valhalla or front them with a caching backend (e.g. a
-/// `seseRoutingHttp` Cloud Function) instead of calling them from clients.
-///
-/// All network calls are best-effort: failures return a fallback string /
-/// empty list rather than throwing, so the booking flow is never blocked.
+/// Test seams are unchanged — widget tests keep working offline.
 class LocationService {
-  /// Identifies this app to the Nominatim fair-use policy, which requires a
-  /// valid `User-Agent` (or Referer) on every request.
-  static const String _userAgent = 'sese_ride/1.0.0 (Flutter; OpenStreetMap)';
-
-  static const Duration _networkTimeout = Duration(seconds: 8);
+  static final GoogleMapsService _maps = GoogleMapsService();
 
   /// Test seams to mock location and reverse geocoding in tests.
   static Future<LatLng?> Function()? customPositionProvider;
@@ -66,17 +67,42 @@ class LocationService {
 
   // ── GPS ────────────────────────────────────────────────────────────────────
 
+  /// Fast position cache for instant boot rendering.
+  static LatLng? _cachedLastKnown;
+
+  /// The last successfully resolved GPS position, cached in memory.\
+  ///
+  /// Safe to read synchronously \u2014 returns null until the first position fix
+  /// has been obtained. Used to bias autocomplete suggestions around the
+  /// user's area without an extra async round-trip.\
+  static LatLng? get lastKnownPosition => _cachedLastKnown;
+
+  /// Pre-warms location permissions and fetches last known position on boot.
+  static Future<void> primeFastLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null) {
+          _cachedLastKnown = LatLng(lastKnown.latitude, lastKnown.longitude);
+        }
+      }
+    } catch (_) {}
+  }
+
   /// Returns the current device position.
   ///
-  /// Requests permission if not granted. Returns `null` if location is
-  /// unavailable or permission is denied (so the caller can show a fallback).
+  /// Uses [Geolocator.getLastKnownPosition] for fast instant response, while
+  /// fetching high-accuracy position in the background.
   static Future<LatLng?> getCurrentLatLng() async {
     if (customPositionProvider != null) {
       return customPositionProvider!();
     }
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
-      if (!enabled) return null;
+      if (!enabled) return _cachedLastKnown;
 
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -84,131 +110,303 @@ class LocationService {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        return null;
+        return _cachedLastKnown;
       }
 
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-      return LatLng(pos.latitude, pos.longitude);
+      // Fast path 1: Return cached in-memory position if recent
+      final lastKnown = await Geolocator.getLastKnownPosition().catchError((_) => null);
+      if (lastKnown != null) {
+        _cachedLastKnown = LatLng(lastKnown.latitude, lastKnown.longitude);
+      }
+
+      // Fast path 2: Try best-accuracy position with an 8 s deadline.
+      // Using bestForNavigation (GPS + sensor fusion, < 10 m) rather than
+      // the previous LocationAccuracy.high so every caller of this service
+      // gets the same quality fix as customer_home_map_screen.  8 s gives
+      // GPS adequate time on a cold start without indefinitely blocking.
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: Duration(seconds: 8),
+          ),
+        );
+        _cachedLastKnown = LatLng(pos.latitude, pos.longitude);
+        return _cachedLastKnown;
+      } catch (_) {
+        // Fall back to last known position if current position times out
+        if (_cachedLastKnown != null) return _cachedLastKnown;
+        if (lastKnown != null) {
+          return LatLng(lastKnown.latitude, lastKnown.longitude);
+        }
+        return null;
+      }
     } catch (e) {
       debugPrint('LocationService.getCurrentLatLng error: $e');
-      return null;
+      return _cachedLastKnown;
     }
   }
 
-  // ── Reverse Geocode (OSM Nominatim) ────────────────────────────────────────
+  // ── Reverse Geocode (Google Geocoding via proxy, Nominatim fallback) ────────
 
   /// Converts [lat]/[lng] into a clean, human-readable street address.
   ///
-  /// Uses OSM Nominatim reverse geocoding with mandatory attribution.
-  /// Example result: `"14 Olafiranye St, Isawo, Lagos"`.
-  /// Falls back to `"lat, lng"` string on any error.
+  /// Tries the Google Geocoding proxy first. When it returns a raw coordinate
+  /// string (proxy offline / quota exhausted / key not provisioned) it
+  /// immediately retries using OpenStreetMap Nominatim — a free, no-key
+  /// reverse-geocoder. The raw-coord string is only shown when both services
+  /// fail (no connection at all). This keeps the pickup field human-readable
+  /// even during development before the `GOOGLE_MAPS_API_KEY` env-var is set.
   static Future<String> getCleanAddress(double lat, double lng) =>
       reverseGeocode(lat, lng);
 
   static Future<String> reverseGeocode(double lat, double lng) async {
     if (customReverseGeocodeProvider != null) {
-      return customReverseGeocodeProvider!(lat, lng);
+      final addr = await customReverseGeocodeProvider!(lat, lng);
+      CountryDetectionService.instance.updateFromAddress(addr);
+      return addr;
     }
-    try {
-      final uri = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse'
-        '?format=jsonv2&lat=$lat&lon=$lng&zoom=18&addressdetails=1',
-      );
-      final response = await http
-          .get(uri, headers: {'User-Agent': _userAgent})
-          .timeout(_networkTimeout);
-
-      if (response.statusCode != 200) {
-        return _fallbackCoord(lat, lng);
+    // Hub feature pin: explicit 'google' skips Nominatim; explicit
+    // 'cartodb' skips Google. Otherwise the chain decides the primary and
+    // the other engine stays as fallback (search never goes single-point).
+    final controller = MapConfigController.instance;
+    final isGoogle = controller.geocodingNominatimOnly
+        ? false
+        : controller.geocodingGoogleOnly || controller.isGoogle;
+    if (isGoogle) {
+      // Primary: Google Geocoding proxy.
+      final addr = await _maps.reverseGeocode(lat, lng);
+      // Detect the raw-coord fallback format ("12.34567, 5.67890") and retry
+      // with Nominatim so the user always sees a meaningful street address —
+      // unless Hub pinned Google-only.
+      final isRawCoord = RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(addr.trim());
+      if (!isRawCoord) {
+        CountryDetectionService.instance.updateFromAddress(addr);
+        return addr;
       }
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      if (json.containsKey('error')) {
-        debugPrint('Nominatim reverse-geocode: ${json['error']}');
-        return _fallbackCoord(lat, lng);
+      if (controller.geocodingGoogleOnly) {
+        CountryDetectionService.instance.updateFromAddress(addr);
+        return addr;
       }
-      final displayName = json['display_name'] as String?;
-      if (displayName != null && displayName.isNotEmpty) {
-        return _shortenDisplayName(displayName);
+      final fallback = await _nominatimReverseGeocode(lat, lng);
+      final result = fallback.isNotEmpty ? fallback : addr;
+      CountryDetectionService.instance.updateFromAddress(result);
+      return result;
+    } else {
+      // Primary: OpenStreetMap Nominatim for OSM / CartoDB configurations.
+      final fallback = await _nominatimReverseGeocode(lat, lng);
+      if (fallback.isNotEmpty) {
+        CountryDetectionService.instance.updateFromAddress(fallback);
+        return fallback;
       }
-      return _fallbackCoord(lat, lng);
-    } catch (e) {
-      debugPrint('LocationService.reverseGeocode error: $e');
-      return _fallbackCoord(lat, lng);
+      // Fallback to Google proxy if Nominatim is offline/slow — unless Hub
+      // pinned Nominatim-only.
+      if (controller.geocodingNominatimOnly) {
+        CountryDetectionService.instance.updateFromAddress('');
+        return '';
+      }
+      final addr = await _maps.reverseGeocode(lat, lng);
+      CountryDetectionService.instance.updateFromAddress(addr);
+      return addr;
     }
   }
 
-  // ── Forward Geocode (OSM Nominatim search) ─────────────────────────────────
-
-  /// Converts a free-text [query] into a [LatLng] via OSM Nominatim search.
+  /// OpenStreetMap Nominatim reverse geocode — free, no API key.
   ///
-  /// Returns `null` if no result found or on network error.
+  /// Used as a fallback when the Google proxy returns raw coordinates.
+  /// Returns an empty string on any error so the caller can fall through
+  /// to the raw-coord last-resort without any exception propagation.
+  static Future<String> _nominatimReverseGeocode(
+      double lat, double lng) async {
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse'
+        '?format=jsonv2&lat=$lat&lon=$lng&addressdetails=1&accept-language=en',
+      );
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'SeSe-Ride-App/1.0'})
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return '';
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      // Prefer the display_name field (full address). Fall back to the
+      // structured address components if display_name is missing.
+      final displayName = (data['display_name'] as String?)?.trim() ?? '';
+      if (displayName.isNotEmpty) return displayName;
+      final address = data['address'] as Map<String, dynamic>?;
+      if (address == null) return '';
+      // Build a short readable string from the most useful components.
+      final parts = <String>[
+        address['road'] as String? ?? '',
+        address['suburb'] as String? ??
+            address['neighbourhood'] as String? ?? '',
+        address['city'] as String? ??
+            address['town'] as String? ??
+            address['village'] as String? ?? '',
+        address['state'] as String? ?? '',
+      ].where((s) => s.isNotEmpty).toList();
+      return parts.join(', ');
+    } catch (e) {
+      debugPrint('LocationService._nominatimReverseGeocode error: $e');
+      return '';
+    }
+  }
+
+  /// OpenStreetMap Nominatim search fallback — free, no API key.
+  static Future<List<PlaceSuggestion>> _nominatimSearch(String query) async {
+    try {
+      final uri = Uri.parse(
+        'https://nominatim.openstreetmap.org/search'
+        '?format=jsonv2&q=${Uri.encodeComponent(query)}&addressdetails=1&accept-language=en&countrycodes=ng&limit=5',
+      );
+      final response = await http
+          .get(uri, headers: {'User-Agent': 'SeSe-Ride-App/1.0'})
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return [];
+      final list = json.decode(response.body) as List<dynamic>;
+      return list.map((item) {
+        final map = item as Map<String, dynamic>;
+        final displayName = (map['display_name'] as String?)?.trim() ?? query;
+        final lat = double.tryParse(map['lat']?.toString() ?? '0') ?? 0;
+        final lng = double.tryParse(map['lon']?.toString() ?? '0') ?? 0;
+        return PlaceSuggestion(
+          description: displayName,
+          lat: lat,
+          lng: lng,
+          placeId: null,
+        );
+      }).where((s) => s.lat != 0 && s.lng != 0).toList();
+    } catch (e) {
+      debugPrint('LocationService._nominatimSearch error: $e');
+      return [];
+    }
+  }
+
+  // ── Forward Geocode (Google Places via proxy with Nominatim fallback) ────
+
+  /// Converts a free-text [query] into a [LatLng] via Places Autocomplete +
+  /// one Details call. Returns `null` on miss or network error.
   static Future<LatLng?> forwardGeocode(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return null;
-    try {
-      final results = await _nominatimSearch(trimmed, limit: 1);
-      if (results.isEmpty) return null;
-      return results.first.latLng;
-    } catch (e) {
-      debugPrint('LocationService.forwardGeocode error: $e');
+
+    final isGoogle = MapConfigController.instance.isGoogle;
+    if (isGoogle) {
+      try {
+        final details = await _maps.geocode(trimmed);
+        if (details != null) return LatLng(details.lat, details.lng);
+      } catch (e) {
+        debugPrint('LocationService.forwardGeocode error: $e');
+      }
+      final nomResults = await _nominatimSearch(trimmed);
+      if (nomResults.isNotEmpty) return nomResults.first.latLng;
+      return null;
+    } else {
+      final nomResults = await _nominatimSearch(trimmed);
+      if (nomResults.isNotEmpty) return nomResults.first.latLng;
+      try {
+        final details = await _maps.geocode(trimmed);
+        if (details != null) return LatLng(details.lat, details.lng);
+      } catch (_) {}
       return null;
     }
   }
 
-  /// Fetches autocomplete suggestions for a given [query] via OSM Nominatim.
-  ///
-  /// Returns a list of [PlaceSuggestion] with cleaned street descriptions
-  /// and lat/lng coordinates. Returns an empty list on failure or empty input.
-  static Future<List<PlaceSuggestion>> fetchSuggestions(String query) async {
+  /// Fetches autocomplete predictions for [query] via the proxy, falling back to
+  /// Nominatim search if proxy yields no predictions or fails.
+  static Future<List<PlaceSuggestion>> fetchSuggestions(
+    String query, {
+    double? biasLat,
+    double? biasLng,
+  }) async {
     if (customSuggestionsProvider != null) {
       return customSuggestionsProvider!(query);
     }
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
-    try {
-      return await _nominatimSearch(trimmed, limit: 5);
-    } catch (e) {
-      debugPrint('LocationService.fetchSuggestions error: $e');
+
+    // Hub feature pin (same rule as [reverseGeocode]): explicit 'google'
+    // skips Nominatim; explicit 'cartodb' skips Google; otherwise the chain
+    // decides the primary with the other as fallback.
+    final controller = MapConfigController.instance;
+    final isGoogle = controller.geocodingNominatimOnly
+        ? false
+        : controller.geocodingGoogleOnly || controller.isGoogle;
+    if (isGoogle) {
+      try {
+        final predictions = await _maps.autocomplete(
+          trimmed,
+          lat: biasLat,
+          lng: biasLng,
+        );
+        if (predictions.isNotEmpty) {
+          return predictions
+              .map((p) => PlaceSuggestion(
+                    description: p.description.isNotEmpty
+                        ? p.description
+                        : [p.mainText, p.secondaryText]
+                            .where((s) => s.isNotEmpty)
+                            .join(', '),
+                    lat: 0,
+                    lng: 0,
+                    placeId: p.placeId,
+                  ))
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('LocationService.fetchSuggestions error: $e');
+      }
+      if (controller.geocodingGoogleOnly) return [];
+      return _nominatimSearch(trimmed);
+    } else {
+      final nomResults = await _nominatimSearch(trimmed);
+      if (nomResults.isNotEmpty) return nomResults;
+      if (controller.geocodingNominatimOnly) return [];
+      try {
+        final predictions = await _maps.autocomplete(
+          trimmed,
+          lat: biasLat,
+          lng: biasLng,
+        );
+        if (predictions.isNotEmpty) {
+          return predictions
+              .map((p) => PlaceSuggestion(
+                    description: p.description.isNotEmpty
+                        ? p.description
+                        : [p.mainText, p.secondaryText]
+                            .where((s) => s.isNotEmpty)
+                            .join(', '),
+                    lat: 0,
+                    lng: 0,
+                    placeId: p.placeId,
+                  ))
+              .toList();
+        }
+      } catch (_) {}
       return [];
     }
   }
 
-  static Future<List<PlaceSuggestion>> _nominatimSearch(
-    String query, {
-    int limit = 5,
-  }) async {
-    final uri = Uri.parse(
-      'https://nominatim.openstreetmap.org/search'
-      '?format=jsonv2&q=${Uri.encodeComponent(query)}'
-      '&addressdetails=1&limit=$limit&accept-language=en',
-    );
-    final response = await http
-        .get(uri, headers: {'User-Agent': _userAgent})
-        .timeout(_networkTimeout);
-
-    if (response.statusCode != 200) return [];
-    final json = jsonDecode(response.body) as List<dynamic>;
-    final suggestions = <PlaceSuggestion>[];
-    for (final item in json) {
-      final map = item as Map<String, dynamic>;
-      // Nominatim returns coordinates as strings.
-      final lat = double.tryParse('${map['lat']}');
-      final lng = double.tryParse('${map['lon']}');
-      final displayName = (map['display_name'] ?? '').toString();
-      if (lat != null && lng != null && displayName.isNotEmpty) {
-        suggestions.add(PlaceSuggestion(
-          description: _shortenDisplayName(displayName),
-          lat: lat,
-          lng: lng,
-        ));
-      }
+  /// Resolves a prediction's coordinates with one Details call. Returns
+  /// null on failure (caller keeps the field unresolved, never blocked).
+  /// Suggestions without a placeId (test seams) resolve inline already.
+  static Future<PlaceSuggestion?> resolvePrediction(
+      PlaceSuggestion suggestion) async {
+    final placeId = suggestion.placeId;
+    if (placeId == null || placeId.isEmpty) return suggestion;
+    try {
+      final details = await _maps.details(placeId);
+      return PlaceSuggestion(
+        description: details.displayAddress.isNotEmpty
+            ? details.displayAddress
+            : suggestion.description,
+        lat: details.lat,
+        lng: details.lng,
+        placeId: placeId,
+      );
+    } catch (e) {
+      debugPrint('LocationService.resolvePrediction error: $e');
+      return null;
     }
-    return suggestions;
   }
 
   /// Returns the display name and lat/lng for a forward-geocode result.
@@ -222,76 +420,138 @@ class LocationService {
     return (latLng: suggestions.first.latLng, displayName: suggestions.first.description);
   }
 
-  // ── Route geometry (OSRM) ──────────────────────────────────────────────────
+  // ── Route geometry (Google Directions → OSRM fallback) ───────────────────
 
-  /// Fetches driving route points from the OSRM public demo server.
+  /// Full driving route: road polyline + distance (metres) + duration (seconds).
   ///
-  /// Returns the route as a list of [LatLng] points decoded from the GeoJSON
-  /// geometry (`[lng, lat]` pairs). Returns an empty list on failure.
+  /// Routing priority:
+  /// 1. **Google Directions API** via the `googleMapsProxy` callable — traffic-
+  ///    aware, highest accuracy for Nigeria road networks.
+  /// 2. **OSRM public router** (`router.project-osrm.org`) — free, requires no
+  ///    auth and no API key, good coverage of Lagos / South-West Nigeria. Used
+  ///    whenever Google fails (auth race on startup, quota, network timeout).
+  /// 3. **Empty result** — caller draws a straight pickup→dropoff line as an
+  ///    absolute last resort so the booking flow is never blocked.
+  ///
+  /// [distanceM] and [durationS] are 0 when only the fallback straight line is
+  /// used; callers should hide the distance/ETA badge in that case.
+  static Future<({List<LatLng> points, int distanceM, int durationS})> fetchRoute(
+    LatLng pickup,
+    LatLng dropoff,
+  ) async {
+    // Test seam: customRouteProvider skips all network calls.
+    if (customRouteProvider != null) {
+      final pts = await customRouteProvider!(pickup, dropoff);
+      return (points: pts, distanceM: 0, durationS: 0);
+    }
+
+    // ── 1. Google Directions (proxy callable) ─────────────────────────────
+    try {
+      final route = await _maps.directions(
+        originLat: pickup.latitude,
+        originLng: pickup.longitude,
+        destLat: dropoff.latitude,
+        destLng: dropoff.longitude,
+      );
+      if (route.points.isNotEmpty) {
+        return (
+          points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
+          distanceM: route.distanceM,
+          durationS: route.durationS,
+        );
+      }
+    } catch (e) {
+      debugPrint('LocationService.fetchRoute: Google Directions failed: $e');
+    }
+
+    // ── 2. OSRM public router (free fallback) ─────────────────────────────
+    try {
+      final result = await _fetchOsrmRoute(pickup, dropoff);
+      if (result.points.isNotEmpty) return result;
+    } catch (e) {
+      debugPrint('LocationService.fetchRoute: OSRM fallback failed: $e');
+    }
+
+    // ── 3. No road data — caller uses straight line ────────────────────────
+    return (points: <LatLng>[], distanceM: 0, durationS: 0);
+  }
+
+  /// Fetches the driving route as road points (Directions overview
+  /// polyline, decoded client-side). Returns an empty list on failure —
+  /// callers fall back to a straight pickup→dropoff line.
+  ///
+  /// Thin wrapper around [fetchRoute] kept for backward compatibility with
+  /// call sites that only need the point list (driver screens, live trip,
+  /// proximity trigger service).
   static Future<List<LatLng>> fetchRoutePolyline(
     LatLng pickup,
     LatLng dropoff,
   ) async {
-    if (customRouteProvider != null) {
-      return customRouteProvider!(pickup, dropoff);
+    final result = await fetchRoute(pickup, dropoff);
+    return result.points;
+  }
+
+  /// Queries the OSRM public routing engine for a driving route.
+  ///
+  /// OSRM uses the same Google-compatible encoded polyline format when
+  /// `geometries=polyline` is requested, so [GoogleMapsService.decodePolyline]
+  /// decodes it correctly. The endpoint is stateless and unauthenticated.
+  static Future<({List<LatLng> points, int distanceM, int durationS})>
+      _fetchOsrmRoute(LatLng pickup, LatLng dropoff) async {
+    // OSRM expects coordinates as lng,lat (longitude first).
+    final uri = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/'
+      '${pickup.longitude},${pickup.latitude};'
+      '${dropoff.longitude},${dropoff.latitude}'
+      '?overview=full&geometries=polyline',
+    );
+    final response =
+        await http.get(uri).timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw Exception('OSRM HTTP ${response.statusCode}');
     }
-    try {
-      final url = Uri.parse(
-        'https://router.project-osrm.org/route/v1/driving/'
-        '${pickup.longitude},${pickup.latitude};'
-        '${dropoff.longitude},${dropoff.latitude}'
-        '?overview=full&geometries=geojson',
-      );
-      final response = await http
-          .get(url, headers: {'User-Agent': _userAgent})
-          .timeout(const Duration(seconds: 10));
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final code = body['code'] as String? ?? '';
+    if (code != 'Ok') throw Exception('OSRM status: $code');
 
-      if (response.statusCode != 200) {
-        debugPrint('OSRM route error: ${response.statusCode} ${response.body}');
-        return [];
-      }
+    final routes = body['routes'] as List<dynamic>?;
+    final first = (routes != null && routes.isNotEmpty)
+        ? routes[0] as Map<String, dynamic>?
+        : null;
+    if (first == null) throw Exception('OSRM: no routes returned');
 
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      if (json['code'] != 'Ok') {
-        debugPrint('OSRM route code: ${json['code']}');
-        return [];
-      }
-      final routes = json['routes'] as List<dynamic>?;
-      if (routes == null || routes.isEmpty) return [];
+    final encoded = first['geometry'] as String? ?? '';
+    final distanceM = (first['distance'] as num? ?? 0).toInt();
+    final durationS = (first['duration'] as num? ?? 0).toInt();
 
-      final geometry =
-          (routes.first as Map<String, dynamic>)['geometry'] as Map<String, dynamic>?;
-      final coordinates = geometry?['coordinates'] as List<dynamic>?;
-      if (coordinates == null || coordinates.isEmpty) return [];
+    if (encoded.isEmpty) throw Exception('OSRM: empty geometry');
 
-      // GeoJSON positions are [longitude, latitude].
-      return coordinates.map((point) {
-        final pair = point as List<dynamic>;
-        final lng = (pair[0] as num).toDouble();
-        final lat = (pair[1] as num).toDouble();
-        return LatLng(lat, lng);
-      }).toList();
-    } catch (e) {
-      debugPrint('LocationService.fetchRoutePolyline error: $e');
-      return [];
-    }
+    // Reuse the same decoder used for Google's encoded polyline — the format
+    // is identical (precision 5, same zigzag encoding, same coordinate order).
+    final decoded = GoogleMapsService.decodePolyline(encoded);
+    return (
+      points: decoded.map((p) => LatLng(p.lat, p.lng)).toList(),
+      distanceM: distanceM,
+      durationS: durationS,
+    );
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
-
-  static String _fallbackCoord(double lat, double lng) =>
-      '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
-
-  /// Shortens a long display name to the first 3-4 meaningful parts.
-  static String _shortenDisplayName(String displayName) {
-    final parts = displayName.split(', ');
-    if (parts.length <= 4) return displayName;
-    return parts.take(4).join(', ');
-  }
 }
 
 /// Service providing location autocomplete suggestions.
+///
+/// Thin delegation shim kept for backward compatibility with call sites
+/// outside [LocationService]. Pass an optional [biasLatLng] to bias
+/// autocomplete results around the user's current location.
 class LocationAutocompleteService {
-  static Future<List<PlaceSuggestion>> fetchSuggestions(String query) =>
-      LocationService.fetchSuggestions(query);
+  static Future<List<PlaceSuggestion>> fetchSuggestions(
+    String query, {
+    LatLng? biasLatLng,
+  }) =>
+      LocationService.fetchSuggestions(
+        query,
+        biasLat: biasLatLng?.latitude,
+        biasLng: biasLatLng?.longitude,
+      );
 }

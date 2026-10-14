@@ -1,13 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'sese_logo.dart';
 
 /// Native branded splash screen for SeSe applications.
 ///
+/// Designed as the single, premium launch experience — the native Android
+/// window is intentionally a plain coloured fill (no logo) so there is no
+/// double-splash. This Flutter screen is what the user "sees" as the brand.
+///
 /// Features:
-/// - Smooth entrance animation (subtle scale and fade) on the SeSe vector logo.
-/// - Dark/Light mode adaptive background with subtle ambient gold glow.
-/// - Configurable display duration or future/stream trigger.
-/// - Transitions gracefully to the next screen (e.g. AuthGate / Dashboard).
+/// - Adapts background to system theme (dark → `#121212`, light → `Colors.white`),
+///   so the edge between the native solid window and this first Flutter frame
+///   is invisible — zero flash.
+/// - Entrance: logo scales from 0.82→1.0 + fades in over 1 200 ms.
+/// - Ambient gold glow pulse that breathes once while waiting.
+/// - Status-bar icons adapt to theme (dark icons on white, light on dark).
+/// - Configurable [minDuration]; navigates to [nextScreen] with a 600 ms
+///   cross-fade once the timer fires.
 class SeSeSplashScreen extends StatefulWidget {
   final Widget nextScreen;
   final Duration minDuration;
@@ -19,7 +28,7 @@ class SeSeSplashScreen extends StatefulWidget {
   const SeSeSplashScreen({
     super.key,
     required this.nextScreen,
-    this.minDuration = const Duration(milliseconds: 1800),
+    this.minDuration = const Duration(milliseconds: 2000),
     this.subtitle,
     this.logoVariant = SeSeLogoVariant.ride,
   });
@@ -29,36 +38,64 @@ class SeSeSplashScreen extends StatefulWidget {
 }
 
 class _SeSeSplashScreenState extends State<SeSeSplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with TickerProviderStateMixin {
+  late final AnimationController _entranceController;
+  late final AnimationController _glowController;
+
   late final Animation<double> _scaleAnimation;
   late final Animation<double> _fadeAnimation;
+  late final Animation<double> _glowAnimation;
+  late final Animation<double> _subtitleFadeAnimation;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+
+    // --- Entrance: scale + fade ---
+    _entranceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.82, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
+    _scaleAnimation = Tween<double>(begin: 0.80, end: 1.0).animate(
+      CurvedAnimation(parent: _entranceController, curve: Curves.easeOutCubic),
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn),
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.0, 0.7, curve: Curves.easeIn),
+      ),
     );
 
-    _controller.forward();
+    _subtitleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _entranceController,
+        curve: const Interval(0.5, 1.0, curve: Curves.easeOut),
+      ),
+    );
 
-    // Navigate to next screen after minDuration
+    // --- Glow pulse: one slow breathe cycle ---
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+
+    _glowAnimation = Tween<double>(begin: 0.10, end: 0.28).animate(
+      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
+    );
+
+    _entranceController.forward().then((_) {
+      if (mounted) _glowController.repeat(reverse: true);
+    });
+
+    // Navigate to next screen after minDuration.
     Future.delayed(widget.minDuration, () {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 600),
-          pageBuilder: (_, animation, secondaryAnimation) => FadeTransition(
+          transitionDuration: const Duration(milliseconds: 700),
+          pageBuilder: (_, animation, _) => FadeTransition(
             opacity: animation,
             child: widget.nextScreen,
           ),
@@ -69,70 +106,104 @@ class _SeSeSplashScreenState extends State<SeSeSplashScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _entranceController.dispose();
+    _glowController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF121212) : Colors.white;
+
+    // Keep system-UI overlay style in sync with splash background so the
+    // status bar icons are readable (dark icons on white, light on dark).
+    SystemChrome.setSystemUIOverlayStyle(
+      isDark
+          ? SystemUiOverlayStyle.light.copyWith(
+              statusBarColor: Colors.transparent,
+              systemNavigationBarColor: bg,
+            )
+          : SystemUiOverlayStyle.dark.copyWith(
+              statusBarColor: Colors.transparent,
+              systemNavigationBarColor: bg,
+            ),
+    );
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
-      body: SafeArea(
-        child: Center(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              return FadeTransition(
-                opacity: _fadeAnimation,
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Glow container
-                      Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFFFFB800).withValues(alpha: isDark ? 0.18 : 0.12),
-                              blurRadius: 48,
-                              spreadRadius: 8,
-                            ),
-                          ],
-                        ),
-                        child: SeSeLogo(
-                            size: 220, variant: widget.logoVariant),
+      backgroundColor: bg,
+      body: Center(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_entranceController, _glowController]),
+          builder: (context, _) {
+            return FadeTransition(
+              opacity: _fadeAnimation,
+              child: ScaleTransition(
+                scale: _scaleAnimation,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ─── Logo + ambient glow ────────────────────────────────
+                    Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFFFB800)
+                                .withValues(alpha: _glowAnimation.value),
+                            blurRadius: 64,
+                            spreadRadius: 12,
+                          ),
+                        ],
                       ),
-                      if (widget.subtitle != null) ...[
-                        const SizedBox(height: 24),
-                        Text(
+                      child: SeSeLogo(
+                        size: 200,
+                        variant: widget.logoVariant,
+                      ),
+                    ),
+
+                    // ─── Subtitle ───────────────────────────────────────────
+                    if (widget.subtitle != null) ...[
+                      const SizedBox(height: 28),
+                      FadeTransition(
+                        opacity: _subtitleFadeAnimation,
+                        child: Text(
                           widget.subtitle!,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            letterSpacing: 1.2,
-                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                            letterSpacing: 1.8,
+                            color: isDark
+                                ? const Color(0xFF9E9E9E)
+                                : const Color(0xFF757575),
                           ),
-                        ),
-                      ],
-                      const SizedBox(height: 48),
-                      SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFB800)),
                         ),
                       ),
                     ],
-                  ),
+
+                    // ─── Gold dot progress indicator ────────────────────────
+                    const SizedBox(height: 52),
+                    FadeTransition(
+                      opacity: _subtitleFadeAnimation,
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFFFFB800),
+                          ),
+                          backgroundColor: isDark
+                              ? const Color(0xFF2A2A2A)
+                              : const Color(0xFFF0F0F0),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

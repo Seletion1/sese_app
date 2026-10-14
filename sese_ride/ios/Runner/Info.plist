@@ -68,11 +68,24 @@
 	</array>
  	<key>NSLocationWhenInUseUsageDescription</key>
  	<string>Your location is used to show your position on the driver map and to verify Go Online requests.</string>
+ 	<key>NSLocationAlwaysUsageDescription</key>
+ 	<string>Background location keeps your trip visible to customers and keeps dispatch offers arriving while the app is minimized during an online session.</string>
+ 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+ 	<string>Background location keeps your trip visible to customers and keeps dispatch offers arriving while the app is minimized during an online session.</string>
+ 	<key>NSCameraUsageDescription</key>
+ 	<string>Camera access is used for document upload, identity selfies, the live vehicle plate snapshot, and chat photo attachments.</string>
+ 	<key>NSPhotoLibraryUsageDescription</key>
+ 	<string>Photo library access is used to choose document and verification photos from your gallery.</string>
+ 	<key>NSPhotoLibraryAddUsageDescription</key>
+ 	<string>Photo library access is used to choose document and verification photos from your gallery.</string>
  	<key>UIBackgroundModes</key>
  	<array>
  		<string>fetch</string>
  		<string>remote-notification</string>
+ 		<string>location</string>
  	</array>
+ 	<key>NSContactsUsageDescription</key>
+ 	<string>SeSe uses your contacts only when you tap the Contacts icon to autofill a recipient's name and phone number on the ride or delivery booking screen. Only the contact you select is read — your full address book is never uploaded or stored.</string>
  	<key>NSMicrophoneUsageDescription</key>
  	<string>Microphone access enables on-device voice dictation in Support Chat. Dictated words become text only; no audio is recorded or sent.</string>
  	<key>NSSpeechRecognitionUsageDescription</key>
@@ -88,5 +101,21 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>waze</string>
+		<string>maps</string>
+		<string>tel</string>
+		<string>sms</string>
+		<string>https</string>
+		<string>http</string>
+	</array>
+	<!-- Google Maps SDK key: read by AppDelegate.swift at runtime.
+	     Value is an xcconfig variable — set GOOGLE_MAPS_SDK_KEY in your
+	     xcconfig or CI environment. Never put a real key here directly.
+	     Restrict the key to iOS / com.sesetech.sese_ride / Maps SDK for iOS. -->
+	<key>GoogleMapsSdkKey</key>
+	<string>$(GOOGLE_MAPS_SDK_KEY)</string>
 </dict>
 </plist>

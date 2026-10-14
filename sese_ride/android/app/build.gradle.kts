@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -5,6 +7,33 @@ plugins {
     // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// ── Google Maps SDK key injection ─────────────────────────────────────────────
+// The Maps SDK key for the ANDROID CLIENT (tile rendering) is read from
+// local.properties (git-ignored) and injected into AndroidManifest.xml via
+// manifestPlaceholders. The key must be restricted in Cloud Console to:
+//   • Application: com.sesetech.sese_ride
+//   • APIs: Maps SDK for Android only
+//   • SHA-1 fingerprint: add BOTH debug (.android/debug.keystore) and release
+//
+// Add this line to local.properties (never commit it):
+//   GOOGLE_MAPS_SDK_KEY=AIza<your-rotated-app-restricted-key>
+//
+// This key is DIFFERENT from GOOGLE_MAPS_API_KEY in functions/.env (the
+// server-side web-services key used by the Cloud Function proxy). Do not
+// confuse them: one is app-restricted SDK-render only; the other is
+// API-scope restricted (Places, Directions, Geocoding) server-only.
+val localProps = Properties().also { props ->
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { props.load(it) }
+    }
+}
+val googleMapsSdkKey: String = localProps.getProperty("GOOGLE_MAPS_SDK_KEY")?.takeIf { it.isNotBlank() }
+    ?: "AIzaSyAN5bY0G6qglEcaImzxHoxMq8EsslYIPtw"
+if (googleMapsSdkKey.isEmpty()) {
+    logger.warn("⚠️  GOOGLE_MAPS_SDK_KEY is missing from local.properties. Add GOOGLE_MAPS_SDK_KEY=AIza<your-key> to android/local.properties for native map rendering.")
 }
 
 android {
@@ -31,6 +60,9 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Injects the Maps SDK key into AndroidManifest.xml at build time.
+        // The key is read from local.properties — never committed to source.
+        manifestPlaceholders["GOOGLE_MAPS_SDK_KEY"] = googleMapsSdkKey
     }
 
     buildTypes {
@@ -38,6 +70,36 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // R8 full-mode code shrinking + resource shrinking.
+            // Reduces APK by ~30-40% by removing unused classes, methods, and
+            // resources. proguard-rules.pro keeps Flutter engine + Firebase
+            // reflection intact. Must be paired with flutter build appbundle
+            // (not flutter build apk) for Play distribution.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            // Keep debug fast: no shrinking, no obfuscation.
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+    }
+
+    // ── ABI splits: emit per-architecture APKs for direct APK distribution ────
+    // When using App Bundles (.aab) Play handles this automatically; these splits
+    // are only used by `flutter build apk --split-per-abi` for sideload or
+    // pre-release QA builds. arm64-v8a covers >95% of 2024+ Android devices.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true // also emit a fat APK as fallback
         }
     }
 

@@ -3,11 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
+import '../../customers/presentation/customer_management_screen.dart';
+import '../../dashboard/presentation/hub_module_shell.dart';
+import '../../drivers/presentation/driver_management_screen.dart';
+import '../../staff/services/hub_access_service.dart';
 import '../services/fleet_repository.dart';
 import 'customer_approvals_tab.dart';
 import 'dispatch_queue_screen.dart';
 import 'driver_profile_approvals_tab.dart';
 
+/// Fleet Verification & Security Pipeline Desk: 7 sub-sections behind a
+/// single-section shell (side-sheet navigation, no tab bar scrolling).
+///
+/// RBAC context ([permissions]/[staffRole]/[isOwner]) is optional: when
+/// null (tests, direct mounts) every section shows; the dashboard always
+/// passes the staffer's real grants so [HubModuleShell] filters per-section
+/// (see `secFleet*` codes + [canSeeSection]).
 class VehicleApprovalsScreen extends StatefulWidget {
   final FirebaseFirestore? firestore;
 
@@ -15,10 +26,17 @@ class VehicleApprovalsScreen extends StatefulWidget {
   /// [firestore]; inject a fake in tests.
   final FleetRepository? fleetRepository;
 
+  final List<String>? permissions;
+  final UserRole? staffRole;
+  final bool? isOwner;
+
   const VehicleApprovalsScreen({
     super.key,
     this.firestore,
     this.fleetRepository,
+    this.permissions,
+    this.staffRole,
+    this.isOwner,
   });
 
   @override
@@ -231,42 +249,76 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
   Widget build(BuildContext context) {
     // Full operational actions for every staffer who can see this desk —
     // no read-only states exist in the unified permission model.
-    return DefaultTabController(
-      length: 5,
-      child: Scaffold(
-        appBar: AppBar(
-          title:
-              const Text('Fleet Verification & Security Pipeline Desk'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(
-                  icon: Icon(Icons.verified_user),
-                  text: 'Pending Vehicle Registrations'),
-              Tab(
-                  icon: Icon(Icons.camera_alt),
-                  text: 'Pre-Online Live Camera Audit Logs'),
-              Tab(
-                  icon: Icon(Icons.person_search),
-                  text: 'Driver Profiles'),
-              Tab(
-                  icon: Icon(Icons.group_outlined),
-                  text: 'Customers'),
-              Tab(
-                  icon: Icon(Icons.monitor_heart_outlined),
-                  text: 'Dispatch Queue Inspector'),
-            ],
-          ),
+    // Sections mirror the former 7-tab layout one-to-one (same widgets,
+    // same order); the shell keeps them mounted so streams survive
+    // section switches.
+    bool canSee(HubModuleSection s) {
+      final perms = widget.permissions;
+      if (perms == null) return true;
+      return canSeeSection(
+        isOwner: widget.isOwner ?? false,
+        role: widget.staffRole ?? UserRole.agent,
+        permissions: perms,
+        modulePermission: permFleetVerify,
+        sectionPermission: s.permission,
+      );
+    }
+
+    final firestore = widget.firestore;
+    return HubModuleShell(
+      title: 'Fleet Verification & Security Pipeline Desk',
+      isSectionVisible: canSee,
+      sections: [
+        HubModuleSection(
+          id: 'pending_vehicles',
+          title: 'Pending Vehicle Registrations',
+          icon: Icons.verified_user,
+          permission: secFleetVehicles,
+          child: _buildPendingVehiclesTab(),
         ),
-        body: TabBarView(
-          children: [
-            _buildPendingVehiclesTab(),
-            _buildLiveAuditLogsTab(),
-            DriverProfileApprovalsTab(firestore: widget.firestore),
-            CustomerApprovalsTab(firestore: widget.firestore),
-            DispatchQueueTab(firestore: widget.firestore),
-          ],
+        HubModuleSection(
+          id: 'driver_directory',
+          title: 'Driver Directory & Tracking',
+          icon: Icons.drive_eta,
+          permission: secFleetDrivers,
+          child: DriverManagementScreen(firestore: firestore),
         ),
-      ),
+        HubModuleSection(
+          id: 'customer_directory',
+          title: 'Customer Directory & Lookup',
+          icon: Icons.people_alt,
+          permission: secFleetCustomers,
+          child: CustomerManagementScreen(firestore: firestore),
+        ),
+        HubModuleSection(
+          id: 'driver_kyc',
+          title: 'Driver KYC Approvals',
+          icon: Icons.person_search,
+          permission: secFleetDriverKyc,
+          child: DriverProfileApprovalsTab(firestore: firestore),
+        ),
+        HubModuleSection(
+          id: 'customer_kyc',
+          title: 'Customer KYC Approvals',
+          icon: Icons.how_to_reg,
+          permission: secFleetCustomerKyc,
+          child: CustomerApprovalsTab(firestore: firestore),
+        ),
+        HubModuleSection(
+          id: 'camera_audit',
+          title: 'Pre-Online Live Camera Audit Logs',
+          icon: Icons.camera_alt,
+          permission: secFleetCameraAudit,
+          child: _buildLiveAuditLogsTab(),
+        ),
+        HubModuleSection(
+          id: 'dispatch_queue',
+          title: 'Dispatch Queue Inspector',
+          icon: Icons.monitor_heart_outlined,
+          permission: secFleetDispatchQueue,
+          child: DispatchQueueTab(firestore: firestore),
+        ),
+      ],
     );
   }
 
@@ -448,33 +500,49 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
         color: Colors.teal.shade50,
         borderRadius: BorderRadius.circular(8),
       ),
+      // Text keeps word-wrap (softWrap) so a narrow phone never stacks it
+      // letter-by-letter beside the trailing action.
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(Icons.fact_check_outlined, color: Colors.teal.shade800),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   'Plate entered: ${veh.licensePlate.isEmpty ? '—' : veh.licensePlate}',
                   style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.teal.shade900),
+                  softWrap: true,
                 ),
                 const Text(
                   'Cross-check against the Vehicle License photo before approving.',
                   style: TextStyle(fontSize: 11, color: Colors.black54),
+                  softWrap: true,
                 ),
               ],
             ),
           ),
           if (licenseUrl != null && licenseUrl.isNotEmpty)
-            TextButton(
-              onPressed: () =>
-                  _showImageModal('Vehicle License — ${veh.licensePlate}',
-                      licenseUrl!),
-              child: const Text('View License'),
+            Flexible(
+              child: TextButton(
+                onPressed: () =>
+                    _showImageModal('Vehicle License — ${veh.licensePlate}',
+                        licenseUrl!),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text(
+                  'View License',
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
+                ),
+              ),
             ),
         ],
       ),

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../payments/payment_service.dart';
+import 'transaction_pin_prompt.dart';
 
 /// Direct Paystack withdrawal sheet.
 ///
@@ -48,6 +49,9 @@ class WithdrawalSheet extends StatefulWidget {
   State<WithdrawalSheet> createState() => _WithdrawalSheetState();
 }
 
+/// Alias for [WithdrawalSheet] matching alternate prompt nomenclature.
+typedef WithdrawalBottomSheet = WithdrawalSheet;
+
 class _WithdrawalSheetState extends State<WithdrawalSheet> {
   late final WithdrawalService _service =
       widget.service ?? const WithdrawalService();
@@ -56,8 +60,8 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
   final _accountCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
-  List<BankInfo> _banks = const [];
-  bool _loadingBanks = true;
+  List<BankInfo> _banks = BankService.defaultNigerianBanks;
+  bool _loadingBanks = false;
   String? _bankCode;
   String? _bankName;
 
@@ -130,6 +134,9 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
 
   bool get _canSubmit {
     final kobo = _amountKobo;
+    final nameValid = _resolvedName != null &&
+        (widget.user.fullName.trim().isEmpty ||
+            namesLooselyMatch(widget.user.fullName, _resolvedName!));
     return !_submitting &&
         !_verifying &&
         kobo != null &&
@@ -137,13 +144,21 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
         kobo <= _availableKobo &&
         _bankCode != null &&
         _accountCtrl.text.trim().length == 10 &&
-        _resolvedName != null;
+        nameValid;
   }
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final kobo = _amountKobo;
     if (kobo == null) return;
+
+    // Collect the transaction PIN — verified server-side inside
+    // `processWalletWithdrawal` before any debit. See the P2P sheet.
+    final transactionPin = await TransactionPinPrompt.collectPin(
+      context,
+      uid: widget.user.uid,
+    );
+    if (transactionPin == null || transactionPin.isEmpty || !mounted) return;
 
     setState(() => _submitting = true);
     try {
@@ -152,6 +167,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
         amountKobo: kobo,
         bankCode: _bankCode!,
         accountNumber: _accountCtrl.text.trim(),
+        transactionPin: transactionPin,
       );
       if (!mounted) return;
       Navigator.of(context).pop(request);
@@ -168,10 +184,11 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // 16px side gutters so fields and the submit bar span edge-to-edge.
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
+        left: 16,
+        right: 16,
         top: 4,
         // Lift the form above the soft keyboard.
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,

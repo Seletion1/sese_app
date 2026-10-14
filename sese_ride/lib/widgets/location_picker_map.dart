@@ -1,17 +1,21 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import '../features/customer/services/location_service.dart';
 
-/// Interactive Center Pin Map Widget with OpenStreetMap (flutter_map).
+import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
+
+import '../features/customer/services/location_service.dart';
+import 'map_provider.dart';
+
+/// Interactive Center Pin Map Widget driven by [SeseUniversalMap].
 ///
 /// Features:
-/// - OpenStreetMap rendered using [FlutterMap].
-/// - The pin remains **fixed at the exact center of the map viewport** layered directly above the map in a [Stack].
-/// - Listens to [MapOptions.onPositionChanged] with `hasGesture` to track camera center moves.
-/// - On pan end / camera idle (debounced), triggers reverse geocoding against Nominatim / OpenStreetMap
-///   API using `currentCenter` (LatLng) to fetch and display the human-readable address.
+/// - Unifies Google Maps, Mapbox, and CartoDB through the centralized
+///   map engine configuration.
+/// - The pin remains **fixed at the exact center of the map viewport** layered
+///   directly above the map in a [Stack].
+/// - Listens to `onCameraMove`/`onCameraIdle` across all map engines.
+/// - On camera idle (debounced), triggers reverse geocoding via
+///   [LocationService.reverseGeocode].
 class LocationPickerMap extends StatefulWidget {
   final LatLng initialCenter;
   final double initialZoom;
@@ -31,7 +35,7 @@ class LocationPickerMap extends StatefulWidget {
 }
 
 class _LocationPickerMapState extends State<LocationPickerMap> {
-  late final MapController _mapController;
+  late final SeSeMapController _mapController;
   late LatLng _currentCenter;
   String _address = '';
   bool _isGeocoding = false;
@@ -40,7 +44,7 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
   @override
   void initState() {
     super.initState();
-    _mapController = MapController();
+    _mapController = SeSeMapController();
     _currentCenter = widget.initialCenter;
     _address = widget.initialAddress ?? '';
     _initializeUserLocation();
@@ -51,6 +55,7 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
       final userLatLng = await LocationService.getCurrentLatLng();
       if (userLatLng != null && mounted) {
         _currentCenter = userLatLng;
+        // ignore: discarded_futures
         _mapController.move(userLatLng, widget.initialZoom);
         if (_address.isEmpty) {
           _reverseGeocode(userLatLng);
@@ -70,18 +75,19 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
   @override
   void dispose() {
     _debounceTimer?.cancel();
-    _mapController.dispose();
     super.dispose();
   }
 
-  void _onPositionChanged(MapCamera camera, bool hasGesture) {
-    if (hasGesture) {
-      _currentCenter = camera.center;
-      _debounceTimer?.cancel();
-      _debounceTimer = Timer(const Duration(milliseconds: 600), () {
-        _reverseGeocode(_currentCenter);
-      });
-    }
+  void _onCameraMove(LatLng center) {
+    _currentCenter = center;
+  }
+
+  void _onCameraIdle(LatLng center) {
+    _currentCenter = center;
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 600), () {
+      _reverseGeocode(_currentCenter);
+    });
   }
 
   Future<void> _reverseGeocode(LatLng target) async {
@@ -107,38 +113,25 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
-    final tileUrl = isDark
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    final Widget mapCanvas = SeseUniversalMap(
+      mapController: _mapController,
+      initialCenter: widget.initialCenter,
+      initialZoom: widget.initialZoom,
+      showMyLocation: true,
+      myLocationButtonEnabled: false,
+      showRecenterFab: true,
+      onRecenterTap: () =>
+          _mapController.move(widget.initialCenter, widget.initialZoom),
+      onCameraMove: _onCameraMove,
+      onCameraIdle: _onCameraIdle,
+    );
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: widget.initialCenter,
-              initialZoom: widget.initialZoom,
-              minZoom: 3,
-              maxZoom: 19,
-              onPositionChanged: _onPositionChanged,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: tileUrl,
-                subdomains: const ['a', 'b', 'c', 'd'],
-                userAgentPackageName: 'com.sese.ride',
-              ),
-              const RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution('© OpenStreetMap contributors'),
-                ],
-              ),
-            ],
-          ),
+          mapCanvas,
 
           // Exact Center Pin Widget
           IgnorePointer(

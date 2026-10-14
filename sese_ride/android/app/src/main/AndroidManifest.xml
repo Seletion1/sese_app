@@ -8,6 +8,24 @@
     <!-- On-device speech-to-text dictation in Support Chat (voice input only;
          no audio is recorded, stored, or transmitted). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Scoped contacts access: used ONLY when the user taps the Contacts icon
+         next to a recipient phone field to select a contact from their device.
+         The app reads ONLY the chosen contact's name + number; the full address
+         book is never uploaded, stored, or transmitted. Disclosed via
+         ContactsDisclosureDialog BEFORE the OS permission prompt. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Camera + photo library for document upload, KYC selfies, the live
+         plate snapshot, and chat attachments. Requested at runtime via
+         MediaPermissionService BEFORE any picker opens. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Background GPS for the online driver session: lets the OS keep
+         delivering fixes to the live-trip marker and dispatch heartbeats
+         while the app is minimized. Requested best-effort at go-online
+         (foreground fixes work without it). -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- Floating driver bubble + background order overlay (flutter_overlay_window). -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -30,6 +48,8 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
@@ -52,6 +72,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Google Maps SDK (browsing/idle surfaces via google_maps_flutter).
+             Key is injected at build time from local.properties
+             (GOOGLE_MAPS_SDK_KEY=AIza...) and is NEVER hardcoded here.
+             Restrict this key in Cloud Console to the Android app package +
+             Maps SDK for Android. SHA-1 fingerprint restriction must cover
+             both debug and release keystores. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${GOOGLE_MAPS_SDK_KEY}" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -63,5 +92,28 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- External navigation app intents: Google Maps, Waze, and system GPS apps -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="geo"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="google.navigation"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https" android:host="maps.google.com"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https" android:host="waze.com"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https" android:host="maps.apple.com"/>
+        </intent>
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.waze" />
     </queries>
 </manifest>

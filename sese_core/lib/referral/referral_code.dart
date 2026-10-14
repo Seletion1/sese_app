@@ -13,6 +13,33 @@
 /// `ensureReferralCode` Cloud Function backfill).
 library;
 
+/// Generates a deterministic referral code from first name, last name, and phone number.
+///
+/// Algorithm:
+/// - Extracts the first character of [firstName] and [lastName] (converted to uppercase).
+/// - Extracts the last 4 numeric digits of [phoneNumber].
+/// - Concatenates them into a single string (e.g. "MB6789").
+String generateReferralCodeFromNames(
+  String firstName,
+  String lastName,
+  String phoneNumber,
+) {
+  final f = _initialOf(firstName);
+  final l = _initialOf(lastName.isEmpty ? firstName : lastName);
+
+  final digits = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+  String last4;
+  if (digits.length >= 4) {
+    last4 = digits.substring(digits.length - 4);
+  } else if (digits.isEmpty) {
+    last4 = '0000';
+  } else {
+    last4 = digits.padLeft(4, '0');
+  }
+
+  return '$f$l$last4'.toUpperCase();
+}
+
 /// Generates a deterministic referral code from display name + phone.
 ///
 /// - [fullName]: e.g. "Micheal Bamiduro". Single-word names reuse the first

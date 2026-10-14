@@ -25,9 +25,12 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(const []);
 
   @override
-  Future<void> cancelTrip(String tripId) async {
+  Future<void> cancelTrip(String tripId, {String? reason}) async {
     cancelCalled = true;
+    cancelReason = reason;
   }
+
+  String? cancelReason;
 
   @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
@@ -112,6 +115,9 @@ void main() {
       expect(statusText(tester),
           contains('Searching for nearby available drivers'));
       expect(find.text('Adaeze Okonkwo'), findsNothing);
+      // Live broadcast radar proves the request is actively radiating.
+      expect(find.byKey(const Key('searching_radar_overlay')), findsOneWidget);
+      expect(find.text('Broadcasting to nearby drivers…'), findsOneWidget);
     });
 
     testWidgets('repeat search after decline shows recovery message',
@@ -160,7 +166,8 @@ void main() {
       expect(find.text('Trip no longer available'), findsOneWidget);
     });
 
-    testWidgets('cancel calls the repository and exits', (tester) async {
+    testWidgets('cancel requires a reason, then calls the repository and exits',
+        (tester) async {
       await pumpLive(tester);
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
@@ -169,9 +176,46 @@ void main() {
           find.widgetWithText(OutlinedButton, 'Cancel trip'));
       await tester.pump();
       await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.pumpAndSettle();
+
+      // Reason dialog appears; nothing is committed yet.
+      expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
+      expect(repo.cancelCalled, isFalse);
+      // Confirm is disabled until a reason is picked.
+      expect(
+        tester
+            .widget<FilledButton>(
+                find.byKey(const Key('cancel_trip_confirm_button')))
+            .onPressed,
+        isNull,
+      );
+
+      await tester.tap(find.byKey(const Key('cancel_reason_changed_my_mind')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('cancel_trip_confirm_button')));
       await tester.pump();
 
       expect(repo.cancelCalled, isTrue);
+      expect(repo.cancelReason, 'changed_my_mind');
+    });
+
+    testWidgets('dismissing the reason dialog cancels nothing', (tester) async {
+      await pumpLive(tester);
+      repo.controller.add(_trip(TripStatus.searchingDriver));
+      await tester.pump();
+
+      await tester.ensureVisible(
+          find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
+      await tester.tap(find.text('Keep trip'));
+      await tester.pumpAndSettle();
+
+      expect(repo.cancelCalled, isFalse);
+      expect(find.byKey(const Key('cancel_trip_dialog')), findsNothing);
     });
   });
 }

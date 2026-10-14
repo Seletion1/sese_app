@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth, FirebaseAut
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
-import '../auth/login_page.dart';
 
 /// Secure Account Deletion Dialog with Hard Financial & Security Guardrails.
 ///
@@ -210,13 +209,13 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
 
       if (!mounted) return;
 
-      // 4. Pop dialog and route to LoginPage
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => LoginPage(auth: widget.auth),
-        ),
-        (route) => false,
-      );
+      // 4. Dismiss the dialog — the _AuthGate StreamBuilder observes the
+      //    null auth state produced by the internal signOut() call inside
+      //    deleteAccount() and automatically replaces the root widget tree
+      //    with LoginPage. A direct pushAndRemoveUntil here races with that
+      //    replacement and produces a duplicate LoginPage or a
+      //    "deactivated ancestor" FlutterError on both Android and iOS.
+      Navigator.of(context).pop();
     } on FirebaseAuthException catch (e) {
       String message = 'Deletion failed: ${e.message ?? e.code}';
       if (e.code == 'wrong-password') {

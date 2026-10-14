@@ -1,5 +1,8 @@
 export 'financial/financial_config.dart';
 export 'financial/financial_config_service.dart';
+export 'financial/exchange_rates.dart';
+export 'financial/exchange_rate_service.dart';
+export 'widgets/multi_currency_display.dart';
 export 'recommendations/vehicle_recommendation_config.dart';
 export 'recommendations/vehicle_recommendation_engine.dart';
 export 'recommendations/vehicle_recommendation_service.dart';
@@ -10,6 +13,7 @@ export 'wallet/p2p_service.dart';
 export 'wallet/payout_queue_service.dart';
 export 'wallet/sese_coin_service.dart';
 export 'wallet/split_service.dart';
+export 'wallet/transaction_pin_service.dart';
 export 'wallet/withdrawal_service.dart';
 export 'auth/auth_repository.dart';
 export 'auth/firebase_auth_repository.dart';
@@ -26,6 +30,13 @@ export 'models/vehicle_category.dart';
 export 'models/vehicle_documents.dart';
 export 'models/vehicle_model.dart';
 export 'models/vehicle_verification_model.dart';
+export 'models/vehicle_catalog.dart';
+export 'services/image_compression_service.dart';
+export 'widgets/document_upload_card.dart';
+// Re-export image_picker types so dependents that go through ImageCompressionService
+// don't need a direct `package:image_picker` dependency in their pubspec.
+export 'package:image_picker/image_picker.dart'
+    show ImageSource, XFile, CameraDevice;
 export 'services/app_sound_service.dart';
 export 'services/config_resolution_engine.dart';
 export 'services/pricing_calculator.dart';
@@ -39,6 +50,8 @@ export 'services/phone_sanitizer.dart';
 export 'services/privacy_service.dart';
 export 'services/push_notification_service.dart';
 export 'services/support_media_service.dart';
+export 'services/media_permission_service.dart';
+export 'services/remote_keys_service.dart';
 export 'widgets/apple_sign_in_button.dart';
 export 'widgets/google_sign_in_button.dart';
 export 'widgets/sese_app_bar.dart';
@@ -47,7 +60,24 @@ export 'widgets/sese_logo.dart';
 export 'widgets/sese_phone_input_field.dart';
 export 'widgets/sese_splash_screen.dart';
 export 'widgets/sese_state_dropdown.dart';
+export 'widgets/settings_info_dialog.dart';
 export 'widgets/user_avatar.dart';
+export 'widgets/vehicle_illustrations.dart';
+export 'maps/local_geocoder_service.dart';
+export 'maps/offline_map_manager.dart';
+export 'maps/place_models.dart';
+export 'maps/google_maps_service.dart';
+export 'maps/global_map_config.dart';
+export 'maps/map_config_controller.dart';
+export 'maps/recent_locations_repository.dart';
+export 'legal/legal_document_content.dart';
+export 'widgets/legal_document_viewer.dart';
+export 'widgets/legal_auth_disclaimer.dart';
+export 'widgets/prominent_location_disclosure_dialog.dart';
+export 'services/contacts_service.dart';
+export 'widgets/contacts_disclosure_dialog.dart';
+export 'widgets/driver_overlay_disclosure_dialog.dart';
+export 'widgets/mandatory_legal_acceptance_dialog.dart';
 
 /// A Calculator.
 class Calculator {

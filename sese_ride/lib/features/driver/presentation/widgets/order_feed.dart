@@ -330,7 +330,6 @@ class _PoolBadgeState extends State<PoolBadge>
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return StreamBuilder<List<ActiveTrip>>(
       stream: widget.streakService.marketplaceStream(),
       builder: (context, snap) {
@@ -340,55 +339,66 @@ class _PoolBadgeState extends State<PoolBadge>
                 t, widget.driverPosition))
             .length;
         final active = count > 0;
-        final badge = Container(
-          key: const Key('pool_badge'),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: active
-                ? scheme.primary
-                : scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.radar,
-                size: 16,
-                color: active
-                    ? scheme.onPrimary
-                    : scheme.onSurfaceVariant,
+
+        // Gold gradient pill matching the brand "Quick Order" reference design.
+        final badge = GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            key: const Key('pool_badge'),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: active
+                    ? const [Color(0xFFE59400), Color(0xFFFFB800)]
+                    : const [Color(0xFF8A5C00), Color(0xFFAD7500)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              const SizedBox(width: 6),
-              Text(
-                'Order Pool ($count)',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: active
-                      ? scheme.onPrimary
-                      : scheme.onSurfaceVariant,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  // ignore: deprecated_member_use
+                  color: const Color(0xFFFFB800).withOpacity(active ? 0.40 : 0.15),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
                 ),
-              ),
-            ],
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.shopping_bag_rounded,
+                  size: 20,
+                  color: Color(0xFF1A1200),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  count > 0 ? 'Quick Order ($count)' : 'Quick Order',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1200),
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
+
         if (!active) return badge;
-        // Pulse while orders are available; static when empty.
-        return GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedBuilder(
-            animation: _pulse,
-            builder: (context, child) => Transform.scale(
-              scale: 1.0 + _pulse.value * 0.06,
-              child: Opacity(
-                opacity: 0.92 + _pulse.value * 0.08,
-                child: child,
-              ),
+        // Pulse-scale while orders are in the pool.
+        return AnimatedBuilder(
+          animation: _pulse,
+          builder: (context, child) => Transform.scale(
+            scale: 1.0 + _pulse.value * 0.05,
+            child: Opacity(
+              opacity: 0.93 + _pulse.value * 0.07,
+              child: child,
             ),
-            child: badge,
           ),
+          child: badge,
         );
       },
     );

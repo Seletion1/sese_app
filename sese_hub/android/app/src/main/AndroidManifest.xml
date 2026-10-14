@@ -2,6 +2,12 @@
     <!-- High-priority verification/support alerts with sound. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Agent photo attachments in support chats (runtime-handshaked via
+         MediaPermissionService before any picker opens). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <application
         android:label="sese_hub"
         android:name="${applicationName}"

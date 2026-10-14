@@ -1,16 +1,21 @@
 import * as admin from "firebase-admin";
 
 // DEPLOYMENT CREDENTIAL-PROBE GUARD.
-// `admin.initializeApp()` calls google-gax, which probes the GCE metadata
-// server for default credentials when ADC is absent. On a plain dev machine
-// that probe hangs for ~45s and trips the Cloud Functions trigger-discovery
-// timeout ("Cannot determine backend specification. Timeout after 10000").
-// Outside Google Cloud there is no metadata server worth probing (emulators
-// and local runs provide explicit credentials), so skip the probe unless
-// GOOGLE_APPLICATION_CREDENTIALS is set. No effect on real Cloud Functions:
-// they inject the project ID/credentials, which are already handled below.
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  process.env.METADATA_SERVER_DETECTION = "assume-not-present";
+// `admin.initializeApp()` calls google-auth-library, which probes the GCE
+// metadata server to detect the project ID when credentials come from
+// `gcloud auth application-default login` (stored in
+// ~/.config/gcloud/application_default_credentials.json). In that case
+// GOOGLE_APPLICATION_CREDENTIALS is NOT set, so the old guard on that var
+// never fired — the CLI's 10-second trigger-discovery worker then hung on
+// every deploy.
+//
+// Correct sentinel: GCP runtime environment variables.
+//   K_SERVICE     — always set by Cloud Run (2nd-gen Cloud Functions).
+//   FUNCTION_NAME — always set by 1st-gen Cloud Functions.
+// Neither is present in the Firebase CLI's local trigger-discovery subprocess,
+// so suppressing the probe here is safe and has zero effect on cold starts.
+if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
+  process.env.METADATA_SERVER_DETECTION = "none";
 }
 
 // Initialize BEFORE importing/re-exporting any module that touches the
@@ -38,10 +43,13 @@ export {
   acceptBid,
   increaseTripFare,
   verifyDeliveryPin,
+  hubForceCompleteTrip,
+  hubCancelRefundTrip,
+  hubManualPinBypass,
   onTripChatMessage,
 } from "./trips";
 
-export { goOnline, goOffline } from "./driverStatus";
+export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
 
 export {
   onTripCompleted,
@@ -49,19 +57,34 @@ export {
   scheduledResetStreaks,
 } from "./driverStreak";
 
-export { initializePayment, verifyPayment, paystackWebhook } from "./payments";
+export {
+  evaluateAndGrantStreakRewards,
+  resolveDynamicStreakRewards,
+  getCyclePeriodKey,
+} from "./streakRewards";
+
+export {
+  initializePayment,
+  initializePaystackTopUp,
+  verifyPayment,
+  paystackWebhook,
+} from "./payments";
 
 export {
   paystackBanks,
   resolveBankAccount,
+  verifyBankAccount,
   processWalletWithdrawal,
   settleTransfer,
 } from "./payouts";
 
 export {
+  lookupP2pRecipient,
   transferWalletFunds,
   requestSplitPayment,
   respondSplitPayment,
+  settleSplitPayment,
+  convertSeseCoins,
 } from "./peerPayments";
 
 // NOTE: `onSupportTicketReply` was removed. It was bound to
@@ -74,6 +97,24 @@ export { onSupportMessageCreated, onAgentReplied } from "./supportBot";
 
 export { deleteAccount } from "./deleteAccount";
 
+// Granular targeted push broadcast engine (admin console + inbox).
+export { sendTargetedBroadcast } from "./broadcast";
+
+export {
+  syncGlobalExchangeRates,
+  triggerExchangeRatesSync,
+} from "./exchangeRates";
+
+// Google Maps Platform proxy: the only server holder of the web-services
+// key. Clients call it for autocomplete/details/geocode/directions — the
+// key never ships in client code. See googleMaps.ts for the key-delivery
+// and quota-discipline notes.
+export { googleMapsProxy } from "./googleMaps";
+
+// Transaction Security PIN authority (hashed, server-verified) + gates.
+// Money callables verify via `requireValidPin` — see transactionPin.ts.
+export { setTransactionPin, verifyTransactionPin } from "./transactionPin";
+
 export {
   reviewCustomerVerification,
   reviewDriverVerification,
@@ -81,6 +122,13 @@ export {
   onDriverVerificationUpdated,
   onDriverVehicleVerified,
 } from "./verification";
+
+export {
+  lookupAccountForOnboarding,
+  sendOnboardingOtp,
+  verifyOnboardingOtp,
+  adminRegisterUser,
+} from "./adminOnboarding";
 
 interface CalculateFareData {
   pickup: { lat: number; lng: number };

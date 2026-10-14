@@ -11,6 +11,7 @@ class DispatchTuning {
   final double dispatchRadiusKm;
   final double tier1RadiusKm;
   final double tier2RadiusKm;
+  final double tier3RadiusKm;
   final int tier1TimeoutSec;
   final int tier2TimeoutSec;
   final int pingTimeoutSec;
@@ -21,9 +22,10 @@ class DispatchTuning {
   final int maxRecycles;
 
   const DispatchTuning({
-    this.dispatchRadiusKm = 15,
+    this.dispatchRadiusKm = 10,
     this.tier1RadiusKm = 3,
-    this.tier2RadiusKm = 5,
+    this.tier2RadiusKm = 6,
+    this.tier3RadiusKm = 10,
     this.tier1TimeoutSec = 15,
     this.tier2TimeoutSec = 15,
     this.pingTimeoutSec = 60,
@@ -40,10 +42,12 @@ class DispatchTuning {
         (map![key] is num) ? (map[key] as num).toDouble() : fb;
     int intOf(String key, int fb) =>
         (map![key] is num) ? (map[key] as num).toInt() : fb;
+    final t3 = numOf('tier3RadiusKm', numOf('dispatchRadiusKm', 10));
     return DispatchTuning(
-      dispatchRadiusKm: numOf('dispatchRadiusKm', 15),
+      dispatchRadiusKm: t3,
       tier1RadiusKm: numOf('tier1RadiusKm', 3),
-      tier2RadiusKm: numOf('tier2RadiusKm', 5),
+      tier2RadiusKm: numOf('tier2RadiusKm', 6),
+      tier3RadiusKm: t3,
       tier1TimeoutSec: intOf('tier1TimeoutSec', 15),
       tier2TimeoutSec: intOf('tier2TimeoutSec', 15),
       pingTimeoutSec: intOf('pingTimeoutSec', 60),
@@ -56,9 +60,10 @@ class DispatchTuning {
   }
 
   Map<String, dynamic> toMap() => {
-        'dispatchRadiusKm': dispatchRadiusKm,
+        'dispatchRadiusKm': tier3RadiusKm,
         'tier1RadiusKm': tier1RadiusKm,
         'tier2RadiusKm': tier2RadiusKm,
+        'tier3RadiusKm': tier3RadiusKm,
         'tier1TimeoutSec': tier1TimeoutSec,
         'tier2TimeoutSec': tier2TimeoutSec,
         'pingTimeoutSec': pingTimeoutSec,
@@ -285,4 +290,93 @@ class SystemConfigService {
       rethrow;
     }
   }
+
+  /// Saves P2P transfer rules to system_config/wallet_rules.
+  Future<void> saveP2pWalletRules(P2pWalletRules rules) async {
+    try {
+      await (_firestore ?? FirebaseFirestore.instance)
+          .collection('system_config')
+          .doc('wallet_rules')
+          .set({
+        ...rules.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error saving P2P wallet rules: $e');
+    }
+  }
+
+  /// Saves residual referral commission revenue settings to system_config/referral_settings.
+  Future<void> saveReferralRevenueSettings(ReferralRevenueSettings settings) async {
+    try {
+      await (_firestore ?? FirebaseFirestore.instance)
+          .collection('system_config')
+          .doc('referral_settings')
+          .set({
+        ...settings.toMap(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error saving referral revenue settings: $e');
+    }
+  }
+}
+
+class P2pWalletRules {
+  final int minDriverTrips;
+  final double maxP2pLimitNaira;
+  final bool adminOverrideEnabled;
+
+  const P2pWalletRules({
+    this.minDriverTrips = 3,
+    this.maxP2pLimitNaira = 20000.0,
+    this.adminOverrideEnabled = true,
+  });
+
+  factory P2pWalletRules.fromMap(Map<String, dynamic>? map) {
+    map ??= const {};
+    int intOf(String k, int fb) => (map![k] is num) ? (map[k] as num).toInt() : fb;
+    double doubleOf(String k, double fb) => (map![k] is num) ? (map[k] as num).toDouble() : fb;
+    return P2pWalletRules(
+      minDriverTrips: intOf('minDriverTrips', 3),
+      maxP2pLimitNaira: doubleOf('maxP2pLimit', 20000.0),
+      adminOverrideEnabled: map['adminOverrideEnabled'] != false,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'minDriverTrips': minDriverTrips,
+    'min_driver_trips': minDriverTrips,
+    'maxP2pLimit': maxP2pLimitNaira,
+    'max_p2p_limit': maxP2pLimitNaira,
+    'adminOverrideEnabled': adminOverrideEnabled,
+  };
+}
+
+class ReferralRevenueSettings {
+  final double platformBaseCommissionRate;
+  final double driverReferrerRate;
+  final double customerReferrerRate;
+
+  const ReferralRevenueSettings({
+    this.platformBaseCommissionRate = 20.0,
+    this.driverReferrerRate = 5.0,
+    this.customerReferrerRate = 5.0,
+  });
+
+  factory ReferralRevenueSettings.fromMap(Map<String, dynamic>? map) {
+    map ??= const {};
+    double doubleOf(String k, double fb) => (map![k] is num) ? (map[k] as num).toDouble() : fb;
+    return ReferralRevenueSettings(
+      platformBaseCommissionRate: doubleOf('platformBaseCommissionRate', 20.0),
+      driverReferrerRate: doubleOf('driverReferrerRate', 5.0),
+      customerReferrerRate: doubleOf('customerReferrerRate', 5.0),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'platformBaseCommissionRate': platformBaseCommissionRate,
+    'driverReferrerRate': driverReferrerRate,
+    'customerReferrerRate': customerReferrerRate,
+  };
 }

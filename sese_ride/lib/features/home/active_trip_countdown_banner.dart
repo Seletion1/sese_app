@@ -67,6 +67,7 @@ class ActiveTripCountdownBanner extends StatelessWidget {
                         fontSize: 13,
                         fontWeight: FontWeight.bold,
                       ),
+                      softWrap: true,
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -77,29 +78,34 @@ class ActiveTripCountdownBanner extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                         fontFeatures: [FontFeature.tabularFigures()],
                       ),
+                      softWrap: true,
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton(
-                key: const Key('return_to_driver_button'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.seseGold,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  minimumSize: const Size(0, 36),
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: () {
-                  RoleController.instance.cancelActiveTripCountdown();
-                  onReturnToDriver();
-                },
-                child: const Text(
-                  'Driver Mode',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+              Flexible(
+                child: FilledButton(
+                  key: const Key('return_to_driver_button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.seseGold,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    minimumSize: const Size(0, 36),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  onPressed: () {
+                    RoleController.instance.cancelActiveTripCountdown();
+                    onReturnToDriver();
+                  },
+                  child: const Text(
+                    'Driver Mode',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    softWrap: false,
+                    overflow: TextOverflow.visible,
                   ),
                 ),
               ),

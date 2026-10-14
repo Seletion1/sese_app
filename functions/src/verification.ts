@@ -4,6 +4,163 @@ import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 
 const db = () => admin.firestore();
 
+// ─── Referral Code Generation ────────────────────────────────────────────────
+
+/**
+ * Deterministically generates a unique referral code for a newly-verified
+ * user or driver and persists it atomically to both the profile document and
+ * the `referral_codes/{CODE}` lookup index.
+ *
+ * Algorithm:
+ *   Base = FirstInitial + LastInitial + last-4-digits-of-phone (uppercase).
+ *   If a collision is found (another user already owns that code), progressively
+ *   prepend the next-preceding digit from the phone number until the code is
+ *   unique (e.g. MB1592 → MB61592 → MB561592 …).
+ *   Fallback when name/phone data is insufficient: "SE" + last-4-chars-of-uid.
+ *
+ * The function is idempotent: if the profile already has a `referralCode` it
+ * returns immediately without writing anything.
+ *
+ * @param userId  - Firestore document ID (uid)
+ * @param collection - "users" | "drivers"
+ */
+async function _generateAndSaveReferralCode(
+  userId: string,
+  collection: "users" | "drivers"
+): Promise<void> {
+  const firestore = db();
+  const profileRef = firestore.collection(collection).doc(userId);
+
+  // ── Idempotency check ──────────────────────────────────────────────────────
+  const profileSnap = await profileRef.get();
+  if (!profileSnap.exists) {
+    console.warn(
+      `_generateAndSaveReferralCode: ${collection}/${userId} not found, skipping.`
+    );
+    return;
+  }
+  const profileData = profileSnap.data() ?? {};
+  if (profileData.referralCode) {
+    // Code already exists — nothing to do.
+    return;
+  }
+
+  // ── Build the base candidate code ─────────────────────────────────────────
+  const firstName = String(profileData.firstName ?? profileData.fullName ?? "").trim();
+  const lastName = String(profileData.lastName ?? "").trim();
+  // For fullName-only profiles split on whitespace and take the last word as surname.
+  const nameParts = firstName.split(/\s+/).filter(Boolean);
+  const first = nameParts[0] ?? "";
+  const last =
+    lastName.length > 0
+      ? lastName
+      : nameParts.length > 1
+        ? nameParts[nameParts.length - 1]
+        : first; // single-word name: repeat the initial
+
+  const firstInitial = (first.match(/[A-Za-z]/)?.[0] ?? "").toUpperCase();
+  const lastInitial = (last.match(/[A-Za-z]/)?.[0] ?? "").toUpperCase();
+  const initials = firstInitial + lastInitial; // 2-char initials, or fewer if name is malformed
+
+  const rawPhone = String(profileData.phoneNumber ?? "");
+  const digits = rawPhone.replace(/\D/g, ""); // strip non-numeric chars
+
+  // ── Attempt codes from shortest (4-digit suffix) to longest ───────────────
+  // Minimum: initials (2 chars) + 4 trailing phone digits.
+  // Fallback: "SE" + last 4 chars of uid when name/phone is insufficient.
+  const useFallback = initials.length < 2 || digits.length < 4;
+
+  let resolved = false;
+
+  if (!useFallback) {
+    // Progressive digit-prepend: start with last 4 digits, grow leftward.
+    for (let suffixLen = 4; suffixLen <= digits.length && suffixLen <= 12; suffixLen++) {
+      const numericSuffix = digits.slice(-suffixLen);
+      const candidate = (initials + numericSuffix).toUpperCase();
+
+      try {
+        resolved = await firestore.runTransaction(async (tx) => {
+          const codeRef = firestore.collection("referral_codes").doc(candidate);
+          const codeSnap = await tx.get(codeRef);
+
+          if (!codeSnap.exists) {
+            // Slot is free — claim it atomically.
+            tx.set(codeRef, {
+              referrerId: userId,
+              collection,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            tx.update(profileRef, { referralCode: candidate });
+            return true; // success signal
+          }
+
+          if (codeSnap.data()?.referrerId === userId) {
+            // This user already owns this code (race/idempotence). Just
+            // ensure the profile field is written.
+            tx.update(profileRef, { referralCode: candidate });
+            return true;
+          }
+
+          // Real collision — abort this transaction without error and try
+          // a longer suffix in the next loop iteration.
+          return false;
+        });
+      } catch (err) {
+        console.warn(
+          `_generateAndSaveReferralCode: transaction error for ${candidate}:`,
+          err
+        );
+        // Don't rethrow — try next suffix.
+      }
+
+      if (resolved) break;
+    }
+  }
+
+  // ── Fallback: "SE" + last 4 chars of uid ──────────────────────────────────
+  if (!resolved) {
+    const fallbackBase = ("SE" + userId.slice(-4)).toUpperCase();
+    // Try base, then base + more uid chars if even that collides.
+    for (let extra = 0; extra <= 4; extra++) {
+      const candidate =
+        extra === 0
+          ? fallbackBase
+          : ("SE" + userId.slice(-(4 + extra))).toUpperCase();
+
+      try {
+        resolved = await firestore.runTransaction(async (tx) => {
+          const codeRef = firestore.collection("referral_codes").doc(candidate);
+          const codeSnap = await tx.get(codeRef);
+          if (!codeSnap.exists || codeSnap.data()?.referrerId === userId) {
+            tx.set(
+              codeRef,
+              {
+                referrerId: userId,
+                collection,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+            tx.update(profileRef, { referralCode: candidate });
+            return true;
+          }
+          return false;
+        });
+      } catch (err) {
+        console.warn(`_generateAndSaveReferralCode fallback error for ${candidate}:`, err);
+      }
+
+      if (resolved) break;
+    }
+  }
+
+  if (!resolved) {
+    console.error(
+      `_generateAndSaveReferralCode: exhausted all candidates for ${collection}/${userId}. No code written.`
+    );
+  }
+}
+
 interface ReviewCustomerData {
   userId: string;
   approved: boolean;
@@ -38,6 +195,14 @@ export const reviewCustomerVerification = onCall<ReviewCustomerData>(
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
       throw new HttpsError("not-found", "User document not found.");
+    }
+
+    const userData = userSnap.data() ?? {};
+    if (approved && userData.createdByAdminId && userData.createdByAdminId === request.auth.uid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Self-Verification Lock: Admin who created this account cannot self-approve verification."
+      );
     }
 
     if (approved) {
@@ -78,6 +243,15 @@ export const reviewCustomerVerification = onCall<ReviewCustomerData>(
         });
       } catch (err) {
         console.warn(`FCM send failed for ${userId}:`, err);
+      }
+
+      // Generate referral code now that the user is verified.
+      // Wrapped in try/catch — a code generation failure must never
+      // roll back a successfully-completed verification approval.
+      try {
+        await _generateAndSaveReferralCode(userId, "users");
+      } catch (err) {
+        console.warn(`Referral code generation failed for user ${userId}:`, err);
       }
 
       return { success: true, status: "verified" };
@@ -152,6 +326,14 @@ export const reviewDriverVerification = onCall<ReviewDriverData>(
       throw new HttpsError("not-found", "Driver document not found.");
     }
 
+    const driverData = driverSnap.data() ?? {};
+    if (approved && driverData.createdByAdminId && driverData.createdByAdminId === request.auth.uid) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Self-Verification Lock: Admin who created this driver account cannot self-approve verification."
+      );
+    }
+
     if (approved) {
       await driverRef.set(
         {
@@ -190,6 +372,13 @@ export const reviewDriverVerification = onCall<ReviewDriverData>(
         });
       } catch (err) {
         console.warn(`FCM send failed for driver ${driverId}:`, err);
+      }
+
+      // Generate referral code now that the driver is verified.
+      try {
+        await _generateAndSaveReferralCode(driverId, "drivers");
+      } catch (err) {
+        console.warn(`Referral code generation failed for driver ${driverId}:`, err);
       }
 
       return { success: true, status: "approved" };
@@ -295,6 +484,13 @@ export const onUserVerificationUpdated = onDocumentUpdated(
       } catch (err) {
         console.warn(`Trigger FCM failed for ${userId}:`, err);
       }
+      // Idempotent referral code generation — handles admin console edits
+      // that bypass the reviewCustomerVerification callable.
+      try {
+        await _generateAndSaveReferralCode(userId, "users");
+      } catch (err) {
+        console.warn(`Trigger referral code generation failed for ${userId}:`, err);
+      }
     } else if (afterStatus === "rejected") {
       const reason = after.kycRejectionReason || "Verification not approved";
       try {
@@ -368,6 +564,13 @@ export const onDriverVerificationUpdated = onDocumentUpdated(
         });
       } catch (err) {
         console.warn(`Trigger FCM failed for driver ${driverId}:`, err);
+      }
+      // Idempotent referral code generation — handles admin console edits
+      // that bypass the reviewDriverVerification callable.
+      try {
+        await _generateAndSaveReferralCode(driverId, "drivers");
+      } catch (err) {
+        console.warn(`Trigger referral code generation failed for driver ${driverId}:`, err);
       }
     } else if (afterStatus === "rejected") {
       const reason = after.profileRejectionReason || "Profile not approved";

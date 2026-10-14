@@ -71,6 +71,9 @@ class ProximityTriggerService {
   /// Auto-arrival countdown length.
   final Duration arrivalCountdown;
 
+  /// Whether auto-arrival triggers are enabled.
+  final bool autoArrivalEnabled;
+
   /// Heartbeat throttle for `updateDriverLocation`.
   final Duration heartbeatInterval;
 
@@ -82,6 +85,7 @@ class ProximityTriggerService {
   final Stream<Position> Function()? positionStreamFactory;
 
   final void Function()? onArrive;
+  final void Function()? onArriveDropoff;
   final void Function()? onAutoStart;
   final void Function()? onPaymentBlock;
 
@@ -104,11 +108,13 @@ class ProximityTriggerService {
     this.arrivalRadiusM = 500,
     this.departureRadiusM = 500,
     this.arrivalCountdown = const Duration(seconds: 5),
+    this.autoArrivalEnabled = true,
     this.heartbeatInterval = const Duration(seconds: 10),
     this.routeRefreshInterval = const Duration(seconds: 30),
     this.routeRefineGateM = 2000,
     this.positionStreamFactory,
     this.onArrive,
+    this.onArriveDropoff,
     this.onAutoStart,
     this.onPaymentBlock,
   });
@@ -172,11 +178,19 @@ class ProximityTriggerService {
   /// Keeps trigger gating in sync with the trip snapshot (call on rebuild).
   void noteTrip(ActiveTrip trip) {
     final wasArrived = _tripStatus == TripStatus.driverArrived;
+    final wasAcceptedOrArriving = _tripStatus == TripStatus.driverAccepted ||
+        _tripStatus == TripStatus.driverArriving;
     _trip = trip;
     _tripStatus = trip.status;
     // Reset departure firing if the trip left the arrived state.
     if (wasArrived && trip.status != TripStatus.driverArrived) {
       _departFired = false;
+    }
+    // Reset arrival firing if the trip transitioned from pickup into in-progress.
+    if (wasAcceptedOrArriving && trip.status == TripStatus.inProgress) {
+      _arriveFired = false;
+      _cachedRoute = null;
+      _routeFetchedAt = null;
     }
   }
 
@@ -200,15 +214,24 @@ class ProximityTriggerService {
       return;
     }
     _ensureHeartbeat(streakService);
-    var distanceM = haversineM(
-        fix.latitude, fix.longitude, pickup.latitude, pickup.longitude);
-    final refined = await _refinedDistanceM(fix, pickup);
-    if (refined != null) distanceM = refined;
 
     final status = _tripStatus;
+    final target = (status == TripStatus.inProgress)
+        ? LatLng(_trip?.dropoffLat ?? 0, _trip?.dropoffLng ?? 0)
+        : LatLng(_trip?.pickupLat ?? pickup.latitude,
+            _trip?.pickupLng ?? pickup.longitude);
+
+    var distanceM = haversineM(
+        fix.latitude, fix.longitude, target.latitude, target.longitude);
+    final refined = await _refinedDistanceM(fix, target);
+    if (refined != null) distanceM = refined;
+
     var zone = ProximityZone.approaching;
-    if (status == TripStatus.driverAccepted ||
-        status == TripStatus.driverArriving) {
+    final isArrivalPhase = status == TripStatus.driverAccepted ||
+        status == TripStatus.driverArriving ||
+        status == TripStatus.inProgress;
+
+    if (autoArrivalEnabled && isArrivalPhase) {
       if (distanceM <= arrivalRadiusM) {
         zone = ProximityZone.arrivalCountdown;
         _armArrivalCountdown();
@@ -235,12 +258,12 @@ class ProximityTriggerService {
         distanceM: distanceM, isMocked: false, zone: zone));
   }
 
-  /// OSRM refinement: remaining road distance along the driver→pickup
+  /// OSRM refinement: remaining road distance along the driver→target
   /// route polyline. Cached 30s; haversine stands in on any failure.
-  Future<double?> _refinedDistanceM(Position fix, LatLng pickup) async {
+  Future<double?> _refinedDistanceM(Position fix, LatLng target) async {
     try {
       final crowM = haversineM(
-          fix.latitude, fix.longitude, pickup.latitude, pickup.longitude);
+          fix.latitude, fix.longitude, target.latitude, target.longitude);
       if (crowM > routeRefineGateM) return null;
       final now = DateTime.now();
       final stale = _routeFetchedAt == null ||
@@ -248,7 +271,7 @@ class ProximityTriggerService {
       if (stale || _cachedRoute == null) {
         final points = await LocationService.fetchRoutePolyline(
           LatLng(fix.latitude, fix.longitude),
-          pickup,
+          target,
         ).timeout(const Duration(seconds: 10));
         if (points.length >= 2) {
           _cachedRoute = points;
@@ -269,13 +292,26 @@ class ProximityTriggerService {
   }
 
   void _armArrivalCountdown() {
-    if (_arriveFired || countdownActive) return;
+    if (!autoArrivalEnabled || _arriveFired || countdownActive) return;
     _arrivalTimer = Timer(arrivalCountdown, () {
       if (_disposed || _arriveFired) return;
+      final s = _tripStatus;
+      if (s != TripStatus.driverAccepted &&
+          s != TripStatus.driverArriving &&
+          s != TripStatus.inProgress) {
+        return;
+      }
       _arriveFired = true;
-      onArrive?.call();
+      if (s == TripStatus.inProgress) {
+        onArriveDropoff?.call();
+      } else {
+        onArrive?.call();
+      }
     });
   }
+
+  /// Explicitly cancels the arrival countdown.
+  void cancelCountdown() => _cancelArrivalCountdown();
 
   void _cancelArrivalCountdown() {
     _arrivalTimer?.cancel();

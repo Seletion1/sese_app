@@ -76,6 +76,29 @@ abstract class AuthRepository {
   /// never default an in-flight driver registration to customer.
   void setPendingSelectedRole(UserRole role);
 
+  /// Provider ids (e.g. `password`, `google.com`) linked to the current
+  /// Firebase user. Best-effort — returns empty when signed out or the
+  /// reload fails. Drives the settings password sheet (update vs link mode).
+  Future<List<String>> authProviders();
+
+  /// Creates or updates the account password, synchronizing credentials so
+  /// email/password and OAuth sign-in keep working side by side:
+  /// - Password-linked accounts: re-authenticates with [currentPassword]
+  ///   (required) then updates to [newPassword].
+  /// - OAuth-only accounts (Google/phone): links the email/password
+  ///   credential (with a `provider-already-linked` fallback to update).
+  /// Records `password` in the profile's `authProviders` ([role] picks the
+  /// `users` vs `drivers` collection). Never touches the transaction PIN.
+  ///
+  /// Passwords are used VERBATIM (never trimmed) on every path — settings,
+  /// registration, and sign-in — so surrounding whitespace can never cause
+  /// a set-then-mismatch failure.
+  Future<void> setAccountPassword({
+    String? currentPassword,
+    required String newPassword,
+    UserRole? role,
+  });
+
   /// Signs out the currently authenticated user.
   Future<void> signOut();
 }

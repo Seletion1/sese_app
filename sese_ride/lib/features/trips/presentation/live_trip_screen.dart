@@ -4,12 +4,13 @@ import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../widgets/osm_map_view.dart';
+import '../../../widgets/map_provider.dart';
 import '../../../widgets/verified_badge.dart';
 import '../../customer/services/location_service.dart';
 import '../models/bid_models.dart';
 import '../models/trip_models.dart';
 import '../services/trip_service.dart';
+import 'cancel_trip_dialog.dart';
 import 'split_request_sheet.dart';
 import 'trip_chat_screen.dart';
 
@@ -148,8 +149,12 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
   }
 
   Future<void> _cancel() async {
+    // Reason-first: the dialog returns null on dismiss, committing nothing.
+    final reason =
+        await CancelTripDialog.show(context, isDriver: false);
+    if (reason == null || !mounted) return;
     try {
-      await widget.repository.cancelTrip(widget.trip.tripId);
+      await widget.repository.cancelTrip(widget.trip.tripId, reason: reason);
       if (mounted) Navigator.of(context).pop();
     } on TripException catch (e) {
       if (mounted) {
@@ -312,7 +317,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   /// Fetches the drivable road geometry. Skipped in widget tests (map
   /// placeholder renders, no geometry needed — keeps tests hermetic).
   Future<void> _loadRoadRoute() async {
-    if (OsmMapView.debugTileProviderOverride != null) return;
+    if (SeSeMapView.debugTileProviderOverride != null) return;
     final points = await LocationService.fetchRoutePolyline(_pickup, _dropoff);
     if (!mounted || points.isEmpty) return;
     setState(() => _routePoints = points);
@@ -323,6 +328,14 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       widget.trip.status == TripStatus.marketplaceOpen ||
       widget.trip.status == TripStatus.marketplaceList ||
       widget.trip.status == TripStatus.searchingDriver;
+
+  /// True while the trip has no driver yet and the backend is actively
+  /// broadcasting/pinging — the searching radar overlay runs in these
+  /// states (same set as [_showBids] plus the exclusive-ping states).
+  bool get _isSearching =>
+      _showBids ||
+      widget.trip.status == TripStatus.waitingForAcceptance ||
+      widget.trip.status == TripStatus.driverPinged;
 
   @override
   Widget build(BuildContext context) {
@@ -338,17 +351,17 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           );
 
     final markers = [
-      OsmMapView.pin(point: pickup, color: Colors.green),
-      OsmMapView.pin(point: dropoff, color: Colors.red),
+      SeSeMapView.pin(point: pickup, color: Colors.green),
+      SeSeMapView.pin(point: dropoff, color: Colors.red),
       if (hasDriverFix)
-        OsmMapView.pin(
+        SeSeMapView.pin(
           point: LatLng(trip.driverLat!, trip.driverLng!),
           color: Colors.blue,
         ),
     ];
 
     final polylines = [
-      OsmMapView.route(
+      SeSeMapView.route(
         points: _routePoints.isNotEmpty ? _routePoints : [pickup, dropoff],
       ),
     ];
@@ -356,16 +369,34 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     return Column(
       children: [
         _StatusBanner(trip: trip),
+        // ── Delivery PIN badge (shown when PIN protection is active) ──────
+        if (trip.deliveryPinRequired && trip.deliveryPin != null)
+          _DeliveryPinBanner(pin: trip.deliveryPin!),
         Expanded(
           child: Stack(
             children: [
-              OsmMapView(
+              SeSeMapView(
+                mapContext: MapContext.realtimeTracking,
                 mapController: _mapController,
                 initialCenter: focus,
                 initialZoom: 14.0,
+                showMyLocation: true,
                 markers: markers,
                 polylines: polylines,
               ),
+              // Live broadcast radar while the backend is still matching —
+              // motion proves the request is actively radiating, which the
+              // static banner text alone could not convey. Pointer-transparent
+              // so map gestures always pass through.
+              if (_isSearching)
+                const Positioned(
+                  top: 10,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Center(child: _SearchingOverlay()),
+                  ),
+                ),
               Positioned(
                 right: 12,
                 bottom: 12,
@@ -449,8 +480,12 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   }
 
   Future<void> _cancel(BuildContext context) async {
+    // Reason-first: the dialog returns null on dismiss, committing nothing.
+    final reason =
+        await CancelTripDialog.show(context, isDriver: false);
+    if (reason == null) return;
     try {
-      await widget.repository.cancelTrip(widget.trip.tripId);
+      await widget.repository.cancelTrip(widget.trip.tripId, reason: reason);
       if (context.mounted) Navigator.of(context).pop();
     } on TripException catch (e) {
       if (context.mounted) {
@@ -688,6 +723,205 @@ class _BidCard extends StatelessWidget {
   }
 }
 
+// ── Delivery PIN banner ────────────────────────────────────────────────────────
+
+/// Prominently surfaces the 4-digit delivery security PIN to the customer
+/// so they can share it with the driver at drop-off.
+///
+/// Appears only when [ActiveTrip.deliveryPinRequired] is true and the trip
+/// has a server-issued [ActiveTrip.deliveryPin]. The server generates this
+/// PIN inside `createTrip` when the customer opted-in or when the Hub's
+/// `forceDeliveryPinSystemWide` flag is active.
+class _DeliveryPinBanner extends StatelessWidget {
+  final String pin;
+
+  const _DeliveryPinBanner({required this.pin});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('delivery_pin_banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.amber.shade700,
+      // Trailing hint is Flexible (not a fixed Text) so the 24px PIN with
+      // wide letter-spacing never squeezes on narrow phones.
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Icon(Icons.lock_outline, color: Colors.white, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Delivery Security PIN',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                  softWrap: true,
+                ),
+                Text(
+                  pin,
+                  key: const Key('delivery_pin_value'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 8,
+                  ),
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Share with\ndriver at drop-off',
+              style: TextStyle(
+                color: cs.onError.withValues(alpha: 0.85),
+                fontSize: 10,
+              ),
+              textAlign: TextAlign.right,
+              softWrap: true,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Live broadcast radar overlay ────────────────────────────────────────────
+
+/// Floating "actively broadcasting" card pinned over the live-trip map while
+/// the backend is still matching (searching / pinging / marketplace).
+///
+/// Three staggered expanding rings around a pulsing vehicle marker prove at
+/// a glance that the request is radiating — the static banner text alone
+/// could sit frozen on a dead screen. Runs for rides and deliveries alike
+/// (it keys off trip status, never service type). Fully pointer-transparent
+/// via the [IgnorePointer] at the call site; the card itself is compact and
+/// top-anchored so route pins stay visible beneath it.
+class _SearchingOverlay extends StatefulWidget {
+  const _SearchingOverlay();
+
+  @override
+  State<_SearchingOverlay> createState() => _SearchingOverlayState();
+}
+
+class _SearchingOverlayState extends State<_SearchingOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('searching_radar_overlay'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 8),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedBuilder(
+            animation: _ctrl,
+            builder: (_, _) => CustomPaint(
+              size: const Size(40, 40),
+              painter: _BroadcastRadarPainter(
+                progress: _ctrl.value,
+                color: scheme.primary,
+              ),
+              child: Center(
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.directions_car_filled,
+                    size: 13,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Broadcasting to nearby drivers…',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'First driver to accept wins',
+                style: TextStyle(fontSize: 10, color: Colors.grey),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Three staggered expanding rings; each ring fades as it grows, looping.
+class _BroadcastRadarPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+
+  const _BroadcastRadarPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final maxRadius = size.width / 2;
+    for (var i = 0; i < 3; i++) {
+      final t = (progress + i / 3) % 1;
+      canvas.drawCircle(
+        center,
+        maxRadius * (0.35 + 0.65 * t),
+        Paint()
+          ..color = color.withValues(alpha: (1 - t) * 0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BroadcastRadarPainter old) =>
+      old.progress != progress || old.color != color;
+}
+
 // ── Animated status banner ────────────────────────────────────────────────────
 
 /// Animated status banner driven by the live trip state machine.
@@ -695,7 +929,6 @@ class _StatusBanner extends StatelessWidget {
   final ActiveTrip trip;
 
   const _StatusBanner({required this.trip});
-
   @override
   Widget build(BuildContext context) {
     final String message;

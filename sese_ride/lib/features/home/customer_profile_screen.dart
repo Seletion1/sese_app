@@ -4,16 +4,15 @@ import 'package:sese_core/sese_core.dart';
 
 import '../customer/presentation/customer_verification_screen.dart';
 import '../customer/services/driver_to_customer_sync.dart';
-import '../driver/presentation/driver_fleet_screen.dart';
-import '../driver/presentation/driver_onboarding_screen.dart';
-import '../driver/services/driver_fleet_service.dart';
-import '../settings/role_controller.dart';
 import '../settings/screens/settings_screen.dart';
 import '../support/support_chat_screen.dart';
+import '../wallet/bank_details_screen.dart';
 import '../wallet/customer_wallet_screen.dart';
 import '../../widgets/verified_badge.dart';
-import 'driver_home_shell.dart';
+import '../referral/referral_hub_screen.dart';
 import 'profile_details_screen.dart';
+import 'saved_places_screen.dart';
+import 'security_pin_screen.dart';
 
 /// Customer Profile tab: account details + preferences + sign-out.
 ///
@@ -40,9 +39,6 @@ class CustomerProfileScreen extends StatefulWidget {
 }
 
 class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
-  /// True while the async Firestore eligibility check is in flight.
-  bool _evaluatingSwitch = false;
-
   /// True when `drivers/{uid}` is an approved driver profile. Approved
   /// drivers are treated as verified customers (driver KYC synced) and do
   /// not see redundant KYC prompts.
@@ -65,87 +61,10 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
     });
   }
 
-  Future<void> _handleSwitchToDriver() async {
-    setState(() => _evaluatingSwitch = true);
-    final scenario =
-        await RoleController.instance.evaluateDriverEligibility(widget.user.uid);
-    if (!mounted) return;
-    setState(() => _evaluatingSwitch = false);
-
-    final authRepo = widget.auth ?? FirebaseAuthRepository();
-
-    switch (scenario) {
-      case DriverOnboardingScenario.scenarioA:
-        RoleController.instance.setCurrentRole(UserRole.driver);
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (_) => DriverHomeShell(user: widget.user, auth: authRepo),
-          ),
-          (route) => false,
-        );
-        break;
-
-      case DriverOnboardingScenario.scenarioB:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please add and verify a vehicle before going online as a driver.',
-            ),
-            backgroundColor: AppColors.seseGold,
-          ),
-        );
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => DriverFleetScreen(
-              fleetService: DriverFleetService(),
-              driverId: widget.user.uid,
-            ),
-          ),
-        );
-        break;
-
-      case DriverOnboardingScenario.scenarioC:
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Complete Driver Profile'),
-            content: const Text(
-              'Complete Driver Profile to start earning. Submit your personal information and identity verification.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Later'),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.seseGold,
-                  foregroundColor: Colors.black,
-                ),
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => DriverOnboardingScreen(
-                        user: widget.user,
-                        auth: authRepo,
-                      ),
-                    ),
-                  );
-                },
-                child: const Text('Get Started'),
-              ),
-            ],
-          ),
-        );
-        break;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: const SeseAppBar(title: 'Profile'),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: _userStream(widget.user.uid),
         builder: (context, snapshot) {
@@ -163,11 +82,15 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
               (data?[CustomerVerification.fieldRejectionReason] ?? '').toString();
           final userStream = _userStream(widget.user.uid);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              16,
+              12,
+              16,
+              32 + MediaQuery.viewPaddingOf(context).bottom,
+            ),
+            children: [
                 // ── Profile header card (tappable → ProfileDetailsScreen) ──
                 InkWell(
                   borderRadius: BorderRadius.circular(12),
@@ -232,65 +155,76 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 
                 const SizedBox(height: 8),
 
-                // ── Switch to Driver ──────────────────────────────────────
-                Card(
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                      : AppColors.seseGoldLight.withValues(alpha: 0.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide.none,
-                  ),
-                  child: ListTile(
-                    key: const Key('switch_to_driver_tile'),
-                    leading: const Icon(Icons.two_wheeler,
-                        color: AppColors.seseGold, size: 28),
-                    title: const Text(
-                      'Switch to Driver Mode',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: const Text(
-                      'Earn on your schedule with verified driver dispatch',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    trailing: _evaluatingSwitch
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.swap_horiz,
-                            color: AppColors.seseGold),
-                    onTap:
-                        _evaluatingSwitch ? null : _handleSwitchToDriver,
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
                 // ── Trip history ──────────────────────────────────────────
-                ListTile(
+                SettingsTile(
                   leading: const Icon(Icons.history),
-                  title: const Text('Trip history'),
-                  subtitle: const Text('Completed trips appear here'),
-                  trailing: const Icon(Icons.chevron_right),
+                  title: 'Trip history',
+                  infoDescription: 'Completed trips and ride receipts appear here.',
                   onTap: () => widget.onSelectTab?.call(0),
                 ),
                 const SizedBox(height: 12),
 
                 // ── Wallet ────────────────────────────────────────────────
-                ListTile(
+                SettingsTile(
                   leading:
                       const Icon(Icons.account_balance_wallet_outlined),
-                  title: const Text('Wallet & Payments'),
-                  subtitle:
-                      const Text('Manage balance and payment methods'),
-                  trailing: const Icon(Icons.chevron_right),
+                  title: 'Wallet & Payments',
+                  infoDescription: 'Manage balance, payment cards, and transaction history.',
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) =>
                         CustomerWalletScreen(user: widget.user),
+                  )),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Saved Places ─────────────────────────────────────────
+                SettingsTile(
+                  tileKey: const Key('customer_saved_places_tile'),
+                  leading: const Icon(Icons.bookmark_border_outlined,
+                      color: AppColors.seseGold),
+                  title: 'Saved Places',
+                  infoDescription: 'Set Home and Work addresses for fast one-tap booking.',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => SavedPlacesScreen(uid: widget.user.uid),
+                  )),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Bank & Payout Details ────────────────────────────────
+                SettingsTile(
+                  tileKey: const Key('customer_bank_details_tile'),
+                  leading: const Icon(Icons.account_balance_outlined),
+                  title: 'Bank & Payout Details',
+                  infoDescription: 'Link your bank account for secure fund withdrawals.',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        BankDetailsScreen(uid: widget.user.uid),
+                  )),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Security PIN ─────────────────────────────────────────
+                SettingsTile(
+                  tileKey: const Key('customer_security_pin_tile'),
+                  leading: const Icon(Icons.lock_outline),
+                  title: 'Security PIN',
+                  infoDescription: 'Protect your account and wallet transfers with a 4-digit PIN.',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        SecurityPinScreen(uid: widget.user.uid),
+                  )),
+                ),
+                const SizedBox(height: 12),
+
+                // ── Refer & Earn ──────────────────────────────────────────
+                SettingsTile(
+                  tileKey: const Key('customer_referral_tile'),
+                  leading: const Icon(Icons.card_giftcard_outlined,
+                      color: AppColors.seseGold),
+                  title: 'Refer & Earn',
+                  infoDescription: 'Invite friends & earn 1% bonus on every completed trip.',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ReferralHubScreen(user: widget.user),
                   )),
                 ),
                 const SizedBox(height: 12),
@@ -299,7 +233,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // Approved drivers see a green "Account Verified" badge
                 // instead of the KYC prompt; their driver KYC is synced and
                 // re-submission is disabled for them.
-                ListTile(
+                SettingsTile(
                   leading: Icon(
                     showVerified
                         ? Icons.verified
@@ -308,25 +242,18 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                         ? AppColors.seseGold
                         : null,
                   ),
-                  title: Text(
-                    (driverVerified && !isVerified)
-                        ? 'Account Verified'
-                        : 'Verify Account',
-                  ),
-                  subtitle: Text(
-                    isVerified
-                        ? 'Verified — instant driver matches'
-                        : driverVerified
-                            ? 'Driver KYC synced — no further action needed'
-                            : isPending
-                                ? 'Verification pending review by our team'
-                                : isRejected
-                                    ? 'Rejected — tap to edit & re-submit'
-                                    : 'Submit KYC documents for instant matches',
-                    style: TextStyle(
-                      color: isRejected ? Colors.red.shade700 : null,
-                    ),
-                  ),
+                  title: (driverVerified && !isVerified)
+                      ? 'Account Verified'
+                      : 'Verify Account',
+                  infoDescription: isVerified
+                      ? 'Verified — instant driver matches.'
+                      : driverVerified
+                          ? 'Driver KYC synced — no further action needed.'
+                          : isPending
+                              ? 'Verification pending review by our team.'
+                              : isRejected
+                                  ? 'Rejected — tap to edit & re-submit.'
+                                  : 'Submit KYC documents for instant matches.',
                   trailing: showVerified
                       ? const Icon(Icons.check_circle,
                           color: Colors.green)
@@ -351,12 +278,11 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Settings ──────────────────────────────────────────────
                 // Theme, privacy, sign-out, and account deletion live here,
                 // not inline — the profile stays focused on identity.
-                ListTile(
-                  key: const Key('customer_settings_tile'),
+                SettingsTile(
+                  tileKey: const Key('customer_settings_tile'),
                   leading: const Icon(Icons.settings_outlined),
-                  title: const Text('Settings'),
-                  subtitle: const Text('Theme, privacy, account'),
-                  trailing: const Icon(Icons.chevron_right),
+                  title: 'Settings',
+                  infoDescription: 'Theme, phone privacy, and account security.',
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => SettingsScreen(
                       user: widget.user,
@@ -370,14 +296,24 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Support ───────────────────────────────────────────────
                 ListTile(
                   leading: const Icon(Icons.help_outline),
-                  title: const Text('Help & Support'),
-                  subtitle: const Text('Customer care and FAQs'),
+                  title: Builder(
+                    builder: (ctx) => Row(children: [
+                      const Text('Help & Support'),
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: 'Customer care and FAQs',
+                        triggerMode: TooltipTriggerMode.tap,
+                        child: Icon(Icons.info_outline, size: 15,
+                            color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.45)),
+                      ),
+                    ]),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () =>
                       showSupportContactSheet(context, widget.user),
                 ),
-              ],
-            ),
+                const SizedBox(height: 16),
+            ],
           );
         },
       ),
@@ -414,7 +350,9 @@ Future<void> showSupportContactSheet(BuildContext context, AppUser user) {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Padding(
-              padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
+              // 16px gutters match the profile ListView (16) so the sheet
+              // header spans edge-to-edge with the rows below.
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
               child: Text('Help & Support',
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold)),

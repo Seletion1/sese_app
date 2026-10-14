@@ -4,7 +4,10 @@ import 'package:sese_core/sese_core.dart';
 import '../payments/payment_service.dart';
 import '../payments/top_up_sheet.dart';
 import 'p2p_transfer_sheet.dart';
+import 'transaction_pin_prompt.dart';
 import 'withdrawal_sheet.dart';
+
+import 'sese_coin_header.dart';
 
 /// Single unified Wallet & Earnings screen for drivers: live balance with
 /// Top Up (Paystack) and Withdraw/Payout actions, the full chronological
@@ -35,6 +38,8 @@ class WalletScreenState extends State<WalletScreen> {
   late final PaymentService _payments =
       widget.payments ?? PaymentService();
 
+  int _currentBalanceKobo = 0;
+
   Future<void> _topUp() async {
     final credited =
         await showTopUpSheet(context, _payments, widget.user);
@@ -46,6 +51,19 @@ class WalletScreenState extends State<WalletScreen> {
   }
 
   Future<void> _withdraw() async {
+    // 1. Check walletBalance. If <= 0, display warning.
+    if (_currentBalanceKobo <= 0) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Insufficient balance for withdrawal.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // 2. If walletBalance > 0, open the WithdrawalBottomSheet.
     final request = await WithdrawalSheet.show(
       context,
       user: widget.user,
@@ -77,11 +95,21 @@ class WalletScreenState extends State<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Wallet & Earnings')),
+      appBar: AppBar(
+        title: const Text('Wallet & Earnings'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(child: SeseCoinHeader(uid: widget.user.uid)),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _buildBalanceCard(context),
+          const SizedBox(height: 12),
+          SeseCoinConvertCard(uid: widget.user.uid),
           const SizedBox(height: 12),
           _SplitInvitesCard(userId: widget.user.uid),
           _buildPayoutsCard(),
@@ -113,12 +141,29 @@ class WalletScreenState extends State<WalletScreen> {
                   _payments.walletBalanceKoboStream(widget.user.uid),
               builder: (context, snap) {
                 final kobo = snap.data ?? 0;
-                return Text(
-                  PaymentService.formatNaira(kobo / 100.0),
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
+                _currentBalanceKobo = kobo;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      PaymentService.formatNaira(kobo / 100.0),
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    MultiCurrencyDisplay.fromKobo(
+                      amountKobo: kobo,
+                      targetCurrencyCode: 'USD',
+                      baseStyle: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      inline: false,
+                    ),
+                  ],
                 );
               },
             ),
@@ -304,8 +349,9 @@ class _LedgerRow extends StatelessWidget {  final WalletTransaction tx;
 /// Pending split-payment invites addressed to this user.
 ///
 /// Streams the user's unanswered part rows; Accept/Decline calls
-/// `respondSplitPayment`. Accepting records consent only — settlement is a
-/// separate step, and the card says so. Renders nothing when empty.
+/// `respondSplitPayment`. When the user's acceptance completes the set, the
+/// card settles inline via `settleSplitPayment` (idempotent — safe to
+/// retry). Renders nothing when empty.
 class _SplitInvitesCard extends StatefulWidget {
   final String userId;
 
@@ -323,12 +369,38 @@ class _SplitInvitesCardState extends State<_SplitInvitesCard> {
     if (_busy.contains(splitId)) return;
     setState(() => _busy.add(splitId));
     try {
-      await _service.respond(splitId: splitId, accept: accept);
+      // The last acceptance flips the intent to `ready` — settle inline so
+      // money never hangs waiting for someone to trigger it. Settlement is
+      // idempotent server-side, so a retry after a timeout is safe. The
+      // execution run is authorized by the settler's transaction PIN.
+      final ready = await _service.respond(splitId: splitId, accept: accept);
+      if (ready) {
+        if (!mounted) return;
+        final transactionPin = await TransactionPinPrompt.collectPin(
+          context,
+          uid: widget.userId,
+        );
+        if (transactionPin == null || transactionPin.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                    'Split is ready — settle it from your invites when ready.'),
+              ),
+            );
+          }
+          return;
+        }
+        await _service.settle(
+            splitId: splitId, transactionPin: transactionPin);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(accept
-              ? 'Share accepted. You will be charged when the split settles.'
+              ? (ready
+                  ? 'Split settled — every share moved.'
+                  : 'Share accepted. The split settles once everyone accepts.')
               : 'Split declined.'),
         ),
       );
@@ -367,36 +439,70 @@ class _SplitInvitesCardState extends State<_SplitInvitesCard> {
                 for (final inv in invites)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Your share: ${PaymentService.formatNaira(((inv['shareKobo'] as num?)?.toInt() ?? 0) / 100.0)}',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        TextButton(
-                          key: Key(
-                              'split_decline_${inv['splitId']}'),
-                          onPressed: _busy
-                                  .contains(inv['splitId'])
-                              ? null
-                              : () => _respond(
-                                  inv['splitId'] as String, false),
-                          child: const Text('Decline'),
-                        ),
-                        FilledButton(
-                          key: Key(
-                              'split_accept_${inv['splitId']}'),
-                          onPressed: _busy
-                                  .contains(inv['splitId'])
-                              ? null
-                              : () => _respond(
-                                  inv['splitId'] as String, true),
-                          child: const Text('Accept'),
-                        ),
-                      ],
+                    // LayoutBuilder stacks the actions below the amount on
+                    // narrow phones so the share text keeps word-wrap instead
+                    // of squeezing beside two buttons.
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final amount = Text(
+                          'Your share: ${PaymentService.formatNaira(((inv['shareKobo'] as num?)?.toInt() ?? 0) / 100.0)}',
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w600),
+                          softWrap: true,
+                        );
+                        final actions = Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton(
+                              key: Key(
+                                  'split_decline_${inv['splitId']}'),
+                              onPressed: _busy
+                                      .contains(inv['splitId'])
+                                  ? null
+                                  : () => _respond(
+                                      inv['splitId'] as String, false),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              child: const Text('Decline', softWrap: false),
+                            ),
+                            const SizedBox(width: 4),
+                            FilledButton(
+                              key: Key(
+                                  'split_accept_${inv['splitId']}'),
+                              onPressed: _busy
+                                      .contains(inv['splitId'])
+                                  ? null
+                                  : () => _respond(
+                                      inv['splitId'] as String, true),
+                              style: FilledButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              child: const Text('Accept', softWrap: false),
+                            ),
+                          ],
+                        );
+                        if (constraints.maxWidth < 380) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              amount,
+                              const SizedBox(height: 6),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: actions,
+                              ),
+                            ],
+                          );
+                        }
+                        return Row(
+                          children: [
+                            Expanded(child: amount),
+                            const SizedBox(width: 8),
+                            Flexible(child: actions),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 const Text(

@@ -100,6 +100,23 @@ class BankService {
     }
   }
 
+  /// Pre-loaded Nigerian bank catalogue (Access, First Bank, GTBank, Kuda,
+  /// Moniepoint, OPay, PalmPay, Stanbic, UBA, Wema, Zenith). Serves as instant
+  /// default and offline fallback.
+  static const List<BankInfo> defaultNigerianBanks = [
+    BankInfo(name: 'Access Bank', slug: 'access-bank', code: '044'),
+    BankInfo(name: 'First Bank of Nigeria', slug: 'first-bank-of-nigeria', code: '011'),
+    BankInfo(name: 'Guaranty Trust Bank (GTBank)', slug: 'guaranty-trust-bank', code: '058'),
+    BankInfo(name: 'Kuda Bank', slug: 'kuda-bank', code: '50211'),
+    BankInfo(name: 'Moniepoint MFB', slug: 'moniepoint-mfb', code: '50515'),
+    BankInfo(name: 'OPay', slug: 'opay', code: '999992'),
+    BankInfo(name: 'PalmPay', slug: 'palmpay', code: '999991'),
+    BankInfo(name: 'Stanbic IBTC Bank', slug: 'stanbic-ibtc-bank', code: '221'),
+    BankInfo(name: 'United Bank for Africa (UBA)', slug: 'united-bank-for-africa', code: '033'),
+    BankInfo(name: 'Wema Bank', slug: 'wema-bank', code: '035'),
+    BankInfo(name: 'Zenith Bank', slug: 'zenith-bank', code: '057'),
+  ];
+
   /// Cached bank list (10-minute in-memory TTL).
   static List<BankInfo>? _cache;
   static DateTime? _cacheAt;
@@ -112,7 +129,7 @@ class BankService {
       return _cache!;
     }
     final fn = _fn;
-    if (fn == null) return _cache ?? const [];
+    if (fn == null) return _cache ?? defaultNigerianBanks;
     try {
       final res = await fn.httpsCallable('paystackBanks').call({});
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -120,17 +137,20 @@ class BankService {
           .whereType<Map>()
           .map((m) => BankInfo.fromMap(Map<String, dynamic>.from(m)))
           .toList();
-      _cache = list;
-      _cacheAt = DateTime.now();
-      return list;
+      if (list.isNotEmpty) {
+        _cache = list;
+        _cacheAt = DateTime.now();
+        return list;
+      }
+      return _cache ?? defaultNigerianBanks;
     } catch (e) {
       debugPrint('BankService.fetchBanks: $e');
-      return _cache ?? const [];
+      return _cache ?? defaultNigerianBanks;
     }
   }
 
-  /// Real-time account-name lookup. Returns the account name, or null when
-  /// unresolvable. Never throws.
+  /// Real-time account-name lookup via verifyBankAccount / resolveBankAccount.
+  /// Returns the account name, or null when unresolvable. Never throws.
   Future<String?> resolveAccountName({
     required String bankCode,
     required String accountNumber,
@@ -139,12 +159,21 @@ class BankService {
     if (fn == null) return null;
     if (bankCode.isEmpty || accountNumber.length != 10) return null;
     try {
-      final res = await fn.httpsCallable('resolveBankAccount').call({
-        'bankCode': bankCode,
-        'accountNumber': accountNumber,
-      });
+      dynamic res;
+      try {
+        res = await fn.httpsCallable('verifyBankAccount').call({
+          'bankCode': bankCode,
+          'accountNumber': accountNumber,
+        });
+      } catch (_) {
+        res = await fn.httpsCallable('resolveBankAccount').call({
+          'bankCode': bankCode,
+          'accountNumber': accountNumber,
+        });
+      }
       final data = Map<String, dynamic>.from(res.data as Map);
-      final name = (data['accountName'] ?? '').toString();
+      final name =
+          (data['account_name'] ?? data['accountName'] ?? '').toString();
       return name.isEmpty ? null : name;
     } catch (e) {
       debugPrint('BankService.resolveAccountName: $e');

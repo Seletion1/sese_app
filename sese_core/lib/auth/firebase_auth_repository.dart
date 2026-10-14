@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'auth_repository.dart';
@@ -103,13 +106,50 @@ class FirebaseAuthRepository implements AuthRepository {
   }) async {
     final auth = _auth;
     if (auth == null) {
-      throw fb.FirebaseAuthException(code: 'firebase-uninitialized');
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized. Please restart the app.',
+      );
     }
-    final credential = await auth.signInWithEmailAndPassword(
-      email: email.trim(),
-      password: password,
-    );
-    return _fetchAppUser(credential.user!, selectedRole: selectedRole);
+    final trimmedEmail = email.trim();
+    if (trimmedEmail.isEmpty || password.isEmpty) {
+      throw fb.FirebaseAuthException(
+        code: 'invalid-credential',
+        message: 'Please provide both email and password.',
+      );
+    }
+    try {
+      final credential = await auth.signInWithEmailAndPassword(
+        email: trimmedEmail,
+        password: password,
+      );
+      final user = credential.user;
+      if (user == null) {
+        throw fb.FirebaseAuthException(
+          code: 'user-not-found',
+          message: 'Unable to retrieve user account after sign in.',
+        );
+      }
+      return await _fetchAppUser(user, selectedRole: selectedRole);
+    } on fb.FirebaseAuthException {
+      rethrow;
+    } on PlatformException catch (e) {
+      debugPrint(
+        'FirebaseAuthRepository.signInWithEmailPassword platform error: '
+        '${e.code} (${e.message})',
+      );
+      throw fb.FirebaseAuthException(
+        code: e.code.isNotEmpty ? e.code : 'channel-error',
+        message: e.message ?? 'Authentication channel error.',
+      );
+    } catch (e) {
+      debugPrint('FirebaseAuthRepository.signInWithEmailPassword unexpected error: $e');
+      if (e is fb.FirebaseAuthException) rethrow;
+      throw fb.FirebaseAuthException(
+        code: 'channel-error',
+        message: e.toString(),
+      );
+    }
   }
 
   @override
@@ -119,7 +159,16 @@ class FirebaseAuthRepository implements AuthRepository {
       throw fb.FirebaseAuthException(code: 'firebase-uninitialized');
     }
     final firebaseUser = await _authenticateWithGoogle(auth);
-    return _fetchAppUser(firebaseUser, selectedRole: selectedRole);
+    final appUser =
+        await _fetchAppUser(firebaseUser, selectedRole: selectedRole);
+    // Synchronize the OAuth provider record — customer/driver collections
+    // only (never mint a `users/{uid}` doc for hub staff from here).
+    if (appUser.role == UserRole.customer ||
+        appUser.role == UserRole.driver) {
+      // ignore: discarded_futures
+      _recordAuthProvider(firebaseUser.uid, appUser.role, 'google.com');
+    }
+    return appUser;
   }
 
   @override
@@ -185,6 +234,10 @@ class FirebaseAuthRepository implements AuthRepository {
       DriverVerification.fieldVehicleVerified: false,
       DriverVerification.fieldCanGoOnline: false,
     });
+    // Synchronize the OAuth provider record (profile fallback for later
+    // email/password linkage and cross-surface method display).
+    // ignore: discarded_futures
+    _recordAuthProvider(firebaseUser.uid, UserRole.driver, 'google.com');
     return appUser;
   }
 
@@ -267,6 +320,9 @@ class FirebaseAuthRepository implements AuthRepository {
           driverData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
         }
         await driverDocRef.set(driverData, SetOptions(merge: true));
+        // ignore: discarded_futures
+        _recordAuthProvider(
+            firebaseUser.uid, UserRole.driver, 'google.com');
         // Backfill deterministic referral code for Google driver sign-ups.
         await ensureReferralCode(
           collection: 'drivers',
@@ -315,6 +371,9 @@ class FirebaseAuthRepository implements AuthRepository {
           userData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
         }
         await userDocRef.set(userData, SetOptions(merge: true));
+        // ignore: discarded_futures
+        _recordAuthProvider(
+            firebaseUser.uid, UserRole.customer, 'google.com');
         // Backfill deterministic referral code for Google customer sign-ups.
         await ensureReferralCode(
           collection: 'users',
@@ -402,11 +461,14 @@ class FirebaseAuthRepository implements AuthRepository {
 
   /// Registration with optional referral attribution.
   ///
-  /// Generates the deterministic referral code
-  /// (`FirstInitial + LastInitial + last4(phone)`) and stores it at
-  /// `referralCode`. When [referredBy] is a valid referrer uid, also stores
-  /// `referredBy`, `referralSignupAt`, and mirrors the code into the public
-  /// `referral_codes/{CODE}` lookup (first-writer-wins).
+  /// Creates the Firebase Auth user and writes the initial profile document.
+  /// A referral code is **not** generated here; it is minted server-side by
+  /// `_generateAndSaveReferralCode` in `verification.ts` once an admin
+  /// approves the user's KYC. This prevents unverified users from having
+  /// shareable referral codes.
+  ///
+  /// [referredBy] is the referrer's uid or referral code and, when present,
+  /// is stored in the profile for downstream commission attribution.
   Future<AppUser> registerWithReferral({
     required String fullName,
     required String email,
@@ -420,13 +482,45 @@ class FirebaseAuthRepository implements AuthRepository {
     final auth = _auth;
     final firestore = _firestore;
     if (auth == null || firestore == null) {
-      throw fb.FirebaseAuthException(code: 'firebase-uninitialized');
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized. Please restart the app.',
+      );
     }
 
-    final credential = await auth.createUserWithEmailAndPassword(
-      email: email.trim(),
-      password: password,
-    );
+    final trimmedEmail = email.trim();
+    if (trimmedEmail.isEmpty || password.isEmpty) {
+      throw fb.FirebaseAuthException(
+        code: 'invalid-credential',
+        message: 'Please provide both email and password.',
+      );
+    }
+
+    final fb.UserCredential credential;
+    try {
+      credential = await auth.createUserWithEmailAndPassword(
+        email: trimmedEmail,
+        password: password,
+      );
+    } on fb.FirebaseAuthException {
+      rethrow;
+    } on PlatformException catch (e) {
+      debugPrint(
+        'FirebaseAuthRepository.registerWithReferral platform error: '
+        '${e.code} (${e.message})',
+      );
+      throw fb.FirebaseAuthException(
+        code: e.code.isNotEmpty ? e.code : 'channel-error',
+        message: e.message ?? 'Authentication channel error.',
+      );
+    } catch (e) {
+      debugPrint('FirebaseAuthRepository.registerWithReferral unexpected error: $e');
+      if (e is fb.FirebaseAuthException) rethrow;
+      throw fb.FirebaseAuthException(
+        code: 'channel-error',
+        message: e.toString(),
+      );
+    }
     final firebaseUser = credential.user!;
     await firebaseUser.updateDisplayName(fullName);
 
@@ -446,17 +540,12 @@ class FirebaseAuthRepository implements AuthRepository {
           isDriver ? DriverVerification.pendingOnboarding : '',
     );
 
-    // Deterministic referral code + optional attribution.
-    final referralCode = generateReferralCode(
-      fullName: fullName,
-      phoneNumber: phoneNumber,
-    );
-
     // Write profile document to the appropriate Firestore collection.
+    // referralCode is intentionally omitted — it will be written server-side
+    // by verification.ts once admin KYC approval is granted.
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
-        'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -476,24 +565,26 @@ class FirebaseAuthRepository implements AuthRepository {
           .doc(firebaseUser.uid)
           .set({
         ...appUser.toMap(),
-        'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
           'referralSignupAt': now.toIso8601String(),
       });
     }
-    await _mirrorReferralCode(
-        firestore, referralCode, firebaseUser.uid, isDriver);
 
     return appUser;
   }
 
   /// Ensures a deterministic referral code exists on a profile document.
   ///
-  /// Used by Google/Apple OAuth flows where no phone number may be present
-  /// at signup. Generates from [fullName]+[phoneNumber], writes it when
-  /// missing, and mirrors it into `referral_codes/{CODE}`.
+  /// @Deprecated Referral codes are now generated server-side by
+  /// `_generateAndSaveReferralCode` in `verification.ts` upon admin KYC
+  /// approval. This method is retained to avoid breaking any remaining call
+  /// sites during the transition and will be removed in a future cleanup.
+  @Deprecated(
+    'Referral codes are now minted server-side on admin KYC approval. '
+    'See _generateAndSaveReferralCode in functions/src/verification.ts.',
+  )
   Future<String?> ensureReferralCode({
     required String collection,
     required String uid,
@@ -512,6 +603,7 @@ class FirebaseAuthRepository implements AuthRepository {
       final code = generateReferralCode(
           fullName: name, phoneNumber: phoneNumber);
       await ref.set({'referralCode': code}, SetOptions(merge: true));
+      // ignore: deprecated_member_use_from_same_package
       await _mirrorReferralCode(firestore, code, uid, collection == 'drivers');
       return code;
     } catch (e) {
@@ -520,8 +612,16 @@ class FirebaseAuthRepository implements AuthRepository {
     }
   }
 
-  /// Mirrors the deterministic code into the public lookup collection
-  /// (first-writer-wins; collisions keep the earliest owner).
+  /// Mirrors a referral code into the `referral_codes/{code}` lookup index
+  /// using first-writer-wins semantics.
+  ///
+  /// @Deprecated The mirror write is now performed atomically server-side by
+  /// `_generateAndSaveReferralCode` in `verification.ts`. This method is
+  /// retained only to support the deprecated [ensureReferralCode] above.
+  @Deprecated(
+    'Use the server-side _generateAndSaveReferralCode in verification.ts '
+    'instead of writing referral_codes from the client.',
+  )
   Future<void> _mirrorReferralCode(
     FirebaseFirestore firestore,
     String code,
@@ -540,6 +640,127 @@ class FirebaseAuthRepository implements AuthRepository {
       }
     } catch (e) {
       debugPrint('referral code mirror skipped: $e');
+    }
+  }
+
+  @override
+  Future<List<String>> authProviders() async {
+    final user = _auth?.currentUser;
+    if (user == null) return const [];
+    try {
+      await user.reload();
+    } catch (_) {
+      // Fall through to the cached provider list.
+    }
+    try {
+      final fresh = _auth?.currentUser ?? user;
+      return fresh.providerData.map((p) => p.providerId).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> setAccountPassword({
+    String? currentPassword,
+    required String newPassword,
+    UserRole? role,
+  }) async {
+    final auth = _auth;
+    if (auth == null) {
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized. Please restart the app.',
+      );
+    }
+    // Non-nullable local: inferred from the checked value, so every use
+    // below is statically safe even across the reload reassignment.
+    final initialUser = auth.currentUser;
+    if (initialUser == null) {
+      throw fb.FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No active session found. Please sign in again.',
+      );
+    }
+    var fbUser = initialUser;
+    try {
+      // Reload for fresh provider data (link state may have changed).
+      await fbUser.reload();
+      final fresh = auth.currentUser;
+      if (fresh != null) fbUser = fresh;
+    } catch (_) {
+      // Fall through with the cached user.
+    }
+    // Email is trimmed (identifiers normalize); passwords are VERBATIM on
+    // every path — trimming here while sign-in compares raw would mint a
+    // set-then-mismatch failure on stray whitespace.
+    final email = (fbUser.email ?? '').trim();
+    if (email.isEmpty) {
+      throw fb.FirebaseAuthException(
+        code: 'no-email',
+        message: 'An email address is required to set an account password.',
+      );
+    }
+    final hasPasswordProvider =
+        fbUser.providerData.any((p) => p.providerId == 'password');
+    try {
+      if (hasPasswordProvider) {
+        if (currentPassword == null || currentPassword.isEmpty) {
+          throw fb.FirebaseAuthException(
+            code: 'reauth-required',
+            message: 'Please enter your current account password.',
+          );
+        }
+        await fbUser.reauthenticateWithCredential(
+          fb.EmailAuthProvider.credential(
+              email: email, password: currentPassword),
+        );
+        await fbUser.updatePassword(newPassword);
+      } else {
+        // OAuth/phone user: link the email/password credential so both
+        // methods sign into the SAME uid going forward.
+        final cred = fb.EmailAuthProvider.credential(
+            email: email, password: newPassword);
+        try {
+          await fbUser.linkWithCredential(cred);
+        } on fb.FirebaseAuthException catch (linkErr) {
+          if (linkErr.code == 'provider-already-linked') {
+            await fbUser.updatePassword(newPassword);
+          } else {
+            rethrow;
+          }
+        }
+      }
+    } on fb.FirebaseAuthException {
+      rethrow;
+    } on PlatformException catch (e) {
+      throw fb.FirebaseAuthException(
+        code: e.code.isNotEmpty ? e.code : 'channel-error',
+        message: e.message ?? 'Authentication channel error.',
+      );
+    }
+    // Synchronize the provider record so every surface (ride customer /
+    // driver, hub) can see which sign-in methods this account supports.
+    await _recordAuthProvider(fbUser.uid, role, 'password');
+  }
+
+  /// Best-effort union of [providerId] into the profile's `authProviders`
+  /// array (`drivers/{uid}` for drivers, `users/{uid}` otherwise). Never
+  /// throws — provider bookkeeping must never fail a sign-in or update.
+  Future<void> _recordAuthProvider(
+    String uid,
+    UserRole? role,
+    String providerId,
+  ) async {
+    final firestore = _firestore;
+    if (firestore == null || uid.isEmpty) return;
+    try {
+      final collection = role == UserRole.driver ? 'drivers' : 'users';
+      await firestore.collection(collection).doc(uid).set({
+        'authProviders': FieldValue.arrayUnion([providerId]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('FirebaseAuthRepository._recordAuthProvider error: $e');
     }
   }
 
@@ -609,15 +830,29 @@ class FirebaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOut() async {
+    // Each step is time-boxed: a hung GoogleSignIn plugin call must never
+    // wedge sign-out (an `await` that never completes leaves the user
+    // stranded on the signed-in UI with zero feedback). Firebase sign-out
+    // always runs, even if the Google step stalls or throws.
     if (!kIsWeb) {
       try {
-        await _googleSignIn.signOut();
+        await _googleSignIn
+            .signOut()
+            .timeout(const Duration(seconds: 8), onTimeout: () {
+          debugPrint(
+              'FirebaseAuthRepository.signOut: googleSignIn timed out.');
+          return null;
+        });
       } catch (e) {
         debugPrint('FirebaseAuthRepository.signOut: googleSignIn signOut error: $e');
       }
     }
     try {
-      await _auth?.signOut();
+      await _auth
+          ?.signOut()
+          .timeout(const Duration(seconds: 10), onTimeout: () {
+        debugPrint('FirebaseAuthRepository.signOut: firebase timed out.');
+      });
     } catch (e) {
       debugPrint('FirebaseAuthRepository.signOut: firebase signOut error: $e');
     }

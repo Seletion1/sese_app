@@ -132,11 +132,14 @@ class WithdrawalService {
   /// (insufficient balance, name mismatch, unverified account). The server
   /// re-verifies the account name against the profile; the client's own
   /// comparison is advisory only.
+  /// [transactionPin] is verified server-side before any movement — the
+  /// prompt sheet collects it, this transport only carries it.
   Future<PayoutRequest> requestWithdrawal({
     required String uid,
     required int amountKobo,
     required String bankCode,
     required String accountNumber,
+    required String transactionPin,
   }) async {
     final fn = _fn;
     if (fn == null) {
@@ -150,6 +153,7 @@ class WithdrawalService {
         'amountKobo': amountKobo,
         'bankCode': bankCode,
         'accountNumber': accountNumber,
+        'transactionPin': transactionPin,
       });
       final data = Map<String, dynamic>.from(res.data as Map);
       return PayoutRequest.fromMap(

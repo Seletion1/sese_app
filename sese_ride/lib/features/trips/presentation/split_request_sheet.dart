@@ -5,10 +5,11 @@ import 'package:sese_core/sese_core.dart';
 /// Split-payment request sheet (trip customer only).
 ///
 /// Collects 1–5 co-payer phone numbers and creates the split intent. The
-/// server resolves each number, computes equal shares (the requester absorbs
-/// rounding dust), and notifies every co-payer. Accepting records consent
-/// only — settlement is a separate, not-yet-built step, and this sheet says
-/// so rather than implying anyone is charged here.
+/// server resolves each number (registered, KYC-verified accounts only),
+/// computes equal shares that sum exactly to the fare (the requester absorbs
+/// rounding dust), and notifies every co-payer with an authenticated prompt.
+/// Money moves only after EVERYONE accepts, atomically server-side — and a
+/// decline anywhere leaves the full fare with the requester.
 class SplitRequestSheet extends StatefulWidget {
   final String tripId;
 
@@ -93,10 +94,11 @@ class _SplitRequestSheetState extends State<SplitRequestSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // 16px gutters so inputs + the request bar span edge-to-edge.
     return Padding(
       padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
+        left: 16,
+        right: 16,
         top: 4,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
@@ -122,9 +124,10 @@ class _SplitRequestSheetState extends State<SplitRequestSheet> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Invite up to 5 friends to share this fare equally. Everyone '
-                'gets an in-app prompt; the split is ready once all accept. '
-                'No one is charged yet.',
+                'Invite up to 5 verified SeSe users to share this fare '
+                'equally. Everyone gets an authenticated prompt; shares '
+                'move only after all accept — a decline leaves the full '
+                'fare with you.',
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 16),

@@ -31,6 +31,7 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
   bool _verifying = false;
   bool _webViewFailed = false;
   String? _error;
+  String? _webViewErrorDetails;
 
   @override
   void initState() {
@@ -45,9 +46,18 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
           onPageFinished: (_) {
             if (mounted) setState(() => _loadingPage = false);
           },
-          onWebResourceError: (_) {
-            if (mounted && !_verifying) {
-              setState(() => _webViewFailed = true);
+          onWebResourceError: (err) {
+            debugPrint(
+                'PaystackCheckout: web resource error '
+                'code=${err.errorCode} type=${err.errorType} '
+                'url=${err.url} desc=${err.description}');
+            if (mounted && !_verifying && err.isForMainFrame == true) {
+              setState(() {
+                _webViewFailed = true;
+                _webViewErrorDetails = err.description.isNotEmpty
+                    ? err.description
+                    : 'Page failed to load (code ${err.errorCode}).';
+              });
             }
           },
           onNavigationRequest: (request) {
@@ -107,6 +117,26 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
     Navigator.of(context).pop(false);
   }
 
+  Future<void> _retry() async {
+    if (!mounted) return;
+    setState(() {
+      _webViewFailed = false;
+      _webViewErrorDetails = null;
+      _loadingPage = true;
+    });
+    try {
+      await _controller.loadRequest(Uri.parse(widget.auth.authorizationUrl));
+    } catch (e) {
+      debugPrint('PaystackCheckout: reload failed: $e');
+      if (mounted) {
+        setState(() {
+          _webViewFailed = true;
+          _webViewErrorDetails = 'Could not load the checkout page.';
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,6 +166,46 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
                     Text('Verifying payment…',
                         style: TextStyle(color: Colors.white)),
                   ],
+                ),
+              ),
+            ),
+          if (_webViewFailed && !_verifying)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 24,
+              child: Material(
+                color: Colors.red.shade700,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _webViewErrorDetails ??
+                            'Checkout page failed to load.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: _retry,
+                            child: const Text('Retry',
+                                style: TextStyle(color: Colors.white)),
+                          ),
+                          TextButton(
+                            onPressed: _openInBrowser,
+                            child: const Text('Open in Browser',
+                                style: TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

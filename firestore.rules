@@ -466,6 +466,21 @@ service cloud.firestore {
       }
     }
 
+    // ===== CANCELLATION AUDITS (immutable, server-written) ─────────────
+    // Every `cancelTrip` commits one row (timestamp, actor, role, reason,
+    // trip id). Clients can never write — the callable uses the Admin SDK,
+    // which bypasses rules — so the trail cannot be forged or scrubbed.
+    // Owners read their own rows (rate-limit transparency); hub/admin read
+    // everything for abuse review.
+    match /cancellation_audits/{auditId} {
+      allow read: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        isAgent() || isHubStaff() || isAdminAuthClaim() ||
+        isOperationsAdmin()
+      );
+      allow write: if false;
+    }
+
     // ===== DRIVERS — onboarding owner write + admin queue read + admin approve =====
     match /drivers/{userId} {
       // Driver can read and write their own document
@@ -599,6 +614,51 @@ service cloud.firestore {
         allow create: if isAuthenticated() && isNotSuspended();
         allow update, delete: if isSuperAdmin();
       }
+
+      // Recent address cache: `users/{userId}/recent_locations/{placeId}`.
+      // Owner-only read/write. Shape-validated so a hostile client cannot
+      // stuff oversized or unshaped docs into another user's backup (it is
+      // still their own subtree, but the backup is re-merged into local
+      // caches, so garbage here would poison the search UX).
+      match /recent_locations/{placeId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create, update: if request.auth != null &&
+          request.auth.uid == userId &&
+          request.resource.data.placeId is string &&
+          request.resource.data.placeId.size() > 0 &&
+          request.resource.data.placeId.size() < 200 &&
+          request.resource.data.formattedAddress is string &&
+          request.resource.data.formattedAddress.size() < 500 &&
+          request.resource.data.lat is number &&
+          request.resource.data.lng is number &&
+          request.resource.data.lastUsedMs is number;
+        allow delete: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Per-user notification inbox (`users/{userId}/notifications/{id}`).
+      // Written exclusively by backend Cloud Functions (Admin SDK bypasses
+      // rules): `sendTargetedBroadcast`, support escalations, trip alerts.
+      // The owner may READ their inbox and flip `isRead` — and nothing else:
+      // the update is shape-locked so history cannot be rewritten,
+      // re-targeted, or escalated from the client.
+      match /notifications/{notificationId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow update: if request.auth != null && request.auth.uid == userId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']) &&
+          request.resource.data.isRead is bool;
+        allow create, delete: if false;
+      }
+
+      // Transaction-PIN vault (`users/{userId}/private/auth`).
+      // Holds ONLY the salted PIN hash — never plaintext. The owner may
+      // READ (so the app knows setup-vs-verify mode) but never write;
+      // hub staff/admins are deliberately excluded (they read the parent
+      // user doc, never the vault). All writes go through the
+      // set/verifyTransactionPin callables (Admin SDK bypasses rules).
+      match /private/auth {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
     }
 
     // Hub staff qualification records. The primary owner is the only account
@@ -617,6 +677,15 @@ service cloud.firestore {
     // Rider accessibility preferences are private to the authenticated rider.
     match /rider_accessibility_settings/{userId} {
       allow read, write: if isOwner(userId);
+    }
+
+    // Broadcast audit log (`broadcasts/{broadcastId}`) written by
+    // `sendTargetedBroadcast` (title/body/audience/stats/sender). Readable
+    // by Super Admins and hub staff for console history; client writes are
+    // never allowed (Admin SDK only).
+    match /broadcasts/{broadcastId} {
+      allow read: if isSuperAdmin() || isHubStaff();
+      allow create, update, delete: if false;
     }
 
     // Profile-photo submissions are immutable audit records. Users may submit
@@ -643,6 +712,16 @@ service cloud.firestore {
     match /system/runtime_configs {
       allow read: if true;
       allow write: if false;
+    }
+
+    // Public-facing configuration documents (legal terms, app policies, etc.).
+    // Any authenticated user may read; only Super Admins may write.
+    // LegalConsentService reads app_config/legal_terms on startup; denying this
+    // generates noisy PERMISSION_DENIED errors even though the service falls back
+    // gracefully — granting read here silences the error for real.
+    match /app_config/{docId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isSuperAdmin();
     }
 
     // Client-safe dynamic pricing, vehicle eligibility, and reward configuration.
@@ -1105,6 +1184,18 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // ===== REFERRAL CODE LOOKUP INDEX =====
+    // `referral_codes/{CODE}`: public lookup index keyed by the referral code
+    // string (e.g. "MB1592"). Documents contain {referrerId, collection,
+    // createdAt}. Written exclusively by the Cloud Functions Admin SDK
+    // (_generateAndSaveReferralCode in verification.ts), which bypasses rules
+    // entirely. Any authenticated user may read so that the onboarding
+    // ReferralInputWidget can validate a code before signup completes.
+    match /referral_codes/{code} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
     // PROMPT 18: server-only, append-only ledger for expired referral
     // commissions (REFERRAL_COMMISSION_EXPIRED). Written exclusively by the
     // Cloud Functions admin SDK, which bypasses rules; clients can never forge
@@ -1140,7 +1231,8 @@ service cloud.firestore {
     function isPublicSystemConfig(docId) {
       return docId in ['config', 'payments', 'gateways', 'delivery_modes',
         'referral_settings', 'referral_rates', 'dispatch_settings',
-        'ride_split', 'wallet_rules', 'kyc_rules', 'dispatch_rules'];
+        'ride_split', 'wallet_rules', 'kyc_rules', 'dispatch_rules',
+        'remote_keys', 'exchange_rates'];
     }
     match /system_config/{docId} {
       allow read: if isAuthenticated() && isPublicSystemConfig(docId);
@@ -1306,11 +1398,15 @@ service cloud.firestore {
         request.resource.data.userId == request.auth.uid;
     }
 
-    // `wallets/{walletId}`: users own their wallet and may read it. All
-    // balance mutations happen server-side in Cloud Functions (admin SDK),
-    // which bypasses rules — so clients get read + owner-initiated create only.
+    // `wallets/{walletId}`: users own their wallet and may read it. Hub
+    // staff and admins may also read wallets and transaction history to support
+    // operations and payout processing. All balance mutations happen
+    // server-side in Cloud Functions (admin SDK), which bypasses rules —
+    // so clients get read + owner-initiated zero-balance create only.
     match /wallets/{walletId} {
-      allow read: if isAuthenticated() && isOwner(walletId);
+      allow read: if isAuthenticated() && (
+        isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
+      );
       allow create: if isAuthenticated() && isOwner(walletId) &&
         isNotSuspended() && isZeroBalanceWalletCreate();
       allow update: if false;
@@ -1318,9 +1414,11 @@ service cloud.firestore {
 
       // Per-wallet transaction history (top-ups, streak bonuses, payouts).
       // Written exclusively server-side via the Admin SDK (Paystack
-      // settlement, streak engine); the owner may only read their own.
+      // settlement, streak engine); the owner and Hub staff/admins may read.
       match /transactions/{txId} {
-        allow read: if isAuthenticated() && isOwner(walletId);
+        allow read: if isAuthenticated() && (
+          isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
+        );
         allow create, update, delete: if false;
       }
     }
@@ -1623,6 +1721,16 @@ service cloud.firestore {
     match /driver_streaks/{driverId} {
       allow read: if isAuthenticated() && isNotSuspended() &&
         (isOwner(driverId) || isSuperAdmin());
+      allow create, update, delete: if false;
+    }
+
+    // Dynamic Streak & Reward Overrides progress — tracks completed cycle trips
+    // and awarded tier/grand bonuses for drivers and customers. Read access is
+    // restricted to the owning user or Super Admin; all mutations are executed
+    // strictly server-side by backend triggers via the Admin SDK.
+    match /user_reward_progress/{progressId} {
+      allow read: if isAuthenticated() && isNotSuspended() &&
+        (resource.data.userId == request.auth.uid || isSuperAdmin());
       allow create, update, delete: if false;
     }
 

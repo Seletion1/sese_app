@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 import '../driver/presentation/driver_dashboard_screen.dart';
 import '../driver/presentation/driver_profile_screen.dart';
 import '../driver/services/driver_fleet_service.dart';
-import '../home/customer_home_shell.dart';
-import '../settings/role_controller.dart';
 import '../settings/screens/settings_screen.dart';
+import '../referral/referral_hub_screen.dart';
 import '../support/support_chat_screen.dart';
 import '../wallet/earnings_screen.dart';
 import '../wallet/wallet_screen.dart';
@@ -38,7 +38,6 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
   DateTime? _lastBackPressTime;
 
   static const Color _selectedColor = AppColors.seseGold;
-  static const Color _unselectedColor = Color(0xFF757575);
 
   @override
   void initState() {
@@ -47,6 +46,22 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
     // topic is additionally subscribed on go-online (dashboard).
     // ignore: discarded_futures
     PushNotificationService.subscribe('user_${widget.user.uid}');
+    // Device token for targeted broadcasts (admin inbox + urgent alerts).
+    // ignore: discarded_futures
+    PushNotificationService.registerToken(
+      uid: widget.user.uid,
+      isDriver: true,
+      country: CountryDetectionService.instance.currentCountryCode,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        MandatoryLegalAcceptanceDialog.checkAndShow(
+          context,
+          userId: widget.user.uid,
+          userRole: 'driver',
+        );
+      }
+    });
   }
 
   @override
@@ -88,8 +103,12 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
       return;
     }
 
-    // Second press within 2s window: pop and exit app
-    Navigator.of(context).pop();
+    // Second press within 2s window: exit app cleanly without popping root route
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    } else {
+      SystemNavigator.pop();
+    }
   }
 
   @override
@@ -118,7 +137,7 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                       fleetService: DriverFleetService(),
                       user: widget.user,
                       driverId: widget.user.uid,
-                      onSignOut: () => widget.auth.signOut(),
+                      onSignOut: () async => widget.auth.signOut(),
                     ),
                     const _TripsTab(),
                     _HelpTab(user: widget.user),
@@ -128,70 +147,82 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
             ],
           ),
         ),
-      // Full-screen menu hub: hide the bottom bar while the Menu view
-      // (index 0) is active; every menu tile routes to another tab, which
-      // restores the bar.
-      bottomNavigationBar: _currentIndex == 0 ? null : Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          boxShadow: [
-            BoxShadow(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.black54
-                  : Colors.black.withValues(alpha: 0.08),
-              blurRadius: 8,
-              offset: const Offset(0, -2),
-            ),
-          ],
+        // Full-screen menu hub: hide the bottom bar while the Menu view
+        // (index 0) is active; every menu tile routes to another tab, which
+        // restores the bar.
+        bottomNavigationBar: _currentIndex == 0 ? null : Builder(
+          builder: (context) {
+            // Single source of truth is AppTheme.bottomNavigationBarTheme
+            // (light/dark variants follow Theme brightness). The shell only
+            // reads it — never hardcodes bar colors — so the bar can never
+            // get stuck dark in light mode (or vice versa) again.
+            final barTheme = Theme.of(context).bottomNavigationBarTheme;
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            final barBg =
+                barTheme.backgroundColor ?? Theme.of(context).cardColor;
+            return Container(
+              decoration: BoxDecoration(
+                color: barBg,
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark ? Colors.black54 : Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              child: BottomNavigationBar(
+                type: barTheme.type ?? BottomNavigationBarType.fixed,
+                currentIndex: _currentIndex,
+                onTap: _onTabTapped,
+                selectedItemColor:
+                    barTheme.selectedItemColor ?? _selectedColor,
+                unselectedItemColor: barTheme.unselectedItemColor,
+                backgroundColor: barBg,
+                elevation: 0,
+                selectedFontSize: 12,
+                unselectedFontSize: 12,
+                items: const [
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.menu),
+                    activeIcon: Icon(Icons.menu),
+                    label: 'Menu',
+                    tooltip: 'Menu',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    activeIcon: Icon(Icons.account_balance_wallet),
+                    label: 'Earnings',
+                    tooltip: 'Earnings',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.home_outlined),
+                    activeIcon: Icon(Icons.home_rounded),
+                    label: 'Home',
+                    tooltip: 'Home',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.history),
+                    activeIcon: Icon(Icons.history),
+                    label: 'Trips',
+                    tooltip: 'Trips',
+                  ),
+                  BottomNavigationBarItem(
+                    icon: Icon(Icons.help_outline),
+                    activeIcon: Icon(Icons.support_agent),
+                    label: 'Help',
+                    tooltip: 'Help',
+                  ),
+                ],
+              ),
+            );
+          },
         ),
-        child: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          currentIndex: _currentIndex,
-          onTap: _onTabTapped,
-          selectedItemColor: _selectedColor,
-          unselectedItemColor: _unselectedColor,
-          backgroundColor: Theme.of(context).cardColor,
-          elevation: 0,
-          selectedFontSize: 12,
-          unselectedFontSize: 12,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.menu),
-              activeIcon: Icon(Icons.menu),
-              label: 'Menu',
-              tooltip: 'Menu',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              activeIcon: Icon(Icons.account_balance_wallet),
-              label: 'Earnings',
-              tooltip: 'Earnings',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.home_outlined),
-              activeIcon: Icon(Icons.home_rounded),
-              label: 'Home',
-              tooltip: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              activeIcon: Icon(Icons.history),
-              label: 'Trips',
-              tooltip: 'Trips',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.help_outline),
-              activeIcon: Icon(Icons.support_agent),
-              label: 'Help',
-              tooltip: 'Help',
-            ),
-          ],
-        ),
-      ),
       ),
     );
   }
 }
+
 
 
 /// Menu / drawer tab: account actions and navigation shortcuts.
@@ -212,49 +243,33 @@ class _MenuTab extends StatelessWidget {
     required this.onGoHelp,
   });
 
-  Future<void> _handleSwitchToCustomer(BuildContext context) async {
-    final hasActiveTrip =
-        await RoleController.instance.checkDriverHasActiveTrip(user.uid);
-    if (!context.mounted) return;
-
-    RoleController.instance.setCurrentRole(UserRole.customer);
-
-    if (hasActiveTrip) {
-      RoleController.instance.startActiveTripCountdown(
-        onExpired: () {
-          debugPrint('Active trip protection timer expired: auto-switching to Driver Mode');
-          RoleController.instance.setCurrentRole(UserRole.driver);
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(
-              builder: (_) => DriverHomeShell(user: user, auth: auth),
-            ),
-            (route) => false,
-          );
-        },
-      );
-    } else {
-      RoleController.instance.cancelActiveTripCountdown();
-    }
-
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => CustomerHomeShell(user: user, auth: auth),
-      ),
-      (route) => false,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // Strict menu order (top → bottom): Profile header, Wallet, Earnings,
-    // Trips History, Support, Settings (#6), Switch mode (#7, very bottom).
-    // Go Online lives on the Home tab; Fleet, Theme, Sign Out, and Delete
-    // Account live in Settings — the menu stays a launcher, not a junk drawer.
+    // Trips History, Support, Settings (#6, very bottom).
+    // Go Online lives on the Home tab; Fleet, Theme, App Mode switching,
+    // Sign Out, and Delete Account live in Settings — the menu stays a
+    // launcher, not a junk drawer.
+    //
+    // The Menu tab hides the shell bottom bar (index 0 → null), so the list
+    // owns the full viewport: always-scrollable physics plus bottom padding
+    // that includes the system gesture inset, keeping the last tile clear
+    // of the edge on tall and short screens alike.
     return Scaffold(
-      appBar: AppBar(title: const Text('Menu')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      appBar: const SeseAppBar(title: 'Menu'),
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: EdgeInsets.fromLTRB(
+            16,
+            12,
+            16,
+            32 + MediaQuery.viewPaddingOf(context).bottom,
+          ),
+          children: [
           Builder(
             builder: (cardContext) => Card(
               child: InkWell(
@@ -280,90 +295,74 @@ class _MenuTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Builder(
-            builder: (tileContext) => ListTile(
-              key: const Key('menu_wallet_tile'),
-              leading: const Icon(Icons.account_balance_wallet_outlined,
-                  color: AppColors.seseGold),
-              title: const Text('Wallet'),
-              subtitle: const Text(
-                  'Manage funds, top up, request payouts, and view '
-                  'transaction history'),
-              trailing: const Icon(Icons.chevron_right,
-                  color: AppColors.seseGold),
-              onTap: () => Navigator.of(tileContext).push(
-                MaterialPageRoute(
-                  builder: (_) => WalletScreen(user: user),
-                ),
-              ),
-            ),
-          ),
-          Builder(
-            builder: (tileContext) => ListTile(
-              key: const Key('menu_earnings_tile'),
-              leading: const Icon(Icons.bar_chart_outlined,
-                  color: AppColors.seseGold),
-              title: const Text('Earnings'),
-              subtitle: const Text(
-                  'View daily, weekly, and monthly trip earnings and '
-                  'streak progress'),
-              trailing: const Icon(Icons.chevron_right,
-                  color: AppColors.seseGold),
-              onTap: () => Navigator.of(tileContext).push(
-                MaterialPageRoute(
-                  builder: (_) => EarningsScreen(user: user),
-                ),
-              ),
-            ),
-          ),
-          ListTile(
-            key: const Key('menu_trips_history_tile'),
-            leading:
-                const Icon(Icons.history, color: AppColors.seseGold),
-            title: const Text('Trips History'),
-            subtitle: const Text('Active trips and ride history'),
-            trailing: const Icon(Icons.chevron_right,
+          SettingsTile(
+            tileKey: const Key('menu_wallet_tile'),
+            leading: const Icon(Icons.account_balance_wallet_outlined,
                 color: AppColors.seseGold),
+            title: 'Wallet',
+            infoDescription:
+                'Manage funds, top up, request payouts, and view transaction history.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => WalletScreen(user: user)),
+            ),
+          ),
+          SettingsTile(
+            tileKey: const Key('menu_earnings_tile'),
+            leading: const Icon(Icons.bar_chart_outlined,
+                color: AppColors.seseGold),
+            title: 'Earnings',
+            infoDescription:
+                'View daily, weekly, and monthly trip earnings and streak progress.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => EarningsScreen(user: user)),
+            ),
+          ),
+          SettingsTile(
+            tileKey: const Key('menu_referral_tile'),
+            leading: const Icon(Icons.card_giftcard_outlined,
+                color: AppColors.seseGold),
+            title: 'Refer & Earn',
+            infoDescription:
+                'Invite friends & drivers to earn lifetime bonus coins.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ReferralHubScreen(user: user),
+            )),
+          ),
+          SettingsTile(
+            tileKey: const Key('menu_trips_history_tile'),
+            leading: const Icon(Icons.history, color: AppColors.seseGold),
+            title: 'Trips History',
+            infoDescription: 'Active trips and ride history.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: onGoTrips,
           ),
-          ListTile(
-            key: const Key('menu_support_tile'),
-            leading:
-                const Icon(Icons.help_outline, color: AppColors.seseGold),
-            title: const Text('Support'),
-            subtitle: const Text('24/7 driver support and FAQs'),
-            trailing: const Icon(Icons.chevron_right,
-                color: AppColors.seseGold),
+          SettingsTile(
+            tileKey: const Key('menu_support_tile'),
+            leading: const Icon(Icons.help_outline, color: AppColors.seseGold),
+            title: 'Support',
+            infoDescription: '24/7 driver support, safety assistance, and FAQs.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: onGoHelp,
           ),
-          ListTile(
-            key: const Key('menu_settings_tile'),
-            leading:
-                const Icon(Icons.settings_outlined, color: AppColors.seseGold),
-            title: const Text('Settings'),
-            subtitle: const Text('Fleet, sound, theme, privacy, account'),
-            trailing: const Icon(Icons.chevron_right,
-                color: AppColors.seseGold),
+          SettingsTile(
+            tileKey: const Key('menu_settings_tile'),
+            leading: const Icon(Icons.settings_outlined, color: AppColors.seseGold),
+            title: 'Settings',
+            infoDescription:
+                'Manage vehicles & fleet, order sound, theme, phone privacy, and account.',
+            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => SettingsScreen(
-                  user: user,
-                  auth: auth,
-                  isDriver: true,
-                ),
+                builder: (_) => SettingsScreen(user: user, auth: auth, isDriver: true),
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          ListTile(
-            key: const Key('menu_switch_mode_tile'),
-            leading: const Icon(Icons.swap_horiz, color: AppColors.seseGold),
-            title: const Text('Switch to Customer Mode'),
-            subtitle: const Text('Book rides & deliveries as a customer'),
-            trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
-            onTap: () => _handleSwitchToCustomer(context),
-          ),
+          const SizedBox(height: 16),
         ],
+        ),
       ),
     );
   }
@@ -376,23 +375,33 @@ class _TripsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Trips')),
+      appBar: const SeseAppBar(title: 'Trips'),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const [
+        children: [
           Card(
             child: ListTile(
-              leading: Icon(Icons.directions_car_outlined),
-              title: Text('Active trips'),
-              subtitle: Text('No active trips. Go online to receive offers.'),
+              leading: const Icon(Icons.directions_car_outlined,
+                  color: AppColors.seseGold),
+              title: const Text('Active trips',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                'No active trips. Go online to receive offers.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 12),
           Card(
             child: ListTile(
-              leading: Icon(Icons.history),
-              title: Text('Ride history'),
-              subtitle: Text('Completed trips will appear here.'),
+              leading: const Icon(Icons.history_rounded,
+                  color: AppColors.seseGold),
+              title: const Text('Ride history',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                'Completed trips will appear here.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           ),
         ],
@@ -410,18 +419,21 @@ class _HelpTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Help')),
+      appBar: const SeseAppBar(title: 'Help'),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
             child: ListTile(
               key: const Key('contact_driver_support_tile'),
-              leading: const Icon(Icons.support_agent,
+              leading: const Icon(Icons.support_agent_rounded,
                   color: AppColors.seseGold),
-              title: const Text('Contact Driver Support'),
-              subtitle:
-                  const Text('24/7 in-app AI support for drivers'),
+              title: const Text('Contact Driver Support',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                '24/7 in-app AI support for drivers',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               trailing: const Icon(Icons.chevron_right,
                   color: AppColors.seseGold),
               onTap: () => Navigator.of(context).push(
@@ -434,32 +446,42 @@ class _HelpTab extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          ExpansionTile(
-            leading: Icon(Icons.help_outline),
-            title: Text('How do I go online?'),
-            children: [
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Register a vehicle in Manage Fleet, wait for admin '
-                  'verification, then tap Go Online on the Home tab.',
+          const SizedBox(height: 16),
+          Card(
+            child: Column(
+              children: const [
+                ExpansionTile(
+                  leading: Icon(Icons.help_outline_rounded,
+                      color: AppColors.seseGold),
+                  title: Text('How do I go online?',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Text(
+                        'Register a vehicle in Manage Fleet, wait for admin '
+                        'verification, then tap Go Online on the Home tab.',
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          ExpansionTile(
-            leading: Icon(Icons.help_outline),
-            title: Text('When do I get paid?'),
-            children: [
-              Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Payouts settle to your wallet after each completed trip. '
-                  'See the Earnings tab for details.',
+                ExpansionTile(
+                  leading: Icon(Icons.account_balance_wallet_outlined,
+                      color: AppColors.seseGold),
+                  title: Text('When do I get paid?',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Text(
+                        'Payouts settle to your wallet after each completed trip. '
+                        'See the Earnings tab for details.',
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

@@ -1,11 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../services/driver_fleet_service.dart';
-import '../../services/vehicle_catalog.dart';
 import 'photo_guide_modal.dart';
 
 /// Per-slot upload state for one required document/inspection slot.
@@ -187,12 +185,19 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       ),
     );
     if (source == null || !mounted) return;
+    // Runtime permission handshake BEFORE the native picker (applies to
+    // the test seam too — the service is a no-op without a plugin).
+    final permission = await MediaPermissionService.ensureFor(source);
+    if (!mounted) return;
+    if (permission != MediaPermissionOutcome.granted) {
+      await MediaPermissionService.promptIfPermanentlyDenied(context);
+      return;
+    }
     final up = _uploads.putIfAbsent(slot.key, () => _SlotUpload());
     try {
       final file = await (widget.pickImage != null
           ? widget.pickImage!(source: source)
-          : ImagePicker().pickImage(
-              source: source, maxWidth: 1600, imageQuality: 85));
+          : ImageCompressionService.pickAndCompressImage(source: source));
       if (file == null || !mounted) return;
       setState(() {
         up.localPath = file.path;

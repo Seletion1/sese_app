@@ -3,6 +3,10 @@ import 'package:sese_core/sese_core.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/top_up_sheet.dart';
+import 'p2p_transfer_sheet.dart';
+import 'withdrawal_sheet.dart';
+
+import 'sese_coin_header.dart';
 
 /// Wallet & Payments for every user (customers and drivers): live balance,
 /// Paystack top-up, and transaction history.
@@ -35,12 +39,56 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
     }
   }
 
+  int _currentBalanceKobo = 0;
+
+  Future<void> _withdraw() async {
+    if (_currentBalanceKobo <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Insufficient balance for withdrawal.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+    final request = await WithdrawalSheet.show(
+      context,
+      user: widget.user,
+    );
+    if (request == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          request.isCompleted
+              ? '${PaymentService.formatNaira(request.amountKobo / 100.0)} sent to ${request.accountName}.'
+              : 'Withdrawal requested for ${PaymentService.formatNaira(request.amountKobo / 100.0)}.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _transfer() async {
+    final name = await P2pTransferSheet.show(context, user: widget.user);
+    if (name == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Sent. $name has been credited.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayName =
         widget.user.fullName.isEmpty ? 'Rider' : widget.user.fullName;
     return Scaffold(
-      appBar: AppBar(title: const Text('Wallet & Payments')),
+      appBar: AppBar(
+        title: const Text('Wallet & Payments'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(child: SeseCoinHeader(uid: widget.user.uid)),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -61,34 +109,75 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
                         .walletBalanceKoboStream(widget.user.uid),
                     builder: (context, snap) {
                       final kobo = snap.data ?? 0;
-                      return Text(
-                        PaymentService.formatNaira(kobo / 100.0),
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      _currentBalanceKobo = kobo;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            PaymentService.formatNaira(kobo / 100.0),
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          MultiCurrencyDisplay.fromKobo(
+                            amountKobo: kobo,
+                            targetCurrencyCode: 'USD',
+                            baseStyle: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            inline: false,
+                          ),
+                        ],
                       );
                     },
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Hi $displayName, top up your wallet for faster checkout.',
+                    'Hi $displayName, manage your funds or send money to SeSe users.',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          key: const Key('wallet_top_up_button'),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Add Money'),
+                          onPressed: _topUp,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          key: const Key('wallet_withdraw_button'),
+                          icon: const Icon(Icons.account_balance_outlined, size: 18),
+                          label: const Text('Withdraw'),
+                          onPressed: _withdraw,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   SizedBox(
                     width: double.infinity,
-                    child: FilledButton.icon(
-                      key: const Key('wallet_top_up_button'),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Top Up'),
-                      onPressed: _topUp,
+                    child: FilledButton.tonalIcon(
+                      key: const Key('wallet_p2p_button'),
+                      icon: const Icon(Icons.send_to_mobile_outlined, size: 18),
+                      label: const Text('Send to User (P2P)'),
+                      onPressed: _transfer,
                     ),
                   ),
                 ],
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          SeseCoinConvertCard(uid: widget.user.uid),
           const SizedBox(height: 12),
           const ListTile(
             leading: Icon(Icons.credit_card_outlined),
@@ -179,8 +268,9 @@ Future<void> showWalletBalanceSheet(
     showDragHandle: true,
     builder: (sheetContext) {
       return SafeArea(
+        // 16px gutters: balance + CTA span edge-to-edge on phones.
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

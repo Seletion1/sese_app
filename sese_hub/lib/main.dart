@@ -285,6 +285,7 @@ class _AuthGateState extends State<_AuthGate> {
                   staffRole: result.role,
                   isOwner: result.isOwner,
                   permissions: result.assignedPermissions,
+                  countryScope: result.countryScope,
                 );
               }
               _signOutOnce(email,

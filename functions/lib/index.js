@@ -33,19 +33,25 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.calculateFare = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.deleteAccount = exports.onAgentReplied = exports.onSupportMessageCreated = exports.respondSplitPayment = exports.requestSplitPayment = exports.transferWalletFunds = exports.settleTransfer = exports.processWalletWithdrawal = exports.resolveBankAccount = exports.paystackBanks = exports.paystackWebhook = exports.verifyPayment = exports.initializePayment = exports.scheduledResetStreaks = exports.onTripCancelled = exports.onTripCompleted = exports.goOffline = exports.goOnline = exports.onTripChatMessage = exports.verifyDeliveryPin = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = void 0;
+exports.setTransactionPin = exports.googleMapsProxy = exports.triggerExchangeRatesSync = exports.syncGlobalExchangeRates = exports.sendTargetedBroadcast = exports.deleteAccount = exports.onAgentReplied = exports.onSupportMessageCreated = exports.convertSeseCoins = exports.settleSplitPayment = exports.respondSplitPayment = exports.requestSplitPayment = exports.transferWalletFunds = exports.lookupP2pRecipient = exports.settleTransfer = exports.processWalletWithdrawal = exports.verifyBankAccount = exports.resolveBankAccount = exports.paystackBanks = exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = exports.getCyclePeriodKey = exports.resolveDynamicStreakRewards = exports.evaluateAndGrantStreakRewards = exports.scheduledResetStreaks = exports.onTripCancelled = exports.onTripCompleted = exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = exports.onTripChatMessage = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = void 0;
+exports.calculateFare = exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.verifyTransactionPin = void 0;
 const admin = __importStar(require("firebase-admin"));
 // DEPLOYMENT CREDENTIAL-PROBE GUARD.
-// `admin.initializeApp()` calls google-gax, which probes the GCE metadata
-// server for default credentials when ADC is absent. On a plain dev machine
-// that probe hangs for ~45s and trips the Cloud Functions trigger-discovery
-// timeout ("Cannot determine backend specification. Timeout after 10000").
-// Outside Google Cloud there is no metadata server worth probing (emulators
-// and local runs provide explicit credentials), so skip the probe unless
-// GOOGLE_APPLICATION_CREDENTIALS is set. No effect on real Cloud Functions:
-// they inject the project ID/credentials, which are already handled below.
-if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    process.env.METADATA_SERVER_DETECTION = "assume-not-present";
+// `admin.initializeApp()` calls google-auth-library, which probes the GCE
+// metadata server to detect the project ID when credentials come from
+// `gcloud auth application-default login` (stored in
+// ~/.config/gcloud/application_default_credentials.json). In that case
+// GOOGLE_APPLICATION_CREDENTIALS is NOT set, so the old guard on that var
+// never fired — the CLI's 10-second trigger-discovery worker then hung on
+// every deploy.
+//
+// Correct sentinel: GCP runtime environment variables.
+//   K_SERVICE     — always set by Cloud Run (2nd-gen Cloud Functions).
+//   FUNCTION_NAME — always set by 1st-gen Cloud Functions.
+// Neither is present in the Firebase CLI's local trigger-discovery subprocess,
+// so suppressing the probe here is safe and has zero effect on cold starts.
+if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
+    process.env.METADATA_SERVER_DETECTION = "none";
 }
 // Initialize BEFORE importing/re-exporting any module that touches the
 // Admin SDK, so trigger discovery (which requires this entry point in an
@@ -70,27 +76,40 @@ Object.defineProperty(exports, "rejectBid", { enumerable: true, get: function ()
 Object.defineProperty(exports, "acceptBid", { enumerable: true, get: function () { return trips_1.acceptBid; } });
 Object.defineProperty(exports, "increaseTripFare", { enumerable: true, get: function () { return trips_1.increaseTripFare; } });
 Object.defineProperty(exports, "verifyDeliveryPin", { enumerable: true, get: function () { return trips_1.verifyDeliveryPin; } });
+Object.defineProperty(exports, "hubForceCompleteTrip", { enumerable: true, get: function () { return trips_1.hubForceCompleteTrip; } });
+Object.defineProperty(exports, "hubCancelRefundTrip", { enumerable: true, get: function () { return trips_1.hubCancelRefundTrip; } });
+Object.defineProperty(exports, "hubManualPinBypass", { enumerable: true, get: function () { return trips_1.hubManualPinBypass; } });
 Object.defineProperty(exports, "onTripChatMessage", { enumerable: true, get: function () { return trips_1.onTripChatMessage; } });
 var driverStatus_1 = require("./driverStatus");
 Object.defineProperty(exports, "goOnline", { enumerable: true, get: function () { return driverStatus_1.goOnline; } });
 Object.defineProperty(exports, "goOffline", { enumerable: true, get: function () { return driverStatus_1.goOffline; } });
+Object.defineProperty(exports, "hubSetDriverOnlineStatus", { enumerable: true, get: function () { return driverStatus_1.hubSetDriverOnlineStatus; } });
 var driverStreak_1 = require("./driverStreak");
 Object.defineProperty(exports, "onTripCompleted", { enumerable: true, get: function () { return driverStreak_1.onTripCompleted; } });
 Object.defineProperty(exports, "onTripCancelled", { enumerable: true, get: function () { return driverStreak_1.onTripCancelled; } });
 Object.defineProperty(exports, "scheduledResetStreaks", { enumerable: true, get: function () { return driverStreak_1.scheduledResetStreaks; } });
+var streakRewards_1 = require("./streakRewards");
+Object.defineProperty(exports, "evaluateAndGrantStreakRewards", { enumerable: true, get: function () { return streakRewards_1.evaluateAndGrantStreakRewards; } });
+Object.defineProperty(exports, "resolveDynamicStreakRewards", { enumerable: true, get: function () { return streakRewards_1.resolveDynamicStreakRewards; } });
+Object.defineProperty(exports, "getCyclePeriodKey", { enumerable: true, get: function () { return streakRewards_1.getCyclePeriodKey; } });
 var payments_1 = require("./payments");
 Object.defineProperty(exports, "initializePayment", { enumerable: true, get: function () { return payments_1.initializePayment; } });
+Object.defineProperty(exports, "initializePaystackTopUp", { enumerable: true, get: function () { return payments_1.initializePaystackTopUp; } });
 Object.defineProperty(exports, "verifyPayment", { enumerable: true, get: function () { return payments_1.verifyPayment; } });
 Object.defineProperty(exports, "paystackWebhook", { enumerable: true, get: function () { return payments_1.paystackWebhook; } });
 var payouts_1 = require("./payouts");
 Object.defineProperty(exports, "paystackBanks", { enumerable: true, get: function () { return payouts_1.paystackBanks; } });
 Object.defineProperty(exports, "resolveBankAccount", { enumerable: true, get: function () { return payouts_1.resolveBankAccount; } });
+Object.defineProperty(exports, "verifyBankAccount", { enumerable: true, get: function () { return payouts_1.verifyBankAccount; } });
 Object.defineProperty(exports, "processWalletWithdrawal", { enumerable: true, get: function () { return payouts_1.processWalletWithdrawal; } });
 Object.defineProperty(exports, "settleTransfer", { enumerable: true, get: function () { return payouts_1.settleTransfer; } });
 var peerPayments_1 = require("./peerPayments");
+Object.defineProperty(exports, "lookupP2pRecipient", { enumerable: true, get: function () { return peerPayments_1.lookupP2pRecipient; } });
 Object.defineProperty(exports, "transferWalletFunds", { enumerable: true, get: function () { return peerPayments_1.transferWalletFunds; } });
 Object.defineProperty(exports, "requestSplitPayment", { enumerable: true, get: function () { return peerPayments_1.requestSplitPayment; } });
 Object.defineProperty(exports, "respondSplitPayment", { enumerable: true, get: function () { return peerPayments_1.respondSplitPayment; } });
+Object.defineProperty(exports, "settleSplitPayment", { enumerable: true, get: function () { return peerPayments_1.settleSplitPayment; } });
+Object.defineProperty(exports, "convertSeseCoins", { enumerable: true, get: function () { return peerPayments_1.convertSeseCoins; } });
 // NOTE: `onSupportTicketReply` was removed. It was bound to
 // `support_tickets/{ticketId}/messages`, a legacy collection nothing writes
 // to any more (the app and hub both use `support_chats`), so it was dead code
@@ -102,12 +121,34 @@ Object.defineProperty(exports, "onSupportMessageCreated", { enumerable: true, ge
 Object.defineProperty(exports, "onAgentReplied", { enumerable: true, get: function () { return supportBot_1.onAgentReplied; } });
 var deleteAccount_1 = require("./deleteAccount");
 Object.defineProperty(exports, "deleteAccount", { enumerable: true, get: function () { return deleteAccount_1.deleteAccount; } });
+// Granular targeted push broadcast engine (admin console + inbox).
+var broadcast_1 = require("./broadcast");
+Object.defineProperty(exports, "sendTargetedBroadcast", { enumerable: true, get: function () { return broadcast_1.sendTargetedBroadcast; } });
+var exchangeRates_1 = require("./exchangeRates");
+Object.defineProperty(exports, "syncGlobalExchangeRates", { enumerable: true, get: function () { return exchangeRates_1.syncGlobalExchangeRates; } });
+Object.defineProperty(exports, "triggerExchangeRatesSync", { enumerable: true, get: function () { return exchangeRates_1.triggerExchangeRatesSync; } });
+// Google Maps Platform proxy: the only server holder of the web-services
+// key. Clients call it for autocomplete/details/geocode/directions — the
+// key never ships in client code. See googleMaps.ts for the key-delivery
+// and quota-discipline notes.
+var googleMaps_1 = require("./googleMaps");
+Object.defineProperty(exports, "googleMapsProxy", { enumerable: true, get: function () { return googleMaps_1.googleMapsProxy; } });
+// Transaction Security PIN authority (hashed, server-verified) + gates.
+// Money callables verify via `requireValidPin` — see transactionPin.ts.
+var transactionPin_1 = require("./transactionPin");
+Object.defineProperty(exports, "setTransactionPin", { enumerable: true, get: function () { return transactionPin_1.setTransactionPin; } });
+Object.defineProperty(exports, "verifyTransactionPin", { enumerable: true, get: function () { return transactionPin_1.verifyTransactionPin; } });
 var verification_1 = require("./verification");
 Object.defineProperty(exports, "reviewCustomerVerification", { enumerable: true, get: function () { return verification_1.reviewCustomerVerification; } });
 Object.defineProperty(exports, "reviewDriverVerification", { enumerable: true, get: function () { return verification_1.reviewDriverVerification; } });
 Object.defineProperty(exports, "onUserVerificationUpdated", { enumerable: true, get: function () { return verification_1.onUserVerificationUpdated; } });
 Object.defineProperty(exports, "onDriverVerificationUpdated", { enumerable: true, get: function () { return verification_1.onDriverVerificationUpdated; } });
 Object.defineProperty(exports, "onDriverVehicleVerified", { enumerable: true, get: function () { return verification_1.onDriverVehicleVerified; } });
+var adminOnboarding_1 = require("./adminOnboarding");
+Object.defineProperty(exports, "lookupAccountForOnboarding", { enumerable: true, get: function () { return adminOnboarding_1.lookupAccountForOnboarding; } });
+Object.defineProperty(exports, "sendOnboardingOtp", { enumerable: true, get: function () { return adminOnboarding_1.sendOnboardingOtp; } });
+Object.defineProperty(exports, "verifyOnboardingOtp", { enumerable: true, get: function () { return adminOnboarding_1.verifyOnboardingOtp; } });
+Object.defineProperty(exports, "adminRegisterUser", { enumerable: true, get: function () { return adminOnboarding_1.adminRegisterUser; } });
 /**
  * Callable Function: calculateFare
  *

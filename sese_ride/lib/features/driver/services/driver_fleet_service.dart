@@ -214,14 +214,28 @@ class DriverFleetService {
   }
 
   /// Sets one vehicle as activeSelected: true and unselects others for this driver.
+  ///
+  /// Offline-Only Guard: Throws if [isOnline] is true — vehicle switching is
+  /// strictly forbidden while online or on an active trip.
   Future<void> setActiveSelectedVehicle({
     required String driverId,
     required String vehicleId,
+    bool isOnline = false,
   }) async {
+    if (isOnline) {
+      throw StateError(
+        'Cannot switch active vehicle while ONLINE. Switch to OFFLINE state first.',
+      );
+    }
     final db = _db;
     final col = _driverVehiclesCollection(driverId);
     if (db != null && col != null) {
       final vehicles = await getDriverFleet(driverId);
+      final selected = vehicles.firstWhere(
+        (v) => v.id == vehicleId,
+        orElse: () => throw ArgumentError('Vehicle $vehicleId not found in driver fleet.'),
+      );
+
       final batch = db.batch();
       for (final v in vehicles) {
         final ref = col.doc(v.id);
@@ -230,6 +244,17 @@ class DriverFleetService {
           'updatedAt': DateTime.now().toIso8601String(),
         });
       }
+
+      // Root driver doc mirror for fast backend dispatch filtering
+      final driverRef = db.collection('drivers').doc(driverId);
+      batch.set(driverRef, {
+        'activeVehicleId': selected.id,
+        'activeVehicleCategory': selected.category.name,
+        'activePlateNumber': selected.licensePlate,
+        'activeVehicleTier': selected.tier?.name,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
+
       await batch.commit();
     } else {
       for (int i = 0; i < _offlineTestVehicles.length; i++) {

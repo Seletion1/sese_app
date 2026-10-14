@@ -1,0 +1,122 @@
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "description": "Delete temporary KYC documents 90 days after creation (driver_onboarding). Admin review window is typically 7–14 days; 90d is a conservative buffer for appeals.",
+        "condition": {
+          "age": 90,
+          "matchesStorageClass": ["STANDARD", "NEARLINE"]
+        },
+        "action": {
+          "type": "Delete"
+        },
+        "filter": {
+          "objectNamePrefix": "driver_onboarding/"
+        }
+      },
+      {
+        "description": "Delete customer verification documents 90 days after creation. After KYC approval the canonical record lives in Firestore; the raw photo is no longer needed.",
+        "condition": {
+          "age": 90,
+          "matchesStorageClass": ["STANDARD", "NEARLINE"]
+        },
+        "action": {
+          "type": "Delete"
+        },
+        "filter": {
+          "objectNamePrefix": "customer_verification/"
+        }
+      },
+      {
+        "description": "Delete general verification_documents after 90 days.",
+        "condition": {
+          "age": 90,
+          "matchesStorageClass": ["STANDARD", "NEARLINE"]
+        },
+        "action": {
+          "type": "Delete"
+        },
+        "filter": {
+          "objectNamePrefix": "verification_documents/"
+        }
+      },
+      {
+        "description": "Move live verification snapshots (verifications/) to Nearline after 30 days. These camera-only JPEGs are reviewed in the first few days; Nearline halves cost after the review window.",
+        "condition": {
+          "age": 30,
+          "matchesStorageClass": ["STANDARD"]
+        },
+        "action": {
+          "type": "SetStorageClass",
+          "storageClass": "NEARLINE"
+        },
+        "filter": {
+          "objectNamePrefix": "verifications/"
+        }
+      },
+      {
+        "description": "Move live verification snapshots to Coldline after 180 days for long-term audit retention.",
+        "condition": {
+          "age": 180,
+          "matchesStorageClass": ["NEARLINE"]
+        },
+        "action": {
+          "type": "SetStorageClass",
+          "storageClass": "COLDLINE"
+        },
+        "filter": {
+          "objectNamePrefix": "verifications/"
+        }
+      },
+      {
+        "description": "Move approved vehicle documents (vehicle_documents/) to Nearline after 60 days — active KYC review is done; documents kept for audit.",
+        "condition": {
+          "age": 60,
+          "matchesStorageClass": ["STANDARD"]
+        },
+        "action": {
+          "type": "SetStorageClass",
+          "storageClass": "NEARLINE"
+        },
+        "filter": {
+          "objectNamePrefix": "vehicle_documents/"
+        }
+      },
+      {
+        "description": "Delete support media (support_media/) older than 180 days. Support chats are resolved; raw images are no longer needed.",
+        "condition": {
+          "age": 180,
+          "matchesStorageClass": ["STANDARD", "NEARLINE"]
+        },
+        "action": {
+          "type": "Delete"
+        },
+        "filter": {
+          "objectNamePrefix": "support_media/"
+        }
+      },
+      {
+        "description": "Delete trip media (trip_media/) older than 90 days. Trip chats are archived; in-chat photos are not needed long-term.",
+        "condition": {
+          "age": 90,
+          "matchesStorageClass": ["STANDARD", "NEARLINE"]
+        },
+        "action": {
+          "type": "Delete"
+        },
+        "filter": {
+          "objectNamePrefix": "trip_media/"
+        }
+      },
+      {
+        "description": "Delete non-current object versions older than 7 days to control versioning overhead.",
+        "condition": {
+          "daysSinceNoncurrentTime": 7
+        },
+        "action": {
+          "type": "Delete"
+        }
+      }
+    ]
+  }
+}

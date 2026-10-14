@@ -132,7 +132,8 @@ Future<void> showThemePickerSheet(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, 4),
+                  // 16px gutters match bottom-sheet rows below.
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
                   child: Text('App Theme',
                       style: TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold)),

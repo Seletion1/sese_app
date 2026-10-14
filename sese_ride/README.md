@@ -1,17 +1,37 @@
-# sese_ride
+# SeSe Ride (Customer & Driver Flutter App)
 
-A new Flutter project.
+SeSe Ride customer and driver application package.
 
-## Getting Started
+## Shorebird Over-The-Air (OTA) Code Push
 
-This project is a starting point for a Flutter application.
+SeSe Ride is integrated with Shorebird to push instant, Over-The-Air Dart fixes to release builds without requiring users to download a new APK/AAB from the app store.
 
-A few resources to get you started if this is your first Flutter project:
+### 1. Prerequisites & Login
+First, ensure you are logged into Shorebird CLI on your development/CI machine:
+```bash
+shorebird login
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+### 2. Initialize App ID (First-time setup per environment)
+To link your project to your Shorebird console app:
+```bash
+shorebird init
+```
+This updates `shorebird.yaml` with your app's unique `app_id`.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 3. Release Build (Base App Store / Play Store Build)
+Always create your release builds using Shorebird CLI so that Shorebird can capture the release binary symbols:
+```bash
+# Android Release (AAB for Google Play Store)
+shorebird release android
+
+# Android Release (APK for direct distribution)
+shorebird release android --artifact=apk
+```
+
+### 4. Deploying an OTA Patch (Instant Fix)
+When you fix a Dart bug or update UI/business logic in `lib/`, publish an instant patch to all installed release builds:
+```bash
+shorebird patch android
+```
+The patch is downloaded silently by `ShorebirdUpdateService` on startup and applied automatically on the user's next cold app restart.

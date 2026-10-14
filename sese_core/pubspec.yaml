@@ -23,6 +23,13 @@ dependencies:
   flutter_local_notifications: ^22.3.1
   firebase_storage: ^13.6.0
   image_picker: ^1.2.3
+  permission_handler: ^12.0.0
+  flutter_contacts: ^1.1.9
+  sqflite: ^2.4.1
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  http: ^1.2.2
+  geolocator: ^14.0.3
 
 dev_dependencies:
   flutter_test:
@@ -33,10 +40,10 @@ flutter:
   assets:
     - assets/sese_logo.svg
     - assets/sese_logo_hub.svg
-    - assets/sounds/online_chime.mp3
-    - assets/sounds/offline_chime.mp3
-    - assets/sounds/incoming_message.mp3
-    - assets/sounds/incoming_order_alert.mp3
+    - assets/sounds/online_chime.wav
+    - assets/sounds/offline_chime.wav
+    - assets/sounds/incoming_message.wav
+    - assets/sounds/incoming_order_alert.wav
     - assets/sounds/sese_alert_high.wav
     - assets/sounds/sese_alert_pulse.wav
     - assets/sounds/sese_alert_chime.wav
