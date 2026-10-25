@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
@@ -130,31 +132,111 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   @override
-  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false}) {
+  Stream<List<ActiveTrip>> userTripHistoryStream(
+    String userId, {
+    bool isDriver = false,
+  }) {
     if (userId.isEmpty) return Stream.value(const []);
     try {
-      final field = isDriver ? 'assignedDriverId' : 'customerId';
-      return _db
-          .collection('trips')
-          .where(field, isEqualTo: userId)
-          .snapshots()
-          .map((snap) {
-        final list = snap.docs
-            .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-            .toList();
-        list.sort((a, b) {
-          final aTime =
-              a.createdAt ?? a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bTime =
-              b.createdAt ?? b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          return bTime.compareTo(aTime);
+      if (!isDriver) {
+        // Customer history query: all historical trips booked by customerId
+        return _db
+            .collection('trips')
+            .where('customerId', isEqualTo: userId)
+            .snapshots()
+            .map((snap) {
+          final list = snap.docs
+              .map((d) => ActiveTrip.fromMap(d.id, d.data()))
+              .toList();
+          list.sort((a, b) => _compareTripDate(b, a));
+          return list;
+        }).handleError((e) {
+          debugPrint('userTripHistoryStream (customer) error: $e');
+          return const <ActiveTrip>[];
         });
-        return list;
-      });
+      }
+
+      // Driver lifetime history: queries all historical trips where driver is
+      // assigned via `driver.driverId` or legacy flat `driverId`.
+      // NO date restriction (e.g. today/00:00:00) so drivers see complete lifetime
+      // history across all statuses (completed, accepted, in-progress, cancelled, rejected).
+      late final StreamController<List<ActiveTrip>> controller;
+      StreamSubscription? subNested;
+      StreamSubscription? subFlat;
+
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> nestedDocs = [];
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> flatDocs = [];
+
+      void emitCombined() {
+        if (controller.isClosed) return;
+        final map = <String, ActiveTrip>{};
+        for (final doc in [...nestedDocs, ...flatDocs]) {
+          try {
+            final trip = ActiveTrip.fromMap(doc.id, doc.data());
+            map[trip.tripId] = trip;
+          } catch (e) {
+            debugPrint('Error parsing trip doc ${doc.id}: $e');
+          }
+        }
+        final list = map.values.toList();
+        list.sort((a, b) => _compareTripDate(b, a));
+        controller.add(list);
+      }
+
+      controller = StreamController<List<ActiveTrip>>(
+        onListen: () {
+          try {
+            subNested = _db
+                .collection('trips')
+                .where('driver.driverId', isEqualTo: userId)
+                .snapshots()
+                .listen(
+              (snap) {
+                nestedDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) {
+                debugPrint('userTripHistoryStream (driver.driverId) error: $err');
+                emitCombined();
+              },
+            );
+
+            subFlat = _db
+                .collection('trips')
+                .where('driverId', isEqualTo: userId)
+                .snapshots()
+                .listen(
+              (snap) {
+                flatDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) {
+                debugPrint('userTripHistoryStream (driverId) error: $err');
+                emitCombined();
+              },
+            );
+          } catch (e) {
+            debugPrint('userTripHistoryStream listener error: $e');
+            emitCombined();
+          }
+        },
+        onCancel: () {
+          subNested?.cancel();
+          subFlat?.cancel();
+        },
+      );
+
+      return controller.stream;
     } catch (e) {
       debugPrint('FirestoreTripRepository.userTripHistoryStream error: $e');
       return Stream.value(const []);
     }
+  }
+
+  static int _compareTripDate(ActiveTrip a, ActiveTrip b) {
+    final da = a.createdAt ?? a.updatedAt ?? a.settledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final db = b.createdAt ?? b.updatedAt ?? b.settledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return db.compareTo(da);
   }
 
   @override

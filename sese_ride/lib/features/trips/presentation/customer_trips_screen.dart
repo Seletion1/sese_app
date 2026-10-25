@@ -36,6 +36,33 @@ class CustomerTripsScreen extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off, size: 52, color: Colors.grey),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Unable to load trips',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           final trips = snapshot.data ?? [];
           if (trips.isEmpty) {
             return Center(
@@ -72,17 +99,23 @@ class CustomerTripsScreen extends StatelessWidget {
               ),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: trips.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 12),
-            itemBuilder: (context, i) {
-              final trip = trips[i];
-              return _TripFeedCard(
-                trip: trip,
-                repository: _repo,
-              );
+          return RefreshIndicator(
+            onRefresh: () async {
+              // Stream updates automatically in real-time
+              await Future<void>.delayed(const Duration(milliseconds: 400));
             },
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: trips.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, i) {
+                final trip = trips[i];
+                return _TripFeedCard(
+                  trip: trip,
+                  repository: _repo,
+                );
+              },
+            ),
           );
         },
       ),
@@ -118,7 +151,8 @@ class _TripFeedCard extends StatelessWidget {
     final m = monthNames[dt.month - 1];
     final hour = dt.hour.toString().padLeft(2, '0');
     final min = dt.minute.toString().padLeft(2, '0');
-    return '$m ${dt.day}, $hour:$min';
+    final year = dt.year != DateTime.now().year ? ' ${dt.year}' : '';
+    return '$m ${dt.day}$year • $hour:$min';
   }
 
   @override
@@ -143,6 +177,8 @@ class _TripFeedCard extends StatelessWidget {
                 ),
               ),
             );
+          } else {
+            _showTripSummarySheet(context, trip);
           }
         },
         child: Padding(
@@ -182,7 +218,7 @@ class _TripFeedCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          _formatDate(trip.createdAt),
+                          _formatDate(trip.createdAt ?? trip.updatedAt ?? trip.settledAt),
                           style: TextStyle(
                             fontSize: 12,
                             color: theme.textTheme.bodySmall?.color,
@@ -269,6 +305,24 @@ class _TripFeedCard extends StatelessWidget {
                           color: Color(0xFFD97706),
                         ),
                       ],
+                    )
+                  else
+                    const Row(
+                      children: [
+                        Text(
+                          'View Details',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right,
+                          size: 16,
+                          color: Colors.grey,
+                        ),
+                      ],
                     ),
                 ],
               ),
@@ -276,6 +330,165 @@ class _TripFeedCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  void _showTripSummarySheet(BuildContext context, ActiveTrip trip) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final fareStr = trip.fareFormatted.isNotEmpty
+            ? trip.fareFormatted
+            : '₦${trip.fareAmount.toStringAsFixed(0)}';
+
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Trip Details',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  _StatusChip(status: trip.status, source: trip.cancellationSource),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.15)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          trip.serviceType == 'ride' ? 'Ride Fare' : 'Delivery Fare',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          fareStr,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: AppColors.seseGold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (trip.paymentMode == 'split') ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Split Breakdown', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          Text(
+                            'Sender: ₦${trip.senderShareAmount?.toStringAsFixed(0) ?? "0"} • Receiver: ₦${trip.receiverShareAmount?.toStringAsFixed(0) ?? "0"}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Icon(Icons.circle, size: 10, color: Colors.green),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Pickup', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(
+                          trip.pickupAddress.isEmpty ? 'Pickup location' : trip.pickupAddress,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                        if (trip.pickupName.isNotEmpty)
+                          Text('Contact: ${trip.pickupName}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(indent: 20),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Icon(Icons.location_on, size: 12, color: Colors.red),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Destination', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(
+                          trip.dropoffAddress.isEmpty ? 'Drop-off destination' : trip.dropoffAddress,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                        if (trip.dropoffName.isNotEmpty)
+                          Text('Contact: ${trip.dropoffName}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(),
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -327,15 +540,26 @@ class _StatusChip extends StatelessWidget {
         color = const Color(0xFFD97706);
         bgColor = const Color(0xFFFEF3C7);
       case TripStatus.cancelled:
-        if (source == 'driver') {
+        if (source == 'driver_declined' ||
+            source == 'driver_rejected' ||
+            source == 'rejected' ||
+            source == 'declined') {
+          label = 'Rejected / Declined';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+        } else if (source == 'driver' || source == 'driver_cancelled') {
           label = 'Cancelled by Driver';
-        } else if (source == 'customer') {
+          color = const Color(0xFFDC2626);
+          bgColor = const Color(0xFFFEE2E2);
+        } else if (source == 'customer' || source == 'customer_cancelled') {
           label = 'Cancelled by Customer';
+          color = const Color(0xFFDC2626);
+          bgColor = const Color(0xFFFEE2E2);
         } else {
           label = 'Cancelled';
+          color = const Color(0xFFDC2626);
+          bgColor = const Color(0xFFFEE2E2);
         }
-        color = const Color(0xFFDC2626);
-        bgColor = const Color(0xFFFEE2E2);
       case TripStatus.unknown:
         label = 'Active';
         color = const Color(0xFF2563EB);

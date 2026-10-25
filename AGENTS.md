@@ -60,6 +60,32 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Driver Trips History Query Overhaul: Full Lifetime History, Real-Time Merging & Multi-Status Feed
+
+Overhauled the Trips tab query and real-time feed in `sese_ride` (`customer_trips_screen.dart`, `trip_service.dart`):
+
+### 1. Lifetime Trip History & Query Schema Resolution
+- **Root Cause of Empty State:** Driver history in `FirestoreTripRepository.userTripHistoryStream` previously queried `where('assignedDriverId', isEqualTo: userId)`. Firestore trip documents store the driver under `driver.driverId` (or flat `driverId`), so the query matched zero documents and permanently returned an empty list.
+- **Removed All Date Restrictions:** Completely removed any daily/start-of-day date bounds from the query so drivers see their complete lifetime history across all dates and years.
+- **Unified Multi-Stream Listener:** Implemented a combined stream in `userTripHistoryStream` listening simultaneously to both nested `driver.driverId` and legacy flat `driverId`, deduplicating by `tripId` into an authoritative lifetime stream.
+
+### 2. Comprehensive Statuses & Chronological Sorting
+- **Chronological Ordering:** Sorted all retrieved trips descending by timestamp (`trip.createdAt ?? trip.updatedAt ?? trip.settledAt`), ensuring the freshest trips always appear at the top.
+- **Multi-Status Support:** Query retrieves and `_StatusChip` displays all lifecycle statuses:
+  - `Completed` (green)
+  - `In Progress`, `Driver En Route`, `Driver Arrived` (blue/green)
+  - `Searching for Driver...`, `Action Needed` (amber)
+  - `Cancelled by Driver`, `Cancelled by Customer`, `Cancelled` (red)
+  - `Rejected / Declined` (amber/orange) for declined offers or rejected bids.
+
+### 3. UI & Real-Time List Enhancements
+- Wrapped the stream in a `RefreshIndicator` and added explicit error presentation so network or rule errors are clearly displayed instead of falsely showing the empty state.
+- Empty state ("No trips available yet") now only displays when the driver truly has zero lifetime history records in Firestore.
+- Added interactive tap behavior: live trips route directly to `LiveTripScreen`, while past completed/cancelled trips open an informative bottom sheet summary modal with full route, contact, and fare breakdown.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
 ## 2026-10-25 — Custom 3D Vehicle & UI Icon System: Firebase Storage, Dynamic Manifest, Self-Healing Caching & Offline Fallbacks
 
 Implemented a high-fidelity custom icon pipeline and self-healing caching infrastructure across `sese_core`, `sese_ride`, Firebase Storage, and Firestore:
