@@ -157,6 +157,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 
                 // ── Trip history ──────────────────────────────────────────
                 SettingsTile(
+                  tooltipId: 'menu_trip_history',
+                  userId: widget.user.uid,
                   leading: const Icon(Icons.history),
                   title: 'Trip history',
                   infoDescription: 'Completed trips and ride receipts appear here.',
@@ -166,6 +168,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 
                 // ── Wallet ────────────────────────────────────────────────
                 SettingsTile(
+                  tooltipId: 'menu_wallet___payments',
+                  userId: widget.user.uid,
                   leading:
                       const Icon(Icons.account_balance_wallet_outlined),
                   title: 'Wallet & Payments',
@@ -180,6 +184,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Saved Places ─────────────────────────────────────────
                 SettingsTile(
                   tileKey: const Key('customer_saved_places_tile'),
+                  tooltipId: 'menu_saved_places',
+                  userId: widget.user.uid,
                   leading: const Icon(Icons.bookmark_border_outlined,
                       color: AppColors.seseGold),
                   title: 'Saved Places',
@@ -193,6 +199,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Bank & Payout Details ────────────────────────────────
                 SettingsTile(
                   tileKey: const Key('customer_bank_details_tile'),
+                  tooltipId: 'menu_bank___payout_details',
+                  userId: widget.user.uid,
                   leading: const Icon(Icons.account_balance_outlined),
                   title: 'Bank & Payout Details',
                   infoDescription: 'Link your bank account for secure fund withdrawals.',
@@ -206,6 +214,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Security PIN ─────────────────────────────────────────
                 SettingsTile(
                   tileKey: const Key('customer_security_pin_tile'),
+                  tooltipId: 'menu_security_pin',
+                  userId: widget.user.uid,
                   leading: const Icon(Icons.lock_outline),
                   title: 'Security PIN',
                   infoDescription: 'Protect your account and wallet transfers with a 4-digit PIN.',
@@ -219,6 +229,8 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 // ── Refer & Earn ──────────────────────────────────────────
                 SettingsTile(
                   tileKey: const Key('customer_referral_tile'),
+                  tooltipId: 'menu_referral',
+                  userId: widget.user.uid,
                   leading: const Icon(Icons.card_giftcard_outlined,
                       color: AppColors.seseGold),
                   title: 'Refer & Earn',

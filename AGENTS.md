@@ -60,6 +60,34 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — SeSe Coin & Wallet UI Cleanup, Server-Driven Dynamic Awareness Tooltips & 2-View Auto-Dismissal
+
+Implemented wallet cleanup and server-driven dynamic awareness tooltip system across `sese_core`, `sese_ride`, and `sese_hub`:
+
+### 1. SeSe Coin & Wallet UI Cleanup
+- **Removed Duplicate SeSe Coin Bonus Section:** Completely purged `SeseCoinConvertCard` and its internal yellow calculation/threshold breakdown box from both driver and customer wallet views (`wallet_screen.dart` and `customer_wallet_screen.dart`).
+- **Clean Single Balance Header:** Preserved the top-navigation `SeseCoinHeader` chip displaying live coin balance (`₦0.00` / bonus balance) cleanly in the top-right corner without visual duplication.
+
+### 2. Dynamic Server-Driven Awareness Tooltip Architecture (`AwarenessTooltipService`)
+- **Purged Hardcoded Awareness Cards:** Eliminated static informational boxes in client app code to keep bundle size lightweight and low-weight.
+- **Dynamic Configuration & Over-The-Air Streaming:** Built `AwarenessTooltipService` singleton subscribing to Firestore `system_configs/awareness_tooltips` with compiled defaults for instant offline 0ms boot.
+- **Local Interaction Tracking & Cloud Sync:** Tracks per-tooltip view counts locally in `SharedPreferences` (`awareness_view_{tooltipId}`) for synchronous 0ms lookups and asynchronously syncs interaction counts to `users/{uid}/metadata.tooltipViews`.
+- **Auto-Dismissal Rule (2 Views):** Evaluates `shouldShow(tooltipId)`. Once a user has opened and viewed an awareness tooltip section twice (>= 2), the subtle `(i)` info icon is permanently omitted (`SizedBox.shrink()`) from their UI.
+- **Fresh Install Reset:** Because local counts are kept in the OS app sandbox via `SharedPreferences`, clean uninstalls and reinstallations automatically reset view counts, restoring the onboarding guidance seamlessly.
+
+### 3. Integrated Navigation & Screen Touchpoints
+- Upgraded `SettingsInfoButton`, `SettingsTile`, and `SettingsSwitchTile` with `ListenableBuilder(listenable: AwarenessTooltipService.instance)` and explicit `tooltipId` / `userId` parameters.
+- Attached subtle dynamic info icons to:
+  - Driver drawer menu items (`Wallet`, `Earnings`, `Refer & Earn`, `Trips History`, `Support`, `Settings`) in `driver_home_shell.dart`.
+  - Customer profile menu items (`Trip History`, `Wallet & Payments`, `Saved Places`, `Bank & Payout Details`, `Security PIN`, `Refer & Earn`) in `customer_profile_screen.dart`.
+  - Customer dispatch screen controls (`Payment Mode` selector and `Require Delivery PIN Verification` toggle) in `customer_dispatch_screen.dart`.
+  - Earnings screen header (`EarningsScreen`) and Referral Hub header (`ReferralHubScreen`).
+- Extended `SystemConfigService` in `sese_hub` with `streamAwarenessTooltips` and `saveAwarenessTooltips` for Hub administrative oversight.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+- Cloud Functions compiled cleanly.
+
 ## 2026-10-25 — Driver Trips History Query Overhaul: Full Lifetime History, Real-Time Merging & Multi-Status Feed
 
 Overhauled the Trips tab query and real-time feed in `sese_ride` (`customer_trips_screen.dart`, `trip_service.dart`):

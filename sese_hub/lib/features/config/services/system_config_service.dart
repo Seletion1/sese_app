@@ -249,6 +249,34 @@ class SystemConfigService {
       debugPrint('Error saving referral revenue settings: $e');
     }
   }
+
+  /// Stream dynamic awareness tooltips from `system_configs/awareness_tooltips`.
+  Stream<Map<String, AwarenessTooltipItem>> streamAwarenessTooltips() {
+    final col = _collection;
+    if (col == null) return Stream.value(const {});
+    return col.doc('awareness_tooltips').snapshots().map((snap) {
+      if (!snap.exists || snap.data() == null) return {};
+      final data = snap.data()!;
+      final result = <String, AwarenessTooltipItem>{};
+      data.forEach((k, v) {
+        if (v is Map) {
+          result[k] = AwarenessTooltipItem.fromMap(
+              k, Map<String, dynamic>.from(v));
+        }
+      });
+      return result;
+    });
+  }
+
+  /// Update awareness tooltips in Firestore (`system_configs/awareness_tooltips`).
+  Future<void> saveAwarenessTooltips(
+      Map<String, AwarenessTooltipItem> tooltips) async {
+    final col = _collection;
+    if (col == null) return;
+    final map = <String, dynamic>{};
+    tooltips.forEach((k, v) => map[k] = v.toMap());
+    await col.doc('awareness_tooltips').set(map, SetOptions(merge: true));
+  }
 }
 
 class P2pWalletRules {

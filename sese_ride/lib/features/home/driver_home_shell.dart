@@ -297,6 +297,8 @@ class _MenuTab extends StatelessWidget {
           const SizedBox(height: 8),
           SettingsTile(
             tileKey: const Key('menu_wallet_tile'),
+            tooltipId: 'menu_wallet',
+            userId: user.uid,
             leading: const Icon(Icons.account_balance_wallet_outlined,
                 color: AppColors.seseGold),
             title: 'Wallet',
@@ -309,6 +311,8 @@ class _MenuTab extends StatelessWidget {
           ),
           SettingsTile(
             tileKey: const Key('menu_earnings_tile'),
+            tooltipId: 'menu_earnings',
+            userId: user.uid,
             leading: const Icon(Icons.bar_chart_outlined,
                 color: AppColors.seseGold),
             title: 'Earnings',
@@ -321,6 +325,8 @@ class _MenuTab extends StatelessWidget {
           ),
           SettingsTile(
             tileKey: const Key('menu_referral_tile'),
+            tooltipId: 'menu_referral',
+            userId: user.uid,
             leading: const Icon(Icons.card_giftcard_outlined,
                 color: AppColors.seseGold),
             title: 'Refer & Earn',
@@ -333,6 +339,8 @@ class _MenuTab extends StatelessWidget {
           ),
           SettingsTile(
             tileKey: const Key('menu_trips_history_tile'),
+            tooltipId: 'menu_trips_history',
+            userId: user.uid,
             leading: const Icon(Icons.history, color: AppColors.seseGold),
             title: 'Trips History',
             infoDescription: 'Active trips and ride history.',
@@ -341,6 +349,8 @@ class _MenuTab extends StatelessWidget {
           ),
           SettingsTile(
             tileKey: const Key('menu_support_tile'),
+            tooltipId: 'menu_support',
+            userId: user.uid,
             leading: const Icon(Icons.help_outline, color: AppColors.seseGold),
             title: 'Support',
             infoDescription: '24/7 driver support, safety assistance, and FAQs.',
@@ -349,6 +359,8 @@ class _MenuTab extends StatelessWidget {
           ),
           SettingsTile(
             tileKey: const Key('menu_settings_tile'),
+            tooltipId: 'menu_settings',
+            userId: user.uid,
             leading: const Icon(Icons.settings_outlined, color: AppColors.seseGold),
             title: 'Settings',
             infoDescription:

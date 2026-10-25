@@ -177,8 +177,6 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          SeseCoinConvertCard(uid: widget.user.uid),
-          const SizedBox(height: 12),
           const ListTile(
             leading: Icon(Icons.credit_card_outlined),
             title: Text('Payment methods'),

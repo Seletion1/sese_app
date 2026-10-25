@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../services/awareness_tooltip_service.dart';
 import '../theme/app_theme.dart';
 
 /// Clean modal dialog explaining a settings option or feature.
@@ -166,7 +167,8 @@ class _SettingsInfoDialogState extends State<SettingsInfoDialog> {
 /// Standalone info action button for settings controls and list tiles.
 ///
 /// Tapping this button opens [SettingsInfoDialog], isolating the info popup
-/// from list tile taps or toggle changes.
+/// from list tile taps or toggle changes. Automatically tracks user views
+/// via [AwarenessTooltipService] and hides after being viewed twice.
 class SettingsInfoButton extends StatelessWidget {
   final String title;
   final String description;
@@ -174,6 +176,8 @@ class SettingsInfoButton extends StatelessWidget {
   final double size;
   final Color? color;
   final Duration? autoDismissDuration;
+  final String? tooltipId;
+  final String? userId;
 
   const SettingsInfoButton({
     super.key,
@@ -183,27 +187,54 @@ class SettingsInfoButton extends StatelessWidget {
     this.size = 18,
     this.color,
     this.autoDismissDuration = const Duration(seconds: 4),
+    this.tooltipId,
+    this.userId,
   });
+
+  String get _effectiveKey =>
+      tooltipId ??
+      title.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final iconColor =
-        color ?? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
+    return ListenableBuilder(
+      listenable: AwarenessTooltipService.instance,
+      builder: (context, _) {
+        final key = _effectiveKey;
+        if (!AwarenessTooltipService.instance.shouldShow(key)) {
+          return const SizedBox.shrink();
+        }
 
-    return IconButton(
-      icon: Icon(icon, size: size, color: iconColor),
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-      tooltip: 'Information',
-      onPressed: () => SettingsInfoDialog.show(
-        context,
-        title: title,
-        description: description,
-        icon: icon,
-        autoDismissDuration: autoDismissDuration,
-      ),
+        final dynamicItem = AwarenessTooltipService.instance.getTooltip(
+          key,
+          fallbackTitle: title,
+          fallbackDescription: description,
+        );
+
+        final theme = Theme.of(context);
+        final iconColor =
+            color ?? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.55);
+
+        return IconButton(
+          icon: Icon(icon, size: size, color: iconColor),
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(4),
+          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          tooltip: 'Information',
+          onPressed: () {
+            AwarenessTooltipService.instance.recordView(key, userId: userId);
+            SettingsInfoDialog.show(
+              context,
+              title: dynamicItem.title.isNotEmpty ? dynamicItem.title : title,
+              description: dynamicItem.description.isNotEmpty
+                  ? dynamicItem.description
+                  : description,
+              icon: icon,
+              autoDismissDuration: autoDismissDuration,
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -220,6 +251,8 @@ class SettingsTile extends StatelessWidget {
   final Widget? trailing;
   final VoidCallback? onTap;
   final Key? tileKey;
+  final String? tooltipId;
+  final String? userId;
 
   const SettingsTile({
     super.key,
@@ -232,6 +265,8 @@ class SettingsTile extends StatelessWidget {
     this.infoIcon = Icons.info_outline,
     this.trailing = const Icon(Icons.chevron_right),
     this.onTap,
+    this.tooltipId,
+    this.userId,
   });
 
   @override
@@ -245,6 +280,8 @@ class SettingsTile extends StatelessWidget {
             title: infoTitle ?? title,
             description: infoDescription!,
             icon: infoIcon,
+            tooltipId: tooltipId,
+            userId: userId,
           ),
           if (trailing != null) ...[
             const SizedBox(width: 4),
@@ -280,6 +317,8 @@ class SettingsSwitchTile extends StatelessWidget {
   final Key? tileKey;
   final Key? switchKey;
   final Color? activeThumbColor;
+  final String? tooltipId;
+  final String? userId;
 
   const SettingsSwitchTile({
     super.key,
@@ -294,6 +333,8 @@ class SettingsSwitchTile extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.activeThumbColor,
+    this.tooltipId,
+    this.userId,
   });
 
   @override
@@ -313,6 +354,8 @@ class SettingsSwitchTile extends StatelessWidget {
               title: infoTitle ?? title,
               description: infoDescription!,
               icon: infoIcon,
+              tooltipId: tooltipId,
+              userId: userId,
             ),
             const SizedBox(width: 4),
           ],

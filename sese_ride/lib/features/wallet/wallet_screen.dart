@@ -109,8 +109,6 @@ class WalletScreenState extends State<WalletScreen> {
         children: [
           _buildBalanceCard(context),
           const SizedBox(height: 12),
-          SeseCoinConvertCard(uid: widget.user.uid),
-          const SizedBox(height: 12),
           _SplitInvitesCard(userId: widget.user.uid),
           _buildPayoutsCard(),
           const SizedBox(height: 12),

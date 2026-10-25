@@ -46,7 +46,19 @@ class EarningsScreenState extends State<EarningsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const SeseAppBar(title: 'Earnings'),
+      appBar: SeseAppBar(
+        title: 'Earnings',
+        actions: [
+          SettingsInfoButton(
+            tooltipId: 'menu_earnings',
+            userId: widget.user.uid,
+            title: 'Earnings',
+            description:
+                'Track daily, weekly, and monthly trip earnings, commissions, net profit, and streak milestones.',
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: Column(
         children: [
           Padding(

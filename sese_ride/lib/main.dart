@@ -79,6 +79,10 @@ void main() async {
   // ignore: discarded_futures
   unawaited(IconCacheService.instance.initialize());
 
+  // Prime dynamic awareness & info tooltips from server and local view tracking.
+  // ignore: discarded_futures
+  unawaited(AwarenessTooltipService.instance.initialize());
+
   // Non-blocking Over-The-Air (OTA) Dart patch check via Shorebird.
   // Downloads updates in background; applied on next cold app restart.
   // ignore: discarded_futures

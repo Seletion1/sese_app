@@ -3021,7 +3021,23 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       child: SwitchListTile(
         value: forced ? true : _requireDeliveryPin,
         onChanged: forced ? null : (val) => setState(() => _requireDeliveryPin = val),
-        title: const Text('Require Delivery PIN Verification', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        title: Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Require Delivery PIN Verification',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+            SettingsInfoButton(
+              tooltipId: 'delivery_pin_verification',
+              userId: widget.user?.uid,
+              title: 'Delivery Security PIN',
+              description:
+                  'Recipient gives driver a 4-digit PIN at drop-off to complete delivery and prevent wrongful release.',
+            ),
+          ],
+        ),
         subtitle: Text(
           forced
               ? 'Enforced System-Wide by Admin Override'
@@ -3106,7 +3122,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Payment Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Row(
+              children: [
+                const Text('Payment Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Spacer(),
+                SettingsInfoButton(
+                  tooltipId: 'payment_mode',
+                  userId: widget.user?.uid,
+                  title: 'Payment Mode',
+                  description:
+                      'Choose who pays for the trip: Sender at pickup, Receiver at drop-off, or Split Payment between both.',
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             SegmentedButton<String>(
               showSelectedIcon: false,

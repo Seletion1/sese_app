@@ -71,7 +71,19 @@ class ReferralHubScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final referralService = const ReferralService();
     return Scaffold(
-      appBar: AppBar(title: const Text('Referral Hub')),
+      appBar: AppBar(
+        title: const Text('Referral Hub'),
+        actions: [
+          SettingsInfoButton(
+            tooltipId: 'menu_referral',
+            userId: user.uid,
+            title: 'Refer & Earn',
+            description:
+                'Share your referral code with friends and drivers to earn lifetime commission bonus coins.',
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
