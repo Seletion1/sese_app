@@ -52,6 +52,9 @@ class ZegoCallServiceImpl implements ICallService {
   Stream<CallState> get stateStream => _stateController.stream;
 
   @override
+  Stream<CallSession?> get incomingCallStream => const Stream.empty();
+
+  @override
   Stream<Duration> get durationStream => _durationController.stream;
 
   @override
@@ -241,6 +244,17 @@ class ZegoCallServiceImpl implements ICallService {
         _setCallState(CallState.idle);
       }
     });
+  }
+
+  @override
+  Future<void> rejectCall(String callId, {String? reason}) async {
+    try {
+      await _firestore.collection('calls').doc(callId).update({
+        'status': 'rejected',
+        'endedAt': FieldValue.serverTimestamp(),
+        'endReason': reason ?? 'declined_by_receiver',
+      });
+    } catch (_) {}
   }
 
   @override

@@ -69,7 +69,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   StreamSubscription<CallState>? _stateSub;
   StreamSubscription<Duration>? _durationSub;
 
-  CallState _state = CallState.outgoing;
+  late CallState _state;
   Duration _duration = Duration.zero;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
@@ -78,6 +78,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   @override
   void initState() {
     super.initState();
+    _state = widget.isIncoming ? CallState.connecting : CallState.outgoing;
     _service = _callManager.activeService;
 
     _pulseController = AnimationController(

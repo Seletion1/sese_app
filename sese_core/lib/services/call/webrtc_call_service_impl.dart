@@ -34,9 +34,11 @@ class WebRtcCallServiceImpl implements ICallService {
 
   final _stateController = StreamController<CallState>.broadcast();
   final _durationController = StreamController<Duration>.broadcast();
+  final _incomingCallController = StreamController<CallSession?>.broadcast();
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _callDocSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _candidatesSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _incomingCallsSub;
   Timer? _durationTimer;
   DateTime? _connectedAt;
 
@@ -59,6 +61,9 @@ class WebRtcCallServiceImpl implements ICallService {
   Stream<CallState> get stateStream => _stateController.stream;
 
   @override
+  Stream<CallSession?> get incomingCallStream => _incomingCallController.stream;
+
+  @override
   Stream<Duration> get durationStream => _durationController.stream;
 
   @override
@@ -77,6 +82,49 @@ class WebRtcCallServiceImpl implements ICallService {
     _displayName = displayName;
     _avatarUrl = avatarUrl;
     _setCallState(CallState.idle);
+
+    // Cancel any prior listener before setting up the current user's listener
+    await _incomingCallsSub?.cancel();
+    _incomingCallsSub = _firestore
+        .collection('calls')
+        .where('receiverId', isEqualTo: currentUserId)
+        .where('status', isEqualTo: 'ringing')
+        .snapshots()
+        .listen(
+      (snapshot) {
+        if (snapshot.docs.isEmpty) {
+          if (!_incomingCallController.isClosed) {
+            _incomingCallController.add(null);
+          }
+          return;
+        }
+
+        final doc = snapshot.docs.first;
+        final data = doc.data();
+        final session = CallSession(
+          callId: doc.id,
+          callerId: data['callerId']?.toString() ?? '',
+          callerName: data['callerName']?.toString() ?? 'Caller',
+          callerAvatar: data['callerAvatar']?.toString(),
+          receiverId: currentUserId,
+          receiverName: data['receiverName']?.toString() ?? 'Receiver',
+          receiverAvatar: data['receiverAvatar']?.toString(),
+          provider: CallProviderType.webrtc,
+          state: CallState.incoming,
+          startedAt: (data['createdAt'] is Timestamp)
+              ? (data['createdAt'] as Timestamp).toDate()
+              : DateTime.now(),
+          metadata: data['metadata'] as Map<String, dynamic>? ?? {},
+        );
+
+        if (!_incomingCallController.isClosed) {
+          _incomingCallController.add(session);
+        }
+      },
+      onError: (e) {
+        debugPrint('WebRtcCallServiceImpl: error in incoming calls stream: $e');
+      },
+    );
   }
 
   void _setCallState(CallState state) {
@@ -167,18 +215,24 @@ class WebRtcCallServiceImpl implements ICallService {
         }
       };
 
-      // 5. Stream ICE candidates to Firestore subcollection
+      // 5. Stream ICE candidates to Firestore subcollection (buffered until parent callDoc commits)
       final callDocRef = _firestore.collection('calls').doc(callId);
       final callerCandidatesCol = callDocRef.collection('callerCandidates');
+      final earlyCandidates = <RTCIceCandidate>[];
+      bool callDocCreated = false;
 
       _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
         if (candidate.candidate != null && candidate.candidate!.isNotEmpty) {
-          callerCandidatesCol.add({
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
+          if (!callDocCreated) {
+            earlyCandidates.add(candidate);
+          } else {
+            callerCandidatesCol.add({
+              'candidate': candidate.candidate,
+              'sdpMid': candidate.sdpMid,
+              'sdpMLineIndex': candidate.sdpMLineIndex,
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+          }
         }
       };
 
@@ -208,6 +262,18 @@ class WebRtcCallServiceImpl implements ICallService {
         'createdAt': FieldValue.serverTimestamp(),
         'metadata': metadata ?? {},
       });
+
+      // Flush any ICE candidates gathered while parent document was being written
+      callDocCreated = true;
+      for (final cand in earlyCandidates) {
+        callerCandidatesCol.add({
+          'candidate': cand.candidate,
+          'sdpMid': cand.sdpMid,
+          'sdpMLineIndex': cand.sdpMLineIndex,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+      earlyCandidates.clear();
 
       // 8. Listen for remote answer
       _callDocSub = callDocRef.snapshots().listen((snapshot) async {
@@ -283,6 +349,22 @@ class WebRtcCallServiceImpl implements ICallService {
         throw Exception('Invalid call document: offer missing');
       }
 
+      _currentSession = CallSession(
+        callId: callId,
+        callerId: data['callerId']?.toString() ?? '',
+        callerName: data['callerName']?.toString() ?? 'Caller',
+        callerAvatar: data['callerAvatar']?.toString(),
+        receiverId: _currentUserId ?? '',
+        receiverName: _displayName ?? 'Receiver',
+        receiverAvatar: _avatarUrl,
+        provider: CallProviderType.webrtc,
+        state: CallState.connecting,
+        startedAt: (data['createdAt'] is Timestamp)
+            ? (data['createdAt'] as Timestamp).toDate()
+            : DateTime.now(),
+        metadata: data['metadata'] as Map<String, dynamic>? ?? {},
+      );
+
       // 1. Capture local audio track
       _localStream = await navigator.mediaDevices.getUserMedia({
         'audio': {
@@ -345,7 +427,18 @@ class WebRtcCallServiceImpl implements ICallService {
         'answeredAt': FieldValue.serverTimestamp(),
       });
 
-      // 9. Listen for caller candidates
+      // 9. Listen for caller cancellation or remote hangup
+      _callDocSub = callDocRef.snapshots().listen((snapshot) async {
+        final data = snapshot.data();
+        if (data == null || !snapshot.exists) return;
+
+        final status = data['status']?.toString();
+        if (status == 'ended' || status == 'rejected') {
+          await endCall(reason: 'Call declined or ended by remote party.');
+        }
+      });
+
+      // 10. Listen for caller candidates
       final callerCandidatesCol = callDocRef.collection('callerCandidates');
       _candidatesSub = callerCandidatesCol.snapshots().listen((snapshot) {
         for (final change in snapshot.docChanges) {
@@ -355,7 +448,7 @@ class WebRtcCallServiceImpl implements ICallService {
               final candidate = RTCIceCandidate(
                 candData['candidate']?.toString(),
                 candData['sdpMid']?.toString(),
-                candData['sdpMLineIndex'] is int ? candData['sdpMLineIndex'] as int : 0,
+                (candData['sdpMLineIndex'] as num?)?.toInt() ?? 0,
               );
               _peerConnection!.addCandidate(candidate);
             }
@@ -470,9 +563,25 @@ class WebRtcCallServiceImpl implements ICallService {
   }
 
   @override
+  Future<void> rejectCall(String callId, {String? reason}) async {
+    try {
+      await _firestore.collection('calls').doc(callId).update({
+        'status': 'rejected',
+        'endedAt': FieldValue.serverTimestamp(),
+        'endReason': reason ?? 'declined_by_receiver',
+      });
+    } catch (e) {
+      debugPrint('WebRtcCallServiceImpl: failed to reject call $callId: $e');
+    }
+  }
+
+  @override
   Future<void> dispose() async {
+    await _incomingCallsSub?.cancel();
+    _incomingCallsSub = null;
     await endCall(reason: 'Service disposed');
     await _stateController.close();
     await _durationController.close();
+    await _incomingCallController.close();
   }
 }

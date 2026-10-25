@@ -669,7 +669,11 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
                 trip.status == TripStatus.inProgress))
           Align(
             alignment: Alignment.bottomCenter,
-            child: _AcceptedDriverSheet(driver: trip.driver!, trip: trip),
+            child: _AcceptedDriverSheet(
+              driver: trip.driver!,
+              trip: trip,
+              onCancel: () => _cancel(context),
+            ),
           ),
       ],
     );
@@ -1321,17 +1325,20 @@ class _LiveTripSearchingSheet extends StatelessWidget {
 
 // ── Accepted-driver sheet ─────────────────────────────────────────────────────
 
-/// Accepted-driver sheet: photo, name, rating, plate/model + Call/Message.
-///
-/// Honors "Hide Phone Number" ([PrivacyMasking]): when enabled, the raw
-/// number renders masked and direct tel:/sms: actions hide — parties
-/// coordinate through the in-app tri-party trip chat instead (WebRTC/VoIP
-/// relay requires backend telephony infra; chat is the masked fallback).
+/// Accepted-driver sheet: photo, name, rating, vehicle/payment, 3 round action
+/// buttons (Direct Call, In-App VoIP Call, Trip Chat), and the full route details
+/// container (PICKUP & DROPOFF), matching the driver active trip view layout
+/// while excluding driver state advancement controls.
 class _AcceptedDriverSheet extends StatefulWidget {
   final DriverInfo driver;
   final ActiveTrip trip;
+  final VoidCallback? onCancel;
 
-  const _AcceptedDriverSheet({required this.driver, required this.trip});
+  const _AcceptedDriverSheet({
+    required this.driver,
+    required this.trip,
+    this.onCancel,
+  });
 
   @override
   State<_AcceptedDriverSheet> createState() => _AcceptedDriverSheetState();
@@ -1348,129 +1355,63 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     });
   }
 
-  Future<void> _callDriver(BuildContext context) async {
-    final phone = widget.driver.phone;
-    final canDial = AppCallService.isDialable(phone);
-    final scheme = Theme.of(context).colorScheme;
-
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Call ${widget.driver.fullName.isNotEmpty ? widget.driver.fullName : "Driver"}',
-              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            // In-App VoIP Call
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.wifi_calling_3_rounded, color: scheme.primary),
-              ),
-              title: const Text('In-App Voice Call', style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Free internet call (WebRTC / Zego encrypted)'),
-              onTap: () {
-                Navigator.of(ctx).pop();
-                final callId = 'call_${widget.trip.tripId}_${DateTime.now().millisecondsSinceEpoch}';
-                InAppCallScreen.start(
-                  context: context,
-                  callId: callId,
-                  targetUserId: widget.driver.driverId,
-                  targetUserName: widget.driver.fullName.isNotEmpty ? widget.driver.fullName : 'Driver',
-                  targetUserAvatar: widget.driver.photoUrl,
-                  metadata: {
-                    'tripId': widget.trip.tripId,
-                    'callerRole': 'customer',
-                  },
-                );
-              },
-            ),
-            const Divider(height: 16),
-            // Cellular Phone Dialer
-            if (canDial)
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.phone_in_talk_rounded, color: Colors.green),
-                ),
-                title: const Text('Cellular Phone Call', style: TextStyle(fontWeight: FontWeight.w600)),
-                subtitle: const Text('Dial using your standard phone dialer'),
-                onTap: () async {
-                  Navigator.of(ctx).pop();
-                  final ok = await AppCallService.makeCall(phone);
-                  if (!ok && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not open phone dialer on this device.')),
-                    );
-                  }
-                },
-              )
-            else
-              ListTile(
-                leading: const Icon(Icons.lock_outline_rounded, color: Colors.grey),
-                title: const Text('Phone Number Masked'),
-                subtitle: const Text('Use In-App Voice Call or Trip Chat.'),
-                onTap: () => Navigator.of(ctx).pop(),
-              ),
-          ],
-        ),
-      ),
-    );
+  String _paymentLabel(ActiveTrip trip) {
+    final mode = trip.paymentMode.toLowerCase();
+    if (mode == 'split' ||
+        trip.splitEnabled ||
+        trip.paymentMethod.toLowerCase() == 'split') {
+      return 'SPLIT PAYMENT';
+    } else if (mode == 'receiver_pays') {
+      return 'RECEIVER PAYS';
+    } else if (mode == 'sender_pays') {
+      return 'SENDER PAYS';
+    } else if (trip.paymentMethod.toLowerCase() == 'wallet') {
+      return 'WALLET PREPAID';
+    }
+    return trip.paymentMethod.toUpperCase();
   }
 
-  Future<void> _smsDriver(BuildContext context) async {
+  bool _isCallableNumber(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return false;
+    if (v.contains('*') || v.contains('•')) return false;
+    return true;
+  }
+
+  Future<void> _makeDirectPhoneCall(BuildContext context) async {
     final phone = widget.driver.phone;
-    if (AppCallService.isDialable(phone)) {
-      final ok = await AppCallService.sendSms(
-        phone,
-        body: 'Hello, I am your SESE rider.',
-      );
+    if (_isCallableNumber(phone) && AppCallService.isDialable(phone)) {
+      final ok = await AppCallService.makeCall(phone);
       if (!ok && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not open messaging app.')),
+          const SnackBar(content: Text('Could not open phone dialer.')),
         );
       }
-    } else {
-      _openTripChat(context);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Driver phone number is masked or unavailable.'),
+        ),
+      );
     }
+  }
+
+  void _startInAppCall(BuildContext context) {
+    final callId =
+        'call_${widget.trip.tripId}_${DateTime.now().millisecondsSinceEpoch}';
+    InAppCallScreen.start(
+      context: context,
+      callId: callId,
+      targetUserId: widget.driver.driverId,
+      targetUserName: widget.driver.fullName.isNotEmpty
+          ? widget.driver.fullName
+          : 'Driver',
+      targetUserAvatar: widget.driver.photoUrl,
+      metadata: {
+        'tripId': widget.trip.tripId,
+        'callerRole': 'customer',
+      },
+    );
   }
 
   void _openTripChat(BuildContext context) {
@@ -1481,7 +1422,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
           currentUid: widget.trip.customerId,
           senderRole: 'customer',
           peerName: widget.driver.fullName.isEmpty
-              ? 'Trip chat'
+              ? 'Driver'
               : widget.driver.fullName,
           peerPhone: widget.driver.phone,
           hidePhones: _hidePhones,
@@ -1493,138 +1434,313 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   @override
   Widget build(BuildContext context) {
     final driver = widget.driver;
+    final trip = widget.trip;
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        boxShadow: const [
+        color: scheme.surface,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+        boxShadow: [
           BoxShadow(
-            color: Colors.black12,
-            blurRadius: 8,
-            offset: Offset(0, -2),
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 16,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Column(
-                mainAxisSize: MainAxisSize.min,
+              // 1. Tappable Centered Handle Bar
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 4, bottom: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              // 2. Driver Header Row: Avatar, Name with verified badge, Subtitle, and 3 Inline Action Icons
+              Row(
                 children: [
                   UserAvatar(
                     displayName: driver.fullName,
                     photoUrl: driver.photoUrl,
-                    radius: 26,
+                    radius: 22,
                   ),
-                  if (driver.isVerifiedDriver) ...[
-                    const SizedBox(height: 4),
-                    const VerifiedBadge(variant: VerifiedBadgeVariant.driver),
-                  ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                driver.fullName.isNotEmpty
+                                    ? driver.fullName
+                                    : 'Driver',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.verified,
+                              color: Colors.blue,
+                              size: 16,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          trip.fareFormatted.isNotEmpty
+                              ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
+                              : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Three clean round action icons horizontally (matching driver active card)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _RoundActionIcon(
+                        key: const Key('customer_direct_call_icon'),
+                        icon: Icons.phone_outlined,
+                        tooltip: 'Direct Call',
+                        color: const Color(0xFF10B981),
+                        bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                        onTap: () => _makeDirectPhoneCall(context),
+                      ),
+                      const SizedBox(width: 8),
+                      _RoundActionIcon(
+                        key: const Key('customer_inapp_call_icon'),
+                        icon: Icons.phone_in_talk_outlined,
+                        tooltip: 'In-App Voice Call',
+                        color: const Color(0xFFD97706),
+                        bgColor: const Color(0xFFFEF3C7),
+                        onTap: () => _startInAppCall(context),
+                      ),
+                      const SizedBox(width: 8),
+                      _RoundActionIcon(
+                        key: const Key('customer_chat_icon'),
+                        icon: Icons.chat_bubble_outline,
+                        tooltip: 'Trip Chat',
+                        color: Colors.black87,
+                        bgColor: Colors.grey.shade100,
+                        onTap: () => _openTripChat(context),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
+              const SizedBox(height: 12),
+
+              // 3. Route Details Box (PICKUP & DROPOFF) matching driver card layout
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Pickup row
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          child: Text(
-                            driver.fullName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF10B981),
+                              shape: BoxShape.circle,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (driver.isVerifiedDriver) ...[
-                          const SizedBox(width: 6),
-                          const Icon(
-                            Icons.verified,
-                            size: 16,
-                            color: Colors.blue,
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'PICKUP',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF10B981),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                trip.pickupAddress.isEmpty
+                                    ? 'Pickup location on map'
+                                    : trip.pickupAddress,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ],
                     ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 6),
+                      child: Divider(height: 1),
+                    ),
+                    // Dropoff row
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.star, size: 14, color: Colors.amber),
-                        const SizedBox(width: 4),
-                        Text(
-                          driver.rating > 0
-                              ? driver.rating.toStringAsFixed(1)
-                              : 'New driver',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        if (driver.vehicleLabel.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              driver.vehicleLabel,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
                             ),
                           ),
-                        ],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'DROPOFF',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFEF4444),
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                trip.dropoffAddress.isEmpty
+                                    ? 'Drop-off location on map'
+                                    : trip.dropoffAddress,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  key: const Key('call_driver_button'),
-                  icon: const Icon(Icons.call),
-                  label: const Text('Call'),
-                  onPressed: driver.phone.isEmpty
-                      ? null
-                      : () => _callDriver(context),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  key: const Key('trip_chat_open_button'),
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  label: const Text('Chat'),
-                  onPressed: () => _openTripChat(context),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide.none,
-                    backgroundColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
+
+              // 4. Subtle Cancellation Option
+              if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
+                const SizedBox(height: 10),
+                Center(
+                  child: TextButton(
+                    onPressed: widget.onCancel,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red.shade600,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    ),
+                    child: const Text(
+                      'Cancel ride',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
-          if (AppCallService.isDialable(driver.phone)) ...[
-            const SizedBox(height: 6),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                icon: const Icon(Icons.sms_outlined, size: 16),
-                label: const Text('Send SMS to driver', style: TextStyle(fontSize: 12)),
-                onPressed: () => _smsDriver(context),
-              ),
-            ),
-          ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundActionIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final Color bgColor;
+  final VoidCallback onTap;
+
+  const _RoundActionIcon({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.bgColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: bgColor,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 20,
+          ),
+        ),
       ),
     );
   }

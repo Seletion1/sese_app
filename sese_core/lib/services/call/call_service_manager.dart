@@ -123,6 +123,14 @@ class CallServiceManager {
     await activeService.answerCall(callId);
   }
 
+  /// Rejects an incoming call identified by [callId].
+  Future<void> rejectCall(String callId, {String? reason}) async {
+    await activeService.rejectCall(callId, reason: reason);
+  }
+
+  /// Stream of incoming call invitations for the active user.
+  Stream<CallSession?> get incomingCallStream => activeService.incomingCallStream;
+
   /// Terminates the active call on whichever service is running.
   Future<void> endCall({String? reason}) async {
     await activeService.endCall(reason: reason);

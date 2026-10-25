@@ -169,6 +169,9 @@ abstract interface class ICallService {
   /// Stream of call state transitions for reactive UI updates.
   Stream<CallState> get stateStream;
 
+  /// Stream of incoming call invitations for the authenticated user, or null if none.
+  Stream<CallSession?> get incomingCallStream;
+
   /// Stream of elapsed call duration since connection established.
   Stream<Duration> get durationStream;
 
@@ -201,6 +204,9 @@ abstract interface class ICallService {
 
   /// Answers an incoming call identified by [callId].
   Future<void> answerCall(String callId);
+
+  /// Rejects an incoming call identified by [callId] before answering.
+  Future<void> rejectCall(String callId, {String? reason});
 
   /// Terminates the active call or rejects an incoming call.
   ///

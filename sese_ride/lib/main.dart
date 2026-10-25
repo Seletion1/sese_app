@@ -230,6 +230,9 @@ class _MyAppState extends State<MyApp> {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
+          builder: (context, child) => IncomingCallOverlay(
+            child: child ?? const SizedBox.shrink(),
+          ),
           home: widget.showSplash
               ? SeSeSplashScreen(
                   nextScreen: gate,

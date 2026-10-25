@@ -87,6 +87,7 @@ export 'services/call/webrtc_call_service_impl.dart';
 export 'services/call/zego_call_service_impl.dart';
 export 'services/call/call_service_manager.dart';
 export 'widgets/in_app_call_screen.dart';
+export 'widgets/incoming_call_overlay.dart';
 
 /// A Calculator.
 class Calculator {

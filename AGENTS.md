@@ -60,6 +60,40 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-26 — Customer Active Trip View Parity & Bi-Directional In-App VoIP Calling Architecture
+
+Executed customer-side active trip sheet overhaul matching driver active trip card layout and resolved bi-directional in-app VoIP calling signaling, detection, and lifecycle:
+
+### 1. Customer Active Trip View Layout & Visual Parity (`_AcceptedDriverSheet`)
+- **Visual Parity with Driver Card**: Overhauled `_AcceptedDriverSheet` in `live_trip_screen.dart` to match `driver_active_trip_card.dart` exactly:
+  - Top drag handle pill.
+  - Driver Header Row: Avatar (`UserAvatar`), driver name with blue verified checkmark (`Icons.verified`), subtitle (`fareFormatted • vehicleLabel`).
+  - 3 Round Action Icons (`_RoundActionIcon`):
+    1. Direct cellular call (`0xFF10B981` green with alpha background) launching carrier dialer.
+    2. In-App VoIP Call (`0xFFD97706` gold / `0xFFFEF3C7`) launching `InAppCallScreen.start`.
+    3. Trip Chat (`Icons.chat_bubble_outline`, grey background) opening `TripChatScreen`.
+  - Full Route Details Container:
+    - `PICKUP` with green dot (`0xFF10B981`), bold uppercase header, and pickup address.
+    - Divider line.
+    - `DROPOFF` with red dot (`0xFFEF4444`), bold uppercase header, and dropoff address.
+  - **Explicit Exclusion of Driver Progression Buttons**: Driver state controls ("Slide to Complete Trip", "Slide to confirm Arrived", "Slide to Start Ride") are strictly excluded from the customer view.
+  - Subtle cancel option: "Cancel ride" text button with dialog confirmation.
+
+### 2. Bi-Directional In-App VoIP Calling Fix & Global Incoming Call Host
+- **Missing Callee Signaling & Listener Root Cause**:
+  - The app previously lacked an incoming call stream listener. Callee devices never received incoming call invitations from Firestore `calls` collection.
+  - In `WebRtcCallServiceImpl.startCall`, early ICE candidates gathered before `calls/{callId}` document creation resulted in `PERMISSION_DENIED` rule evaluation errors.
+  - In `WebRtcCallServiceImpl.answerCall`, `_currentSession` was left `null` and `_callDocSub` was not initialized, causing callee-side hangups and remote terminations to leave active screens stuck indefinitely.
+- **Signaling & Lifecycle Solutions**:
+  - **Candidate Buffering**: `startCall` buffers early ICE candidates until parent `callDocRef.set(...)` completes, guaranteeing valid security rule verification.
+  - **Answer Call Session & Listener**: `answerCall` populates `_currentSession` and listens to `callDocRef.snapshots()` for remote hangup events (`status == 'ended' || status == 'rejected'`).
+  - **`incomingCallStream` & `rejectCall`**: Added `incomingCallStream` and `rejectCall` to `ICallService`, `WebRtcCallServiceImpl`, `ZegoCallServiceImpl`, and `CallServiceManager`.
+  - **`IncomingCallOverlay`**: Built a global overlay in `sese_core/lib/widgets/incoming_call_overlay.dart` wired to `MaterialApp.builder` in `sese_ride/lib/main.dart`. Displays floating caller banner, plays incoming audio chime, and provides one-tap Accept and Decline actions from any screen in the app.
+- **Verification**:
+  - `analyze_files` across `sese_core`, `sese_ride`, and `sese_hub`: **0 errors, 0 warnings**.
+  - `hot_restart` succeeded via DTD.
+  - `get_runtime_errors`: **No runtime errors found**.
+
 ## 2026-10-25 — Map Platform View Memory Tuning & Low-RAM Device Graceful Fallback
 
 Resolved native memory exhaustion (`Scudo OOM: The process has exhausted 256M for size class 1104`) and 350+ skipped frame hangs on entry-level Android devices (Nokia G20):
