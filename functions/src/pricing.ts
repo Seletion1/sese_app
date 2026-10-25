@@ -51,7 +51,43 @@ const DELIVERY_TIER_NAMES: Record<string, string> = {
   car: "Car / Sedan",
 };
 
+/**
+ * Rounds a fare amount to the nearest 100.
+ *
+ * Rule:
+ * - If the remainder (amount % 100) is 50 or higher, it rounds UP to the nearest 100.
+ * - If the remainder is less than 50, it rounds DOWN to the nearest 100.
+ *
+ * Examples:
+ * - 3,612 -> 3,600 (remainder 12 < 50)
+ * - 2,576 -> 2,600 (remainder 76 >= 50)
+ * - 3,650 -> 3,700 (remainder 50 >= 50)
+ */
+export function roundToNearest100(amount: number, minFloor = 0): number {
+  if (amount <= 0) return 0;
+  const intAmount = Math.round(amount);
+  const remainder = intAmount % 100;
+  let rounded: number;
+  if (remainder >= 50) {
+    rounded = intAmount - remainder + 100;
+  } else {
+    rounded = intAmount - remainder;
+  }
+  const floorInt = Math.round(minFloor);
+  if (floorInt > 0 && rounded < floorInt) {
+    const floorRemainder = floorInt % 100;
+    rounded = floorRemainder === 0
+      ? floorInt
+      : (floorInt - floorRemainder + (floorRemainder >= 50 ? 100 : 0));
+  }
+  return rounded;
+}
+
 export function formatCurrency(amount: number, symbol = "₦"): string {
+  if (amount % 1 === 0) {
+    const whole = amount.toLocaleString("en-US");
+    return `${symbol}${whole}`;
+  }
   const parts = amount.toFixed(2).split(".");
   parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${symbol}${parts.join(".")}`;
@@ -196,7 +232,7 @@ export async function computeFares(params: {
       // baseFee remains the floor for any trip.
       const variableFare = (distanceFare + timeFare) * surge * tierConf.multiplier;
       const rawTotal = carRate.baseFee + variableFare;
-      const totalFare = Math.round(Math.max(carRate.baseFee, rawTotal) * 100) / 100;
+      const totalFare = roundToNearest100(rawTotal, carRate.baseFee);
 
       results.push({
         tierId: rawTierId,
@@ -220,7 +256,7 @@ export async function computeFares(params: {
       const timeFare = durationMins * rate.timeRatePerMinute;
       const variableFare = (distanceFare + timeFare) * surge;
       const rawTotal = rate.baseFee + variableFare;
-      const totalFare = Math.round(Math.max(rate.baseFee, rawTotal) * 100) / 100;
+      const totalFare = roundToNearest100(rawTotal, rate.baseFee);
 
       results.push({
         tierId: rawCat,

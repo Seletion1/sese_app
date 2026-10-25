@@ -37,10 +37,10 @@ class PricingCalculator {
     // Subtotal before multipliers
     final variableFare = (distanceFare + timeFare) * surge * tierMultiplier;
 
-    // Total fare: Base fee floor + variable fare
+    // Total fare: Base fee floor + variable fare, rounded to nearest 100
     // Base fee is the minimum floor price for any trip or delivery
     final calculatedTotal = rate.baseFee + variableFare;
-    final totalFare = calculatedTotal < rate.baseFee ? rate.baseFee : calculatedTotal;
+    final totalFare = roundToNearest100(calculatedTotal, minFloor: rate.baseFee);
 
     return TripEstimate(
       category: category,
@@ -53,7 +53,7 @@ class PricingCalculator {
       timeFare: timeFare,
       surgeMultiplier: surge,
       tierMultiplier: tierMultiplier,
-      totalFare: _roundToTwoDecimals(totalFare),
+      totalFare: totalFare,
       currencySymbol: config.currencySymbol,
       currencyCode: config.currencyCode,
     );
@@ -140,7 +140,35 @@ class PricingCalculator {
     );
   }
 
-  static double _roundToTwoDecimals(double value) {
-    return (value * 100).roundToDouble() / 100;
+  /// Rounds a fare amount to the nearest 100.
+  ///
+  /// Rule:
+  /// - If the remainder (amount % 100) is 50 or higher, it rounds UP to the nearest 100.
+  /// - If the remainder is less than 50, it rounds DOWN to the nearest 100.
+  ///
+  /// Examples:
+  /// - 3,612 -> 3,600 (remainder 12 < 50)
+  /// - 2,576 -> 2,600 (remainder 76 >= 50)
+  /// - 3,650 -> 3,700 (remainder 50 >= 50)
+  static double roundToNearest100(double amount, {double minFloor = 0}) {
+    if (amount <= 0) return 0.0;
+    final intAmount = amount.round();
+    final remainder = intAmount % 100;
+    int rounded;
+    if (remainder >= 50) {
+      rounded = intAmount - remainder + 100;
+    } else {
+      rounded = intAmount - remainder;
+    }
+    final floorRounded = (minFloor > 0) ? minFloor.round() : 0;
+    if (floorRounded > 0 && rounded < floorRounded) {
+      final floorRemainder = floorRounded % 100;
+      rounded = floorRemainder == 0
+          ? floorRounded
+          : (floorRounded -
+              floorRemainder +
+              (floorRemainder >= 50 ? 100 : 0));
+    }
+    return rounded.toDouble();
   }
 }

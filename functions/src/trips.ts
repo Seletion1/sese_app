@@ -8,6 +8,7 @@ import {
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { verifyFareToken } from "./fareToken";
 import { breakDriverStreak } from "./driverStreak";
+import { roundToNearest100 } from "./pricing";
 
 /**
  * Live dispatch state machine (server-authoritative).
@@ -1792,12 +1793,13 @@ export const submitBid = onCall(async (request) => {
   }
   const tripData = tripSnap.data()!;
 
-  // 2. Validate offered fare against baseline
+  // 2. Validate offered fare against baseline, rounded to nearest 100
   const baseline = Number(tripData.baselineFare ?? tripData.fareAmount ?? 0);
-  if (baseline > 0 && offeredFare < baseline) {
+  const roundedOfferedFare = roundToNearest100(offeredFare, baseline);
+  if (baseline > 0 && roundedOfferedFare < baseline) {
     throw new HttpsError(
       "invalid-argument",
-      `Offered fare (₦${offeredFare}) cannot be lower than the baseline fare (₦${baseline}).`
+      `Offered fare (₦${roundedOfferedFare}) cannot be lower than the baseline fare (₦${baseline}).`
     );
   }
 
@@ -1837,7 +1839,7 @@ export const submitBid = onCall(async (request) => {
     vehicleModel: snapshot.vehicleModel,
     vehicleColor: snapshot.vehicleColor,
     plateNumber: snapshot.plateNumber,
-    offeredFare,
+    offeredFare: roundedOfferedFare,
     etaMinutes: typeof etaMinutes === "number" ? etaMinutes : 5,
     status: "pending",
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2025,7 +2027,8 @@ export const increaseTripFare = onCall(async (request) => {
   }
 
   const currentFare = Number(tripData.fareAmount ?? tripData.baselineFare ?? 0);
-  if (newFare <= currentFare) {
+  const roundedNewFare = roundToNearest100(newFare);
+  if (roundedNewFare <= currentFare) {
     throw new HttpsError(
       "invalid-argument",
       "New fare must be higher than current fare."
@@ -2035,12 +2038,12 @@ export const increaseTripFare = onCall(async (request) => {
   const wasNeedsAction = tripData.status === "needs_customer_action";
   const boostPct =
     currentFare > 0
-      ? Math.round(((newFare - currentFare) / currentFare) * 100)
+      ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
       : 0;
   await tripRef.update({
-    fareAmount: newFare,
-    proposedFare: newFare,
-    fareFormatted: `₦${newFare.toLocaleString()}`,
+    fareAmount: roundedNewFare,
+    proposedFare: roundedNewFare,
+    fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
     fareBoosted: true,
     boostPercent: boostPct,
     boostedAt: admin.firestore.FieldValue.serverTimestamp(),

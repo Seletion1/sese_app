@@ -342,8 +342,16 @@ class RegionConfig {
   bool get isCountryRule => stateOrRegion.isEmpty && !isGlobalDefault;
   bool get isStateOverride => stateOrRegion.isNotEmpty;
 
-  /// Formats an amount with currency symbol.
+  /// Formats an amount with currency symbol. Cleanly formats whole numbers
+  /// (e.g. ₦3,600) without trailing decimals.
   String formatCurrency(num amount) {
+    if (amount % 1 == 0) {
+      final whole = amount.toInt().toString().replaceAllMapped(
+            RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+            (Match m) => '${m[1]},',
+          );
+      return '$currencySymbol$whole';
+    }
     return '$currencySymbol${amount.toStringAsFixed(2)}';
   }
 

@@ -41,6 +41,7 @@ const firestore_1 = require("firebase-functions/v2/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const fareToken_1 = require("./fareToken");
 const driverStreak_1 = require("./driverStreak");
+const pricing_1 = require("./pricing");
 /**
  * Live dispatch state machine (server-authoritative).
  *
@@ -1469,10 +1470,11 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data();
-    // 2. Validate offered fare against baseline
+    // 2. Validate offered fare against baseline, rounded to nearest 100
     const baseline = Number((_e = (_d = tripData.baselineFare) !== null && _d !== void 0 ? _d : tripData.fareAmount) !== null && _e !== void 0 ? _e : 0);
-    if (baseline > 0 && offeredFare < baseline) {
-        throw new https_1.HttpsError("invalid-argument", `Offered fare (₦${offeredFare}) cannot be lower than the baseline fare (₦${baseline}).`);
+    const roundedOfferedFare = (0, pricing_1.roundToNearest100)(offeredFare, baseline);
+    if (baseline > 0 && roundedOfferedFare < baseline) {
+        throw new https_1.HttpsError("invalid-argument", `Offered fare (₦${roundedOfferedFare}) cannot be lower than the baseline fare (₦${baseline}).`);
     }
     if ((_f = tripData.driver) === null || _f === void 0 ? void 0 : _f.driverId) {
         throw new https_1.HttpsError("failed-precondition", "This trip has already been claimed by another driver.");
@@ -1501,7 +1503,7 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         vehicleModel: snapshot.vehicleModel,
         vehicleColor: snapshot.vehicleColor,
         plateNumber: snapshot.plateNumber,
-        offeredFare,
+        offeredFare: roundedOfferedFare,
         etaMinutes: typeof etaMinutes === "number" ? etaMinutes : 5,
         status: "pending",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1645,17 +1647,18 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
     const currentFare = Number((_c = (_b = tripData.fareAmount) !== null && _b !== void 0 ? _b : tripData.baselineFare) !== null && _c !== void 0 ? _c : 0);
-    if (newFare <= currentFare) {
+    const roundedNewFare = (0, pricing_1.roundToNearest100)(newFare);
+    if (roundedNewFare <= currentFare) {
         throw new https_1.HttpsError("invalid-argument", "New fare must be higher than current fare.");
     }
     const wasNeedsAction = tripData.status === "needs_customer_action";
     const boostPct = currentFare > 0
-        ? Math.round(((newFare - currentFare) / currentFare) * 100)
+        ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
         : 0;
     await tripRef.update({
-        fareAmount: newFare,
-        proposedFare: newFare,
-        fareFormatted: `₦${newFare.toLocaleString()}`,
+        fareAmount: roundedNewFare,
+        proposedFare: roundedNewFare,
+        fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
         fareBoosted: true,
         boostPercent: boostPct,
         boostedAt: admin.firestore.FieldValue.serverTimestamp(),

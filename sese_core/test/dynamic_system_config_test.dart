@@ -287,8 +287,8 @@ void main() {
         distanceKm: 10.0,
         durationMinutes: 20.0,
       );
-      // 600 + (2300 * 1.35) = 600 + 3105 = 3705
-      expect(premiumEstimate.totalFare, 3705.0);
+      // 600 + (2300 * 1.35) = 600 + 3105 = 3705 -> rounded to nearest 100 = 3700
+      expect(premiumEstimate.totalFare, 3700.0);
 
       // Luxe (multiplier 1.75)
       final luxeEstimate = PricingCalculator.calculateEstimate(
@@ -298,8 +298,8 @@ void main() {
         distanceKm: 10.0,
         durationMinutes: 20.0,
       );
-      // 600 + (2300 * 1.75) = 600 + 4025 = 4625
-      expect(luxeEstimate.totalFare, 4625.0);
+      // 600 + (2300 * 1.75) = 600 + 4025 = 4625 -> rounded to nearest 100 = 4600
+      expect(luxeEstimate.totalFare, 4600.0);
     });
 
     test('Multi-Vehicle Broadcast Guarantee: each driver receives rate calculated on specific vehicle', () {
@@ -325,11 +325,11 @@ void main() {
       expect(motoEstimate, isNotNull);
       expect(kekeEstimate, isNotNull);
 
-      // Motorcycle: base=400, dist=120, time=15 -> 400 + (15*120 + 30*15) = 400 + 1800 + 450 = 2650
-      expect(motoEstimate!.totalFare, 2650.0);
+      // Motorcycle: base=400, dist=120, time=15 -> 400 + (15*120 + 30*15) = 400 + 1800 + 450 = 2650 -> rounded to nearest 100 = 2700
+      expect(motoEstimate!.totalFare, 2700.0);
 
-      // Tricycle: base=450, dist=130, time=18 -> 450 + (15*130 + 30*18) = 450 + 1950 + 540 = 2940
-      expect(kekeEstimate!.totalFare, 2940.0);
+      // Tricycle: base=450, dist=130, time=18 -> 450 + (15*130 + 30*18) = 450 + 1950 + 540 = 2940 -> rounded to nearest 100 = 2900
+      expect(kekeEstimate!.totalFare, 2900.0);
 
       // Pricing rates strictly differentiated per vehicle
       expect(motoEstimate.totalFare, isNot(equals(kekeEstimate.totalFare)));

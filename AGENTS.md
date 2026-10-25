@@ -60,6 +60,31 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Trip Price Calculation Nearest 100 Rounding Engine
+
+Implemented round-to-nearest-100 price calculation engine across Cloud Functions (`functions/src/pricing.ts`, `functions/src/trips.ts`) and shared core (`sese_core/lib/services/pricing_calculator.dart`, `sese_core/lib/models/pricing_config.dart`):
+
+### 1. Business Logic & Motivation
+- Dynamic pricing formulas with per-km and per-min rates produce uneven, awkward figures (such as ₦3,612 or ₦2,576).
+- Standardized all final calculated fares to round to clean, predictable multiples of 100 (e.g. ₦3,612 -> ₦3,600 and ₦2,576 -> ₦2,600).
+- Solves physical cash change challenges for cash trips and produces clean, transparent, professional figures without altering Hub base pricing rates.
+
+### 2. Implementation Details (`roundToNearest100`)
+- **Rounding Rule:**
+  - Evaluates the remainder (`amount % 100`).
+  - If remainder is `>= 50`, rounds **up** to the nearest 100 (`amount - remainder + 100`).
+  - If remainder is `< 50`, rounds **down** to the nearest 100 (`amount - remainder`).
+- **Floor Guarantee:** Guarantees that the rounded total fare never dips below the configured vehicle `baseFee` floor.
+- **Server-Authoritative Fare Generation (`functions/src/pricing.ts`):** Applied `roundToNearest100` to all passenger ride tiers (`comfort`, `premium`, `luxe`) and all delivery vehicle categories (`bicycle`, `motorcycle`, `tricycle`, `car`, `van`, `truck`).
+- **Cryptographic Token Integrity:** `calculateFare` embeds rounded figures directly into the signed `fareToken` so client tampering remains impossible.
+- **Trip Actions & Bidding:** Applied `roundToNearest100` to customer fare increases (`increaseTripFare`) and driver bids (`submitBid`).
+- **Clean Currency Formatting (`formatCurrency`):** Formats integer fares cleanly as `₦3,600` without trailing `.00`.
+
+### 3. Verification & Deployment
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+- Cloud Functions compiled cleanly via `tsc`.
+- Cloud Functions deployed to Firebase.
+
 ## 2026-10-25 — SeSe Coin & Wallet UI Cleanup, Server-Driven Dynamic Awareness Tooltips & 2-View Auto-Dismissal
 
 Implemented wallet cleanup and server-driven dynamic awareness tooltip system across `sese_core`, `sese_ride`, and `sese_hub`:
