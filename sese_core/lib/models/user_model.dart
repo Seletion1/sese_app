@@ -17,6 +17,11 @@ class AppUser {
   /// and hub staff. Drives AuthGate routing (onboarding vs home).
   final String verificationStatus;
 
+  /// Cumulative rating metrics
+  final double averageRating;
+  final int totalRatingSum;
+  final int totalRatingCount;
+
   AppUser({
     required this.uid,
     required this.fullName,
@@ -27,6 +32,9 @@ class AppUser {
     required this.createdAt,
     this.photoUrl = '',
     this.verificationStatus = '',
+    this.averageRating = 5.0,
+    this.totalRatingSum = 0,
+    this.totalRatingCount = 0,
   });
 
   /// Drivers are created pending — require admin approval in sese_hub.
@@ -47,6 +55,9 @@ class AppUser {
       'createdAt': createdAt.toIso8601String(),
       'photoUrl': photoUrl,
       'verificationStatus': verificationStatus,
+      'averageRating': averageRating,
+      'totalRatingSum': totalRatingSum,
+      'totalRatingCount': totalRatingCount,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {
@@ -67,6 +78,9 @@ class AppUser {
       createdAt: _parseDateTime(map['createdAt']),
       photoUrl: (map['photoUrl'] ?? map['photoURL'] ?? '').toString(),
       verificationStatus: (map['verificationStatus'] ?? '').toString(),
+      averageRating: (map['averageRating'] as num?)?.toDouble() ?? 5.0,
+      totalRatingSum: (map['totalRatingSum'] as num?)?.toInt() ?? 0,
+      totalRatingCount: (map['totalRatingCount'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -92,6 +106,9 @@ class AppUser {
     DateTime? createdAt,
     String? photoUrl,
     String? verificationStatus,
+    double? averageRating,
+    int? totalRatingSum,
+    int? totalRatingCount,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -103,6 +120,9 @@ class AppUser {
       createdAt: createdAt ?? this.createdAt,
       photoUrl: photoUrl ?? this.photoUrl,
       verificationStatus: verificationStatus ?? this.verificationStatus,
+      averageRating: averageRating ?? this.averageRating,
+      totalRatingSum: totalRatingSum ?? this.totalRatingSum,
+      totalRatingCount: totalRatingCount ?? this.totalRatingCount,
     );
   }
 }

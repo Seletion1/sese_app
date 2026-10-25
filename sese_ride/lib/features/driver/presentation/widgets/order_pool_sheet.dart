@@ -384,23 +384,6 @@ class _PoolRow extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    'Tap to view route & make offer',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  Icon(Icons.arrow_forward_ios,
-                      size: 10, color: scheme.primary),
-                ],
-              ),
             ],
           ),
         ),
@@ -675,7 +658,12 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
           const Divider(height: 1),
           Flexible(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                24 + MediaQuery.of(context).viewInsets.bottom,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1024,23 +1012,58 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        // Quick-action price suggestion chips
+                        // Quick-action price suggestion chips with pen icon
                         Row(
                           children: [
-                            ChoiceChip(
-                              label: Text(
-                                  '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
-                              selected: _selectedSuggestionPct == 5,
-                              onSelected: (_) =>
-                                  _applySuggestion(5, plus5Val),
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: scheme.primary.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(Icons.edit_note_rounded,
+                                  size: 18, color: scheme.primary),
                             ),
                             const SizedBox(width: 8),
-                            ChoiceChip(
-                              label: Text(
-                                  '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
-                              selected: _selectedSuggestionPct == 10,
-                              onSelected: (_) =>
-                                  _applySuggestion(10, plus10Val),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    ChoiceChip(
+                                      label: Text(
+                                          '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
+                                      selected: _selectedSuggestionPct == 5,
+                                      selectedColor: scheme.primary,
+                                      labelStyle: TextStyle(
+                                        color: _selectedSuggestionPct == 5
+                                            ? Colors.black87
+                                            : scheme.onSurface,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                      onSelected: (_) =>
+                                          _applySuggestion(5, plus5Val),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ChoiceChip(
+                                      label: Text(
+                                          '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
+                                      selected: _selectedSuggestionPct == 10,
+                                      selectedColor: scheme.primary,
+                                      labelStyle: TextStyle(
+                                        color: _selectedSuggestionPct == 10
+                                            ? Colors.black87
+                                            : scheme.onSurface,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                      onSelected: (_) =>
+                                          _applySuggestion(10, plus10Val),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1066,11 +1089,14 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                           onChanged: _onBidChanged,
                         ),
                         const SizedBox(height: 12),
+                        // Primary Accept / Submit button at the very bottom
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
                             key: Key('submit_counter_offer_${trip.tripId}'),
                             style: FilledButton.styleFrom(
+                              backgroundColor: scheme.primary,
+                              foregroundColor: Colors.black87,
                               padding:
                                   const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
@@ -1087,7 +1113,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                                     height: 18,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
+                                      color: Colors.black87,
                                     ),
                                   )
                                 : const Icon(Icons.send_rounded, size: 18),

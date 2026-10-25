@@ -714,11 +714,204 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
   }
 
-  // ── Location-field autocomplete suggestions (300ms debounce, ≥ 3 chars) ────
+  // ── Smart Hybrid Search & Zero-Cost Recents System ───────────────────────
+
+  /// Loads local saved places (Home/Work) and frequent/recent addresses (0 API calls).
+  Future<List<PlaceSuggestion>> _loadLocalFrequentAndRecent() async {
+    final list = <PlaceSuggestion>[];
+
+    // 1. Saved places (Home / Work) with stored coordinates
+    if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
+      list.add(PlaceSuggestion(
+        description: _savedHomePlace!.address,
+        mainText: 'Home',
+        secondaryText: _savedHomePlace!.address,
+        lat: _savedHomePlace!.lat!,
+        lng: _savedHomePlace!.lng!,
+        tag: 'Home',
+        isFromCache: true,
+      ));
+    }
+    if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
+      list.add(PlaceSuggestion(
+        description: _savedWorkPlace!.address,
+        mainText: 'Work',
+        secondaryText: _savedWorkPlace!.address,
+        lat: _savedWorkPlace!.lat!,
+        lng: _savedWorkPlace!.lng!,
+        tag: 'Work',
+        isFromCache: true,
+      ));
+    }
+
+    // 2. Local frequent and recent places from repository (0 API calls)
+    final recents = await _recents.getFrequentAndRecent(limit: 8);
+    for (final loc in recents) {
+      final alreadyPresent = list.any((s) =>
+          s.description.toLowerCase() == loc.formattedAddress.toLowerCase() ||
+          (loc.placeId.isNotEmpty && s.placeId == loc.placeId));
+      if (!alreadyPresent) {
+        list.add(PlaceSuggestion.fromRecent(loc));
+      }
+    }
+
+    return list;
+  }
+
+  /// Immediately shows recent & frequent addresses upon focus or empty query (0 API calls).
+  Future<void> _showLocalRecentsOrHybrid({required bool forPickup}) async {
+    final controller = forPickup ? _pickupController : _dropoffController;
+    final query = controller.text.trim();
+
+    setState(() {
+      _suggestingForPickup = forPickup;
+      _isLoadingSuggestions = true;
+    });
+    _showOrRefreshSuggestionsOverlay();
+
+    final isPlaceholder = query.isEmpty ||
+        query == _resolvedPickupQuery ||
+        query == _resolvedDropoffQuery ||
+        query.startsWith('Location unavailable');
+
+    if (isPlaceholder) {
+      final suggestions = await _loadLocalFrequentAndRecent();
+      if (!mounted) return;
+      setState(() {
+        _suggestions = suggestions;
+        _isLoadingSuggestions = false;
+      });
+      _suggestionsOverlay?.markNeedsBuild();
+      if (suggestions.isEmpty) {
+        _hideSuggestionsOverlay();
+      }
+      return;
+    }
+
+    await _searchHybrid(query, forPickup: forPickup);
+  }
+
+  /// Searches local recent addresses first at zero API cost.
+  /// Only queries external Google Places API if no local matches exist and query is novel (>= 3 chars).
+  Future<void> _searchHybrid(String query, {required bool forPickup}) async {
+    final timer = forPickup ? _pickupDebounceTimer : _debounceTimer;
+    if (timer?.isActive ?? false) timer!.cancel();
+
+    final clean = query.trim();
+    if (clean.isEmpty) {
+      final recents = await _loadLocalFrequentAndRecent();
+      if (!mounted) return;
+      setState(() {
+        _suggestingForPickup = forPickup;
+        _suggestions = recents;
+        _isLoadingSuggestions = false;
+      });
+      _suggestionsOverlay?.markNeedsBuild();
+      if (recents.isEmpty) _hideSuggestionsOverlay();
+      return;
+    }
+
+    // 1. Fast local search from local cache (0 API calls)
+    final localMatches = await _recents.searchLocal(clean, limit: 6);
+    final localSuggestions = <PlaceSuggestion>[];
+
+    // Check Home/Work matches
+    if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
+      if ('home'.contains(clean.toLowerCase()) ||
+          _savedHomePlace!.address.toLowerCase().contains(clean.toLowerCase())) {
+        localSuggestions.add(PlaceSuggestion(
+          description: _savedHomePlace!.address,
+          mainText: 'Home',
+          secondaryText: _savedHomePlace!.address,
+          lat: _savedHomePlace!.lat!,
+          lng: _savedHomePlace!.lng!,
+          tag: 'Home',
+          isFromCache: true,
+        ));
+      }
+    }
+    if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
+      if ('work'.contains(clean.toLowerCase()) ||
+          _savedWorkPlace!.address.toLowerCase().contains(clean.toLowerCase())) {
+        localSuggestions.add(PlaceSuggestion(
+          description: _savedWorkPlace!.address,
+          mainText: 'Work',
+          secondaryText: _savedWorkPlace!.address,
+          lat: _savedWorkPlace!.lat!,
+          lng: _savedWorkPlace!.lng!,
+          tag: 'Work',
+          isFromCache: true,
+        ));
+      }
+    }
+
+    for (final loc in localMatches) {
+      final exists = localSuggestions.any((s) =>
+          s.description.toLowerCase() == loc.formattedAddress.toLowerCase());
+      if (!exists) {
+        localSuggestions.add(PlaceSuggestion.fromRecent(loc));
+      }
+    }
+
+    // If local matches exist, display them immediately with zero API calls!
+    if (localSuggestions.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _suggestingForPickup = forPickup;
+        _suggestions = localSuggestions;
+        _isLoadingSuggestions = false;
+      });
+      _showOrRefreshSuggestionsOverlay();
+      _suggestionsOverlay?.markNeedsBuild();
+      return;
+    }
+
+    // 2. No local match found. If query is < 3 characters, do not call external API yet.
+    if (clean.length < 3) {
+      if (!mounted) return;
+      setState(() {
+        _suggestingForPickup = forPickup;
+        _suggestions = [];
+        _isLoadingSuggestions = false;
+      });
+      _hideSuggestionsOverlay();
+      return;
+    }
+
+    // 3. User typed a novel query that does not match local history:
+    // Debounce and trigger external map autocomplete queries.
+    final newTimer = Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted) return;
+      setState(() {
+        _suggestingForPickup = forPickup;
+        _isLoadingSuggestions = true;
+      });
+      _showOrRefreshSuggestionsOverlay();
+
+      final bias = (forPickup ? _pickupLatLng : _dropoffLatLng) ??
+          LocationService.lastKnownPosition;
+      final results = await LocationAutocompleteService.fetchSuggestions(
+        clean,
+        biasLatLng: bias,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _suggestions = results;
+        _isLoadingSuggestions = false;
+      });
+      _suggestionsOverlay?.markNeedsBuild();
+      if (results.isEmpty) _hideSuggestionsOverlay();
+    });
+
+    if (forPickup) {
+      _pickupDebounceTimer = newTimer;
+    } else {
+      _debounceTimer = newTimer;
+    }
+  }
 
   /// Fires whenever the pickup [TextEditingController] value changes.
-  /// Mirrors [_onDropoffChanged] but populates [_suggestions] for the
-  /// pickup slot and routes taps to [_selectPickupSuggestion].
   void _onPickupChanged() {
     if (_isSelectingPickupSuggestion) return;
     if (_pickupDebounceTimer?.isActive ?? false) _pickupDebounceTimer!.cancel();
@@ -737,46 +930,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       });
     }
 
-    if (query.isEmpty || query.length < 3) {
-      if (mounted) {
-        setState(() {
-          if (_suggestingForPickup) {
-            _suggestions = [];
-            _isLoadingSuggestions = false;
-          }
-        });
-      }
-      if (_suggestingForPickup) _hideSuggestionsOverlay();
-      return;
-    }
-
-    _pickupDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
-      setState(() {
-        _suggestingForPickup = true;
-        _isLoadingSuggestions = true;
-      });
-      _showOrRefreshSuggestionsOverlay();
-
-      final bias = _pickupLatLng ?? LocationService.lastKnownPosition;
-      final results = await LocationAutocompleteService.fetchSuggestions(
-        query,
-        biasLatLng: bias,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _suggestions = results;
-        _isLoadingSuggestions = false;
-      });
-      _suggestionsOverlay?.markNeedsBuild();
-      if (results.isEmpty) _hideSuggestionsOverlay();
-    });
+    _searchHybrid(query, forPickup: true);
   }
 
   /// Fires whenever the drop-off [TextEditingController] value changes.
-  /// 300ms debounce; requires ≥ 3 characters before hitting the proxy
-  /// to avoid single-keystroke API noise.
   void _onDropoffChanged() {
     if (_isSelectingSuggestion) return;
     if (_debounceTimer?.isActive ?? false) _debounceTimer!.cancel();
@@ -796,46 +953,32 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       });
     }
 
-    if (query.isEmpty || query.length < 3) {
-      if (mounted) {
-        setState(() {
-          _suggestions = [];
-          _isLoadingSuggestions = false;
-        });
-      }
-      _hideSuggestionsOverlay();
-      return;
-    }
-
-    // 300ms debounce: one proxy call per typing pause; recents cover the rest.
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
-      if (!mounted) return;
-      setState(() {
-        _suggestingForPickup = false;
-        _isLoadingSuggestions = true;
-      });
-      _showOrRefreshSuggestionsOverlay();
-
-      final bias = _pickupLatLng ?? LocationService.lastKnownPosition;
-      final results = await LocationAutocompleteService.fetchSuggestions(
-        query,
-        biasLatLng: bias,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _suggestions = results;
-        _isLoadingSuggestions = false;
-      });
-      _suggestionsOverlay?.markNeedsBuild();
-      if (results.isEmpty) _hideSuggestionsOverlay();
-    });
+    _searchHybrid(query, forPickup: false);
   }
 
   void _selectSuggestion(PlaceSuggestion suggestion) {
-    // Google predictions carry a placeId but no coordinates: resolve with
-    // one Details call, then persist to recents (the next tap costs 0).
-    // Seam/legacy results without a placeId already carry coordinates.
+    // 0 API Cost for cached/local suggestions
+    if (suggestion.isFromCache ||
+        (suggestion.lat != 0 && suggestion.lng != 0)) {
+      _applyResolvedSuggestion(
+        suggestion.description,
+        LatLng(suggestion.lat, suggestion.lng),
+      );
+      // Touch/save in cache to increment frequency and refresh recency (0 API cost)
+      // ignore: discarded_futures
+      _recents.saveLocation(
+        address: suggestion.description,
+        lat: suggestion.lat,
+        lng: suggestion.lng,
+        placeId: suggestion.placeId,
+        mainText: suggestion.mainText,
+        secondaryText: suggestion.secondaryText,
+        tag: suggestion.tag,
+        uid: widget.user?.uid,
+      );
+      return;
+    }
+
     final placeId = suggestion.placeId;
     if (placeId == null || placeId.isEmpty) {
       _applyResolvedSuggestion(
@@ -844,6 +987,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       );
       return;
     }
+
+    // Google predictions carry a placeId but no coordinates: resolve with
+    // one Details call, then persist to recents (all future taps cost 0).
     // ignore: discarded_futures
     LocationService.resolvePrediction(suggestion).then((resolved) {
       if (!mounted) return;
@@ -857,16 +1003,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       }
       // Persist the fresh resolution for zero-cost reuse next time.
       // ignore: discarded_futures
-      _recents.saveRecent(
-        RecentLocation(
-          placeId: placeId,
-          formattedAddress: resolved.description,
-          mainText: resolved.description,
-          secondaryText: '',
-          lat: resolved.lat,
-          lng: resolved.lng,
-          lastUsedMs: DateTime.now().millisecondsSinceEpoch,
-        ),
+      _recents.saveLocation(
+        address: resolved.description,
+        lat: resolved.lat,
+        lng: resolved.lng,
+        placeId: placeId,
+        mainText: resolved.mainText,
+        secondaryText: resolved.secondaryText,
         uid: widget.user?.uid,
       ).then((_) {
         if (mounted) _loadRecents();
@@ -899,9 +1042,29 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Pickup suggestion selection ───────────────────────────────────────────
 
   /// Resolves a pickup [PlaceSuggestion] from the overlay, mirroring the
-  /// drop-off [_selectSuggestion] path. Predictions with a `placeId` require
-  /// one Details call; seam results carry coordinates directly.
+  /// drop-off [_selectSuggestion] path with zero-cost cache resolution.
   void _selectPickupSuggestion(PlaceSuggestion suggestion) {
+    // 0 API Cost for cached/local suggestions
+    if (suggestion.isFromCache ||
+        (suggestion.lat != 0 && suggestion.lng != 0)) {
+      _applyResolvedPickupSuggestion(
+        suggestion.description,
+        LatLng(suggestion.lat, suggestion.lng),
+      );
+      // ignore: discarded_futures
+      _recents.saveLocation(
+        address: suggestion.description,
+        lat: suggestion.lat,
+        lng: suggestion.lng,
+        placeId: suggestion.placeId,
+        mainText: suggestion.mainText,
+        secondaryText: suggestion.secondaryText,
+        tag: suggestion.tag,
+        uid: widget.user?.uid,
+      );
+      return;
+    }
+
     final placeId = suggestion.placeId;
     if (placeId == null || placeId.isEmpty) {
       _applyResolvedPickupSuggestion(
@@ -910,6 +1073,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       );
       return;
     }
+
     // ignore: discarded_futures
     LocationService.resolvePrediction(suggestion).then((resolved) {
       if (!mounted) return;
@@ -921,6 +1085,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         );
         return;
       }
+      // ignore: discarded_futures
+      _recents.saveLocation(
+        address: resolved.description,
+        lat: resolved.lat,
+        lng: resolved.lng,
+        placeId: placeId,
+        mainText: resolved.mainText,
+        secondaryText: resolved.secondaryText,
+        uid: widget.user?.uid,
+      ).then((_) {
+        if (mounted) _loadRecents();
+      });
       _applyResolvedPickupSuggestion(
         resolved.description,
         LatLng(resolved.lat, resolved.lng),
@@ -950,24 +1126,29 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Suggestions overlay ───────────────────────────────────────────────────
 
   /// Focus-change callback for the pickup [FocusNode].
-  /// Hides the overlay 200ms after focus is lost so that a suggestion
-  /// tap (which fires before focus leaves) has time to complete.
+  /// Immediately shows recent addresses on tap/focus (0 API calls).
+  /// Hides the overlay 200ms after focus is lost so that a suggestion tap has time to complete.
   void _onPickupFocusChanged() {
     if (mounted) setState(() {});
     if (!_pickupFocusNode.hasFocus) {
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted && _suggestingForPickup) _hideSuggestionsOverlay();
       });
+    } else {
+      _showLocalRecentsOrHybrid(forPickup: true);
     }
   }
 
   /// Focus-change callback for the drop-off [FocusNode].
+  /// Immediately shows recent addresses on tap/focus (0 API calls).
   void _onDropoffFocusChanged() {
     if (mounted) setState(() {});
     if (!_dropoffFocusNode.hasFocus) {
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted && !_suggestingForPickup) _hideSuggestionsOverlay();
       });
+    } else {
+      _showLocalRecentsOrHybrid(forPickup: false);
     }
   }
 
@@ -1010,7 +1191,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               child: ConstrainedBox(
                 // Cap height so the panel never pushes off the bottom of the
                 // screen even for long result sets.
-                constraints: const BoxConstraints(maxHeight: 280),
+                constraints: const BoxConstraints(maxHeight: 320),
                 child: _buildSuggestionsContent(),
               ),
             ),
@@ -1608,6 +1789,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
     if (!mounted) return;
 
+    // Cache booked locations locally and sync to cloud profile (0 API calls on next use)
+    // ignore: discarded_futures
+    _recents.saveLocation(
+      address: _pickupController.text,
+      lat: pickup.latitude,
+      lng: pickup.longitude,
+      uid: widget.user?.uid,
+    );
+    // ignore: discarded_futures
+    _recents.saveLocation(
+      address: _dropoffController.text,
+      lat: dropoff.latitude,
+      lng: dropoff.longitude,
+      uid: widget.user?.uid,
+    );
+
     // Payload mirror for the createTrip / createDelivery Cloud Functions
     // (route + server-verified fare + optional contact numbers). Sent via
     // the authenticated callable above — never hardcode credentials.
@@ -2173,29 +2370,251 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// [OverlayEntry.markNeedsBuild] after each [setState] propagates the
   /// latest [_suggestions] list without re-inserting the overlay.
   Widget _buildSuggestionsContent() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     if (_isLoadingSuggestions && _suggestions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Searching addresses...',
+              style: TextStyle(
+                fontSize: 13,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       );
     }
+
     if (_suggestions.isEmpty) return const SizedBox.shrink();
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const ClampingScrollPhysics(),
-      itemCount: _suggestions.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final s = _suggestions[index];
-        return ListTile(
-          leading: const Icon(Icons.place_outlined, size: 20),
-          title: Text(s.description, style: const TextStyle(fontSize: 13)),
-          dense: true,
-          onTap: () => _suggestingForPickup
-              ? _selectPickupSuggestion(s)
-              : _selectSuggestion(s),
-        );
-      },
+
+    final hasCached = _suggestions.any((s) => s.isFromCache);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Section Header Bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: isDark
+                ? Colors.grey.shade900
+                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            border: Border(
+              bottom: BorderSide(
+                color: theme.dividerColor.withValues(alpha: 0.15),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                hasCached ? Icons.history_rounded : Icons.search_rounded,
+                size: 14,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                hasCached ? 'Recent & Saved Places' : 'Search Results',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const Spacer(),
+              if (hasCached)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.flash_on_rounded, size: 10, color: Colors.green),
+                      SizedBox(width: 2),
+                      Text(
+                        '0 API Cost',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // List of Suggestions
+        Flexible(
+          child: ListView.separated(
+            shrinkWrap: true,
+            padding: EdgeInsets.zero,
+            physics: const ClampingScrollPhysics(),
+            itemCount: _suggestions.length,
+            separatorBuilder: (_, _) => Divider(
+              height: 1,
+              color: theme.dividerColor.withValues(alpha: 0.15),
+            ),
+            itemBuilder: (context, index) {
+              final s = _suggestions[index];
+              return _buildSuggestionTile(s, theme);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuggestionTile(PlaceSuggestion s, ThemeData theme) {
+    final title = (s.mainText != null && s.mainText!.isNotEmpty)
+        ? s.mainText!
+        : s.description;
+
+    final subtitle = (s.secondaryText != null &&
+            s.secondaryText!.isNotEmpty &&
+            s.secondaryText != s.mainText)
+        ? s.secondaryText!
+        : (s.mainText != null && s.mainText != s.description)
+            ? s.description
+            : null;
+
+    final tag = s.tag;
+
+    // Determine leading icon & color based on tag or cache state
+    IconData iconData = Icons.location_on_outlined;
+    Color iconColor = theme.colorScheme.onSurfaceVariant;
+    if (tag == 'Home') {
+      iconData = Icons.home_rounded;
+      iconColor = AppColors.seseGold;
+    } else if (tag == 'Work') {
+      iconData = Icons.work_rounded;
+      iconColor = AppColors.seseGold;
+    } else if (tag == 'Frequent' || s.useCount >= 3) {
+      iconData = Icons.star_rounded;
+      iconColor = Colors.amber.shade700;
+    } else if (s.isFromCache) {
+      iconData = Icons.history_rounded;
+      iconColor = theme.colorScheme.primary;
+    }
+
+    return InkWell(
+      onTap: () => _suggestingForPickup
+          ? _selectPickupSuggestion(s)
+          : _selectSuggestion(s),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(iconData, size: 18, color: iconColor),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (tag != null && tag.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _buildTagPill(tag, theme),
+                      ],
+                    ],
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.north_west_rounded,
+              size: 14,
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTagPill(String tag, ThemeData theme) {
+    Color bg;
+    Color fg;
+    if (tag == 'Home') {
+      bg = AppColors.seseGold.withValues(alpha: 0.15);
+      fg = AppColors.seseGold;
+    } else if (tag == 'Work') {
+      bg = Colors.blue.withValues(alpha: 0.15);
+      fg = Colors.blue.shade700;
+    } else if (tag.startsWith('Frequent')) {
+      bg = Colors.amber.withValues(alpha: 0.15);
+      fg = Colors.amber.shade800;
+    } else {
+      bg = theme.colorScheme.surfaceContainerHighest;
+      fg = theme.colorScheme.onSurfaceVariant;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        tag,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: fg,
+        ),
+      ),
     );
   }
 

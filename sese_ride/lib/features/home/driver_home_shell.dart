@@ -7,6 +7,8 @@ import '../driver/services/driver_fleet_service.dart';
 import '../settings/screens/settings_screen.dart';
 import '../referral/referral_hub_screen.dart';
 import '../support/support_chat_screen.dart';
+import '../trips/presentation/customer_trips_screen.dart';
+import '../trips/services/trip_service.dart';
 import '../wallet/earnings_screen.dart';
 import '../wallet/wallet_screen.dart';
 
@@ -19,11 +21,13 @@ import '../wallet/wallet_screen.dart';
 class DriverHomeShell extends StatefulWidget {
   final AppUser user;
   final AuthRepository auth;
+  final TripRepository? tripRepository;
 
   const DriverHomeShell({
     super.key,
     required this.user,
     required this.auth,
+    this.tripRepository,
   });
 
   @override
@@ -138,7 +142,10 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                       driverId: widget.user.uid,
                       onSignOut: () async => widget.auth.signOut(),
                     ),
-                    const _TripsTab(),
+                    _TripsTab(
+                      user: widget.user,
+                      tripRepository: widget.tripRepository,
+                    ),
                     _HelpTab(user: widget.user),
                   ],
                 ),
@@ -363,42 +370,20 @@ class _MenuTab extends StatelessWidget {
 
 /// Ride History & Active Trips view.
 class _TripsTab extends StatelessWidget {
-  const _TripsTab();
+  final AppUser user;
+  final TripRepository? tripRepository;
+
+  const _TripsTab({
+    required this.user,
+    this.tripRepository,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: const SeseAppBar(title: 'Trips'),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.directions_car_outlined,
-                  color: AppColors.seseGold),
-              title: const Text('Active trips',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                'No active trips. Go online to receive offers.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.history_rounded,
-                  color: AppColors.seseGold),
-              title: const Text('Ride history',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                'Completed trips will appear here.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
-        ],
-      ),
+    return CustomerTripsScreen(
+      customerId: user.uid,
+      isDriver: true,
+      tripRepository: tripRepository,
     );
   }
 }

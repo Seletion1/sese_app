@@ -25,6 +25,10 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(const []);
 
   @override
+  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false}) =>
+      Stream.value(const []);
+
+  @override
   Future<void> cancelTrip(String tripId, {String? reason}) async {
     cancelCalled = true;
     cancelReason = reason;
@@ -107,7 +111,7 @@ void main() {
       return text.data ?? '';
     }
 
-    testWidgets('SEARCHING shows animated broadcast banner', (tester) async {
+    testWidgets('SEARCHING shows searching status in bottom sheet', (tester) async {
       await pumpLive(tester);
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
@@ -115,9 +119,6 @@ void main() {
       expect(statusText(tester),
           contains('Searching for nearby available drivers'));
       expect(find.text('Adaeze Okonkwo'), findsNothing);
-      // Live broadcast radar proves the request is actively radiating.
-      expect(find.byKey(const Key('searching_radar_overlay')), findsOneWidget);
-      expect(find.text('Broadcasting to nearby drivers…'), findsOneWidget);
     });
 
     testWidgets('repeat search after decline shows recovery message',
@@ -172,10 +173,9 @@ void main() {
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
 
-      await tester.ensureVisible(
-          find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.ensureVisible(find.text('Cancel trip'));
       await tester.pump();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.tap(find.text('Cancel trip'));
       await tester.pump(const Duration(milliseconds: 300));
 
       // Reason dialog appears; nothing is committed yet.
@@ -204,10 +204,9 @@ void main() {
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
 
-      await tester.ensureVisible(
-          find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.ensureVisible(find.text('Cancel trip'));
       await tester.pump();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
+      await tester.tap(find.text('Cancel trip'));
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);

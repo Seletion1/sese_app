@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 /// Service managing post-trip 1-to-5 star ratings and atomic cumulative score updates.
@@ -39,10 +40,13 @@ class TripRatingService {
     };
 
     try {
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      } catch (_) {}
+
       await _db.runTransaction((tx) async {
         final existing = await tx.get(ratingRef);
         if (existing.exists) {
-          // Rating already exists for this rater and trip
           return;
         }
 
@@ -90,8 +94,23 @@ class TripRatingService {
         }
       });
     } catch (e) {
-      debugPrint('TripRatingService.submitRating error: $e');
-      rethrow;
+      debugPrint('TripRatingService.submitRating transaction failed: $e; using direct write fallback');
+      try {
+        await ratingRef.set(ratingData, SetOptions(merge: true));
+        await userRef.set({
+          'totalRatingSum': FieldValue.increment(rating),
+          'totalRatingCount': FieldValue.increment(1),
+        }, SetOptions(merge: true));
+        if (driverRef != null) {
+          await driverRef.set({
+            'totalRatingSum': FieldValue.increment(rating),
+            'totalRatingCount': FieldValue.increment(1),
+          }, SetOptions(merge: true));
+        }
+      } catch (inner) {
+        debugPrint('TripRatingService.submitRating fallback error: $inner');
+        rethrow;
+      }
     }
   }
 

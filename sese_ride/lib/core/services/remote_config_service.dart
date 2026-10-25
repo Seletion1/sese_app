@@ -16,6 +16,12 @@ abstract final class RemoteConfigKeys {
   static const String driverCommissionRate = 'driver_commission_rate';
   static const String maxCancellationLimit = 'max_cancellation_limit';
 
+  // Stage 1 & Stage 2 countdown ring durations
+  static const String stage1OfferCountdownSeconds =
+      'stage1_offer_countdown_seconds';
+  static const String stage2OfferCountdownSeconds =
+      'stage2_offer_countdown_seconds';
+
   // KYC & onboarding flags
   static const String autoSyncDriverKycToCustomer =
       'auto_sync_driver_kyc_to_customer';
@@ -48,6 +54,8 @@ class RemoteConfigService {
   static const Map<String, Object> _defaults = <String, Object>{
     // Driver & ride rules
     RemoteConfigKeys.requireMultiVehicleSnapshot: true,
+    RemoteConfigKeys.stage1OfferCountdownSeconds: 20,
+    RemoteConfigKeys.stage2OfferCountdownSeconds: 20,
     RemoteConfigKeys.driverCommissionRate: 0.15,
     RemoteConfigKeys.maxCancellationLimit: 3,
     // KYC & onboarding flags
@@ -212,6 +220,14 @@ class RemoteConfigService {
   /// When true, customer KYC submission requires a verified NIN.
   static bool get requireCustomerNinVerification =>
       _bool(RemoteConfigKeys.requireCustomerNinVerification);
+
+  /// Dynamic Stage 1 offer countdown duration in seconds (default: 20s).
+  static int get stage1OfferCountdownSeconds =>
+      _int(RemoteConfigKeys.stage1OfferCountdownSeconds);
+
+  /// Dynamic Stage 2 offer countdown duration in seconds (default: 20s).
+  static int get stage2OfferCountdownSeconds =>
+      _int(RemoteConfigKeys.stage2OfferCountdownSeconds);
 
   /// Platform commission rate as a fraction of fare (0.15 == 15%).
   ///

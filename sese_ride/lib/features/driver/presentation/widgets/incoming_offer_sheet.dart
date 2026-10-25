@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../../../core/services/remote_config_service.dart';
 import '../../../../widgets/map_provider.dart';
 import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
@@ -56,22 +57,23 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
   LatLng get _dropoff =>
       LatLng(widget.trip.dropoffLat, widget.trip.dropoffLng);
 
-  /// Visible offer countdown, synced to the 6s chime loop started above.
-  /// Informational only — expiry itself is enforced server-side via
-  /// pingExpiresAt sweep; the sheet stays open so a late tap still gets a
-  /// definitive accept/reject answer instead of vanishing mid-read.
-  static const Duration _offerWindow = Duration(seconds: 6);
+  /// Dynamic offer countdown window from Hub configuration (defaults to 20 seconds).
+  Duration get _offerWindow => Duration(
+        seconds: RemoteConfigService.stage1OfferCountdownSeconds > 0
+            ? RemoteConfigService.stage1OfferCountdownSeconds
+            : 20,
+      );
   late final AnimationController _countdown;
 
   @override
   void initState() {
     super.initState();
-    // Fallback alert if sheet is opened outside _PingListener (e.g., deep link).
-    // Loops for the full 6-second offer countdown.
+    final window = _offerWindow;
+    // Fallback alert if sheet is opened outside _PingListener.
+    // Loops for the full configured offer countdown window (e.g., 20 seconds).
     // ignore: discarded_futures
-    AppSoundService.instance
-        .playIncomingOrderAlert(minDuration: const Duration(seconds: 6));
-    _countdown = AnimationController(vsync: this, duration: _offerWindow)
+    AppSoundService.instance.playIncomingOrderAlert(minDuration: window);
+    _countdown = AnimationController(vsync: this, duration: window)
       ..forward();
     _loadRoutes();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -522,13 +524,13 @@ class _OfferCountdown extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final remaining =
-            (1.0 - controller.value) * _IncomingOfferSheetState._offerWindow.inSeconds;
-        final secs = remaining.ceil().clamp(0, 6);
+        final totalSecs = controller.duration?.inSeconds ?? 20;
+        final remaining = (1.0 - controller.value) * totalSecs;
+        final secs = remaining.ceil().clamp(0, totalSecs);
         final frac = (1.0 - controller.value).clamp(0.0, 1.0);
-        final color = secs > 3
+        final color = secs > (totalSecs ~/ 2)
             ? Colors.green.shade700
-            : secs > 1
+            : secs > (totalSecs ~/ 4)
                 ? Colors.orange.shade800
                 : Colors.red.shade700;
         return Column(

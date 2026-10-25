@@ -407,21 +407,8 @@ class _AuthScreenState extends State<AuthScreen> {
           }
         } else {
           try {
-            final doc = await FirebaseFirestore.instance
-                .collection('users')
-                .doc(user.uid)
-                .get();
-            if (doc.exists && doc.data() != null) {
-              final data = doc.data()!;
-              final docRole = data['role'] as String?;
-              if (docRole != null && docRole != 'customer') {
-                try {
-                  await _auth.signOut();
-                } catch (_) {}
-                _showError('Account role mismatch. This account is registered as a $docRole.');
-                return;
-              }
-            }
+            // Multi-role access: allow staff, admin, driver, and customer accounts
+            // to log in and use customer features seamlessly.
           } catch (e) {
             debugPrint('Customer profile check exception: $e');
           }

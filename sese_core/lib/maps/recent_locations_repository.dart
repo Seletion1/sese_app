@@ -83,6 +83,56 @@ class RecentLocationsRepository {
     return all.take(limit).toList();
   }
 
+  /// Returns the top frequent and recent locations.
+  /// Locations used multiple times or recently float to the top.
+  Future<List<RecentLocation>> getFrequentAndRecent({int limit = 8}) async {
+    final all = await loadAll();
+    all.sort((a, b) {
+      final aScore = a.useCount * 1000000000000 + a.lastUsedMs;
+      final bScore = b.useCount * 1000000000000 + b.lastUsedMs;
+      return bScore.compareTo(aScore);
+    });
+    return all.take(limit).toList();
+  }
+
+  /// Searches cached locations locally without any network or API calls.
+  /// Matches against mainText, formattedAddress, and secondaryText.
+  /// Ranks by match relevance and frequency/recency.
+  Future<List<RecentLocation>> searchLocal(String query, {int limit = 6}) async {
+    final clean = query.trim().toLowerCase();
+    if (clean.isEmpty) return getFrequentAndRecent(limit: limit);
+
+    final all = await loadAll();
+    final matches = <RecentLocation>[];
+
+    for (final loc in all) {
+      final main = loc.mainText.toLowerCase();
+      final addr = loc.formattedAddress.toLowerCase();
+      final sec = loc.secondaryText.toLowerCase();
+
+      if (main.contains(clean) || addr.contains(clean) || sec.contains(clean)) {
+        matches.add(loc);
+      }
+    }
+
+    // Sort: exact/prefix match on main text first, then by frequency & recency
+    matches.sort((a, b) {
+      final aMain = a.mainText.toLowerCase();
+      final bMain = b.mainText.toLowerCase();
+      final aStarts = aMain.startsWith(clean);
+      final bStarts = bMain.startsWith(clean);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+
+      // Score based on frequency and recency
+      final aScore = a.useCount * 1000000000000 + a.lastUsedMs;
+      final bScore = b.useCount * 1000000000000 + b.lastUsedMs;
+      return bScore.compareTo(aScore);
+    });
+
+    return matches.take(limit).toList();
+  }
+
   Future<void> _writeLocal(List<RecentLocation> all) async {
     try {
       final prefs = await _prefs;
@@ -95,13 +145,57 @@ class RecentLocationsRepository {
     }
   }
 
+  /// Saves or touches an address in the local cache and Firestore backup.
+  /// Automatically generates a deterministic placeId if none provided.
+  Future<void> saveLocation({
+    required String address,
+    required double lat,
+    required double lng,
+    String? placeId,
+    String? mainText,
+    String? secondaryText,
+    String? tag,
+    String? uid,
+  }) async {
+    if (address.trim().isEmpty || (lat == 0 && lng == 0)) return;
+    final cleanAddress = address.trim();
+    final pId = (placeId != null && placeId.isNotEmpty)
+        ? placeId
+        : 'loc_${lat.toStringAsFixed(5)}_${lng.toStringAsFixed(5)}';
+
+    final loc = RecentLocation(
+      placeId: pId,
+      formattedAddress: cleanAddress,
+      mainText: mainText ?? cleanAddress,
+      secondaryText: secondaryText ?? '',
+      lat: lat,
+      lng: lng,
+      lastUsedMs: DateTime.now().millisecondsSinceEpoch,
+      useCount: 1,
+      tag: tag,
+    );
+    await saveRecent(loc, uid: uid);
+  }
+
   /// Persists a booked location: MRU-touch locally (capped) + Firestore
   /// merge backup (best-effort; a denied write never fails the booking).
   Future<void> saveRecent(RecentLocation location, {String? uid}) async {
     if (!location.isValid) return;
-    final touched = location.touched();
     final all = await loadAll();
-    all.removeWhere((e) => e.placeId == touched.placeId);
+    final existingIdx = all.indexWhere((e) =>
+        e.placeId == location.placeId ||
+        (e.formattedAddress.isNotEmpty &&
+            e.formattedAddress.toLowerCase() ==
+                location.formattedAddress.toLowerCase()));
+
+    RecentLocation touched;
+    if (existingIdx >= 0) {
+      final existing = all.removeAt(existingIdx);
+      touched = existing.touched(newTag: location.tag);
+    } else {
+      touched = location;
+    }
+
     all.insert(0, touched);
     await _writeLocal(all.take(RecentLocation.maxCached).toList());
     if (uid == null || uid.isEmpty) return;

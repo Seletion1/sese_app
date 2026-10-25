@@ -78,10 +78,10 @@ class PlaceDetails {
 /// cross-device merge (newest wins per placeId).
 class RecentLocation {
   /// Cap on the local cache (bounded storage, bounded Firestore writes).
-  static const int maxCached = 20;
+  static const int maxCached = 30;
 
   /// How many surface immediately on the search screen (0 API calls).
-  static const int topShown = 5;
+  static const int topShown = 6;
 
   final String placeId;
   final String formattedAddress;
@@ -90,6 +90,8 @@ class RecentLocation {
   final double lat;
   final double lng;
   final int lastUsedMs;
+  final int useCount;
+  final String? tag;
 
   const RecentLocation({
     required this.placeId,
@@ -99,12 +101,15 @@ class RecentLocation {
     required this.lat,
     required this.lng,
     required this.lastUsedMs,
+    this.useCount = 1,
+    this.tag,
   });
 
   /// Builds from a fresh Details resolution (stamps `now` as last-used).
   factory RecentLocation.fromDetails(
     PlaceDetails details, {
     int? nowMs,
+    String? tag,
   }) {
     final address = details.displayAddress;
     return RecentLocation(
@@ -116,11 +121,13 @@ class RecentLocation {
       lat: details.lat,
       lng: details.lng,
       lastUsedMs: nowMs ?? DateTime.now().millisecondsSinceEpoch,
+      useCount: 1,
+      tag: tag,
     );
   }
 
-  /// Bumps last-used to now (a re-tap is fresh usage).
-  RecentLocation touched({int? nowMs}) => RecentLocation(
+  /// Bumps last-used to now and increments useCount (a re-tap is fresh usage).
+  RecentLocation touched({int? nowMs, String? newTag}) => RecentLocation(
         placeId: placeId,
         formattedAddress: formattedAddress,
         mainText: mainText,
@@ -128,6 +135,8 @@ class RecentLocation {
         lat: lat,
         lng: lng,
         lastUsedMs: nowMs ?? DateTime.now().millisecondsSinceEpoch,
+        useCount: useCount + 1,
+        tag: newTag ?? tag,
       );
 
   factory RecentLocation.fromMap(Map<String, dynamic> map) {
@@ -139,6 +148,8 @@ class RecentLocation {
       lat: (map['lat'] as num? ?? 0).toDouble(),
       lng: (map['lng'] as num? ?? 0).toDouble(),
       lastUsedMs: (map['lastUsedMs'] as num? ?? 0).toInt(),
+      useCount: (map['useCount'] as num? ?? 1).toInt(),
+      tag: map['tag']?.toString(),
     );
   }
 
@@ -150,8 +161,19 @@ class RecentLocation {
         'lat': lat,
         'lng': lng,
         'lastUsedMs': lastUsedMs,
+        'useCount': useCount,
+        if (tag != null && tag!.isNotEmpty) 'tag': tag,
       };
 
   bool get isValid =>
       placeId.isNotEmpty && formattedAddress.isNotEmpty && lat != 0 && lng != 0;
+
+  /// User-facing tag indicator for search dropdown.
+  String get displayTag {
+    if (tag != null && tag!.isNotEmpty) return tag!;
+    if (useCount >= 3) return 'Frequent';
+    return 'Recent';
+  }
+
+  bool get isFrequent => useCount >= 3;
 }

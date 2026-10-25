@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/home/driver_home_shell.dart';
+import 'package:sese_ride/features/trips/models/bid_models.dart';
+import 'package:sese_ride/features/trips/models/trip_models.dart';
+import 'package:sese_ride/features/trips/services/trip_service.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
 
 void main() {
@@ -30,6 +33,7 @@ void main() {
         home: DriverHomeShell(
           user: driverUser(),
           auth: const StubAuthRepository(),
+          tripRepository: const _StubTripRepository(),
         ),
       ),
     );
@@ -93,7 +97,7 @@ void main() {
       await tester.tap(find.byKey(const Key('menu_trips_history_tile')));
       await tester.pumpAndSettle();
       // Trips tab content (same view as the bottom-nav Trips item).
-      expect(find.text('Active trips'), findsOneWidget);
+      expect(find.text('No trips available yet'), findsOneWidget);
       expect(find.byType(BottomNavigationBar), findsOneWidget);
     });
 
@@ -127,7 +131,7 @@ void main() {
       // Leaving the menu via Trips History restores it.
       await tester.tap(find.byKey(const Key('menu_trips_history_tile')));
       await tester.pumpAndSettle();
-      expect(find.text('Active trips'), findsOneWidget);
+      expect(find.text('No trips available yet'), findsOneWidget);
       expect(find.byType(BottomNavigationBar), findsOneWidget);
     });
 
@@ -205,4 +209,40 @@ void main() {
       expect(find.text('Switch to Customer Mode'), findsOneWidget);
     });
   });
+}
+
+class _StubTripRepository implements TripRepository {
+  const _StubTripRepository();
+
+  @override
+  Future<String> createTrip(TripDraft draft) async => 'trip-1';
+
+  @override
+  Stream<ActiveTrip?> tripStream(String tripId) => Stream.value(null);
+
+  @override
+  Stream<List<ActiveTrip>> activeTripsStream(String customerId) =>
+      Stream.value(const []);
+
+  @override
+  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false}) =>
+      Stream.value(const []);
+
+  @override
+  Future<void> cancelTrip(String tripId, {String? reason}) async {}
+
+  @override
+  Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
+
+  @override
+  Future<void> rejectBid(String tripId, String driverId) async {}
+
+  @override
+  Future<void> acceptBid(String tripId, String driverId) async {}
+
+  @override
+  Future<void> increaseTripFare(String tripId, double newFare) async {}
+
+  @override
+  Stream<List<BidModel>> bidsStream(String tripId) => Stream.value(const []);
 }

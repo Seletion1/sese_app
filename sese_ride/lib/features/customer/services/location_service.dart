@@ -9,22 +9,47 @@ import 'package:sese_core/sese_core.dart';
 /// Represents a place suggestion from an address search.
 ///
 /// [placeId] is set for Google predictions (resolved to coordinates with
-/// one Details call); test seams and legacy inline results leave it null
-/// and carry coordinates directly.
+/// one Details call); cached locations carry coordinates directly with
+/// [isFromCache] = true (0 API calls).
 class PlaceSuggestion {
   final String description;
   final double lat;
   final double lng;
   final String? placeId;
+  final String? mainText;
+  final String? secondaryText;
+  final String? tag;
+  final bool isFromCache;
+  final int useCount;
 
   PlaceSuggestion({
     required this.description,
     required this.lat,
     required this.lng,
     this.placeId,
+    this.mainText,
+    this.secondaryText,
+    this.tag,
+    this.isFromCache = false,
+    this.useCount = 0,
   });
 
   LatLng get latLng => LatLng(lat, lng);
+
+  /// Builds a [PlaceSuggestion] from a local zero-cost [RecentLocation].
+  factory PlaceSuggestion.fromRecent(RecentLocation loc) {
+    return PlaceSuggestion(
+      description: loc.formattedAddress,
+      mainText: loc.mainText,
+      secondaryText: loc.secondaryText,
+      lat: loc.lat,
+      lng: loc.lng,
+      placeId: loc.placeId,
+      tag: loc.displayTag,
+      isFromCache: true,
+      useCount: loc.useCount,
+    );
+  }
 }
 
 /// GPS + Geocoding + Routing utilities, 100% Google Maps Platform.
@@ -346,6 +371,9 @@ class LocationService {
                         : [p.mainText, p.secondaryText]
                             .where((s) => s.isNotEmpty)
                             .join(', '),
+                    mainText: p.mainText.isNotEmpty ? p.mainText : null,
+                    secondaryText:
+                        p.secondaryText.isNotEmpty ? p.secondaryText : null,
                     lat: 0,
                     lng: 0,
                     placeId: p.placeId,
@@ -375,6 +403,9 @@ class LocationService {
                         : [p.mainText, p.secondaryText]
                             .where((s) => s.isNotEmpty)
                             .join(', '),
+                    mainText: p.mainText.isNotEmpty ? p.mainText : null,
+                    secondaryText:
+                        p.secondaryText.isNotEmpty ? p.secondaryText : null,
                     lat: 0,
                     lng: 0,
                     placeId: p.placeId,
@@ -388,17 +419,29 @@ class LocationService {
 
   /// Resolves a prediction's coordinates with one Details call. Returns
   /// null on failure (caller keeps the field unresolved, never blocked).
-  /// Suggestions without a placeId (test seams) resolve inline already.
+  /// Suggestions from cache or with existing coordinates resolve immediately (0 API calls).
   static Future<PlaceSuggestion?> resolvePrediction(
       PlaceSuggestion suggestion) async {
+    if (suggestion.isFromCache ||
+        (suggestion.lat != 0 && suggestion.lng != 0)) {
+      return suggestion;
+    }
     final placeId = suggestion.placeId;
     if (placeId == null || placeId.isEmpty) return suggestion;
     try {
       final details = await _maps.details(placeId);
+      final display = details.displayAddress.isNotEmpty
+          ? details.displayAddress
+          : suggestion.description;
+      final main = details.name.isNotEmpty
+          ? details.name
+          : (suggestion.mainText ?? display);
       return PlaceSuggestion(
-        description: details.displayAddress.isNotEmpty
-            ? details.displayAddress
-            : suggestion.description,
+        description: display,
+        mainText: main,
+        secondaryText: details.formattedAddress.isNotEmpty
+            ? details.formattedAddress
+            : suggestion.secondaryText,
         lat: details.lat,
         lng: details.lng,
         placeId: placeId,

@@ -320,6 +320,34 @@ class _PinGlyph extends StatelessWidget {
       );
     }
 
+    final isDriver =
+        label == 'DRIVER' || label == 'NEARBY_DRIVER' || label == 'VEHICLE';
+    if (isDriver) {
+      return Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: color, width: 2.2),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 5,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.directions_car_filled_rounded,
+            color: color,
+            size: 20,
+          ),
+        ),
+      );
+    }
+
     final isBlueDot = color == Colors.blue && (label == null || label!.isEmpty);
     if (isBlueDot) {
       return Container(

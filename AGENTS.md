@@ -60,6 +60,67 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Live Trip / Searching Screen Overhaul: Top Overlay Purge, In-Sheet Matchmaking & Dynamic Camera Loop
+
+Completed full architectural cleanup and UX redesign of the customer Live Trip / Searching screen (`live_trip_screen.dart`, `osm_map_view.dart`):
+
+### 1. Permanent Removal of Top Overlays & Code Purge (`live_trip_screen.dart`)
+- **Permanently Deleted Legacy Top Elements:** Purged all top floating overlays, badges, radar animations, and banners:
+  - Deleted `_SearchingOverlay` and `_BroadcastRadarPainter` (legacy radar circle pill and "Broadcasting to nearby drivers…").
+  - Deleted `_StatusBanner` (yellow top-anchored status strip).
+  - Deleted `_BroadcastingCard` (legacy static bottom fare card).
+- Cleaned up calling code in `_LiveTripBodyState` to render a clean, unobstructed, edge-to-edge interactive `SeSeMapView` beneath the bottom sheet.
+- Repositioned the Recenter FAB (`MapRecenterButton`) to dynamically float right above the bottom sheet (`bottom: _isSearching ? 240 : 160`).
+
+### 2. Integrated Draggable Searching Bottom Sheet (`_LiveTripSearchingSheet`)
+- Refactored customer searching view into a unified, fluid `DraggableScrollableSheet` (`initialChildSize: 0.28`, `minChildSize: 0.20`, `maxChildSize: 0.72`, `snap: true`).
+- **Internal Matchmaking Status:** Moved the active connection status message (`live_trip_status`), live spinner, and nearby driver count badge directly into the top of the bottom sheet.
+- **Offer Fare & In-Trip Actions:** Positioned the Offer Fare display with fare boost pencil icon (`boost_fare_pencil_button`) and Split Fare action button (`split_fare_button`).
+- **Delivery Security PIN & Driver Bids:** Embedded `_DeliveryPinBanner` (when PIN is required) and `_BidCarousel` (for real-time driver negotiation bids).
+- **Route Summary:** Shows pickup and destination addresses with styled route markers.
+- **Privacy-Protected Cancellation:** Placed `'Cancel trip'` lower down within the scrollable sheet content so that it is never exposed openly on initial sheet load; the user must intentionally drag upwards to reveal and tap the cancellation action.
+
+### 3. Dynamic Map Camera Animation Loop & 15km Nearby Driver Real-Time Markers
+- **Dynamic Camera Loop (`_startCameraLoop`):**
+  - **Step 1:** Automatically centers and zooms on the pickup location (`zoom: 15.5`), showcasing available nearby driver icons. Holds for ~5 seconds.
+  - **Step 2:** Smoothly pans and zooms the camera along the route polyline to the drop-off destination.
+  - **Step 3:** Holds at the drop-off destination for ~2 seconds, then smoothly pans back to the pickup point. Repeats indefinitely while searching.
+  - Includes user-interaction pause (`_pauseCameraLoopForUser`) suspending the loop for 12 seconds when the user touches or interacts with the map.
+- **15km Radius Nearby Drivers Stream:** Subscribes to `driver_status` (`isOnline == true`) and filters drivers by vehicle category matching and distance (`Distance().as(LengthUnit.Kilometer, pickup, pos) <= 15.0`).
+- **Custom Vehicle Marker (`osm_map_view.dart`):** Updated `_PinGlyph` to recognize `label == 'DRIVER'` and render circular vehicle pin icons with gold border and car glyph.
+
+### Verification
+- `analyze_files` across `sese_ride`: **0 errors, 0 warnings**.
+
+
+## 2026-10-25 — Zero-API Cost Address History, Local Cache & Smart Hybrid Search System
+
+Implemented an intelligent, cost-saving address history, local storage, and caching system for pickup and destination input fields across `sese_core` and `sese_ride`:
+
+### 1. Local Recent & Frequent Address Cache (`sese_core/lib/maps/`)
+- **Model Upgrades (`place_models.dart`):** Extended `RecentLocation` with `useCount` (frequency tracking), `tag` (saved places / category tagging), `displayTag` (`'Home'`, `'Work'`, `'Frequent'`, or `'Recent'`), and `isFrequent` (`useCount >= 3`).
+- **Zero-Cost Storage & Ranking (`recent_locations_repository.dart`):**
+  - Added `getFrequentAndRecent({int limit = 8})` returning addresses prioritized by weighted frequency (`useCount`) and recency (`lastUsedMs`).
+  - Added `searchLocal(query, {int limit = 6})` performing instantaneous, substring matching against address, main text, and secondary text without external network calls.
+  - Added `saveLocation(...)` generating deterministic IDs when needed and updating frequency/timestamps in local SharedPreferences and syncing to Firestore backup (`users/{uid}/recent_locations/{placeId}`).
+- **Auto-Caching on Dispatch & Completion:**
+  - In `customer_dispatch_screen.dart`, creating a trip (`createTrip`) caches both pickup and drop-off addresses immediately.
+  - In `live_trip_screen.dart`, completing a trip (`_CompletedTripView`) triggers automatic local and cloud profile caching for both addresses.
+
+### 2. Smart Hybrid Search & Zero-API Cost for History (`customer_dispatch_screen.dart`)
+- **Instant Dropdown on Tap / Focus:** Focus on pickup or destination fields immediately loads saved places (Home/Work) and local recent/frequent addresses (`_showLocalRecentsOrHybrid`) without triggering external API calls.
+- **Hybrid Search Execution (`_searchHybrid`):**
+  - Evaluates local cache first using `searchLocal(query)`. If local history matches, results are rendered immediately with 0 API calls.
+  - Novel queries without local matches only invoke external Google Places Autocomplete after debouncing (350ms) and if query length >= 3.
+- **Zero-Cost Selection:** Tapping any cached suggestion applies coordinates directly from local storage with 0 Details / Geocoding calls, increments its frequency count, and updates recency.
+
+### 3. UI Polish & Visual Categorization
+- Added a floating suggestions overlay with an informative header showing `"Recent & Saved Places"` with a green `"0 API Cost"` badge.
+- Rendered stylized leading circular badges and clean colored tag pills (`[Home]`, `[Work]`, `[Frequent]`, `[Recent]`).
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
 ## 2026-10-25 — Driver Call Action Sheet Refactoring & Dynamic Two-Option Routing
 
 Completely refactored the driver Call action sheet in `driver_active_trip_card.dart` to replace bloated legacy contact menus with clean, contextual 1-to-2-option call target sheets:

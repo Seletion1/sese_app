@@ -68,6 +68,10 @@ class _FakeTripRepository implements TripRepository {
       Stream.value(const []);
 
   @override
+  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false}) =>
+      Stream.value(const []);
+
+  @override
   Future<void> cancelTrip(String tripId, {String? reason}) async {}
 
   @override

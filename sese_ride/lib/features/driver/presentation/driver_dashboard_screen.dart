@@ -10,6 +10,8 @@ import '../../../core/services/remote_config_service.dart';
 import '../../customer/services/location_service.dart';
 import '../../notifications/notification_inbox_screen.dart';
 import '../../trips/models/trip_models.dart';
+import '../../trips/presentation/trip_rating_dialog.dart';
+import '../../trips/services/trip_rating_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
 import '../services/driver_overlay_service.dart';
@@ -122,6 +124,34 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   bool _hasAutoCollapsedForTrip = false;
   List<LatLng> _activeRoutePoints = [];
   DateTime? _lastRouteFetchTime;
+  final Set<String> _ratedTripDocIds = {};
+
+  void _checkAndShowPostTripRating(ActiveTrip trip) async {
+    final ratedDocId = '${trip.tripId}_${widget.driverId}';
+    if (_ratedTripDocIds.contains(ratedDocId)) return;
+    _ratedTripDocIds.add(ratedDocId);
+
+    final ratingService = TripRatingService();
+    final alreadyRated =
+        await ratingService.hasRated(trip.tripId, widget.driverId);
+    if (alreadyRated || !mounted) return;
+
+    final customerId =
+        trip.customerId.isNotEmpty ? trip.customerId : 'customer';
+    final customerName =
+        trip.customerName.isNotEmpty ? trip.customerName : 'Customer';
+
+    // ignore: unawaited_futures
+    TripRatingDialog.show(
+      context,
+      tripId: trip.tripId,
+      raterId: widget.driverId,
+      ratedUserId: customerId,
+      ratedUserName: customerName,
+      isRatedUserDriver: false,
+      ratingService: ratingService,
+    );
+  }
 
   Future<void> _fetchActiveTripRoute(ActiveTrip active) async {
     if (_driverPosition.latitude == 0.0 && _driverPosition.longitude == 0.0) {
@@ -1395,7 +1425,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         final active = tripSnap.data;
         _currentActiveTrip = active;
         if (active != null) {
-          _fetchActiveTripRoute(active);
+          if (active.status == TripStatus.completed) {
+            _checkAndShowPostTripRating(active);
+          } else {
+            _fetchActiveTripRoute(active);
+          }
           if (active.tripId != _trackedTripId || active.status != _lastTrackedStatus) {
             if (active.status == TripStatus.inProgress &&
                 _lastTrackedStatus != TripStatus.inProgress) {
@@ -1563,18 +1597,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                         child: _RasterCredit(),
                       ),
                     const SizedBox(height: 4),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: PoolBadge(
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(child: _buildBottomStreakSlot()),
+                        const SizedBox(width: 10),
+                        PoolBadge(
                           streakService: _streaks,
                           driverPosition: _driverPosition,
                           onTap: _openPoolSheet,
                         ),
-                      ),
+                      ],
                     ),
-                    _buildBottomStreakSlot(),
                   ],
                 ),
               ),
@@ -2075,16 +2110,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               builder: (context, streakSnap) {
                 final streak = streakSnap.data ??
                     DriverStreakState(driverId: widget.driverId);
-                return Align(
-                  alignment: Alignment.centerRight,
-                  child: StreakProgressBanner(
-                    streak: streak,
-                    fareAmount: active?.fareAmount ?? 0,
-                    currencySymbol: _currencySymbol,
-                    waitThresholdMinutes: cfg.noShowWaitMinutes,
-                    arrivedAt: active?.arrivedAt,
-                    collapsible: true,
-                  ),
+                return StreakProgressBanner(
+                  streak: streak,
+                  fareAmount: active?.fareAmount ?? 0,
+                  currencySymbol: _currencySymbol,
+                  waitThresholdMinutes: cfg.noShowWaitMinutes,
+                  arrivedAt: active?.arrivedAt,
+                  collapsible: true,
                 );
               },
             );
@@ -2261,8 +2293,13 @@ class _PingListenerState extends State<_PingListener> {
       // isolate). No in-app sheet while the activity is paused.
       setState(() => _sheetOpen = true);
       // ignore: discarded_futures
-      AppSoundService.instance
-          .playIncomingOrderAlert(minDuration: const Duration(seconds: 6));
+      AppSoundService.instance.playIncomingOrderAlert(
+        minDuration: Duration(
+          seconds: RemoteConfigService.stage1OfferCountdownSeconds > 0
+              ? RemoteConfigService.stage1OfferCountdownSeconds
+              : 20,
+        ),
+      );
       await DriverOverlayService.instance.showOrderOffer(
         tripId: ping.tripId,
         pickup: ping.pickupAddress,
@@ -2275,19 +2312,20 @@ class _PingListenerState extends State<_PingListener> {
         dropoffLng: ping.dropoffLng,
       );
       if (mounted) setState(() => _sheetOpen = false);
-      // The overlay plays no sound itself, so stop the loop here — mirroring
-      // the foreground path below. The deferred-stop logic still guarantees
-      // the 6s minimum even if the overlay returns immediately. Without this
-      // the chime looped until the next foreground sheet disposed it.
       // ignore: discarded_futures
       AppSoundService.instance.stopIncomingOrderAlert();
       return;
     }
     setState(() => _sheetOpen = true);
-    // Urgent order alert loop — enforces min 6s playback (full countdown).
+    // Urgent order alert loop — enforces full configured countdown window.
     // ignore: discarded_futures
-    AppSoundService.instance
-        .playIncomingOrderAlert(minDuration: const Duration(seconds: 6));
+    AppSoundService.instance.playIncomingOrderAlert(
+      minDuration: Duration(
+        seconds: RemoteConfigService.stage1OfferCountdownSeconds > 0
+            ? RemoteConfigService.stage1OfferCountdownSeconds
+            : 20,
+      ),
+    );
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         fullscreenDialog: true,

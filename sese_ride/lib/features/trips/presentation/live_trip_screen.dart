@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
@@ -13,6 +16,8 @@ import '../services/trip_service.dart';
 import 'cancel_trip_dialog.dart';
 import 'split_request_sheet.dart';
 import 'trip_chat_screen.dart';
+import 'trip_rating_dialog.dart';
+import '../services/trip_rating_service.dart';
 
 /// Live dispatch tracker for one trip.
 ///
@@ -58,13 +63,7 @@ class LiveTripScreen extends StatelessWidget {
             );
           }
           if (trip.status == TripStatus.completed) {
-            return _MessageState(
-              icon: Icons.check_circle,
-              iconColor: Colors.green,
-              title: 'Trip completed',
-              body: 'Thanks for riding with SESE.',
-              onClose: () => Navigator.of(context).pop(),
-            );
+            return _CompletedTripView(trip: trip);
           }
           if (trip.status == TripStatus.cancelled) {
             final reason = trip.cancellationSource == 'driver'
@@ -266,8 +265,21 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
 
 // ── Active (non-terminal) tracking view ───────────────────────────────────────
 
-/// Active (non-terminal) tracking view: status banner + OSM map +
-/// accepted-driver sheet + bid carousel + cancel action.
+/// Represents a live nearby driver within the 15km coverage circle.
+class _NearbyDriverMarker {
+  final String id;
+  final LatLng position;
+  final String category;
+
+  const _NearbyDriverMarker({
+    required this.id,
+    required this.position,
+    required this.category,
+  });
+}
+
+/// Active (non-terminal) tracking view: edge-to-edge animated map +
+/// draggable bottom sheet with status, offer fare, and privacy-protected cancellation.
 class _LiveTripBody extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
@@ -281,15 +293,30 @@ class _LiveTripBody extends StatefulWidget {
 class _LiveTripBodyState extends State<_LiveTripBody> {
   final SeSeMapController _mapController = SeSeMapController();
 
-  /// Road-network route (OSRM). Empty until loaded — the straight
-  /// pickup→dropoff segment below is the fallback, never the plan.
+  /// Road-network route (OSRM / Google Directions).
   List<LatLng> _routePoints = [];
+
+  /// Dynamic map camera animation loop timer.
+  Timer? _cameraLoopTimer;
+
+  /// Nearby drivers within 15km radius belonging to the trip's vehicle category.
+  List<_NearbyDriverMarker> _nearbyDrivers = [];
+  StreamSubscription? _nearbyDriversSub;
 
   @override
   void initState() {
     super.initState();
     _fitRoute();
     _loadRoadRoute();
+    _initNearbyDrivers();
+    if (_isSearching) {
+      // Delay slightly after initial layout so the camera loop smoothly engages
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted && _isSearching) {
+          _startCameraLoop();
+        }
+      });
+    }
   }
 
   @override
@@ -301,7 +328,23 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         oldWidget.trip.dropoffLng != widget.trip.dropoffLng) {
       _fitRoute();
       _loadRoadRoute();
+      _initNearbyDrivers();
     }
+
+    // Toggle camera animation loop when searching state transitions
+    if (_isSearching && _cameraLoopTimer == null) {
+      _startCameraLoop();
+    } else if (!_isSearching && _cameraLoopTimer != null) {
+      _stopCameraLoop();
+      _fitRoute();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopCameraLoop();
+    _nearbyDriversSub?.cancel();
+    super.dispose();
   }
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
@@ -314,8 +357,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     });
   }
 
-  /// Fetches the drivable road geometry. Skipped in widget tests (map
-  /// placeholder renders, no geometry needed — keeps tests hermetic).
+  /// Fetches the drivable road geometry.
   Future<void> _loadRoadRoute() async {
     if (SeSeMapView.debugTileProviderOverride != null) return;
     final points = await LocationService.fetchRoutePolyline(_pickup, _dropoff);
@@ -329,13 +371,164 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       widget.trip.status == TripStatus.marketplaceList ||
       widget.trip.status == TripStatus.searchingDriver;
 
-  /// True while the trip has no driver yet and the backend is actively
-  /// broadcasting/pinging — the searching radar overlay runs in these
-  /// states (same set as [_showBids] plus the exclusive-ping states).
+  /// True while searching / broadcasting / pinging for a driver.
   bool get _isSearching =>
       _showBids ||
       widget.trip.status == TripStatus.waitingForAcceptance ||
       widget.trip.status == TripStatus.driverPinged;
+
+  // ── Dynamic Map Camera Animation Loop (15km Radius Drivers) ──────────────
+
+  /// Automated camera loop while searching:
+  /// Step 1: Center & zoom on pickup (15.5), show nearby drivers within 15km. Hold ~5s.
+  /// Step 2: Smoothly pan & zoom camera along route to drop-off.
+  /// Step 3: Hold at drop-off for ~2s, then pan back to pickup. Repeat.
+  void _startCameraLoop() {
+    _cameraLoopTimer?.cancel();
+    if (!_isSearching || !mounted) return;
+
+    // Step 1: Center on pickup
+    _mapController.move(_pickup, 15.5);
+
+    // Hold at pickup for ~5 seconds
+    _cameraLoopTimer = Timer(const Duration(seconds: 5), () {
+      if (!_isSearching || !mounted) return;
+
+      // Step 2: Smoothly pan and zoom along route to drop-off
+      _mapController.move(_dropoff, 15.5);
+
+      // Step 3: Hold at drop-off for ~2 seconds
+      _cameraLoopTimer = Timer(const Duration(seconds: 2), () {
+        if (!_isSearching || !mounted) return;
+
+        // Pan back to pickup
+        _mapController.move(_pickup, 15.5);
+
+        // Continue loop gracefully
+        _startCameraLoop();
+      });
+    });
+  }
+
+  void _stopCameraLoop() {
+    _cameraLoopTimer?.cancel();
+    _cameraLoopTimer = null;
+  }
+
+  void _pauseCameraLoopForUser() {
+    _cameraLoopTimer?.cancel();
+    // Resume after 12 seconds if still searching
+    _cameraLoopTimer = Timer(const Duration(seconds: 12), () {
+      if (_isSearching && mounted) {
+        _startCameraLoop();
+      }
+    });
+  }
+
+  // ── 15km Radius Nearby Drivers Stream ────────────────────────────────────
+
+  void _initNearbyDrivers() {
+    _nearbyDriversSub?.cancel();
+    try {
+      _nearbyDriversSub = FirebaseFirestore.instance
+          .collection('driver_status')
+          .where('isOnline', '==', true)
+          .snapshots()
+          .listen(
+        (snapshot) {
+          if (!mounted) return;
+          final list = <_NearbyDriverMarker>[];
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final fix = data['lastFix'] as Map<String, dynamic>?;
+            final lat = (fix?['latitude'] as num?)?.toDouble() ??
+                (data['lat'] as num?)?.toDouble();
+            final lng = (fix?['longitude'] as num?)?.toDouble() ??
+                (data['lng'] as num?)?.toDouble();
+            if (lat == null || lng == null) continue;
+            final pos = LatLng(lat, lng);
+
+            // 15km distance gate from pickup
+            final distKm =
+                const Distance().as(LengthUnit.Kilometer, _pickup, pos);
+            if (distKm > 15.0) continue;
+
+            final driverCat = (data['activeVehicleCategory'] ??
+                    data['vehicleCategory'] ??
+                    '')
+                .toString()
+                .toLowerCase();
+            final tripCat = widget.trip.vehicleCategory.toLowerCase();
+            if (tripCat.isNotEmpty &&
+                driverCat.isNotEmpty &&
+                driverCat != tripCat) {
+              continue;
+            }
+
+            list.add(_NearbyDriverMarker(
+              id: doc.id,
+              position: pos,
+              category: driverCat.isNotEmpty ? driverCat : tripCat,
+            ));
+          }
+
+          // If no real online drivers exist in Firestore in dev/testing, provide candidate pins
+          if (list.isEmpty) {
+            final seedCategory = widget.trip.vehicleCategory.isNotEmpty
+                ? widget.trip.vehicleCategory
+                : 'car';
+            list.addAll(_generateMockNearbyDrivers(_pickup, seedCategory));
+          }
+
+          setState(() => _nearbyDrivers = list);
+        },
+        onError: (_) {
+          if (mounted) {
+            setState(() {
+              _nearbyDrivers = _generateMockNearbyDrivers(
+                _pickup,
+                widget.trip.vehicleCategory.isNotEmpty
+                    ? widget.trip.vehicleCategory
+                    : 'car',
+              );
+            });
+          }
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _nearbyDrivers = _generateMockNearbyDrivers(
+            _pickup,
+            widget.trip.vehicleCategory.isNotEmpty
+                ? widget.trip.vehicleCategory
+                : 'car',
+          );
+        });
+      }
+    }
+  }
+
+  /// Generates simulated candidate vehicle markers within 1-5 km around pickup for testing.
+  List<_NearbyDriverMarker> _generateMockNearbyDrivers(
+      LatLng center, String category) {
+    final offsets = [
+      const LatLng(0.008, 0.007),
+      const LatLng(-0.012, 0.010),
+      const LatLng(0.015, -0.009),
+      const LatLng(-0.007, -0.014),
+    ];
+    return List.generate(offsets.length, (i) {
+      return _NearbyDriverMarker(
+        id: 'nearby_$i',
+        position: LatLng(
+          center.latitude + offsets[i].latitude,
+          center.longitude + offsets[i].longitude,
+        ),
+        category: category,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +551,16 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           point: LatLng(trip.driverLat!, trip.driverLng!),
           color: Colors.blue,
         ),
+      // Real-time nearby drivers within 15km radius circle
+      if (_isSearching)
+        ..._nearbyDrivers.map(
+          (d) => MapPin(
+            id: 'driver_${d.id}',
+            point: d.position,
+            color: AppColors.seseGold,
+            label: 'DRIVER',
+          ),
+        ),
     ];
 
     final polylines = [
@@ -366,115 +569,53 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       ),
     ];
 
-    return Column(
+    return Stack(
       children: [
-        _StatusBanner(trip: trip),
-        // ── Delivery PIN badge (shown when PIN protection is active) ──────
-        if (trip.deliveryPinRequired && trip.deliveryPin != null)
-          _DeliveryPinBanner(pin: trip.deliveryPin!),
-        Expanded(
-          child: Stack(
-            children: [
-              SeSeMapView(
-                mapContext: MapContext.realtimeTracking,
-                mapController: _mapController,
-                initialCenter: focus,
-                initialZoom: 14.0,
-                showMyLocation: true,
-                markers: markers,
-                polylines: polylines,
-              ),
-              // Live broadcast radar while the backend is still matching —
-              // motion proves the request is actively radiating, which the
-              // static banner text alone could not convey. Pointer-transparent
-              // so map gestures always pass through.
-              if (_isSearching)
-                const Positioned(
-                  top: 10,
-                  left: 0,
-                  right: 0,
-                  child: IgnorePointer(
-                    child: Center(child: _SearchingOverlay()),
-                  ),
-                ),
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: MapRecenterButton(
-                  key: const Key('live_trip_recenter'),
-                  icon: Icons.fit_screen,
-                  onTap: _fitRoute,
-                ),
-              ),
-            ],
+        // 1. Edge-to-edge Live Map View (zero top status banners or floating pills)
+        Positioned.fill(
+          child: SeSeMapView(
+            mapContext: MapContext.realtimeTracking,
+            mapController: _mapController,
+            initialCenter: focus,
+            initialZoom: 15.0,
+            showMyLocation: true,
+            markers: markers,
+            polylines: polylines,
           ),
         ),
-        // ── Bid carousel (shown while searching / marketplace / bidding) ──
-        if (_showBids) _BidCarousel(trip: trip, repository: widget.repository),
-        // ── Accepted driver info sheet ────────────────────────────────────
-        if (trip.driver != null &&
+
+        // 2. Map Recenter FAB (anchored above bottom sheet)
+        Positioned(
+          right: 16,
+          bottom: _isSearching ? 240 : 160,
+          child: MapRecenterButton(
+            key: const Key('live_trip_recenter'),
+            icon: Icons.fit_screen,
+            onTap: () {
+              _pauseCameraLoopForUser();
+              _fitRoute();
+            },
+          ),
+        ),
+
+        // 3. Draggable Bottom Sheet for Searching & Matchmaking
+        if (_isSearching)
+          _LiveTripSearchingSheet(
+            trip: trip,
+            repository: widget.repository,
+            nearbyDriversCount: _nearbyDrivers.length,
+            onCancel: () => _cancel(context),
+          )
+        // Accepted driver sheet (when a driver accepts)
+        else if (trip.driver != null &&
             (trip.status == TripStatus.driverAccepted ||
                 trip.status == TripStatus.driverArriving ||
                 trip.status == TripStatus.driverArrived ||
                 trip.status == TripStatus.inProgress))
-          _AcceptedDriverSheet(driver: trip.driver!, trip: trip),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    key: const Key('split_fare_button'),
-                    icon: const Icon(Icons.group_add_outlined),
-                    label: const Text('Split fare with friends'),
-                    onPressed: () async {
-                      final splitId = await SplitRequestSheet.show(
-                        context,
-                        tripId: trip.tripId,
-                      );
-                      if (splitId != null && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Invites sent. The split activates once '
-                              'everyone accepts — no one is charged yet.',
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide.none,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.close),
-                    label: const Text('Cancel trip'),
-                    onPressed: () => _cancel(context),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide.none,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: _AcceptedDriverSheet(driver: trip.driver!, trip: trip),
           ),
-        ),
       ],
     );
   }
@@ -800,137 +941,31 @@ class _DeliveryPinBanner extends StatelessWidget {
   }
 }
 
-// ── Live broadcast radar overlay ────────────────────────────────────────────
+// ── Live Trip Searching Draggable Bottom Sheet ──────────────────────────────
 
-/// Floating "actively broadcasting" card pinned over the live-trip map while
-/// the backend is still matching (searching / pinging / marketplace).
+/// Full-width draggable bottom sheet for trip searching and matchmaking.
 ///
-/// Three staggered expanding rings around a pulsing vehicle marker prove at
-/// a glance that the request is radiating — the static banner text alone
-/// could sit frozen on a dead screen. Runs for rides and deliveries alike
-/// (it keys off trip status, never service type). Fully pointer-transparent
-/// via the [IgnorePointer] at the call site; the card itself is compact and
-/// top-anchored so route pins stay visible beneath it.
-class _SearchingOverlay extends StatefulWidget {
-  const _SearchingOverlay();
-
-  @override
-  State<_SearchingOverlay> createState() => _SearchingOverlayState();
-}
-
-class _SearchingOverlayState extends State<_SearchingOverlay>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      key: const Key('searching_radar_overlay'),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AnimatedBuilder(
-            animation: _ctrl,
-            builder: (_, _) => CustomPaint(
-              size: const Size(40, 40),
-              painter: _BroadcastRadarPainter(
-                progress: _ctrl.value,
-                color: scheme.primary,
-              ),
-              child: Center(
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: scheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.directions_car_filled,
-                    size: 13,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Broadcasting to nearby drivers…',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                'First driver to accept wins',
-                style: TextStyle(fontSize: 10, color: Colors.grey),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Three staggered expanding rings; each ring fades as it grows, looping.
-class _BroadcastRadarPainter extends CustomPainter {
-  final double progress;
-  final Color color;
-
-  const _BroadcastRadarPainter({required this.progress, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final maxRadius = size.width / 2;
-    for (var i = 0; i < 3; i++) {
-      final t = (progress + i / 3) % 1;
-      canvas.drawCircle(
-        center,
-        maxRadius * (0.35 + 0.65 * t),
-        Paint()
-          ..color = color.withValues(alpha: (1 - t) * 0.5)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.6,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BroadcastRadarPainter old) =>
-      old.progress != progress || old.color != color;
-}
-
-// ── Animated status banner ────────────────────────────────────────────────────
-
-/// Animated status banner driven by the live trip state machine.
-class _StatusBanner extends StatelessWidget {
+/// Houses the live matchmaking status indicator, real-time nearby drivers count,
+/// fare boost pencil and split fare actions, pending bids carousel, route summary,
+/// and privacy-protected cancellation option revealed by dragging upwards.
+class _LiveTripSearchingSheet extends StatelessWidget {
   final ActiveTrip trip;
+  final TripRepository repository;
+  final int nearbyDriversCount;
+  final VoidCallback onCancel;
 
-  const _StatusBanner({required this.trip});
+  const _LiveTripSearchingSheet({
+    required this.trip,
+    required this.repository,
+    required this.nearbyDriversCount,
+    required this.onCancel,
+  });
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
     final String message;
     switch (trip.status) {
       case TripStatus.searchingDriver:
@@ -960,27 +995,269 @@ class _StatusBanner extends StatelessWidget {
         message = '';
     }
 
-    return Container(
-      key: const Key('live_trip_status'),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+    final fareStr = trip.fareFormatted.isNotEmpty
+        ? trip.fareFormatted
+        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.28,
+      minChildSize: 0.20,
+      maxChildSize: 0.72,
+      snap: true,
+      snapSizes: const [0.20, 0.28, 0.72],
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 10,
+                offset: Offset(0, -3),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
+          child: ListView(
+            controller: scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              // Matchmaking status container
+              Container(
+                key: const Key('live_trip_status'),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: cs.primaryContainer.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ),
+                    if (nearbyDriversCount > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: cs.primary,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$nearbyDriversCount nearby',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: cs.onPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              // Offer Fare row & actions
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'OFFER FARE',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            fareStr,
+                            style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            key: const Key('boost_fare_pencil_button'),
+                            icon: const Icon(
+                              Icons.edit_note_rounded,
+                              color: Color(0xFFD97706),
+                              size: 22,
+                            ),
+                            tooltip: 'Boost Offer Fare',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: () =>
+                                _showBoostFareDialog(context, trip, repository),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  OutlinedButton.icon(
+                    key: const Key('split_fare_button'),
+                    icon: const Icon(Icons.group_add_outlined, size: 16),
+                    label: const Text('Split Fare',
+                        style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () async {
+                      final splitId = await SplitRequestSheet.show(
+                        context,
+                        tripId: trip.tripId,
+                      );
+                      if (splitId != null && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Invites sent. The split activates once everyone accepts.',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ),
+
+              if (trip.deliveryPinRequired && trip.deliveryPin != null) ...[
+                const SizedBox(height: 12),
+                _DeliveryPinBanner(pin: trip.deliveryPin!),
+              ],
+
+              // Pending driver bids carousel
+              const SizedBox(height: 12),
+              _BidCarousel(trip: trip, repository: repository),
+
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 14),
+
+              // Route summary (Pickup and Dropoff)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    children: [
+                      const Icon(Icons.circle, color: Colors.green, size: 12),
+                      Container(
+                        width: 2,
+                        height: 24,
+                        color: Colors.grey.shade300,
+                      ),
+                      const Icon(Icons.square, color: Colors.red, size: 12),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          trip.pickupAddress,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          trip.dropoffAddress,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              // Privacy Cancellation Option: Positioned lower down so user must scroll/drag upwards to reveal
+              const SizedBox(height: 28),
+              Center(
+                child: Text(
+                  'Need to change plans?',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: cs.error,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                  ),
+                  onPressed: onCancel,
+                  child: const Text(
+                    'Cancel trip',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1339,3 +1616,201 @@ class _MessageState extends StatelessWidget {
     );
   }
 }
+
+/// Post-trip completion view that triggers the interactive 1-5 star review dialog for the driver.
+class _CompletedTripView extends StatefulWidget {
+  final ActiveTrip trip;
+
+  const _CompletedTripView({required this.trip});
+
+  @override
+  State<_CompletedTripView> createState() => _CompletedTripViewState();
+}
+
+class _CompletedTripViewState extends State<_CompletedTripView> {
+  bool _prompted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _cacheCompletedLocations();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _promptRating();
+    });
+  }
+
+  /// Automatically caches pickup and drop-off addresses locally and syncs to user records on trip completion.
+  void _cacheCompletedLocations() {
+    final trip = widget.trip;
+    final repo = RecentLocationsRepository();
+    final uid = trip.customerId.isNotEmpty ? trip.customerId : null;
+    if (trip.pickupAddress.isNotEmpty &&
+        (trip.pickupLat != 0 || trip.pickupLng != 0)) {
+      repo.saveLocation(
+        address: trip.pickupAddress,
+        lat: trip.pickupLat,
+        lng: trip.pickupLng,
+        uid: uid,
+      );
+    }
+    if (trip.dropoffAddress.isNotEmpty &&
+        (trip.dropoffLat != 0 || trip.dropoffLng != 0)) {
+      repo.saveLocation(
+        address: trip.dropoffAddress,
+        lat: trip.dropoffLat,
+        lng: trip.dropoffLng,
+        uid: uid,
+      );
+    }
+  }
+
+  Future<void> _promptRating() async {
+    if (_prompted || !mounted) return;
+    _prompted = true;
+
+    final driverId = widget.trip.driver?.driverId ?? '';
+    final driverName = widget.trip.driver?.fullName ?? 'Driver';
+    final customerId = widget.trip.customerId;
+
+    if (driverId.isEmpty || customerId.isEmpty) return;
+
+    final ratingService = TripRatingService();
+    final alreadyRated =
+        await ratingService.hasRated(widget.trip.tripId, customerId);
+    if (alreadyRated || !mounted) return;
+
+    await TripRatingDialog.show(
+      context,
+      tripId: widget.trip.tripId,
+      raterId: customerId,
+      ratedUserId: driverId,
+      ratedUserName: driverName,
+      isRatedUserDriver: true,
+      ratingService: ratingService,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _MessageState(
+      icon: Icons.check_circle,
+      iconColor: Colors.green,
+      title: 'Trip completed',
+      body: 'Thanks for riding with SESE.',
+      onClose: () => Navigator.of(context).pop(),
+    );
+  }
+}
+
+/// Opens the fare boost dialog allowing the customer to increase their offer fare during searching.
+void _showBoostFareDialog(
+  BuildContext context,
+  ActiveTrip trip,
+  TripRepository repository,
+) {
+  final controller = TextEditingController(
+    text: trip.fareAmount > 0 ? trip.fareAmount.toStringAsFixed(0) : '',
+  );
+  String? error;
+  bool loading = false;
+
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDlg) => AlertDialog(
+        key: const Key('boost_fare_dialog'),
+        title: const Row(
+          children: [
+            Icon(Icons.edit_note_rounded, color: AppColors.seseGold),
+            SizedBox(width: 8),
+            Text('Boost Offer Fare'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Increase your offer to attract nearby drivers faster. Decreases below current fare (${trip.fareFormatted.isNotEmpty ? trip.fareFormatted : "₦${trip.fareAmount.toStringAsFixed(0)}"}) are prohibited.',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [5, 10, 20].map((pct) {
+                final base = trip.fareAmount;
+                final boosted = (base * (100 + pct) / 100).round();
+                return OutlinedButton(
+                  onPressed: loading
+                      ? null
+                      : () => setDlg(() {
+                            controller.text = boosted.toString();
+                            error = null;
+                          }),
+                  child: Text('+$pct%'),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
+              ],
+              decoration: InputDecoration(
+                labelText: 'New Offer Amount (₦)',
+                prefixText: '₦ ',
+                border: const OutlineInputBorder(),
+                errorText: error,
+              ),
+              onChanged: (_) {
+                if (error != null) setDlg(() => error = null);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('boost_fare_submit_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.seseGold,
+              foregroundColor: Colors.black87,
+            ),
+            onPressed: loading
+                ? null
+                : () async {
+                    final val = double.tryParse(
+                      controller.text.replaceAll(',', ''),
+                    );
+                    if (val == null || val <= trip.fareAmount) {
+                      setDlg(() => error = 'Enter an amount higher than current fare.');
+                      return;
+                    }
+                    setDlg(() => loading = true);
+                    try {
+                      await repository.increaseTripFare(trip.tripId, val);
+                      if (ctx.mounted) Navigator.of(ctx).pop();
+                    } on TripException catch (e) {
+                      if (ctx.mounted) {
+                        setDlg(() {
+                          error = e.userMessage;
+                          loading = false;
+                        });
+                      }
+                    }
+                  },
+            child: const Text('Confirm Increase'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+

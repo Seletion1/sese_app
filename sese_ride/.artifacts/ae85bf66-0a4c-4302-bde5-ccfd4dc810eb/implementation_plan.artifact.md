@@ -1,58 +1,47 @@
-# Post-Trip Rating & Cumulative Scoring System Implementation Plan
+# Unified Real-Time Trips Feed Implementation Plan
 
-Implement a secure post-trip rating dialog and cumulative scoring system for drivers and customers across `sese_core` and `sese_ride`.
+Refactor the Trips tab on both driver and customer apps by permanently deleting static category cards ("Active trips" / "Ride history") and implementing a unified, real-time chronological trip activity feed.
 
 ## Proposed Changes
 
-### 1. Core User Model & Rating Service (`sese_core` & `sese_ride`)
+### 1. Trip Service & Repository (`sese_ride`)
 
-#### [MODIFY] [user_model.dart](file:///Users/micheal/sese_app/sese_core/lib/models/user_model.dart)
-- Add rating aggregation fields to `AppUser`:
-  - `double averageRating` (default 5.0 or 0.0)
-  - `int totalRatingSum` (default 0)
-  - `int totalRatingCount` (default 0)
-- Update `toMap`, `fromMap`, and `copyWith` accordingly.
-
-#### [NEW] [trip_rating_service.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/services/trip_rating_service.dart)
-- Create `TripRatingService` to handle Firestore rating records and atomic profile score recalculations:
-  - `submitRating`: Writes to `ratings/{tripId}_{raterId}` collection with `tripId`, `raterId`, `ratedUserId`, `rating`, `comment`, and `timestamp`.
-  - Runs a Firestore transaction to update `users/{ratedUserId}` (and `drivers/{ratedUserId}` if driver):
-    - `totalRatingSum += rating`
-    - `totalRatingCount += 1`
-    - `averageRating = totalRatingSum / totalRatingCount`
-  - Maintains `hasRated(tripId, raterId)` check to prevent duplicate rating prompts.
+#### [MODIFY] [trip_service.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/services/trip_service.dart)
+- Add `userTripHistoryStream(String userId, {bool isDriver = false})` to `TripRepository` and `FirestoreTripRepository`.
+- Streams all trips (active, completed, cancelled) for the given user/driver ordered newest-first from Firestore `trips` collection.
 
 ---
 
-### 2. Rating Modal UI Widget (`sese_ride`)
+### 2. Unified Trips Feed UI (`sese_ride`)
 
-#### [NEW] [trip_rating_dialog.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/trip_rating_dialog.dart)
-- Create `TripRatingDialog`:
-  - Interactive 1-to-5 star selector with gold fill animations.
-  - Optional feedback text field for comments.
-  - "Submit Rating" button and a clean "Skip" option.
-  - Tapping Skip or Submit cleanly dismisses the modal and commits the state.
+#### [MODIFY] [customer_trips_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/customer_trips_screen.dart)
+- Completely replace static lists / active-only filters with the unified real-time trip activity feed.
+- Support both customer and driver modes (`isDriver` flag).
+- Renders rich trip cards containing:
+  - Date/time timestamp and fare amount (e.g., `₦4,126`).
+  - Pickup and Drop-off route summary.
+  - Lifecycle status badge: `In Progress`, `Searching...`, `Completed`, `Cancelled by Customer`, `Cancelled by Driver`.
+- Shows clean empty state ("No trips available yet") when no trips exist.
+- Tapping an active/live trip navigates directly to `LiveTripScreen`.
 
 ---
 
-### 3. Integration & Trip Completion Listener
+### 3. Driver & Menu Shell Integration (`sese_ride`)
 
-#### [MODIFY] [driver_dashboard_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/driver/presentation/driver_dashboard_screen.dart)
-#### [MODIFY] [live_trip_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/live_trip_screen.dart)
-- Wire the rating trigger into the completion state listener:
-  - When trip status transitions to `TripStatus.completed`, check if the user has already rated/skipped.
-  - Automatically show `TripRatingDialog` if unrated.
-  - Ensure dismissal allows seamless navigation without blocking the dashboard.
+#### [MODIFY] [driver_home_shell.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/home/driver_home_shell.dart)
+- Permanently delete static "Active trips" and "Ride history" cards from `_TripsTab`.
+- Wire `_TripsTab` directly to `CustomerTripsScreen(customerId: user.uid, isDriver: true)`.
+- Ensure side Menu "Trips History" tile opens this same unified real-time feed view.
 
 ## Verification Plan
 
 ### Automated Tests
-- Create unit & widget tests in `test/trip_rating_test.dart` verifying:
-  - 1–5 star selection and comment submission.
-  - Cumulative rating calculation math (`averageRating = totalRatingSum / totalRatingCount`).
-  - Modal auto-trigger on trip completion and clean dismissal on Skip/Submit.
-- Run `flutter analyze` to ensure 0 errors and 0 warnings.
+- Update unit & widget tests in `test/driver_menu_nav_test.dart` and `test/live_trip_screen_test.dart`.
+- Run `flutter analyze` to verify zero static analysis errors and warnings.
+- Run `flutter test` across all test suites.
 
 ### Manual Verification
-- Verify rating modal appears automatically upon trip completion.
-- Verify submitting a 5-star or 4-star rating updates the user's cumulative score in Firestore instantly.
+- Verify static "Active trips" / "Ride history" cards are permanently removed.
+- Verify Trips tab loads a single chronological list of all trips (active, completed, cancelled).
+- Verify status badges accurately represent each trip stage.
+- Verify side Menu "Trips History" tile loads the exact same unified trip feed.

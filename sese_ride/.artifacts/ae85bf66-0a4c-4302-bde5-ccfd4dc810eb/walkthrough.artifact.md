@@ -1,25 +1,33 @@
-# Main Page Turn-by-Turn Navigation Consolidation Walkthrough
+# Unified Real-Time Trips Feed Walkthrough
 
-The secondary navigation screen has been completely removed and turn-by-turn navigation has been consolidated directly onto the main driver active trip map screen.
+The **Trips Tab** screen across both driver and customer apps has been completely refactored. Static category cards ("Active trips" / "Ride history") have been permanently deleted and replaced with a unified, real-time activity feed mirroring both driver and customer trip history.
 
 ## Changes Completed
 
-### 1. Deleted Secondary Navigation View & Removed Top Map Icon
-- Deleted secondary screen file `lib/features/driver/presentation/driver_in_app_navigation_screen.dart`.
-- Updated `navigation_launcher_service.dart` to remove `DriverInAppNavigationScreen` imports and route transitions.
-- In `driver_dashboard_screen.dart`, removed the map/navigation `IconButton` (`Icons.map_outlined`) from the top instruction banner, leaving **only the speaker icon** active on the right (matching screenshot #1).
+### 1. Permanent Removal of Static Category Cards
+- Permanently deleted the code for static "Active trips" and "Ride history" selection cards in `driver_home_shell.dart`.
+- Clean empty-state message ("No trips available yet") is displayed when no trip history exists.
 
-### 2. Consolidated Turn-by-Turn Navigation on Main Map
-- All turn-by-turn routing, road-snapped polyline rendering via `LocationService.fetchRoutePolyline`, and dynamic camera locking on the driver's directional navigation arrow (`label: 'NAV'`) run directly on the main page map.
-- When the trip starts and GPS/speed movement is detected, the bottom sheet automatically collapses downward to `0.18`, maximizing the main page map for clear turn-by-turn navigation.
+### 2. Unified Real-Time Trip Activity Feed Implementation
+- `TripRepository` extended with `userTripHistoryStream(String userId, {bool isDriver = false})` to stream all trips (active, completed, cancelled) ordered newest-first from Firestore.
+- `CustomerTripsScreen` in `customer_trips_screen.dart` updated to render a real-time chronological list of trip cards containing:
+  - Timestamp and fare amount (e.g. `₦4,126`).
+  - Pickup -> Drop-off route summary.
+  - Lifecycle status badges: `In Progress`, `Driver En Route`, `Driver Arrived`, `Searching for Driver...`, `Completed`, `Cancelled by Customer`, `Cancelled by Driver`.
+- Tapping an active/live trip navigates directly to `LiveTripScreen`.
+
+### 3. Menu & Customer Alignment
+- Side Menu "Trips History" tile in `_MenuTab` opens this exact same unified data feed view.
+- Customer app uses the exact same real-time feed view, eliminating empty states when trip history actually exists.
 
 ---
 
 ## Code Diffs & Verification
 
-render_diffs(file:///Users/micheal/sese_app/sese_ride/lib/features/driver/presentation/driver_dashboard_screen.dart)
-render_diffs(file:///Users/micheal/sese_app/sese_ride/lib/features/driver/services/navigation_launcher_service.dart)
+render_diffs(file:///Users/micheal/sese_app/sese_ride/lib/features/trips/services/trip_service.dart)
+render_diffs(file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/customer_trips_screen.dart)
+render_diffs(file:///Users/micheal/sese_app/sese_ride/lib/features/home/driver_home_shell.dart)
 
 ### Automated Test Results
-- `flutter analyze` completed with **0 errors / 0 warnings**.
-- Unit & Widget tests in `test/driver_active_trip_card_test.dart` and `test/live_trip_screen_test.dart` passed (`10/10 passed`).
+- `flutter analyze` completed with **0 errors and 0 warnings**.
+- Unit & Widget test suite passed (`21/21 passed`).

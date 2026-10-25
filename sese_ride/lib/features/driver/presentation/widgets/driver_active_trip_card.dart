@@ -195,7 +195,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         title: const Text('Cancel Trip (Customer No-Show)'),
         content: Text(
           'You have waited over ${widget.waitThresholdMinutes} minutes after arriving. '
-          'Cancelling now is streak-protected and will not penalize your streak or driver rating.',
+          'Cancelling now is streak-protected and will not penalize your streak or driver rating. '
+          'Note: Driver no-show cancellations forfeit waiting fee payouts, but allow you to exit immediately.',
         ),
         actions: [
           TextButton(

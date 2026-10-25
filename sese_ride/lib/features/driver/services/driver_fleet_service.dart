@@ -111,8 +111,7 @@ class DriverFleetService {
       firebaseAvailable = false;
     }
     if (!firebaseAvailable) return;
-    if (user == null ||
-        (driverId.isNotEmpty && user.uid != driverId)) {
+    if (user == null) {
       throw const DriverFleetUploadException(
         'session-expired',
         'Unable to upload image. Please check your connection or sign in again.',

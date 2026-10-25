@@ -34,6 +34,10 @@ abstract class TripRepository {
   /// and re-entry restore after the app was closed.
   Stream<List<ActiveTrip>> activeTripsStream(String customerId);
 
+  /// Real-time stream of all trip events (active, completed, cancelled) for a customer or driver,
+  /// ordered newest-first.
+  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false});
+
   /// Customer cancellation (server transitions to CANCELLED).
   ///
   /// [reason] is a [CancelTripDialog] reason code, audited server-side into
@@ -123,6 +127,34 @@ class FirestoreTripRepository implements TripRepository {
             .map((d) => ActiveTrip.fromMap(d.id, d.data()))
             .where((t) => t.isLive)
             .toList());
+  }
+
+  @override
+  Stream<List<ActiveTrip>> userTripHistoryStream(String userId, {bool isDriver = false}) {
+    if (userId.isEmpty) return Stream.value(const []);
+    try {
+      final field = isDriver ? 'assignedDriverId' : 'customerId';
+      return _db
+          .collection('trips')
+          .where(field, isEqualTo: userId)
+          .snapshots()
+          .map((snap) {
+        final list = snap.docs
+            .map((d) => ActiveTrip.fromMap(d.id, d.data()))
+            .toList();
+        list.sort((a, b) {
+          final aTime =
+              a.createdAt ?? a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bTime =
+              b.createdAt ?? b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bTime.compareTo(aTime);
+        });
+        return list;
+      });
+    } catch (e) {
+      debugPrint('FirestoreTripRepository.userTripHistoryStream error: $e');
+      return Stream.value(const []);
+    }
   }
 
   @override

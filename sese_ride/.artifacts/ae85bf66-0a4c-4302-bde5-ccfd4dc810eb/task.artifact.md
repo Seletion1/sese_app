@@ -1,16 +1,15 @@
-# Driver Earnings Pill & 4-Tab Bottom Navigation Tasks
+# Unified Real-Time Trips Feed Tasks
 
-- [/] 1. Refactor Top Floating Earnings Pill Box
-  - [ ] Remove icon and "Daily Earnings: " text from `_buildDailyEarningsCounter()` in `driver_dashboard_screen.dart`
-  - [ ] Render strictly raw total amount (e.g. `₦4,126.00`)
-  - [ ] Wrap pill box in interactive `InkWell` to open `EarningsScreen` on tap
-- [/] 2. Update Bottom Navigation to 4 Tabs
-  - [ ] Remove "Earnings" tab item from `BottomNavigationBar` in `driver_home_shell.dart`
-  - [ ] Update tab items (Menu [0], Home [1], Trips [2], Help [3])
-  - [ ] Update default index `_currentIndex = 1` and `_homeIndex = 1`
-  - [ ] Remove `EarningsScreen` from `IndexedStack`
-  - [ ] Update `_MenuTab` navigation callbacks and `_handlePopInvoked`
-- [/] 3. Update Tests & Verification
-  - [ ] Update `test/driver_menu_nav_test.dart`
-  - [ ] Run `flutter analyze`
-  - [ ] Run `flutter test`
+- [x] 1. Extend `TripRepository` (`trip_service.dart`)
+  - [x] Add `userTripHistoryStream(String userId, {bool isDriver = false})` to `TripRepository` and `FirestoreTripRepository`
+- [x] 2. Unified Trips Feed UI (`customer_trips_screen.dart`)
+  - [x] Replace active-only filter with real-time chronological trip activity feed
+  - [x] Render rich trip cards with timestamp, fare amount, route summary, and status badges
+  - [x] Display clean empty state ("No trips available yet") when no trips exist
+- [x] 3. Integrate Driver Shell & Menu (`driver_home_shell.dart`)
+  - [x] Delete static "Active trips" and "Ride history" cards from `_TripsTab`
+  - [x] Wire `_TripsTab` and side Menu "Trips History" directly to the unified feed
+- [x] 4. Testing & Verification
+  - [x] Update unit & widget tests in `driver_menu_nav_test.dart`
+  - [x] Run `flutter analyze`
+  - [x] Run `flutter test`
