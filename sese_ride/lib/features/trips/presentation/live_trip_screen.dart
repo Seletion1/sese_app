@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/services/call_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../../../widgets/verified_badge.dart';
 import '../../customer/services/location_service.dart';
@@ -1014,21 +1014,128 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     });
   }
 
-  Future<void> _openUri(BuildContext context, Uri uri) async {
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
-      } else if (context.mounted) {
+  Future<void> _callDriver(BuildContext context) async {
+    final phone = widget.driver.phone;
+    final canDial = AppCallService.isDialable(phone);
+    final scheme = Theme.of(context).colorScheme;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 10,
+              offset: const Offset(0, -2),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Call ${widget.driver.fullName.isNotEmpty ? widget.driver.fullName : "Driver"}',
+              style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            // In-App VoIP Call
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.wifi_calling_3_rounded, color: scheme.primary),
+              ),
+              title: const Text('In-App Voice Call', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Free internet call (WebRTC / Zego encrypted)'),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                final callId = 'call_${widget.trip.tripId}_${DateTime.now().millisecondsSinceEpoch}';
+                InAppCallScreen.start(
+                  context: context,
+                  callId: callId,
+                  targetUserId: widget.driver.driverId,
+                  targetUserName: widget.driver.fullName.isNotEmpty ? widget.driver.fullName : 'Driver',
+                  targetUserAvatar: widget.driver.photoUrl,
+                  metadata: {
+                    'tripId': widget.trip.tripId,
+                    'callerRole': 'customer',
+                  },
+                );
+              },
+            ),
+            const Divider(height: 16),
+            // Cellular Phone Dialer
+            if (canDial)
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.phone_in_talk_rounded, color: Colors.green),
+                ),
+                title: const Text('Cellular Phone Call', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: const Text('Dial using your standard phone dialer'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  final ok = await AppCallService.makeCall(phone);
+                  if (!ok && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Could not open phone dialer on this device.')),
+                    );
+                  }
+                },
+              )
+            else
+              ListTile(
+                leading: const Icon(Icons.lock_outline_rounded, color: Colors.grey),
+                title: const Text('Phone Number Masked'),
+                subtitle: const Text('Use In-App Voice Call or Trip Chat.'),
+                onTap: () => Navigator.of(ctx).pop(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _smsDriver(BuildContext context) async {
+    final phone = widget.driver.phone;
+    if (AppCallService.isDialable(phone)) {
+      final ok = await AppCallService.sendSms(
+        phone,
+        body: 'Hello, I am your SESE rider.',
+      );
+      if (!ok && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open ${uri.scheme}: link')),
+          const SnackBar(content: Text('Could not open messaging app.')),
         );
       }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not place the call.')),
-        );
-      }
+    } else {
+      _openTripChat(context);
     }
   }
 
@@ -1145,80 +1252,42 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
           const SizedBox(height: 8),
           Row(
             children: [
-              if (!_hidePhones) ...[
-                Expanded(
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.call),
-                    label: const Text('Call'),
-                    onPressed: driver.phone.isEmpty
-                        ? null
-                        : () => _openUri(
-                              context,
-                              Uri(scheme: 'tel', path: driver.phone),
-                            ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.message),
-                    label: const Text('Message'),
-                    onPressed: driver.phone.isEmpty
-                        ? null
-                        : () => _openUri(
-                              context,
-                              Uri(
-                                scheme: 'sms',
-                                path: driver.phone,
-                                queryParameters: {
-                                  'body': 'Hello, I am your SESE rider.',
-                                },
-                              ),
-                            ),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide.none,
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest,
-                    ),
-                  ),
-                ),
-              ] else ...[
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const Key('trip_chat_open_button'),
-                    icon: const Icon(Icons.chat_bubble_outline),
-                    label: const Text('Chat in app'),
-                    onPressed: () => _openTripChat(context),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          if (!_hidePhones) ...[
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: const Key('trip_chat_open_button'),
-                icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Chat in app'),
-                onPressed: () => _openTripChat(context),
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide.none,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+              Expanded(
+                child: FilledButton.icon(
+                  key: const Key('call_driver_button'),
+                  icon: const Icon(Icons.call),
+                  label: const Text('Call'),
+                  onPressed: driver.phone.isEmpty
+                      ? null
+                      : () => _callDriver(context),
                 ),
               ),
-            ),
-          ] else ...[
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('trip_chat_open_button'),
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('Chat'),
+                  onPressed: () => _openTripChat(context),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide.none,
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (AppCallService.isDialable(driver.phone)) ...[
             const SizedBox(height: 6),
-            Text(
-              'Phone numbers hidden — coordinate in the trip chat.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                icon: const Icon(Icons.sms_outlined, size: 16),
+                label: const Text('Send SMS to driver', style: TextStyle(fontSize: 12)),
+                onPressed: () => _smsDriver(context),
+              ),
             ),
           ],
         ],

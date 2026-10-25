@@ -1179,16 +1179,11 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
         .collection("vehicles").limit(1).get();
       if (!v.empty) vehicle = v.docs[0].data();
     } catch { /* vehicle optional */ }
-    // Owner-side privacy, driver direction: when the DRIVER enabled
-    // `settings.hidePhoneNumber`, the customer never receives the raw
-    // number — the trip's driver map carries the masked placeholder, and
-    // parties coordinate through in-app trip chat. Same guarantee as the
-    // customer direction in createTrip: enforced at write time, not trusted
-    // to the reader.
-    const rawPhone = String(d.phoneNumber ?? d.phone ?? "");
-    const phone = (await hidePhonesEnabled(driverId))
-      ? maskPhone(rawPhone)
-      : rawPhone;
+    // Driver lifeline: during an active assigned trip, the customer must be able
+    // to call the driver. The driver's actual dialable phone is minted onto the
+    // trip's driver snapshot — matching customerPhone which is also kept dialable.
+    const rawPhone = String(d.phoneNumberE164 ?? d.phoneNumber ?? d.phone ?? "");
+    const phone = rawPhone;
     return {
       driverId,
       fullName: String(d.fullName ?? d.name ?? "Driver"),

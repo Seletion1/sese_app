@@ -514,7 +514,6 @@ class AddStaffDialogState extends State<AddStaffDialog> {
                     },
                   ),
                 ],
-                ],
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(

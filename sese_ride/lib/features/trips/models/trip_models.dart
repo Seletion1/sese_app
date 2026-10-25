@@ -98,7 +98,7 @@ class DriverInfo {
       fullName: (map['fullName'] ?? map['name'] ?? 'Driver').toString(),
       photoUrl: (map['photoUrl'] ?? '').toString(),
       rating: (map['rating'] as num?)?.toDouble() ?? 0.0,
-      phone: (map['phone'] ?? '').toString(),
+      phone: (map['phone'] ?? map['phoneNumber'] ?? map['phoneNumberE164'] ?? '').toString(),
       plateNumber: (map['plateNumber'] ?? map['licensePlate'] ?? '').toString(),
       vehicleModel: (map['vehicleModel'] ?? map['model'] ?? '').toString(),
       vehicleColor: (map['vehicleColor'] ?? map['color'] ?? '').toString(),
@@ -230,6 +230,12 @@ class ActiveTrip {
   /// release.
   final String paymentMethod;
 
+  /// Vehicle category selected for the trip (e.g. 'car', 'bike', 'keke', 'courier').
+  final String vehicleCategory;
+
+  /// True when the trip involves split fare payments.
+  final bool splitEnabled;
+
   /// 4-digit security PIN issued for drop-off verification.
   /// Populated server-side when [deliveryPinRequired] is true.
   final String? deliveryPin;
@@ -281,6 +287,8 @@ class ActiveTrip {
     this.fareBoosted = false,
     this.boostPercent = 0,
     this.paymentMethod = 'cash',
+    this.vehicleCategory = '',
+    this.splitEnabled = false,
     this.deliveryPin,
     this.deliveryPinRequired = false,
   });
@@ -369,7 +377,13 @@ class ActiveTrip {
               map['customer']?['fullName'] ??
               'Customer')
           .toString(),
-      customerPhone: (map['customerPhone'] ?? '').toString(),
+      customerPhone: (map['customerPhone'] ??
+              (map['tripBooker'] is Map
+                  ? map['tripBooker']['phone'] ?? map['tripBooker']['phoneNumber']
+                  : null) ??
+              (map['createdBy'] is Map ? map['createdBy']['phone'] : null) ??
+              '')
+          .toString(),
       serviceType: (map['serviceType'] ?? 'ride').toString(),
       pickupLat: numOf(pickup, 'lat'),
       pickupLng: numOf(pickup, 'lng'),
@@ -421,6 +435,17 @@ class ActiveTrip {
       boostPercent: (map['boostPercent'] as num?)?.toInt() ?? 0,
       paymentMethod:
           (map['paymentMethod'] ?? map['paymentPlan'] ?? 'cash').toString(),
+      vehicleCategory: (map['vehicleCategory'] ??
+              map['category'] ??
+              ((map['selectedTiers'] is List && (map['selectedTiers'] as List).isNotEmpty)
+                  ? (map['selectedTiers'] as List).first
+                  : (map['tierIds'] is List && (map['tierIds'] as List).isNotEmpty)
+                      ? (map['tierIds'] as List).first
+                      : ''))
+          .toString(),
+      splitEnabled: map['splitEnabled'] == true ||
+          map['splitPayment'] != null ||
+          map['paymentMethod'] == 'split',
       deliveryPin: (map['deliveryPin'] ?? map['order']?['deliveryPin'])?.toString(),
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||

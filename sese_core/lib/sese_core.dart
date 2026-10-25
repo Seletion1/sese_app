@@ -78,6 +78,12 @@ export 'services/contacts_service.dart';
 export 'widgets/contacts_disclosure_dialog.dart';
 export 'widgets/driver_overlay_disclosure_dialog.dart';
 export 'widgets/mandatory_legal_acceptance_dialog.dart';
+export 'services/call/i_call_service.dart';
+export 'services/call/call_config_repository.dart';
+export 'services/call/webrtc_call_service_impl.dart';
+export 'services/call/zego_call_service_impl.dart';
+export 'services/call/call_service_manager.dart';
+export 'widgets/in_app_call_screen.dart';
 
 /// A Calculator.
 class Calculator {

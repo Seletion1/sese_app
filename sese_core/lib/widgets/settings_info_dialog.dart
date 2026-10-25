@@ -87,7 +87,7 @@ class _SettingsInfoDialogState extends State<SettingsInfoDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       elevation: 6,
-      backgroundColor: theme.dialogBackgroundColor,
+      backgroundColor: theme.dialogTheme.backgroundColor,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -319,7 +319,8 @@ class SettingsSwitchTile extends StatelessWidget {
           Switch.adaptive(
             key: switchKey,
             value: value,
-            activeColor: activeThumbColor ?? AppColors.seseGold,
+            activeThumbColor: activeThumbColor ?? AppColors.seseGold,
+            activeTrackColor: activeThumbColor ?? AppColors.seseGold,
             onChanged: onChanged,
           ),
         ],

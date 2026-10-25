@@ -37,6 +37,7 @@ dependencies:
   firebase_remote_config: ^6.7.0
   package_info_plus: ^10.2.1
   shorebird_code_push: ^2.0.0
+  flutter_webrtc: ^1.6.2+hotfix.4
 
 dev_dependencies:
   flutter_test:

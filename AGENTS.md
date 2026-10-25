@@ -60,6 +60,91 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Driver Call Action Sheet Refactoring & Dynamic Two-Option Routing
+
+Completely refactored the driver Call action sheet in `driver_active_trip_card.dart` to replace bloated legacy contact menus with clean, contextual 1-to-2-option call target sheets:
+
+### 1. Legacy Elements Permanently Deleted
+- Completely removed and deleted the legacy multi-option contact modal (`_showCallSheet` and `_CallOption`), eliminating redundant carrier SMS shortcuts, in-app chat shortcuts (already present on the primary card), raw phone dialers, and 4-tier action lists for single contacts.
+
+### 2. Contextual 1-to-2 Option Routing (`_buildCallTargets`)
+- **Rule A (Sender is Pickup):** When the customer who booked the trip is at pickup (standard ride or sender-at-pickup delivery), the sheet renders strictly **1 option**: `"Call the Pickup / Sender"`.
+- **Rule B (Sender is Drop-off / Third-Party Booking):**
+  - **Pickup Stage (`status != inProgress`):** Renders strictly **2 options**:
+    1. `"Call the Sender (Person who booked)"`
+    2. `"Call the Pickup Contact"`
+  - **Drop-off Stage (`status == inProgress`):** Renders strictly **2 options**:
+    1. `"Call the Sender (Person who booked)"`
+    2. `"Call the Receiver / Drop-off Contact"`
+
+### 3. Direct Seamless Call Initiation (`_handleCallTarget` & `_CallTargetTile`)
+- Designed `_CallTargetTile` with rounded container, green phone badge, role/contact subtitle, and a dedicated `"Call"` action pill.
+- Tapping an option directly routes to the secure in-app VoIP audio call (`InAppCallScreen.start`) for registered users, or invokes carrier dialing (`AppCallService.makeCall`) for third-party contacts.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
+## 2026-10-25 — VoIP/WebRTC Calls Collection Security Rules & Trip Chat Driver Schema Guard
+
+Resolved runtime `PERMISSION_DENIED` errors across client-initiated VoIP calls and trip chat messages:
+
+### 1. VoIP Calls & WebRTC ICE Candidate Rules (`calls/{callId}`)
+- **Problem:** `firestore.rules` lacked any definition for the top-level `calls` collection and its subcollections `callerCandidates` and `calleeCandidates`, resulting in `PERMISSION_DENIED` on call initiation (`set()`) and streaming ICE candidate creation (`add()`).
+- **Fix:** Added comprehensive rules for `calls/{callId}`:
+  - `isValidCallCreate`: Caller owns the document (`callerId == auth.uid`), ensures valid receiver (`receiverId != auth.uid`), enforces status `ringing`, type `audio`, allowed providers (`webrtc`, `zego`), length bounds on participant names/avatars, and SDP offer schema limits (<= 30 KB).
+  - `isValidCallUpdate`: Preserves immutable call metadata (`callerId`, `receiverId`, `callId`, `type`, `provider`, `createdAt`, `offer`). Callee can answer (`status: 'connected'`, sets `answeredAt` and optional `answer` SDP). Either participant can end/reject (`status in ['ended', 'rejected']`, `endedAt`, optional `endReason`).
+  - `callerCandidates` / `calleeCandidates`: Participant-gated append-only streaming logs validated via `isValidIceCandidate` (bounds on `candidate`, `sdpMid`, `sdpMLineIndex`, `createdAt`). Modification and deletion strictly denied.
+  - Read access granted to caller, receiver, and authorized hub staff/operations admins.
+
+### 2. Tri-Party Trip Chat & Receipt Driver Schema Guard (`trips/{tripId}/messages`)
+- **Problem:** Chat rules previously evaluated `get(...).data.driver.driverId == request.auth.uid` without guarding for `driver` map presence. For trips where `driver` was missing, null, not a map, or where settled trips stored a flat `driverId`, CEL runtime evaluation aborted immediately with `PERMISSION_DENIED`.
+- **Fix:** Added helper functions `isTripCustomer(tId)` and `isTripDriver(tId)` guarding map existence (`trip.data.keys().hasAll(['driver']) && trip.data.driver is map && ...`) and supporting flat `driverId` (`trip.data.keys().hasAll(['driverId']) && trip.data.driverId == request.auth.uid`).
+- Extended `isTripChatAuthorized` to allow hub support agents (`isAgent() || isHubStaff() || isAdminAuthClaim() || isOperationsAdmin() || isSuperAdmin()`) to participate in chat and audit messages.
+
+### 3. Verification & Deployment
+- Compiled and deployed rules to production using `firebase deploy --only firestore:rules`.
+
+## 2026-10-25 — Driver Active Trip Bottom Sheet Redesign, Cancellation Deletion & Movement-Triggered Auto-Collapse
+
+Implemented full-width draggable bottom sheet architecture, strict state-gated cancellation rules, and real-time movement-detected auto-collapse for `sese_ride`:
+
+### 1. Permanent Removal of Large Cancellation Buttons & Strict In-Progress Hiding (`driver_active_trip_card.dart`)
+- **Deletion:** Completely removed and deleted all prominent/large cancellation buttons across all trip states.
+- **Strict State Rules:** 
+  - Cancellation UI is strictly prohibited when `trip.status == TripStatus.inProgress` (or drop-off stage). When the "Complete Trip" action is active, all cancellation options are completely hidden and omitted from the widget tree.
+  - Cancellation is only ever visible when the driver has arrived at pickup (`trip.status == TripStatus.driverArrived`) AND the 10-minute wait condition applies.
+  - Replaced cancellation controls with a minimal text link (`"Cancel Trip (Customer No-Show)"`) that only renders once `_hasWaitTimeExpired` is true. While waiting within the 10-minute window, an informative streak-protection notice is displayed instead.
+
+### 2. Full-Width Draggable Bottom Sheet (`driver_active_trip_card.dart` & `driver_dashboard_screen.dart`)
+- **Draggable Architecture:** Refactored `DriverActiveTripCard` into a `DraggableScrollableSheet` with `snap: true`, `minChildSize: 0.18`, `snapSizes: [0.18, 0.42, 0.85]`, and `maxChildSize: 0.85`.
+- **Full-Width Edge-to-Edge:** Set `margin: EdgeInsets.zero` and full width `double.infinity` stretching seamlessly across the viewport and sitting directly flush above the bottom navigation bar.
+- **Top Bar & Content Hierarchy:** Added a pill drag handle at the top that can be dragged or tapped to cycle snap positions, followed immediately by customer details, primary action button ("Complete Trip", "Start Ride", "I've Arrived"), communications row, and expandable route details.
+
+### 3. Movement Detection & Automatic Minimize on Trip Start (`driver_dashboard_screen.dart`)
+- **Live GPS Stream & Tracking:** Subscribed to `Geolocator.getPositionStream` with `LocationAccuracy.bestForNavigation` and `distanceFilter: 3`. Calls `_mapController.followTo(newPos)` continuously to keep the map camera centered on the driver during live movement.
+- **Movement-Triggered Collapse:** Added `_checkMovementAndAutoCollapse(Position pos)`: when `activeTrip.status == TripStatus.inProgress` and vehicle movement is detected (either `pos.speed > 1.2` m/s or distance > 15 meters from initial in-progress point), the bottom sheet automatically collapses to `0.18` via `_activeTripSheetController.animateTo(0.18, duration: Duration(milliseconds: 300), curve: Curves.easeOutCubic)`.
+- **Manual Override:** Resetting `_hasAutoCollapsedTripSheet` on state change allows the driver to re-expand the sheet manually at any time without fighting automatic collapses.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
+## 2026-10-25 — ActiveTrip Model Attributes & Driver Active Trip Card Syntax & Wait Time Resolution
+
+Resolved analyzer errors and warnings in `driver_active_trip_card.dart` and `trip_models.dart`:
+
+### 1. Missing `vehicleCategory` & `splitEnabled` on `ActiveTrip` (`trip_models.dart`)
+- **Root cause:** `_categoryLabel` and `_paymentLabel` in `driver_active_trip_card.dart` referenced `trip.vehicleCategory` and `trip.splitEnabled`, which had not been declared in `ActiveTrip`.
+- **Fix:** Added `vehicleCategory` (String) and `splitEnabled` (bool) with defaults to `ActiveTrip` and mapped them in `ActiveTrip.fromMap` using `map['vehicleCategory'] ?? map['category'] ?? map['selectedTiers']` and `map['splitEnabled'] ?? map['splitPayment'] ?? (map['paymentMethod'] == 'split')`.
+
+### 2. Missing `_hasWaitTimeExpired` & `_confirmNoShowCancel` (`driver_active_trip_card.dart`)
+- **Root cause:** The redesigned cancellation flow referenced `_hasWaitTimeExpired` and `_confirmNoShowCancel`, but their definitions were missing.
+- **Fix:** Implemented `bool get _hasWaitTimeExpired` checking `trip.arrivedAt` against `widget.waitThresholdMinutes`. Implemented `_confirmNoShowCancel` with an `AlertDialog` confirming streak-protected cancellation with `reason: 'customer_no_show'`.
+
+### 3. Syntax & Unused Declaration Cleanup (`driver_active_trip_card.dart`)
+- **Root cause:** Stray closing brace `}` before `_CallOption` caused `expected_executable`. Old helper `_statusLabel` and previous contact container `_buildBookerContact` became unreferenced following the card's action button redesign.
+- **Fix:** Removed the redundant closing brace. Removed unused `_statusLabel`, `_buildBookerContact`, and `_hasContact`. Wired the primary Call button to use `_activeContactPhone` / `_activeContactName` (stage-aware contact selection between drop-off receiver, pickup sender, and booker). Removed unused import of `driver_in_app_navigation_screen.dart`.
+- **Verification:** Ran project diagnostics with `analyze_files`: clean, 0 errors/warnings across `sese_ride`, `sese_core`, and `sese_hub`.
+
 ## 2026-10-14 — Hub Wallet Read Permissions, Customer History RenderFlex Fix & RegionConfig Timestamp Deserialization
 
 Resolved three runtime bugs surfaced in device testing:
@@ -3636,3 +3721,83 @@ mid-exploration (in-app nav's `_isAutoTracking` never cleared on pan).
 
 `sese_ride` analyze clean. Suite not run per policy. No backend changes,
 nothing to deploy.
+
+
+## 2026-10-24 — Switchable In-App Calling Architecture (Self-Hosted WebRTC & ZegoCloud SDK)
+
+Implemented a flexible, hot-swappable VoIP architecture supporting both self-hosted WebRTC and managed ZegoCloud calling:
+
+### 1. Abstract Interface & Strategy Pattern (`i_call_service.dart`)
+- **`ICallService`**: Standardized abstract interface defining `initialize()`, `startCall()`, `answerCall()`, `endCall()`, `toggleMute()`, `toggleSpeaker()`, `dispose()`, with reactive `stateStream` (`CallState`) and `durationStream` (`Duration`).
+- **`CallProviderType`**: `webrtc` (self-hosted P2P via Firebase) vs `zego` (managed cloud SDK).
+- **`CallSession`**: Rich session model tracking participants, active provider, start/connect/end timestamps, mute/speaker hardware states, and trip metadata.
+
+### 2. Local Persistence & Config Repository (`call_config_repository.dart`)
+- Persists calling provider selection (`webrtc` vs `zego`), Zego credentials (`appId`, `appSign`), and Google STUN server endpoints in `SharedPreferences`.
+- Supports remote sync with Firestore `system_settings/calling` while degrading gracefully when offline or in test environments.
+- Exposes `configStream` for live reactive updates.
+
+### 3. Self-Hosted WebRTC Calling Engine (`webrtc_call_service_impl.dart`)
+- Uses `flutter_webrtc` for peer-to-peer audio calling with end-to-end DTLS/SRTP encryption.
+- Firebase Firestore signaling bridge:
+  - Caller creates `calls/{callId}` document with SDP Offer.
+  - Callee answers and updates `calls/{callId}` with SDP Answer.
+  - ICE candidates exchanged asynchronously via `calls/{callId}/callerCandidates` and `calls/{callId}/calleeCandidates` subcollections.
+- Microphone permission checking, audio track muting, and hardware loudspeaker toggling (`Helper.setSpeakerphoneOn`).
+
+### 4. Managed ZegoCloud Strategy (`zego_call_service_impl.dart`)
+- Concrete implementation validating Zego credentials from `CallConfigRepository`.
+- Manages call state transitions, hardware muting, speakerphone, duration timers, and session audit records in Firestore.
+
+### 5. Dynamic Manager / Service Factory (`call_service_manager.dart`)
+- Dynamic singleton (`CallServiceManager.instance`) that loads configuration on startup and exposes `activeService`.
+- Supports hot-swapping providers on the fly (`switchProvider`).
+
+### 6. In-App Call Screen UI (`in_app_call_screen.dart`)
+- Full-screen calling UI with dark obsidian theme, pulsating caller ring animation, live timer counter, mute/speaker toggles, and hangup button.
+- Displays active provider badge (`WebRTC P2P (Firebase Signaling)` or `ZegoCloud SDK`).
+
+### 7. Hub Administration & Diagnostic Screen (`calling_config_screen.dart`)
+- Integrated into `HubSettingsScreen`: allows staff to toggle active calling provider, enter/save Zego credentials, inspect STUN endpoints, and run an interactive local audio loopback test.
+
+### 8. Ride Integration (`sese_ride`)
+- Integrated into `driver_active_trip_card.dart` and `live_trip_screen.dart`: drivers and customers can initiate free in-app VoIP calls directly during active trips, alongside traditional cellular phone dialing.
+- `sese_ride/lib/main.dart`: initializes `CallServiceManager` with authenticated user credentials and permits admin/super/agent accounts to access customer shells.
+
+### Verification Gate
+- `sese_core`: 0 errors.
+- `sese_hub`: 0 errors.
+- `sese_ride`: 0 errors.
+
+
+## 2026-10-24 — Monorepo Dead & Ghost File Elimination, Single Source of Truth Enforcement
+
+Conducted a thorough zero-mercy audit of the codebase to eliminate IDE/AI desync artifacts, redundant re-export shims, orphaned screens, and ghost files:
+
+### 1. Deleted Redundant Re-export Shims & Legacy Wrappers
+- `sese_ride/lib/widgets/document_upload_card.dart`: Deleted. Re-exported `package:sese_core/widgets/document_upload_card.dart` without any callers (all callers import directly from `sese_core`).
+- `sese_ride/lib/features/settings/theme_controller.dart`: Deleted. Re-exported `package:sese_core/theme/theme_controller.dart` without any callers.
+- `sese_ride/lib/features/driver/services/vehicle_catalog.dart`: Deleted. Re-exported `package:sese_core/models/vehicle_catalog.dart` without any callers.
+- `sese_ride/lib/features/auth/registration_page.dart`: Deleted. Unused legacy shim bridging to `AuthScreen`.
+
+### 2. Deleted Dead & Orphaned Screen / Widget Files
+- `sese_ride/lib/features/trips/presentation/dispute_order_screen.dart`: Deleted. Standalone unreferenced screen with no navigation route or callers.
+- `sese_ride/lib/features/wallet/wallet_guard.dart`: Deleted. Redundant unreferenced balance modal (driver dashboard uses unified inline balance validation).
+- `sese_ride/lib/features/driver/presentation/driver_lifecycle_watcher.dart`: Deleted. Unreferenced standalone overlay watcher (driver dashboard manages its own lifecycle listener).
+- `sese_hub/lib/features/maps/hub_geocoder_admin_screen.dart`: Deleted. Unreferenced obsolete map bundle screen.
+- Removed empty directories: `sese_hub/lib/features/maps`, `sese_core/lib/utils`, `sese_ride/lib/features/trips/presentation/widgets`, and `sese_ride/lib/features/customer/presentation/widgets`.
+
+### 3. Cleaned Filesystem & Workspace Artifacts
+- Permanently purged `.DS_Store` files and JVM/Firestore crash dumps (`hs_err_pid1467.log`, `hs_err_pid1491.log`, `firestore-debug.log`).
+- Verified zero git merge conflict markers across all codebases.
+
+### 4. Single Source of Truth Entrypoints
+- Verified strict single entry point policy:
+  - `sese_ride/lib/main.dart` is the sole entrypoint for the customer/driver mobile app.
+  - `sese_hub/lib/main.dart` is the sole entrypoint for the internal admin/staff portal.
+  - `sese_core/lib/sese_core.dart` is the sole library barrel export for shared domain logic.
+
+### 5. Verification Gate
+- `sese_core`: 0 errors, 0 warnings.
+- `sese_hub`: 0 errors, 0 warnings.
+- `sese_ride`: 0 errors, 0 warnings.

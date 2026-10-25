@@ -16,6 +16,7 @@ import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
+import 'driver_in_app_navigation_screen.dart';
 import 'widgets/driver_active_trip_card.dart';
 import 'widgets/incoming_offer_sheet.dart';
 import 'widgets/order_feed.dart';
@@ -85,6 +86,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// True while the activity is backgrounded (overlay bubble owns the UI).
   bool _appPaused = false;
 
+  /// True when the driver mutes spoken audio turn navigation in active trip view.
+  bool _audioGuidanceMuted = false;
+
   // ── Driver Resting Break (Module 4) ────────────────────────────────────────
   /// True while the driver is on a deliberate rest break. Auto-push pings
   /// (Stage 1 & Stage 2 exclusive offers) are suppressed but the Quick-Order
@@ -101,6 +105,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// Camera for the home map canvas. Created once; positions move through
   /// it (never recreated — OsmMapView applies the initial center only).
   final SeSeMapController _mapController = SeSeMapController();
+
+  /// Live GPS position stream subscription for continuous tracking & movement detection.
+  StreamSubscription<Position>? _livePositionSubscription;
+
+  /// Sheet controller for the full-width draggable active trip bottom sheet.
+  final DraggableScrollableController _activeTripSheetController =
+      DraggableScrollableController();
+
+  /// State tracking for auto-collapsing the active trip card on movement.
+  ActiveTrip? _currentActiveTrip;
+  String? _trackedTripId;
+  TripStatus? _lastTrackedStatus;
+  LatLng? _tripStartLocation;
+  bool _hasAutoCollapsedForTrip = false;
 
   /// Opens the Tier-3 pool as a bottom sheet. Accepting inside calls the
   /// zero-trust `acceptTrip` callable (atomic first-wins + verified +
@@ -152,6 +170,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
     _loadFleet();
     _resolvePosition();
+    _startLivePositionTracking();
     _initSessionControl();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _mapController.move(_driverPosition, 15.0);
@@ -216,6 +235,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _statusSubscription?.cancel();
+    _livePositionSubscription?.cancel();
+    _activeTripSheetController.dispose();
     if (_pushSessionListener != null) {
       PushNotificationService.driverSessionTerminatedEvents
           .removeListener(_pushSessionListener!);
@@ -339,6 +360,104 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       // unavailable — keep seeded default. Plain catch handles both
       // Exceptions and Errors (e.g. DynamicLibraryLoadError).
     }
+  }
+
+  /// Continuously follows live GPS movement during active trips and idle positioning.
+  /// Detects actual vehicle movement to auto-collapse the bottom action sheet.
+  void _startLivePositionTracking() {
+    _livePositionSubscription?.cancel();
+    try {
+      _livePositionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          distanceFilter: 3,
+        ),
+      ).listen(
+        (pos) {
+          if (!mounted) return;
+          final newPos = LatLng(pos.latitude, pos.longitude);
+          setState(() {
+            _driverPosition = newPos;
+          });
+
+          // Live map camera follow
+          if (_mapController.isFollowingUser) {
+            _mapController.followTo(newPos);
+          }
+
+          // Evaluate vehicle movement to auto-collapse the bottom sheet
+          _checkMovementAndAutoCollapse(pos);
+        },
+        onError: (e) {
+          debugPrint('DriverDashboard live position stream error: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('Could not start live position tracking: $e');
+    }
+  }
+
+  void _checkMovementAndAutoCollapse(Position pos) {
+    final trip = _currentActiveTrip;
+    if (trip == null) return;
+
+    if (trip.tripId != _trackedTripId || trip.status != _lastTrackedStatus) {
+      if (trip.status == TripStatus.inProgress &&
+          _lastTrackedStatus != TripStatus.inProgress) {
+        _hasAutoCollapsedForTrip = false;
+        _tripStartLocation = LatLng(pos.latitude, pos.longitude);
+      }
+      _trackedTripId = trip.tripId;
+      _lastTrackedStatus = trip.status;
+    }
+
+    if (trip.status != TripStatus.inProgress || _hasAutoCollapsedForTrip) {
+      return;
+    }
+
+    // Vehicle movement detection:
+    // Speed threshold: speed > 1.2 m/s (~4.3 km/h, clear vehicle driving movement)
+    // Distance threshold: moved > 15m from trip start location
+    bool isMoving = pos.speed > 1.2;
+    if (!isMoving && _tripStartLocation != null) {
+      final movedM = const Distance().as(
+        LengthUnit.Meter,
+        _tripStartLocation!,
+        LatLng(pos.latitude, pos.longitude),
+      );
+      if (movedM > 15.0) {
+        isMoving = true;
+      }
+    }
+
+    if (isMoving) {
+      _hasAutoCollapsedForTrip = true;
+      _collapseActiveTripSheet();
+    }
+  }
+
+  void _collapseActiveTripSheet() {
+    if (!_activeTripSheetController.isAttached) return;
+    try {
+      _activeTripSheetController.animateTo(
+        0.18,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    } catch (_) {}
+  }
+
+  void _toggleActiveTripSheet() {
+    if (!_activeTripSheetController.isAttached) return;
+    try {
+      final current = _activeTripSheetController.size;
+      final target = current <= 0.25 ? 0.42 : 0.18;
+      _activeTripSheetController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } catch (_) {}
   }
 
 
@@ -1241,6 +1360,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       stream: _streaks.activeTripStream(widget.driverId),
       builder: (context, tripSnap) {
         final active = tripSnap.data;
+        _currentActiveTrip = active;
+        if (active != null) {
+          if (active.tripId != _trackedTripId || active.status != _lastTrackedStatus) {
+            if (active.status == TripStatus.inProgress &&
+                _lastTrackedStatus != TripStatus.inProgress) {
+              _hasAutoCollapsedForTrip = false;
+              _tripStartLocation = _driverPosition;
+            }
+            _trackedTripId = active.tripId;
+            _lastTrackedStatus = active.status;
+          }
+        }
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -1299,37 +1430,44 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       _buildSessionTerminatedBanner(),
                     ],
                     const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: _buildOnlineHeader(),
-                    ),
-                    const SizedBox(height: 6),
-                    // Notification bell: positioned directly beneath the GO ONLINE / status banner.
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Material(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .surface
-                                .withValues(alpha: 0.9),
-                            shape: const CircleBorder(),
-                            elevation: 2,
-                            child: NotificationBellButton(
-                                uid: widget.driverId),
-                          ),
-                        ],
+                    if (active != null) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildActiveTripTopNavBanner(active),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    _buildLowBalanceBanner(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: VerificationBanner(driverId: widget.driverId),
-                    ),
-                    _DocExpiryBanner(driverId: widget.driverId),
+                    ] else ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: _buildOnlineHeader(),
+                      ),
+                      const SizedBox(height: 6),
+                      // Notification bell: positioned directly beneath the GO ONLINE / status banner.
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Material(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surface
+                                  .withValues(alpha: 0.9),
+                              shape: const CircleBorder(),
+                              elevation: 2,
+                              child: NotificationBellButton(
+                                  uid: widget.driverId),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildLowBalanceBanner(),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: VerificationBanner(driverId: widget.driverId),
+                      ),
+                      _DocExpiryBanner(driverId: widget.driverId),
+                    ],
                   ],
                 ),
               ),
@@ -1339,7 +1477,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             // Shown in both states so the driver can always recenter on GPS.
             Positioned(
               right: 16,
-              bottom: _isOnline ? 210 : 16,
+              bottom: active != null
+                  ? 180
+                  : (_isOnline ? 210 : 16),
               child: Material(
                 key: const Key('driver_recenter_fab'),
                 color: Theme.of(context).colorScheme.surface,
@@ -1358,29 +1498,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               ),
             ),
             // 2. (Radar moved into the Order Pool sheet — map stays clean.)
-            // 3. Bottom card: live trip, else streak while online, else map
-            // alone. OSM attribution shows only when the OSM renderer is
-            // live (Google renders its own logo/terms — never double-credit).
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 12,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (MapProviderPolicy.resolve(active != null
-                          ? MapContext.realtimeTracking
-                          : MapContext.idlePositioning) !=
-                      MapProvider.googleMaps)
-                    const Align(
-                      alignment: Alignment.centerRight,
-                      child: _RasterCredit(),
-                    ),
-                  const SizedBox(height: 4),
-                  // Gold "Quick Order" badge floats above the streak/bottom card
-                  // when online and idle (no active trip).
-                  if (_isOnline && active == null)
+            // 3. Bottom area:
+            // When trip is active: full-width DraggableScrollableSheet touching bottom.
+            // When idle/online: floating streak banner + pool badge.
+            if (active != null) ...[
+              if (MapProviderPolicy.resolve(MapContext.realtimeTracking) !=
+                  MapProvider.googleMaps)
+                const Positioned(
+                  right: 12,
+                  bottom: 180,
+                  child: _RasterCredit(),
+                ),
+              // Full-width draggable bottom action sheet extending directly above the bottom nav bar
+              _buildActiveTripCard(active),
+            ] else if (_isOnline) ...[
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (MapProviderPolicy.resolve(MapContext.idlePositioning) !=
+                        MapProvider.googleMaps)
+                      const Align(
+                        alignment: Alignment.centerRight,
+                        child: _RasterCredit(),
+                      ),
+                    const SizedBox(height: 4),
                     Align(
                       alignment: Alignment.centerRight,
                       child: Padding(
@@ -1392,21 +1538,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                         ),
                       ),
                     ),
-                  if (active != null)
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight:
-                            MediaQuery.sizeOf(context).height * 0.45,
-                      ),
-                      child: SingleChildScrollView(
-                        child: _buildActiveTripCard(active),
-                      ),
-                    )
-                  else if (_isOnline)
                     _buildBottomStreakSlot(),
-                ],
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         );
       },
@@ -1689,6 +1825,148 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
+  /// Floating top banner shown while a driver has an active trip.
+  /// Matches the Uber/Lyft/Bolt top navigation indicator:
+  /// Left green navigation icon, current stage ("Now PICKUP/DROPOFF"),
+  /// guidance instruction, and quick actions to open in-app navigation
+  /// cockpit or toggle voice guidance.
+  Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
+    final isPickup = active.status != TripStatus.inProgress;
+    final targetLat = isPickup ? active.pickupLat : active.dropoffLat;
+    final targetLng = isPickup ? active.pickupLng : active.dropoffLng;
+    final targetAddr =
+        isPickup ? active.pickupAddress : active.dropoffAddress;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF10B981),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.navigation,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Now',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1FAE5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        isPickup ? 'PICKUP' : 'DROPOFF',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF047857),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isPickup
+                      ? 'Head towards pickup'
+                      : 'Head towards destination',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'In-app navigation cockpit',
+            icon: const Icon(Icons.map_outlined, color: Colors.black87),
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => DriverInAppNavigationScreen(
+                    destination: LatLng(targetLat, targetLng),
+                    destinationAddress: targetAddr,
+                    isHeadingToPickup: isPickup,
+                    initialDriverPosition: _driverPosition,
+                    trip: active,
+                  ),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: _audioGuidanceMuted ? 'Unmute guidance' : 'Mute guidance',
+            icon: Icon(
+              _audioGuidanceMuted
+                  ? Icons.volume_off_outlined
+                  : Icons.volume_up_outlined,
+              color: _audioGuidanceMuted ? Colors.grey : Colors.black87,
+            ),
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              setState(() {
+                _audioGuidanceMuted = !_audioGuidanceMuted;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    _audioGuidanceMuted
+                        ? 'Navigation voice guidance muted'
+                        : 'Navigation voice guidance enabled',
+                  ),
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Live-trip action card for the map bottom slot. Takes the already-resolved
   /// trip (the map stack owns the single `activeTripStream` subscription) —
   /// no nested streams here.
@@ -1705,6 +1983,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           driverPosition: _driverPosition,
           autoArrivalEnabled: cfg.autoArrivalEnabled,
           autoArrivalCountdownSeconds: cfg.autoArrivalCountdownSeconds,
+          sheetController: _activeTripSheetController,
+          onToggleCollapse: _toggleActiveTripSheet,
         );
       },
     );

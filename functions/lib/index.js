@@ -52,6 +52,7 @@ const admin = __importStar(require("firebase-admin"));
 // so suppressing the probe here is safe and has zero effect on cold starts.
 if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
     process.env.METADATA_SERVER_DETECTION = "none";
+    process.env.CLOUD_SDK_METADATA_SERVER_DISABLE = "true";
 }
 // Initialize BEFORE importing/re-exporting any module that touches the
 // Admin SDK, so trigger discovery (which requires this entry point in an

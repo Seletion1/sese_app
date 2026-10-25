@@ -936,7 +936,7 @@ async function requirePingedDriver(tripId, driverId) {
     return snap;
 }
 async function driverSnapshot(driverId) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     try {
         const doc = await db().collection("drivers").doc(driverId).get();
         const d = doc.exists ? doc.data() : {};
@@ -948,29 +948,24 @@ async function driverSnapshot(driverId) {
             if (!v.empty)
                 vehicle = v.docs[0].data();
         }
-        catch ( /* vehicle optional */_k) { /* vehicle optional */ }
-        // Owner-side privacy, driver direction: when the DRIVER enabled
-        // `settings.hidePhoneNumber`, the customer never receives the raw
-        // number — the trip's driver map carries the masked placeholder, and
-        // parties coordinate through in-app trip chat. Same guarantee as the
-        // customer direction in createTrip: enforced at write time, not trusted
-        // to the reader.
-        const rawPhone = String((_b = (_a = d.phoneNumber) !== null && _a !== void 0 ? _a : d.phone) !== null && _b !== void 0 ? _b : "");
-        const phone = (await hidePhonesEnabled(driverId))
-            ? maskPhone(rawPhone)
-            : rawPhone;
+        catch ( /* vehicle optional */_l) { /* vehicle optional */ }
+        // Driver lifeline: during an active assigned trip, the customer must be able
+        // to call the driver. The driver's actual dialable phone is minted onto the
+        // trip's driver snapshot — matching customerPhone which is also kept dialable.
+        const rawPhone = String((_c = (_b = (_a = d.phoneNumberE164) !== null && _a !== void 0 ? _a : d.phoneNumber) !== null && _b !== void 0 ? _b : d.phone) !== null && _c !== void 0 ? _c : "");
+        const phone = rawPhone;
         return {
             driverId,
-            fullName: String((_d = (_c = d.fullName) !== null && _c !== void 0 ? _c : d.name) !== null && _d !== void 0 ? _d : "Driver"),
-            photoUrl: String((_e = d.photoUrl) !== null && _e !== void 0 ? _e : ""),
-            rating: Number((_f = d.rating) !== null && _f !== void 0 ? _f : 0),
+            fullName: String((_e = (_d = d.fullName) !== null && _d !== void 0 ? _d : d.name) !== null && _e !== void 0 ? _e : "Driver"),
+            photoUrl: String((_f = d.photoUrl) !== null && _f !== void 0 ? _f : ""),
+            rating: Number((_g = d.rating) !== null && _g !== void 0 ? _g : 0),
             phone,
-            plateNumber: String((_h = (_g = vehicle.licensePlate) !== null && _g !== void 0 ? _g : vehicle.plateNumber) !== null && _h !== void 0 ? _h : ""),
+            plateNumber: String((_j = (_h = vehicle.licensePlate) !== null && _h !== void 0 ? _h : vehicle.plateNumber) !== null && _j !== void 0 ? _j : ""),
             vehicleModel: String([vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.model || ""),
-            vehicleColor: String((_j = vehicle.color) !== null && _j !== void 0 ? _j : ""),
+            vehicleColor: String((_k = vehicle.color) !== null && _k !== void 0 ? _k : ""),
         };
     }
-    catch (_l) {
+    catch (_m) {
         return { driverId, fullName: "Driver", phone: "" };
     }
 }

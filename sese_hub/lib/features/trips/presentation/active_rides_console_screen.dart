@@ -102,7 +102,6 @@ class _RidesConsoleBody extends StatefulWidget {
   final String? lockedCountry;
 
   const _RidesConsoleBody({
-    super.key,
     this.firestore,
     this.stageLock,
     this.lockedCountry,
@@ -313,8 +312,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
             ),
           ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildFilterBar() {

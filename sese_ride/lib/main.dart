@@ -315,6 +315,14 @@ class _AuthGateState extends State<_AuthGate> {
           return LoginPage(auth: _auth);
         }
 
+        // Initialize in-app VoIP calling subsystem with the authenticated user credentials
+        // ignore: discarded_futures
+        CallServiceManager.instance.initialize(
+          currentUserId: user.uid,
+          displayName: user.fullName,
+          avatarUrl: user.photoUrl,
+        );
+
         // Driver onboarding gate:
         // - `pending_onboarding` (fresh Create Account, Step 2 not yet
         //   submitted) -> Step 2 Personal Information Form.
@@ -330,49 +338,16 @@ class _AuthGateState extends State<_AuthGate> {
             return CustomerHomeShell(user: user, auth: _auth);
           case UserRole.driver:
             return DriverHomeShell(user: user, auth: _auth);
-          default:
-            // Hub staff opened the wrong app.
-            return _WrongAppScreen(user: user, auth: _auth);
+          case UserRole.admin:
+          case UserRole.superRole:
+          case UserRole.agent:
+            // Admin/super/agent accounts are permitted to use customer
+            // features in sese_ride (unified wallet & account access).
+            // Route to CustomerHomeShell so the owner can book rides and
+            // monitor the platform while staying logged in.
+            return CustomerHomeShell(user: user, auth: _auth);
         }
       },
-    );
-  }
-}
-
-class _WrongAppScreen extends StatelessWidget {
-  final AppUser user;
-  final AuthRepository auth;
-  const _WrongAppScreen({required this.user, required this.auth});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              const SizedBox(height: 16),
-              const Text('Wrong App',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text(
-                'Account ${user.email} is a hub staff account. '
-                'Please use the sese_hub app instead.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                icon: const Icon(Icons.logout),
-                label: const Text('Sign Out'),
-                onPressed: () => auth.signOut(),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

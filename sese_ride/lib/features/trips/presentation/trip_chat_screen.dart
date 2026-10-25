@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../../core/services/call_service.dart';
 import '../services/trip_chat_service.dart';
 
 /// In-app tri-party trip chat (Customer ↔ Recipient relay ↔ Assigned
@@ -294,6 +295,33 @@ class _TripChatScreenState extends State<TripChatScreen>
                       TextStyle(fontSize: 11, fontWeight: FontWeight.w400)),
             ],
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.call_rounded),
+              tooltip: 'Call contact',
+              onPressed: () async {
+                final activeIndex = _tabCtrl?.index ?? 0;
+                final targetPhone = activeIndex == 1 && widget.receiverPhone.isNotEmpty
+                    ? widget.receiverPhone
+                    : widget.peerPhone;
+                final targetName = activeIndex == 1 && widget.receiverName.isNotEmpty
+                    ? widget.receiverName
+                    : widget.peerName;
+                if (AppCallService.isDialable(targetPhone)) {
+                  final ok = await AppCallService.makeCall(targetPhone);
+                  if (!ok && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Could not open phone dialer.')),
+                    );
+                  }
+                } else if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Phone number for $targetName is not available.')),
+                  );
+                }
+              },
+            ),
+          ],
           bottom: TabBar(
             key: const Key('trip_chat_tab_bar'),
             controller: _tabCtrl,
@@ -369,6 +397,21 @@ class _TripChatScreenState extends State<TripChatScreen>
                     const TextStyle(fontSize: 11, fontWeight: FontWeight.w400)),
           ],
         ),
+        actions: [
+          if (AppCallService.isDialable(widget.peerPhone))
+            IconButton(
+              icon: const Icon(Icons.call_rounded),
+              tooltip: 'Call ${widget.peerName}',
+              onPressed: () async {
+                final ok = await AppCallService.makeCall(widget.peerPhone);
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not open phone dialer.')),
+                  );
+                }
+              },
+            ),
+        ],
       ),
       body: Column(
         children: [

@@ -6,6 +6,7 @@ import '../config/presentation/global_config_screen.dart';
 import '../config/services/system_config_service.dart';
 import '../dashboard/presentation/hub_dashboard_screen.dart'
     show showHubThemePickerSheet;
+import 'calling_config_screen.dart';
 
 /// Dedicated Settings screen for `sese_hub` staff.
 ///
@@ -205,6 +206,25 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                   builder: (_) => GlobalConfigScreen(
                     configService: widget.configService,
                   ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── 5. In-App Calling & VoIP ────────────────────────────────────────
+          _SectionHeader('In-App Calling & VoIP'),
+          Card(
+            child: SettingsTile(
+              tileKey: const Key('hub_settings_calling_config_tile'),
+              leading: const Icon(Icons.phone_in_talk_rounded),
+              title: 'Calling Providers & Credentials',
+              infoDescription:
+                  'Switch between self-hosted WebRTC (Firebase signaling) and ZegoCloud SDK, configure credentials, or test the audio pipeline.',
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CallingConfigScreen(),
                 ),
               ),
             ),
