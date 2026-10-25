@@ -475,7 +475,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     try {
       _nearbyDriversSub = FirebaseFirestore.instance
           .collection('driver_status')
-          .where('isOnline', '==', true)
+          .where('isOnline', isEqualTo: true)
           .snapshots()
           .listen(
         (snapshot) {
