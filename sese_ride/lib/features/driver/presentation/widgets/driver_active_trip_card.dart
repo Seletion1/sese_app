@@ -6,6 +6,7 @@ import 'package:sese_core/sese_core.dart';
 
 import '../../../../core/services/call_service.dart';
 import '../../../trips/models/trip_models.dart';
+import '../../../trips/presentation/cancel_trip_dialog.dart';
 import '../../../trips/presentation/trip_chat_screen.dart';
 import '../../services/driver_streak_service.dart';
 import '../../services/proximity_trigger_service.dart';
@@ -327,62 +328,11 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   }
 
   Future<void> _askDeliveryPin(ActiveTrip trip) async {
-    final ctrl = TextEditingController();
-    String? error;
     final pin = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          key: const Key('delivery_pin_dialog'),
-          title: const Text('Delivery PIN'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Ask the recipient for the 4-digit code sent to them at '
-                'booking. The delivery completes only with the right code.',
-                style: TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('delivery_pin_field'),
-                controller: ctrl,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                decoration: InputDecoration(
-                  labelText: '4-digit PIN',
-                  border: const OutlineInputBorder(),
-                  errorText: error,
-                ),
-                onChanged: (_) {
-                  if (error != null) setDlg(() => error = null);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('delivery_pin_submit'),
-              onPressed: () {
-                if (!RegExp(r'^\d{4}$').hasMatch(ctrl.text.trim())) {
-                  setDlg(() => error = 'Enter the 4-digit code.');
-                  return;
-                }
-                Navigator.of(ctx).pop(ctrl.text.trim());
-              },
-              child: const Text('Complete Delivery'),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => const _DeliveryPinDialog(),
     );
-    ctrl.dispose();
     if (pin == null || !mounted) return;
     await _run(
       () => widget.streakService.verifyDeliveryPin(trip.tripId, pin),
@@ -509,27 +459,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   String get _nextLabel {
     switch (_nextStatus) {
       case 'DRIVER_ARRIVING':
-        return 'Start Trip (En Route)';
+        return 'Slide to Start Trip';
       case 'DRIVER_ARRIVED':
-        return "I've Arrived";
+        return "Slide to confirm Arrived";
       case 'IN_PROGRESS':
-        return 'Start Ride';
+        return 'Slide to Start Ride';
       case 'COMPLETED':
-        return 'Complete Trip';
+        return 'Slide to Complete Trip';
       default:
-        return 'Advance';
+        return 'Slide to Confirm';
     }
-  }
-
-  String _categoryLabel(ActiveTrip trip) {
-    if (trip.serviceType.toLowerCase() == 'delivery') {
-      return 'Courier';
-    }
-    if (trip.vehicleCategory.isNotEmpty) {
-      final cat = trip.vehicleCategory.trim();
-      return cat[0].toUpperCase() + cat.substring(1).toLowerCase();
-    }
-    return 'Ride';
   }
 
   String _paymentLabel(ActiveTrip trip) {
@@ -542,21 +481,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       return 'WALLET PREPAID';
     }
     return trip.paymentMethod.toUpperCase();
-  }
-
-  String _statusBadgeText(TripStatus status) {
-    switch (status) {
-      case TripStatus.driverAccepted:
-        return 'Accepted';
-      case TripStatus.driverArriving:
-        return 'En Route';
-      case TripStatus.driverArrived:
-        return 'Arrived';
-      case TripStatus.inProgress:
-        return 'In Progress';
-      default:
-        return 'Active';
-    }
   }
 
   /// Booker lifeline: the account holder who ordered and paid.
@@ -581,6 +505,39 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     return true;
   }
 
+  String _firstName(String fullName) {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) return '';
+    return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  Future<void> _cancelTripWithDialog(ActiveTrip trip) async {
+    final reason = await CancelTripDialog.show(context, isDriver: true);
+    if (reason != null && mounted) {
+      await _run(
+        () => widget.streakService.cancelTrip(trip.tripId, reason: reason),
+        'Could not cancel trip.',
+      );
+    }
+  }
+
+  Future<void> _makeDirectPhoneCall(BuildContext context, ActiveTrip trip) async {
+    final phone = _bookerPhone(trip);
+    if (_isCallableNumber(phone) && AppCallService.isDialable(phone)) {
+      final ok = await AppCallService.makeCall(phone);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open phone dialer.')),
+        );
+      }
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Direct phone number is masked or unavailable.')),
+      );
+    }
+  }
+
   void _openChat(BuildContext context, ActiveTrip trip) {
     final myId = widget.driverId.isNotEmpty
         ? widget.driverId
@@ -595,11 +552,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           tripId: trip.tripId,
           currentUid: myId,
           senderRole: 'driver',
-          peerName: trip.customerName.isEmpty ? 'Customer' : trip.customerName,
+          peerName: _firstName(
+              trip.customerName.isEmpty ? 'Customer' : trip.customerName),
           peerPhone: _bookerPhone(trip),
           hidePhones: false,
           receiverName: receiverPhone.isNotEmpty
-              ? (trip.dropoffName.isNotEmpty ? trip.dropoffName : 'Drop-off Receiver')
+              ? _firstName(
+                  trip.dropoffName.isNotEmpty ? trip.dropoffName : 'Receiver')
               : '',
           receiverPhone: receiverPhone,
         ),
@@ -616,37 +575,37 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   ///   - Drop-off stage: 2 options (Sender who booked, Receiver / Drop-off Contact).
   List<_CallContactTarget> _buildCallTargets(ActiveTrip trip) {
     final isDropoffStage = trip.status == TripStatus.inProgress;
-    final bookerName =
-        trip.customerName.trim().isNotEmpty ? trip.customerName.trim() : 'Customer';
+    final rawBooker = trip.customerName.trim().isNotEmpty
+        ? trip.customerName.trim()
+        : 'Customer';
+    final bookerName = _firstName(rawBooker);
     final bookerPhone = _bookerPhone(trip);
     final bookerId = trip.customerId.isNotEmpty ? trip.customerId : null;
 
-    final pickupName = trip.pickupName.trim();
+    final rawPickup = trip.pickupName.trim();
+    final pickupName = _firstName(rawPickup);
     final pickupPhone = trip.pickupPhone.trim();
 
-    final dropoffName = trip.dropoffName.trim();
+    final rawDropoff = trip.dropoffName.trim();
+    final dropoffName = _firstName(rawDropoff);
     final dropoffPhone = trip.dropoffPhone.trim();
 
-    // Check if pickup contact is distinct from the person who booked
-    final bool isPickupDifferent = (pickupName.isNotEmpty &&
-            pickupName.toLowerCase() != bookerName.toLowerCase()) ||
+    final bool isPickupDifferent = (rawPickup.isNotEmpty &&
+            rawPickup.toLowerCase() != rawBooker.toLowerCase()) ||
         (pickupPhone.isNotEmpty &&
             bookerPhone.isNotEmpty &&
             pickupPhone != bookerPhone);
 
-    // Check if drop-off contact is distinct from the person who booked
     final bool isDropoffDifferent = dropoffPhone.isNotEmpty &&
-        ((dropoffName.isNotEmpty &&
-                dropoffName.toLowerCase() != bookerName.toLowerCase()) ||
+        ((rawDropoff.isNotEmpty &&
+                rawDropoff.toLowerCase() != rawBooker.toLowerCase()) ||
             (bookerPhone.isNotEmpty && dropoffPhone != bookerPhone));
 
     if (!isDropoffStage) {
-      // ── PICKUP STAGE ──
       if (isPickupDifferent) {
-        // Rule B (Pickup Stage): 2 options
         return [
           _CallContactTarget(
-            title: 'Call the Sender (Person who booked)',
+            title: 'Call Sender ($bookerName)',
             contactName: bookerName,
             contactPhone: bookerPhone,
             targetUserId: bookerId,
@@ -654,7 +613,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             subtitle: '$bookerName • In-App Voice Call',
           ),
           _CallContactTarget(
-            title: 'Call the Pickup Contact',
+            title:
+                'Call Pickup (${pickupName.isNotEmpty ? pickupName : 'Pickup'})',
             contactName: pickupName.isNotEmpty ? pickupName : 'Pickup Contact',
             contactPhone: pickupPhone,
             targetUserId: null,
@@ -664,10 +624,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ),
         ];
       } else {
-        // Rule A (Sender is Pickup): 1 option
         return [
           _CallContactTarget(
-            title: 'Call the Pickup / Sender',
+            title: 'Call Pickup / Sender ($bookerName)',
             contactName: bookerName,
             contactPhone: bookerPhone,
             targetUserId: bookerId,
@@ -677,12 +636,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         ];
       }
     } else {
-      // ── DROP-OFF STAGE ──
       if (isDropoffDifferent) {
-        // Rule B (Drop-off Stage): 2 options
         return [
           _CallContactTarget(
-            title: 'Call the Sender (Person who booked)',
+            title: 'Call Sender ($bookerName)',
             contactName: bookerName,
             contactPhone: bookerPhone,
             targetUserId: bookerId,
@@ -690,7 +647,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             subtitle: '$bookerName • In-App Voice Call',
           ),
           _CallContactTarget(
-            title: 'Call the Receiver / Drop-off Contact',
+            title:
+                'Call Receiver (${dropoffName.isNotEmpty ? dropoffName : 'Receiver'})',
             contactName: dropoffName.isNotEmpty ? dropoffName : 'Receiver',
             contactPhone: dropoffPhone,
             targetUserId: null,
@@ -700,10 +658,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ),
         ];
       } else {
-        // Passenger ride or booker is recipient: 1 option
         return [
           _CallContactTarget(
-            title: 'Call the Pickup / Sender',
+            title: 'Call Pickup / Sender ($bookerName)',
             contactName: bookerName,
             contactPhone: bookerPhone,
             targetUserId: bookerId,
@@ -739,7 +696,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             ),
           ],
         ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -753,47 +710,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.phone_in_talk_rounded,
-                    color: Color(0xFFD97706),
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Call Contact',
-                        style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        targets.length == 1
-                            ? 'Tap to connect with contact'
-                            : 'Select which contact to call',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 16),
             for (int i = 0; i < targets.length; i++) ...[
@@ -905,7 +821,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     final controller = widget.sheetController ?? _internalSheetController;
     final isTripStarted = widget.trip.status == TripStatus.inProgress;
-    final initialSize = isTripStarted ? 0.18 : 0.42;
+    final initialSize = isTripStarted ? 0.20 : 0.36;
 
     return DraggableScrollableSheet(
       controller: controller,
@@ -913,7 +829,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       minChildSize: 0.18,
       maxChildSize: 0.85,
       snap: true,
-      snapSizes: const [0.18, 0.42, 0.85],
+      snapSizes: const [0.18, 0.36, 0.85],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
@@ -924,8 +840,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       BuildContext context, ScrollController scrollController) {
     final trip = widget.trip;
     final scheme = Theme.of(context).colorScheme;
-    // STRICT RULE: Only consider waiting at pickup when status is strictly driverArrived.
-    // When In-Progress / Drop-off, pickup wait is over and cancellation is completely hidden.
     final isAtPickupWait = trip.status == TripStatus.driverArrived;
     final next = _nextStatus;
     final mockDetected = _prox?.isMocked == true;
@@ -953,7 +867,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       child: SingleChildScrollView(
         controller: scrollController,
         physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -965,17 +879,17 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               child: Center(
                 child: Container(
                   width: 44,
-                  height: 5,
+                  height: 4,
                   margin: const EdgeInsets.only(top: 4, bottom: 8),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
             ),
 
-            // 2. Customer Header Row: Avatar, Name, Category/Fare/Payment, Status Badge
+            // 2. Customer Header Row: Avatar, First Name, Subtitle, and 3 Inline Action Icons
             Row(
               children: [
                 Container(
@@ -993,7 +907,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1002,9 +916,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                         children: [
                           Flexible(
                             child: Text(
-                              trip.customerName.isEmpty
+                              _firstName(trip.customerName.isEmpty
                                   ? 'Customer'
-                                  : trip.customerName,
+                                  : trip.customerName),
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -1023,7 +937,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${_categoryLabel(trip)} • ₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
+                        trip.fareFormatted.isNotEmpty
+                            ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
+                            : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -1036,138 +952,59 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    _statusBadgeText(trip.status),
-                    style: const TextStyle(
-                      color: Color(0xFFB45309),
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                // Three clean round action icons horizontally
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _RoundActionIcon(
+                      key: const Key('driver_direct_call_icon'),
+                      icon: Icons.phone_outlined,
+                      tooltip: 'Direct Call',
+                      color: const Color(0xFF10B981),
+                      bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      onTap: () => _makeDirectPhoneCall(context, trip),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    _RoundActionIcon(
+                      key: const Key('driver_inapp_call_icon'),
+                      icon: Icons.phone_in_talk_outlined,
+                      tooltip: 'In-App Call',
+                      color: const Color(0xFFD97706),
+                      bgColor: const Color(0xFFFEF3C7),
+                      onTap: () => _showCallContactSheet(context, trip),
+                    ),
+                    const SizedBox(width: 8),
+                    _RoundActionIcon(
+                      key: const Key('driver_chat_icon'),
+                      icon: Icons.chat_bubble_outline,
+                      tooltip: 'Chat',
+                      color: Colors.black87,
+                      bgColor: Colors.grey.shade100,
+                      onTap: () => _openChat(context, trip),
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
-            // 3. Primary Action Button (Slide / Tap)
-            // Positioned right under the header so it remains instantly accessible
-            // even when the sheet is minimized.
-            Material(
-              color: const Color(0xFFF59E0B),
-              borderRadius: BorderRadius.circular(16),
-              child: InkWell(
-                onTap: (_busy || next == null)
-                    ? null
-                    : () => _advanceOrPin(trip, next),
-                borderRadius: BorderRadius.circular(16),
-                child: Container(
-                  height: 52,
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD97706),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.chevron_right,
-                            color: Colors.white,
-                            size: 26,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            _busy ? 'Working…' : _nextLabel,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                              letterSpacing: 0.2,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 40),
-                    ],
-                  ),
-                ),
-              ),
+            // 3. Primary Action Button (Slide-to-Action)
+            _SlideToActionButton(
+              key: const Key('driver_slide_action_button'),
+              label: _nextLabel,
+              busy: _busy,
+              enabled: next != null,
+              onSlideComplete: () {
+                if (next != null) {
+                  _advanceOrPin(trip, next);
+                }
+              },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
 
-            // 4. Action Buttons: Call & Message
-            Row(
-              children: [
-                Expanded(
-                  child: SizedBox(
-                    height: 42,
-                    child: OutlinedButton.icon(
-                      key: const Key('driver_call_button'),
-                      icon: const Icon(Icons.phone_outlined, size: 18),
-                      label: const Text(
-                        'Call',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFD97706),
-                        side: const BorderSide(
-                            color: Color(0xFFF59E0B), width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: () => _showCallContactSheet(context, trip),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: SizedBox(
-                    height: 42,
-                    child: FilledButton.icon(
-                      key: const Key('driver_message_button'),
-                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                      label: const Text(
-                        'Message',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFF59E0B),
-                        foregroundColor: Colors.black87,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: EdgeInsets.zero,
-                      ),
-                      onPressed: () => _openChat(context, trip),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // 5. Route Details Box (PICKUP & DROPOFF)
+            // 4. Route Details Box (PICKUP & DROPOFF)
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
@@ -1181,7 +1018,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.only(top: 3),
                         child: Container(
                           width: 10,
                           height: 10,
@@ -1224,7 +1061,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     ],
                   ),
                   const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
+                    padding: EdgeInsets.symmetric(vertical: 6),
                     child: Divider(height: 1),
                   ),
                   // Dropoff row
@@ -1408,7 +1245,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             ],
 
             // Informative wait notice: STRICTLY only when arrived at pickup AND wait hasn't expired.
-            // Never rendered when in-progress.
             if (isAtPickupWait && !_hasWaitTimeExpired) ...[
               const SizedBox(height: 8),
               Text(
@@ -1421,31 +1257,34 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ],
 
-            // Customer No-Show cancel link: STRICTLY only when arrived at pickup AND >= 10 mins wait.
-            // When trip is In-Progress / Drop-off ("Complete Trip"), all cancellation options are completely hidden/deleted.
-            if (isAtPickupWait && _hasWaitTimeExpired) ...[
-              const SizedBox(height: 10),
-              Center(
-                child: TextButton(
-                  onPressed: _busy ? null : () => _confirmNoShowCancel(trip),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.grey.shade600,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 4),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: const Text(
-                    'Cancel Trip (Customer No-Show)',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w400,
-                      decoration: TextDecoration.underline,
-                    ),
+            // Cancellation option — hidden below sheet fold by default on initial view
+            const SizedBox(height: 16),
+            Center(
+              child: TextButton.icon(
+                key: const Key('driver_cancel_trip_button'),
+                icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.grey),
+                label: Text(
+                  isAtPickupWait && _hasWaitTimeExpired
+                      ? 'Cancel Trip (Customer No-Show)'
+                      : 'Cancel Trip',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    decoration: TextDecoration.underline,
                   ),
                 ),
+                onPressed: _busy
+                    ? null
+                    : () {
+                        if (isAtPickupWait && _hasWaitTimeExpired) {
+                          _confirmNoShowCancel(trip);
+                        } else {
+                          _cancelTripWithDialog(trip);
+                        }
+                      },
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -1571,3 +1410,244 @@ class _CallTargetTile extends StatelessWidget {
     );
   }
 }
+
+/// Circular action icon for quick header communication triggers.
+class _RoundActionIcon extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final Color bgColor;
+  final VoidCallback onTap;
+
+  const _RoundActionIcon({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.bgColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: bgColor,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: color,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Slide-to-Action button widget used across all active trip stages.
+class _SlideToActionButton extends StatefulWidget {
+  final String label;
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onSlideComplete;
+
+  const _SlideToActionButton({
+    super.key,
+    required this.label,
+    required this.busy,
+    required this.enabled,
+    required this.onSlideComplete,
+  });
+
+  @override
+  State<_SlideToActionButton> createState() => _SlideToActionButtonState();
+}
+
+class _SlideToActionButtonState extends State<_SlideToActionButton> {
+  double _dragDistance = 0;
+  bool _isDragging = false;
+
+  static const double _trackHeight = 52;
+  static const double _thumbSize = 44;
+  static const double _completionFraction = 0.80;
+
+  void _reset() {
+    if (mounted) {
+      setState(() {
+        _dragDistance = 0;
+        _isDragging = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxSlide = (constraints.maxWidth - _thumbSize - 8)
+            .clamp(0.0, double.infinity);
+
+        return GestureDetector(
+          key: const Key('slide_to_action_track'),
+          onHorizontalDragUpdate: (widget.enabled && !widget.busy)
+              ? (details) {
+                  _isDragging = true;
+                  setState(() {
+                    _dragDistance = (_dragDistance + details.delta.dx)
+                        .clamp(0.0, maxSlide);
+                  });
+                }
+              : null,
+          onHorizontalDragEnd: (widget.enabled && !widget.busy)
+              ? (_) {
+                  final completed = _isDragging &&
+                      maxSlide > 0 &&
+                      _dragDistance >= maxSlide * _completionFraction;
+                  _reset();
+                  if (completed) {
+                    widget.onSlideComplete();
+                  }
+                }
+              : null,
+          child: Container(
+            height: _trackHeight,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                Center(
+                  child: Text(
+                    widget.busy ? 'Working…' : widget.label,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                      letterSpacing: 0.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Transform.translate(
+                  offset: Offset(4 + _dragDistance, 0),
+                  child: Container(
+                    width: _thumbSize,
+                    height: _thumbSize,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD97706),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Delivery PIN confirmation dialog widget. Keeps controller alive during pop transitions.
+class _DeliveryPinDialog extends StatefulWidget {
+  const _DeliveryPinDialog();
+
+  @override
+  State<_DeliveryPinDialog> createState() => _DeliveryPinDialogState();
+}
+
+class _DeliveryPinDialogState extends State<_DeliveryPinDialog> {
+  late final TextEditingController _ctrl;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      key: const Key('delivery_pin_dialog'),
+      title: const Text('Delivery PIN'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Ask the recipient for the 4-digit code sent to them at '
+            'booking. The delivery completes only with the right code.',
+            style: TextStyle(fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('delivery_pin_field'),
+            controller: _ctrl,
+            keyboardType: TextInputType.number,
+            maxLength: 4,
+            decoration: InputDecoration(
+              labelText: '4-digit PIN',
+              border: const OutlineInputBorder(),
+              errorText: _error,
+            ),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('delivery_pin_submit'),
+          onPressed: () {
+            if (!RegExp(r'^\d{4}$').hasMatch(_ctrl.text.trim())) {
+              setState(() => _error = 'Enter the 4-digit code.');
+              return;
+            }
+            Navigator.of(context).pop(_ctrl.text.trim());
+          },
+          child: const Text('Complete Delivery'),
+        ),
+      ],
+    );
+  }
+}
+
+
+

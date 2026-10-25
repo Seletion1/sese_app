@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 import '../../../core/services/remote_config_service.dart';
+import '../../customer/services/location_service.dart';
 import '../../notifications/notification_inbox_screen.dart';
 import '../../trips/models/trip_models.dart';
 import '../../../widgets/map_provider.dart';
@@ -16,7 +17,6 @@ import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
-import 'driver_in_app_navigation_screen.dart';
 import 'widgets/driver_active_trip_card.dart';
 import 'widgets/incoming_offer_sheet.dart';
 import 'widgets/order_feed.dart';
@@ -26,6 +26,7 @@ import 'widgets/streak_celebration_modal.dart';
 import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
 import '../../payments/top_up_sheet.dart';
+import '../../wallet/earnings_screen.dart';
 import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
 
@@ -119,6 +120,38 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   TripStatus? _lastTrackedStatus;
   LatLng? _tripStartLocation;
   bool _hasAutoCollapsedForTrip = false;
+  List<LatLng> _activeRoutePoints = [];
+  DateTime? _lastRouteFetchTime;
+
+  Future<void> _fetchActiveTripRoute(ActiveTrip active) async {
+    if (_driverPosition.latitude == 0.0 && _driverPosition.longitude == 0.0) {
+      return;
+    }
+    final isDropoffStage = active.status == TripStatus.inProgress;
+    final destLat = isDropoffStage ? active.dropoffLat : active.pickupLat;
+    final destLng = isDropoffStage ? active.dropoffLng : active.pickupLng;
+    if (destLat == 0.0 || destLng == 0.0) return;
+
+    final now = DateTime.now();
+    if (_lastRouteFetchTime != null &&
+        now.difference(_lastRouteFetchTime!) < const Duration(seconds: 8) &&
+        _activeRoutePoints.isNotEmpty) {
+      return;
+    }
+    _lastRouteFetchTime = now;
+
+    try {
+      final points = await LocationService.fetchRoutePolyline(
+        _driverPosition,
+        LatLng(destLat, destLng),
+      );
+      if (mounted && points.isNotEmpty) {
+        setState(() {
+          _activeRoutePoints = points;
+        });
+      }
+    } catch (_) {}
+  }
 
   /// Opens the Tier-3 pool as a bottom sheet. Accepting inside calls the
   /// zero-trust `acceptTrip` callable (atomic first-wins + verified +
@@ -380,8 +413,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             _driverPosition = newPos;
           });
 
-          // Live map camera follow
-          if (_mapController.isFollowingUser) {
+          // Live map camera follow during active trip or when set to follow
+          if (_currentActiveTrip != null || _mapController.isFollowingUser) {
             _mapController.followTo(newPos);
           }
 
@@ -1362,6 +1395,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         final active = tripSnap.data;
         _currentActiveTrip = active;
         if (active != null) {
+          _fetchActiveTripRoute(active);
           if (active.tripId != _trackedTripId || active.status != _lastTrackedStatus) {
             if (active.status == TripStatus.inProgress &&
                 _lastTrackedStatus != TripStatus.inProgress) {
@@ -1371,6 +1405,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             _trackedTripId = active.tripId;
             _lastTrackedStatus = active.status;
           }
+        } else if (_activeRoutePoints.isNotEmpty) {
+          _activeRoutePoints = [];
         }
         return Stack(
           fit: StackFit.expand,
@@ -1378,7 +1414,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             // 0. Map canvas base. Context flips to realtime tracking while
             // a trip is live so the policy pins the OSM renderer even after
             // Google Maps is provisioned for idle browsing.
-            Positioned.fill(child: _buildMapBase(active != null)),
+            Positioned.fill(child: _buildMapBase(active)),
             // Zero-size listeners: incoming-offer page + grand-award
             // celebration modal (dialogs driven by Firestore streams).
             Positioned(
@@ -1553,23 +1589,72 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// driver's current position. Routed through [SeSeMapView] so the map
   /// provider policy applies: idle positioning may use Google Maps once
   /// provisioned, live-trip tracking stays on OpenStreetMap.
-  Widget _buildMapBase([bool hasActiveTrip = false]) {
+  Widget _buildMapBase([ActiveTrip? activeTrip]) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasActiveTrip = activeTrip != null;
+
+    final markers = <MapPin>[];
+    final polylines = <MapRoute>[];
+
+    if (hasActiveTrip) {
+      final isDropoffStage = activeTrip.status == TripStatus.inProgress;
+      final destLat =
+          isDropoffStage ? activeTrip.dropoffLat : activeTrip.pickupLat;
+      final destLng =
+          isDropoffStage ? activeTrip.dropoffLng : activeTrip.pickupLng;
+
+      if (destLat != 0.0 && destLng != 0.0) {
+        final destPoint = LatLng(destLat, destLng);
+        // Destination Pin Marker (A or B)
+        markers.add(
+          SeSeMapView.pin(
+            point: destPoint,
+            color: isDropoffStage
+                ? const Color(0xFFEF4444)
+                : const Color(0xFF10B981),
+            label: isDropoffStage ? 'B' : 'A',
+          ),
+        );
+
+        // Directional Navigation Arrow Marker at driver's live position
+        if (_driverPosition.latitude != 0.0 &&
+            _driverPosition.longitude != 0.0) {
+          markers.add(
+            SeSeMapView.pin(
+              point: _driverPosition,
+              color: AppColors.seseGold,
+              label: 'NAV',
+            ),
+          );
+
+          // Road-snapped turn-by-turn route polyline path
+          final routePoints = _activeRoutePoints.isNotEmpty
+              ? _activeRoutePoints
+              : [_driverPosition, destPoint];
+          polylines.add(
+            SeSeMapView.route(
+              points: routePoints,
+              color: AppColors.seseGold,
+              width: 6,
+            ),
+          );
+        }
+      }
+    }
+
     return SeSeMapView(
       mapContext: hasActiveTrip
           ? MapContext.realtimeTracking
           : MapContext.idlePositioning,
       mapController: _mapController,
       initialCenter: _driverPosition,
-      initialZoom: 15.0,
+      initialZoom: hasActiveTrip ? 16.5 : 15.0,
       isDarkOverride: isDark,
       showMyLocation: true,
       showRecenterFab: false,
-      // Live fix per GPS refine: raster dot tracks the driver, and the
-      // camera follows until the driver pans (FAB re-engages via recenter).
       userLocation: _driverPosition,
-      // No manual driver pin — the native blue dot is shown instead.
-      markers: const [],
+      markers: markers,
+      polylines: polylines,
     );
   }
 
@@ -1593,47 +1678,52 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         // progress. While OFFLINE with prior earnings, show it as a recap.
         if (!_isOnline && dailyTotal == 0) return const SizedBox.shrink();
 
-        return Container(
-          margin: const EdgeInsets.only(top: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E1E),
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const Key('daily_earnings_pill'),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFF2A900), width: 1),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.insights_rounded,
-                color: Color(0xFFF2A900),
-                size: 16,
-              ),
-              const SizedBox(width: 6),
-              const Text(
-                'Daily Earnings: ',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+            onTap: () {
+              final effectiveUser = widget.user ??
+                  AppUser(
+                    uid: widget.driverId,
+                    fullName: 'Driver',
+                    email: '',
+                    phoneNumber: '',
+                    role: UserRole.driver,
+                    createdAt: DateTime.now(),
+                  );
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EarningsScreen(user: effectiveUser),
                 ),
+              );
+            },
+            child: Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFF2A900), width: 1.2),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
+                  ),
+                ],
               ),
-              Text(
+              child: Text(
                 '₦${dailyTotal.toStringAsFixed(2)}',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 0.3,
                 ),
               ),
-            ],
+            ),
           ),
         );
       },
@@ -1832,10 +1922,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// cockpit or toggle voice guidance.
   Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
     final isPickup = active.status != TripStatus.inProgress;
-    final targetLat = isPickup ? active.pickupLat : active.dropoffLat;
-    final targetLng = isPickup ? active.pickupLng : active.dropoffLng;
-    final targetAddr =
-        isPickup ? active.pickupAddress : active.dropoffAddress;
 
     return Container(
       decoration: BoxDecoration(
@@ -1918,24 +2004,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: 'In-app navigation cockpit',
-            icon: const Icon(Icons.map_outlined, color: Colors.black87),
-            visualDensity: VisualDensity.compact,
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => DriverInAppNavigationScreen(
-                    destination: LatLng(targetLat, targetLng),
-                    destinationAddress: targetAddr,
-                    isHeadingToPickup: isPickup,
-                    initialDriverPosition: _driverPosition,
-                    trip: active,
-                  ),
-                ),
-              );
-            },
           ),
           IconButton(
             tooltip: _audioGuidanceMuted ? 'Unmute guidance' : 'Mute guidance',

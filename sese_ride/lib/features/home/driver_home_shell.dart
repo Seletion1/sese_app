@@ -13,7 +13,7 @@ import '../wallet/wallet_screen.dart';
 /// Role-gated container strictly for Driver users, scoped to the driver's
 /// real authenticated UID.
 ///
-/// Hosts a 5-item [BottomNavigationBar] (Menu | Earnings | Home | Trips | Help)
+/// Hosts a 4-item [BottomNavigationBar] (Menu | Home | Trips | Help)
 /// with an [IndexedStack] so each tab keeps its state (notably the Driver Map
 /// / Go Online view) when switching tabs.
 class DriverHomeShell extends StatefulWidget {
@@ -32,7 +32,7 @@ class DriverHomeShell extends StatefulWidget {
 
 class _DriverHomeShellState extends State<DriverHomeShell> {
   /// Default active tab: Home (center item).
-  int _currentIndex = 2;
+  int _currentIndex = 1;
 
   /// Timestamp of the last back press on the Home tab for 2-second double-tap exit.
   DateTime? _lastBackPressTime;
@@ -72,7 +72,7 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
   }
 
   /// Home tab index — the only tab where system back exits the app.
-  static const int _homeIndex = 2;
+  static const int _homeIndex = 1;
 
   void _onTabTapped(int index) {
     if (index == _currentIndex) return;
@@ -82,7 +82,7 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
   void _handlePopInvoked(bool didPop) {
     if (didPop) return;
 
-    // 1. From Sub-tabs (Menu, Earnings, Trips, Help): return to Home tab
+    // 1. From Sub-tabs (Menu, Trips, Help): return to Home tab
     if (_currentIndex != _homeIndex) {
       setState(() => _currentIndex = _homeIndex);
       return;
@@ -129,10 +129,9 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                     _MenuTab(
                       user: widget.user,
                       auth: widget.auth,
-                      onGoTrips: () => _onTabTapped(3),
-                      onGoHelp: () => _onTabTapped(4),
+                      onGoTrips: () => _onTabTapped(2),
+                      onGoHelp: () => _onTabTapped(3),
                     ),
-                    EarningsScreen(user: widget.user),
                     DriverDashboardScreen(
                       fleetService: DriverFleetService(),
                       user: widget.user,
@@ -188,12 +187,6 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                     activeIcon: Icon(Icons.menu),
                     label: 'Menu',
                     tooltip: 'Menu',
-                  ),
-                  BottomNavigationBarItem(
-                    icon: Icon(Icons.account_balance_wallet_outlined),
-                    activeIcon: Icon(Icons.account_balance_wallet),
-                    label: 'Earnings',
-                    tooltip: 'Earnings',
                   ),
                   BottomNavigationBarItem(
                     icon: Icon(Icons.home_outlined),

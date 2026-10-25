@@ -4,7 +4,6 @@ import 'package:sese_core/sese_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../trips/models/trip_models.dart';
-import '../presentation/driver_in_app_navigation_screen.dart';
 
 /// Supported external and internal navigation providers.
 enum NavigationAppOption {
@@ -41,17 +40,7 @@ abstract final class NavigationLauncherService {
 
     switch (option) {
       case NavigationAppOption.inAppOsm:
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => DriverInAppNavigationScreen(
-              destination: LatLng(destinationLat, destinationLng),
-              destinationAddress: destinationAddress,
-              isHeadingToPickup: isHeadingToPickup,
-              initialDriverPosition: driverPosition,
-              trip: trip,
-            ),
-          ),
-        );
+        // In-app turn-by-turn navigation runs directly on the main dashboard map canvas.
         break;
 
       case NavigationAppOption.googleMaps:

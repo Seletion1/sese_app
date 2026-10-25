@@ -153,7 +153,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.widgetWithText(OutlinedButton, 'Message'),
+        find.widgetWithText(OutlinedButton, 'Chat'),
         findsOneWidget,
       );
     });
@@ -176,7 +176,7 @@ void main() {
           find.widgetWithText(OutlinedButton, 'Cancel trip'));
       await tester.pump();
       await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
 
       // Reason dialog appears; nothing is committed yet.
       expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
@@ -208,11 +208,11 @@ void main() {
           find.widgetWithText(OutlinedButton, 'Cancel trip'));
       await tester.pump();
       await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel trip'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
       await tester.tap(find.text('Keep trip'));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
 
       expect(repo.cancelCalled, isFalse);
       expect(find.byKey(const Key('cancel_trip_dialog')), findsNothing);

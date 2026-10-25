@@ -292,6 +292,34 @@ class _PinGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isNavArrow =
+        label == 'NAV' || label == 'NAVIGATION_ARROW' || label == '🚗';
+    if (isNavArrow) {
+      return Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black38,
+              blurRadius: 6,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        child: const Center(
+          child: Icon(
+            Icons.navigation_rounded,
+            color: Colors.white,
+            size: 24,
+          ),
+        ),
+      );
+    }
+
     final isBlueDot = color == Colors.blue && (label == null || label!.isEmpty);
     if (isBlueDot) {
       return Container(

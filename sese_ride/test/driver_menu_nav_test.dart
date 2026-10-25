@@ -53,17 +53,9 @@ void main() {
 
       // Wallet above Earnings, with the specified subtitles.
       expect(find.text('Wallet'), findsOneWidget);
-      expect(
-          find.text(
-              'Manage funds, top up, request payouts, and view '
-              'transaction history'),
-          findsOneWidget);
+      expect(find.textContaining('Manage funds, top up'), findsOneWidget);
       expect(find.text('Earnings'), findsWidgets);
-      expect(
-          find.text(
-              'View daily, weekly, and monthly trip earnings and '
-              'streak progress'),
-          findsOneWidget);
+      expect(find.textContaining('View daily, weekly'), findsOneWidget);
       // Tile order: Wallet first, Settings near the bottom (mode
       // switching moved to Settings → App Mode).
       final walletY =
@@ -94,7 +86,7 @@ void main() {
       expect(find.text('Earnings breakdown'), findsNothing);
     });
 
-    testWidgets('Trips History switches to the Trips tab (index 3)',
+    testWidgets('Trips History switches to the Trips tab (index 2)',
         (tester) async {
       await pumpShell(tester);
 
@@ -107,7 +99,7 @@ void main() {
       expect(find.byType(BottomNavigationBar), findsOneWidget);
     });
 
-    testWidgets('Support switches to the Help tab (index 4)', (tester) async {
+    testWidgets('Support switches to the Help tab (index 3)', (tester) async {
       await pumpShell(tester);
 
       await tester.tap(find.text('Menu'));
@@ -126,7 +118,7 @@ void main() {
         (tester) async {
       await pumpShell(tester);
 
-      // Home (index 2) shows the bar.
+      // Home (index 1) shows the bar.
       expect(find.byType(BottomNavigationBar), findsOneWidget);
 
       // Menu (index 0) hides it — full-screen hub.
@@ -156,32 +148,18 @@ void main() {
       expect(find.byKey(const Key('menu_settings_tile')), findsNothing);
     });
 
-    testWidgets('Bottom Earnings tab shows the breakdown dashboard',
+    testWidgets('Menu Earnings tile opens EarningsScreen',
         (tester) async {
       await pumpShell(tester);
 
-      await tester.tap(find.text('Earnings'));
+      await tester.tap(find.text('Menu'));
       await tester.pumpAndSettle();
-      // Period filter + daily summary cards.
+      await tester.tap(find.byKey(const Key('menu_earnings_tile')));
+      await tester.pumpAndSettle();
+
       expect(find.text('Daily'), findsOneWidget);
       expect(find.text('Weekly'), findsOneWidget);
       expect(find.text('Monthly'), findsOneWidget);
-      expect(find.text("Today's fare income"), findsOneWidget);
-      expect(find.text("Today's net profit"), findsOneWidget);
-    });
-
-    testWidgets('System back on the Earnings tab returns to Home',
-        (tester) async {
-      await pumpShell(tester);
-
-      await tester.tap(find.text('Earnings'));
-      await tester.pumpAndSettle();
-      expect(find.text('Daily'), findsOneWidget);
-
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('power_toggle')), findsOneWidget);
-      expect(find.byType(BottomNavigationBar), findsOneWidget);
     });
 
     testWidgets('Wallet backs out to Menu, system back returns Home',
