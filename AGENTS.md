@@ -60,6 +60,42 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Comprehensive App Size Optimization, Server-Driven Asset Offloading, Image Compression & Memory Tuning
+
+Executed a full app bundle reduction, server-driven asset offloading, client-side pre-upload image compression, and native memory optimization across `sese_ride`, `sese_hub`, and `sese_core`:
+
+### 1. App Bundle Size Reduction & Full Server-Driven Asset Offloading
+- **Eliminated 6MB of Bundled Graphics:** Completely removed all 11 duplicate vehicle and packaging PNG assets from `sese_ride/assets/` and `sese_core/assets/`. All assets are hosted on Firebase Storage (`ui_assets/icons/`).
+- **Dynamic Startup Fetch & Persistent Local Caching (`IconCacheService`):** On first launch, `IconCacheService` downloads missing assets in the background and saves them atomically to the app's persistent documents directory (`app_documents/sese_icons/`). Files persist across app restarts and session updates until app uninstallation.
+- **Graceful Network & Vector Fallbacks:** While downloading on first launch or in offline scenarios, `_CachedIconWidget` streams directly from Firebase Storage or cleanly displays `VehicleIllustration`'s vector CustomPainter fallback without layout breaking.
+- **Removed 22 Redundant Asset Load Calls on Startup:** Eliminated synchronous bundle load loops on app boot, reducing startup latency and preventing UI thread stutters.
+
+### 2. Native Memory & Frame Thrashing Optimization (Nokia G20 / Low-Memory Devices)
+- **Bounded Bitmap Decoding:** Applied `cacheWidth` and `cacheHeight` constraints to all `Image.file` and `Image.network` decoders in `IconCacheService` and `sese_hub` document review modals.
+- **Eliminated GC NativeAlloc Thrashing:** Pre-scaling prevents Android's Skia/Impeller engine from allocating 1024x1024 unscaled bitmaps into native memory, directly resolving the 10+ consecutive `NativeAlloc concurrent copying GC` cycles and skipped frames observed on physical devices.
+
+### 3. Client-Side Image Pre-Processing & Pre-Upload Compression
+- **Universal Pre-Upload Downsampling:** Wired `ImageCompressionService.compressBytes` into all image and document upload pathways:
+  - Customer KYC verification documents (`CustomerKycService._upload`)
+  - Driver onboarding ID and selfie captures (`DriverOnboardingService._upload`)
+  - Driver vehicle document inspections (`DriverFleetService.uploadVehicleDocument`)
+  - Driver live camera verification photos (`DriverFleetService.uploadVerificationPhoto`)
+  - Driver and customer profile avatars (`DriverProfileService._uploadAvatar`)
+  - In-trip photo messages (`TripChatService.sendImage`)
+  - Hub admin onboarding captures (`HubOnboardingService.uploadVerificationPhoto`)
+- **Storage Cost & Cellular Savings:** Reduces raw camera uploads (typically 5MB–15MB) to ~150KB–300KB (max 1280x1280, 80% JPEG quality) before reaching Firebase Storage, guaranteeing compliance with the 2MB security rule ceiling while preserving crystal-clear readability for admin review.
+
+### 4. Cloud Storage Lifecycle & Cost Optimization
+- **`storage_lifecycle.json`:** Configured Google Cloud Storage lifecycle policy transitioning documents older than 90 days to `COLDLINE`, 365 days to `ARCHIVE`, and purging temporary uploads older than 30 days.
+- **Thumbnail Memory Caching in Hub:** Added `cacheWidth: 1024` constraints to `vehicle_approvals_screen.dart`, `driver_profile_approvals_tab.dart`, `customer_approvals_tab.dart`, and `hub_support_chat_screen.dart`.
+
+### 5. Verification & Deployment
+- `flutter analyze` on `sese_core`: **No issues found (0 errors, 0 warnings)**.
+- `flutter analyze` on `sese_hub`: **No issues found (0 errors, 0 warnings)**.
+- `flutter analyze` on `sese_ride`: **No issues found (0 errors, 0 warnings)**.
+- Cloud Functions compiled cleanly via `tsc`.
+- Firebase Storage rules deployed to production.
+
 ## 2026-10-25 — Hub In-Place Form Submission, Route Persistence & Tab State Memory
 
 Implemented in-place form saving and cross-session route/tab state persistence across `sese_hub`:

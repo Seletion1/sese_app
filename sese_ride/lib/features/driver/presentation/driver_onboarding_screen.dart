@@ -1018,9 +1018,10 @@ class DriverOnboardingService {
     if (uploadOverride != null) return uploadOverride!(file, path);
     try {
       final storage = _storage ?? FirebaseStorage.instance;
-      final data = await file.readAsBytes();
+      final rawData = await file.readAsBytes();
+      final data = await ImageCompressionService.compressBytes(rawData);
       final ref = storage.ref().child(path);
-      await ref.putData(data);
+      await ref.putData(data, SettableMetadata(contentType: 'image/jpeg'));
       return await ref.getDownloadURL();
     } catch (_) {
       throw const DriverOnboardingException(

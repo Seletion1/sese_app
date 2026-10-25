@@ -1,0 +1,48 @@
+{
+  "rule": [
+    {
+      "action": {
+        "type": "SetStorageClass",
+        "storageClass": "COLDLINE"
+      },
+      "condition": {
+        "age": 90,
+        "matchesPrefix": [
+          "verification_documents/",
+          "customer_verification/",
+          "driver_onboarding/",
+          "vehicle_documents/",
+          "verifications/"
+        ]
+      }
+    },
+    {
+      "action": {
+        "type": "SetStorageClass",
+        "storageClass": "ARCHIVE"
+      },
+      "condition": {
+        "age": 365,
+        "matchesPrefix": [
+          "verification_documents/",
+          "customer_verification/",
+          "driver_onboarding/",
+          "vehicle_documents/",
+          "verifications/"
+        ]
+      }
+    },
+    {
+      "action": {
+        "type": "Delete"
+      },
+      "condition": {
+        "age": 30,
+        "matchesPrefix": [
+          "temp/",
+          "temporary_uploads/"
+        ]
+      }
+    }
+  ]
+}

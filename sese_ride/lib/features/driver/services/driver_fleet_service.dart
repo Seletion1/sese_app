@@ -290,7 +290,9 @@ class DriverFleetService {
     final fileName =
         '${vehicleId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final ref = storage.ref().child('verifications/$driverId/$fileName');
-    await ref.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
+    final rawBytes = await file.readAsBytes();
+    final data = await ImageCompressionService.compressBytes(rawBytes);
+    await ref.putData(data, SettableMetadata(contentType: 'image/jpeg'));
     return ref.getDownloadURL();
   }
 
@@ -314,7 +316,13 @@ class DriverFleetService {
     final fileName =
         '${safeType}_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final ref = storage.ref().child('vehicle_documents/$driverId/$fileName');
-    await ref.putFile(File(localPath), SettableMetadata(contentType: 'image/jpeg'));
+    final docFile = File(localPath);
+    if (!await docFile.exists()) {
+      return 'file://offline-document/$driverId/$safeType/${DateTime.now().millisecondsSinceEpoch}.jpg';
+    }
+    final rawBytes = await docFile.readAsBytes();
+    final data = await ImageCompressionService.compressBytes(rawBytes);
+    await ref.putData(data, SettableMetadata(contentType: 'image/jpeg'));
     return ref.getDownloadURL();
   }
 

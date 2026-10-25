@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/sese_core.dart';
 
 /// One row of `trips/{tripId}/messages/{messageId}`.
 ///
@@ -148,8 +149,10 @@ class TripChatService {
     try {
       final ref = bucket.ref().child(
           'trip_media/$tripId/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      await ref.putFile(
-          File(localPath), SettableMetadata(contentType: 'image/jpeg'));
+      final rawBytes = await File(localPath).readAsBytes();
+      final bytes = await ImageCompressionService.compressBytes(rawBytes);
+      await ref.putData(
+          bytes, SettableMetadata(contentType: 'image/jpeg'));
       final url = await ref.getDownloadURL();
       await col.add({
         'senderId': senderId,

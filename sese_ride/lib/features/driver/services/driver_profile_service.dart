@@ -344,7 +344,8 @@ class DriverProfileService {
       final stamp = DateTime.now().millisecondsSinceEpoch;
       final ref =
           getStorage().ref('driver_photos/$uid/profile_$stamp.jpg');
-      final bytes = await file.readAsBytes();
+      final rawBytes = await file.readAsBytes();
+      final bytes = await ImageCompressionService.compressBytes(rawBytes);
       await ref.putData(
         bytes,
         SettableMetadata(contentType: 'image/jpeg'),

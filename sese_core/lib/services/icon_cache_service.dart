@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -161,12 +160,7 @@ class IconCacheService {
         if (targetFile.existsSync() && targetFile.lengthSync() > 0 && !forceRefresh) {
           _activeLocalFiles[key] = targetFile;
         } else {
-          // Prime from bundled asset first for instant zero-latency availability
-          final primed = await _primeFromBundledAsset(info.filename, targetFile);
-          if (primed) {
-            _activeLocalFiles[key] = targetFile;
-          }
-          // Fetch / refresh from remote storage in background
+          // Offloaded to Cloud Storage: fetch in background on first launch
           unawaited(_downloadAndCache(key, info, targetFile));
         }
       }
@@ -175,28 +169,6 @@ class IconCacheService {
         debugPrint('IconCacheService.initialize error: $e');
       }
     }
-  }
-
-  /// Copies an icon from the bundled assets to the local cache directory.
-  Future<bool> _primeFromBundledAsset(String filename, File destination) async {
-    final assetPaths = [
-      'packages/sese_core/assets/icons/$filename',
-      'assets/icons/$filename',
-    ];
-
-    for (final path in assetPaths) {
-      try {
-        final data = await rootBundle.load(path);
-        final bytes = data.buffer.asUint8List();
-        if (bytes.isNotEmpty) {
-          await destination.writeAsBytes(bytes, flush: true);
-          return true;
-        }
-      } catch (_) {
-        // Try next candidate asset path
-      }
-    }
-    return false;
   }
 
   /// Downloads an icon from its Firebase Storage URL and saves it atomically to disk.
@@ -349,46 +321,34 @@ class _CachedIconWidgetState extends State<_CachedIconWidget> {
     }
 
     final localFile = _file ?? IconCacheService.instance.getLocalFile(widget.iconKey);
+    final cacheW = widget.width != null ? (widget.width! * 2).toInt() : null;
+    final cacheH = widget.height != null ? (widget.height! * 2).toInt() : null;
+
     if (localFile != null && localFile.existsSync()) {
       return Image.file(
         localFile,
         width: widget.width,
         height: widget.height,
+        cacheWidth: cacheW,
+        cacheHeight: cacheH,
         fit: widget.fit,
-        errorBuilder: (ctx, err, stack) => _buildAssetOrNetwork(entry),
+        errorBuilder: (ctx, err, stack) => _buildAssetOrNetwork(entry, cacheW, cacheH),
       );
     }
 
-    return _buildAssetOrNetwork(entry);
+    return _buildAssetOrNetwork(entry, cacheW, cacheH);
   }
 
-  Widget _buildAssetOrNetwork(IconCacheEntry entry) {
-    return Image.asset(
-      'assets/icons/${entry.filename}',
-      package: 'sese_core',
+  Widget _buildAssetOrNetwork(IconCacheEntry entry, int? cacheW, int? cacheH) {
+    return Image.network(
+      entry.url,
       width: widget.width,
       height: widget.height,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
       fit: widget.fit,
       errorBuilder: (ctx, err, stack) {
-        // Direct ride asset fallback
-        return Image.asset(
-          'assets/icons/${entry.filename}',
-          width: widget.width,
-          height: widget.height,
-          fit: widget.fit,
-          errorBuilder: (ctx2, err2, stack2) {
-            // Live network fallback
-            return Image.network(
-              entry.url,
-              width: widget.width,
-              height: widget.height,
-              fit: widget.fit,
-              errorBuilder: (ctx3, err3, stack3) {
-                return widget.fallback ?? const SizedBox.shrink();
-              },
-            );
-          },
-        );
+        return widget.fallback ?? const SizedBox.shrink();
       },
     );
   }

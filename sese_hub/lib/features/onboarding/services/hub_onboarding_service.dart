@@ -1,6 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/sese_core.dart';
 
 /// Account lookup result model returned by backend `lookupAccountForOnboarding`.
 class OnboardingLookupResult {
@@ -181,9 +182,11 @@ class HubOnboardingService {
     required Uint8List bytes,
   }) async {
     try {
+      final compressedBytes =
+          await ImageCompressionService.compressBytes(bytes);
       final ref = _storage.ref().child(path);
       final task = await ref.putData(
-        bytes,
+        compressedBytes,
         SettableMetadata(contentType: 'image/jpeg'),
       );
       final downloadUrl = await task.ref.getDownloadURL();

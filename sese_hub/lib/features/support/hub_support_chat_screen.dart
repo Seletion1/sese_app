@@ -1020,6 +1020,8 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
                                       imageUrl,
                                       width: 220,
                                       height: 160,
+                                      cacheWidth: 440,
+                                      cacheHeight: 320,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, _, _) =>
                                           const SizedBox(

@@ -611,7 +611,8 @@ class CustomerKycService {
     if (uploadOverride != null) return uploadOverride!(file, path);
     try {
       final st = storage ?? FirebaseStorage.instance;
-      final data = await file.readAsBytes();
+      final rawData = await file.readAsBytes();
+      final data = await ImageCompressionService.compressBytes(rawData);
       final ref = st.ref().child(path);
       await ref.putData(data,
           SettableMetadata(contentType: 'image/jpeg'));

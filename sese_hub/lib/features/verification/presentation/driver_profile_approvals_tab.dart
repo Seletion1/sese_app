@@ -219,7 +219,9 @@ class _DriverProfileApprovalsTabState
                       fontWeight: FontWeight.bold, fontSize: 15)),
             ),
             Flexible(
-              child: Image.network(url, fit: BoxFit.contain,
+              child: Image.network(url,
+                  cacheWidth: 1024,
+                  fit: BoxFit.contain,
                   errorBuilder: (_, _, _) => const Padding(
                         padding: EdgeInsets.all(24),
                         child: Text('Could not load image.'),

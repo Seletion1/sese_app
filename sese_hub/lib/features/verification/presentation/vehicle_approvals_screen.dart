@@ -191,6 +191,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
                   Flexible(
                     child: Image.network(
                       imageUrl,
+                      cacheWidth: 1024,
                       fit: BoxFit.contain,
                       loadingBuilder: (c, child, progress) =>
                           progress == null
