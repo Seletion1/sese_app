@@ -795,12 +795,13 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
     _ensureAndroidHybridComposition();
   }
 
-  /// Ensures Android Hybrid Composition is active so the native OpenGL ES
-  /// context does not drop when switching map engines dynamically or navigating away.
+  /// Configures Android Platform View composition mode.
+  /// Uses Texture Layer Hybrid Composition (TLHC) to minimize memory allocations
+  /// and avoid Scudo memory allocator exhaustion on entry-level Android devices.
   void _ensureAndroidHybridComposition() {
     final mapsPlatform = GoogleMapsFlutterPlatform.instance;
     if (mapsPlatform is GoogleMapsFlutterAndroid) {
-      mapsPlatform.useAndroidViewSurface = true;
+      mapsPlatform.useAndroidViewSurface = false;
     }
   }
 

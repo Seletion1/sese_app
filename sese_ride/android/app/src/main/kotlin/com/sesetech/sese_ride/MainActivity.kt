@@ -1,5 +1,6 @@
 package com.sesetech.sese_ride
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -60,11 +61,16 @@ class MainActivity : FlutterActivity() {
 
     // Reports whether Google Play Services can render maps on this device.
     // Used by SeSeMapView to fall back to OpenStreetMap tiles where GMS is
-    // missing (e.g. Huawei devices without Google services) instead of
-    // showing a beige void. Fail-open: any reflection/classes failure
-    // returns true so GMS devices never change behavior.
+    // missing or on low-RAM devices where native map SDK hybrid composition
+    // causes Scudo memory exhaustion and frame drops.
     private fun isGooglePlayServicesAvailable(): Boolean {
         return try {
+            val actManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            if (actManager?.isLowRamDevice == true) {
+                // Low-RAM device (e.g. Android Go / entry-tier device):
+                // Gracefully fallback to lightweight raster tiles (CartoDB / Mapbox).
+                return false
+            }
             val apiClass = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
             val instance = apiClass.getMethod("getInstance").invoke(null)
             val code = apiClass.getMethod("isGooglePlayServicesAvailable", Context::class.java)
