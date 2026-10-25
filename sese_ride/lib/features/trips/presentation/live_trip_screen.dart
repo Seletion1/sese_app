@@ -299,15 +299,24 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   /// Dynamic map camera animation loop timer.
   Timer? _cameraLoopTimer;
 
-  /// Nearby drivers within 15km radius belonging to the trip's vehicle category.
+  /// Dynamic dispatch tuning & map camera animation settings from Firestore `system_settings/dispatch`.
+  DispatchTuning _dispatchTuning = const DispatchTuning();
+  StreamSubscription? _dispatchTuningSub;
+
+  /// Nearby drivers within the active dispatch stage radius belonging to the trip's vehicle category.
   List<_NearbyDriverMarker> _nearbyDrivers = [];
   StreamSubscription? _nearbyDriversSub;
+
+  /// Resolves the driver search radius (in kilometers) for the active dispatch stage.
+  double get _activeStageRadiusKm =>
+      _dispatchTuning.radiusForTier(widget.trip.dispatchTier);
 
   @override
   void initState() {
     super.initState();
     _fitRoute();
     _loadRoadRoute();
+    _initDispatchTuning();
     _initNearbyDrivers();
     if (_isSearching) {
       // Delay slightly after initial layout so the camera loop smoothly engages
@@ -331,6 +340,11 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       _initNearbyDrivers();
     }
 
+    // Refresh nearby drivers if the dispatch tier / stage changes
+    if (oldWidget.trip.dispatchTier != widget.trip.dispatchTier) {
+      _initNearbyDrivers();
+    }
+
     // Toggle camera animation loop when searching state transitions
     if (_isSearching && _cameraLoopTimer == null) {
       _startCameraLoop();
@@ -344,7 +358,30 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   void dispose() {
     _stopCameraLoop();
     _nearbyDriversSub?.cancel();
+    _dispatchTuningSub?.cancel();
     super.dispose();
+  }
+
+  void _initDispatchTuning() {
+    _dispatchTuningSub?.cancel();
+    try {
+      _dispatchTuningSub = FirebaseFirestore.instance
+          .collection('system_settings')
+          .doc('dispatch')
+          .snapshots()
+          .listen(
+        (doc) {
+          if (!mounted) return;
+          if (doc.exists && doc.data() != null) {
+            setState(() {
+              _dispatchTuning = DispatchTuning.fromMap(doc.data());
+            });
+            _initNearbyDrivers();
+          }
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
   }
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
@@ -377,12 +414,12 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       widget.trip.status == TripStatus.waitingForAcceptance ||
       widget.trip.status == TripStatus.driverPinged;
 
-  // ── Dynamic Map Camera Animation Loop (15km Radius Drivers) ──────────────
+  // ── Dynamic Map Camera Animation Loop (Hub Configurable) ──────────────────
 
   /// Automated camera loop while searching:
-  /// Step 1: Center & zoom on pickup (15.5), show nearby drivers within 15km. Hold ~5s.
+  /// Step 1: Center & zoom on pickup (15.5), show nearby drivers within active stage radius. Hold for Hub-configured pickup dwell.
   /// Step 2: Smoothly pan & zoom camera along route to drop-off.
-  /// Step 3: Hold at drop-off for ~2s, then pan back to pickup. Repeat.
+  /// Step 3: Hold at drop-off for Hub-configured dropoff dwell, then pan back to pickup. Repeat.
   void _startCameraLoop() {
     _cameraLoopTimer?.cancel();
     if (!_isSearching || !mounted) return;
@@ -390,15 +427,21 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     // Step 1: Center on pickup
     _mapController.move(_pickup, 15.5);
 
-    // Hold at pickup for ~5 seconds
-    _cameraLoopTimer = Timer(const Duration(seconds: 5), () {
+    // Hold at pickup for configured duration from Hub (default 5s)
+    final pickupDwell = Duration(
+      seconds: _dispatchTuning.cameraPickupDwellSec.clamp(2, 30),
+    );
+    _cameraLoopTimer = Timer(pickupDwell, () {
       if (!_isSearching || !mounted) return;
 
       // Step 2: Smoothly pan and zoom along route to drop-off
       _mapController.move(_dropoff, 15.5);
 
-      // Step 3: Hold at drop-off for ~2 seconds
-      _cameraLoopTimer = Timer(const Duration(seconds: 2), () {
+      // Step 3: Hold at drop-off for configured duration from Hub (default 2s)
+      final dropoffDwell = Duration(
+        seconds: _dispatchTuning.cameraDropoffDwellSec.clamp(1, 15),
+      );
+      _cameraLoopTimer = Timer(dropoffDwell, () {
         if (!_isSearching || !mounted) return;
 
         // Pan back to pickup
@@ -425,7 +468,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     });
   }
 
-  // ── 15km Radius Nearby Drivers Stream ────────────────────────────────────
+  // ── Active Stage Radius Nearby Drivers Stream ─────────────────────────────
 
   void _initNearbyDrivers() {
     _nearbyDriversSub?.cancel();
@@ -438,6 +481,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         (snapshot) {
           if (!mounted) return;
           final list = <_NearbyDriverMarker>[];
+          final stageRadius = _activeStageRadiusKm;
           for (final doc in snapshot.docs) {
             final data = doc.data();
             final fix = data['lastFix'] as Map<String, dynamic>?;
@@ -448,10 +492,10 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             if (lat == null || lng == null) continue;
             final pos = LatLng(lat, lng);
 
-            // 15km distance gate from pickup
+            // Distance gate matching active dispatch stage radius (e.g. Stage 1: 0-3km, Stage 2: 0-6km, Stage 3: 0-10km)
             final distKm =
                 const Distance().as(LengthUnit.Kilometer, _pickup, pos);
-            if (distKm > 15.0) continue;
+            if (distKm > stageRadius) continue;
 
             final driverCat = (data['activeVehicleCategory'] ??
                     data['vehicleCategory'] ??
@@ -472,12 +516,16 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             ));
           }
 
-          // If no real online drivers exist in Firestore in dev/testing, provide candidate pins
+          // If no real online drivers exist in Firestore in dev/testing, provide candidate pins within stage radius
           if (list.isEmpty) {
             final seedCategory = widget.trip.vehicleCategory.isNotEmpty
                 ? widget.trip.vehicleCategory
                 : 'car';
-            list.addAll(_generateMockNearbyDrivers(_pickup, seedCategory));
+            list.addAll(_generateMockNearbyDrivers(
+              _pickup,
+              seedCategory,
+              stageRadius,
+            ));
           }
 
           setState(() => _nearbyDrivers = list);
@@ -490,6 +538,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
                 widget.trip.vehicleCategory.isNotEmpty
                     ? widget.trip.vehicleCategory
                     : 'car',
+                _activeStageRadiusKm,
               );
             });
           }
@@ -503,20 +552,25 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             widget.trip.vehicleCategory.isNotEmpty
                 ? widget.trip.vehicleCategory
                 : 'car',
+            _activeStageRadiusKm,
           );
         });
       }
     }
   }
 
-  /// Generates simulated candidate vehicle markers within 1-5 km around pickup for testing.
+  /// Generates simulated candidate vehicle markers scaled to the active stage radius around pickup for testing.
   List<_NearbyDriverMarker> _generateMockNearbyDrivers(
-      LatLng center, String category) {
+    LatLng center,
+    String category,
+    double maxRadiusKm,
+  ) {
+    final scale = (maxRadiusKm / 5.0).clamp(0.3, 2.0);
     final offsets = [
-      const LatLng(0.008, 0.007),
-      const LatLng(-0.012, 0.010),
-      const LatLng(0.015, -0.009),
-      const LatLng(-0.007, -0.014),
+      LatLng(0.007 * scale, 0.006 * scale),
+      LatLng(-0.010 * scale, 0.008 * scale),
+      LatLng(0.012 * scale, -0.007 * scale),
+      LatLng(-0.006 * scale, -0.011 * scale),
     ];
     return List.generate(offsets.length, (i) {
       return _NearbyDriverMarker(
@@ -604,6 +658,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             trip: trip,
             repository: widget.repository,
             nearbyDriversCount: _nearbyDrivers.length,
+            stageRadius: _activeStageRadiusKm,
             onCancel: () => _cancel(context),
           )
         // Accepted driver sheet (when a driver accepts)
@@ -952,12 +1007,14 @@ class _LiveTripSearchingSheet extends StatelessWidget {
   final ActiveTrip trip;
   final TripRepository repository;
   final int nearbyDriversCount;
+  final double stageRadius;
   final VoidCallback onCancel;
 
   const _LiveTripSearchingSheet({
     required this.trip,
     required this.repository,
     required this.nearbyDriversCount,
+    required this.stageRadius,
     required this.onCancel,
   });
 
@@ -1075,7 +1132,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          '$nearbyDriversCount nearby',
+                          '$nearbyDriversCount nearby (${stageRadius.toStringAsFixed(stageRadius % 1 == 0 ? 0 : 1)}km)',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,

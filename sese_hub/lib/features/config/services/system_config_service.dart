@@ -2,78 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// Live dispatch engine tunables (Super Admin Dispatch Console).
-///
-/// Mirrors the `system_settings/dispatch` keys consumed by
-/// `getDispatchTuning()` in functions/src/trips.ts. The backend clamps
-/// every value into a safe band, so the console cannot brick dispatch.
-class DispatchTuning {
-  final double dispatchRadiusKm;
-  final double tier1RadiusKm;
-  final double tier2RadiusKm;
-  final double tier3RadiusKm;
-  final int tier1TimeoutSec;
-  final int tier2TimeoutSec;
-  final int pingTimeoutSec;
-  final int repingIntervalSec;
-  final int tier2Count;
-  final int candidateLimit;
-  final int recycleWindowMin;
-  final int maxRecycles;
-
-  const DispatchTuning({
-    this.dispatchRadiusKm = 10,
-    this.tier1RadiusKm = 3,
-    this.tier2RadiusKm = 6,
-    this.tier3RadiusKm = 10,
-    this.tier1TimeoutSec = 15,
-    this.tier2TimeoutSec = 15,
-    this.pingTimeoutSec = 60,
-    this.repingIntervalSec = 30,
-    this.tier2Count = 2,
-    this.candidateLimit = 25,
-    this.recycleWindowMin = 25,
-    this.maxRecycles = 5,
-  });
-
-  factory DispatchTuning.fromMap(Map<String, dynamic>? map) {
-    map ??= const {};
-    double numOf(String key, double fb) =>
-        (map![key] is num) ? (map[key] as num).toDouble() : fb;
-    int intOf(String key, int fb) =>
-        (map![key] is num) ? (map[key] as num).toInt() : fb;
-    final t3 = numOf('tier3RadiusKm', numOf('dispatchRadiusKm', 10));
-    return DispatchTuning(
-      dispatchRadiusKm: t3,
-      tier1RadiusKm: numOf('tier1RadiusKm', 3),
-      tier2RadiusKm: numOf('tier2RadiusKm', 6),
-      tier3RadiusKm: t3,
-      tier1TimeoutSec: intOf('tier1TimeoutSec', 15),
-      tier2TimeoutSec: intOf('tier2TimeoutSec', 15),
-      pingTimeoutSec: intOf('pingTimeoutSec', 60),
-      repingIntervalSec: intOf('repingIntervalSec', 30),
-      tier2Count: intOf('tier2Count', 2),
-      candidateLimit: intOf('candidateLimit', 25),
-      recycleWindowMin: intOf('recycleWindowMin', 25),
-      maxRecycles: intOf('maxRecycles', 5),
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-        'dispatchRadiusKm': tier3RadiusKm,
-        'tier1RadiusKm': tier1RadiusKm,
-        'tier2RadiusKm': tier2RadiusKm,
-        'tier3RadiusKm': tier3RadiusKm,
-        'tier1TimeoutSec': tier1TimeoutSec,
-        'tier2TimeoutSec': tier2TimeoutSec,
-        'pingTimeoutSec': pingTimeoutSec,
-        'repingIntervalSec': repingIntervalSec,
-        'tier2Count': tier2Count,
-        'candidateLimit': candidateLimit,
-        'recycleWindowMin': recycleWindowMin,
-        'maxRecycles': maxRecycles,
-      };
-}
+export 'package:sese_core/sese_core.dart' show DispatchTuning;
 
 /// Service managing dynamic system configurations in Firestore under `system_configs/{configId}`.
 /// Aligned with firestore.rules:

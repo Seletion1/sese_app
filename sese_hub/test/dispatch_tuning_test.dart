@@ -5,7 +5,10 @@ void main() {
   group('DispatchTuning', () {
     test('defaults match the live engine constants', () {
       const t = DispatchTuning();
-      expect(t.dispatchRadiusKm, 15);
+      expect(t.dispatchRadiusKm, 10);
+      expect(t.tier1RadiusKm, 3);
+      expect(t.tier2RadiusKm, 6);
+      expect(t.tier3RadiusKm, 10);
       expect(t.tier1TimeoutSec, 15);
       expect(t.tier2TimeoutSec, 15);
       expect(t.pingTimeoutSec, 60);
@@ -14,6 +17,8 @@ void main() {
       expect(t.candidateLimit, 25);
       expect(t.recycleWindowMin, 25);
       expect(t.maxRecycles, 5);
+      expect(t.cameraPickupDwellSec, 5);
+      expect(t.cameraDropoffDwellSec, 2);
     });
 
     test('fromMap reads console values, toMap round-trips', () {
@@ -37,10 +42,24 @@ void main() {
 
     test('fromMap tolerates missing/partial docs', () {
       final t = DispatchTuning.fromMap(null);
-      expect(t.dispatchRadiusKm, 15);
+      expect(t.dispatchRadiusKm, 10);
       final partial = DispatchTuning.fromMap({'dispatchRadiusKm': 3});
       expect(partial.dispatchRadiusKm, 3);
       expect(partial.tier1TimeoutSec, 15);
+      expect(partial.cameraPickupDwellSec, 5);
+      expect(partial.cameraDropoffDwellSec, 2);
+    });
+
+    test('radiusForTier resolves correct radius per dispatch tier', () {
+      const t = DispatchTuning(
+        tier1RadiusKm: 2.5,
+        tier2RadiusKm: 5.0,
+        tier3RadiusKm: 12.0,
+      );
+      expect(t.radiusForTier(1), 2.5);
+      expect(t.radiusForTier(0), 2.5);
+      expect(t.radiusForTier(2), 5.0);
+      expect(t.radiusForTier(3), 12.0);
     });
   });
 }

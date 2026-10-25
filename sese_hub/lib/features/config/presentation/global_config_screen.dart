@@ -117,6 +117,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _candidateLimitCtrl = TextEditingController(text: '25');
   final _recycleWindowCtrl = TextEditingController(text: '25');
   final _maxRecyclesCtrl = TextEditingController(text: '5');
+  final _cameraPickupDwellCtrl = TextEditingController(text: '5');
+  final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
 
   // Financial System Parameters Controllers (/system_configs/financials)
   final _minWalletBalanceToOnlineCtrl = TextEditingController(text: '1.0');
@@ -232,6 +234,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _candidateLimitCtrl.dispose();
     _recycleWindowCtrl.dispose();
     _maxRecyclesCtrl.dispose();
+    _cameraPickupDwellCtrl.dispose();
+    _cameraDropoffDwellCtrl.dispose();
     _minWalletBalanceToOnlineCtrl.dispose();
     _minTopUpAmountCtrl.dispose();
     _userReferralCommissionRateCtrl.dispose();
@@ -344,6 +348,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
       _recycleWindowCtrl.text = tuning.recycleWindowMin.toString();
       _maxRecyclesCtrl.text = tuning.maxRecycles.toString();
+      _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
+      _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
       _bicycleMaxCtrl.text =
           vehicleRec.bicycleMaxDistanceKm.toString();
       _kekeMaxCtrl.text = vehicleRec.kekeMaxDistanceKm.toString();
@@ -597,6 +603,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           recycleWindowMin:
               int.tryParse(_recycleWindowCtrl.text.trim()) ?? 25,
           maxRecycles: int.tryParse(_maxRecyclesCtrl.text.trim()) ?? 5,
+          cameraPickupDwellSec:
+              int.tryParse(_cameraPickupDwellCtrl.text.trim()) ?? 5,
+          cameraDropoffDwellSec:
+              int.tryParse(_cameraDropoffDwellCtrl.text.trim()) ?? 2,
         ),
       );
       await const VehicleRecommendationService().saveConfig(
@@ -2796,6 +2806,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 25 (5–120). Stale orders restart.'),
                 numField(_maxRecyclesCtrl, 'Max recycles per trip', 'times',
                     'Default 5 (1-20). Bounds execution.'),
+                numField(_cameraPickupDwellCtrl, 'Live search pickup dwell', 'sec',
+                    'Default 5 (2–30 sec). Camera hold duration at pickup before panning.'),
+                numField(_cameraDropoffDwellCtrl, 'Live search drop-off dwell', 'sec',
+                    'Default 2 (1–15 sec). Camera hold duration at destination before returning.'),
               ],
             ),
           ],

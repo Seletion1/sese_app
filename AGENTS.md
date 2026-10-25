@@ -60,9 +60,9 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
-## 2026-10-25 — Live Trip / Searching Screen Overhaul: Top Overlay Purge, In-Sheet Matchmaking & Dynamic Camera Loop
+## 2026-10-25 — Live Searching Screen Overhaul: Stage-Based Radii, Hub-Configurable Dwell Timings & Dynamic Camera Loop
 
-Completed full architectural cleanup and UX redesign of the customer Live Trip / Searching screen (`live_trip_screen.dart`, `osm_map_view.dart`):
+Completed full architectural cleanup and UX redesign of the customer Live Trip / Searching screen (`live_trip_screen.dart`, `osm_map_view.dart`, `dispatch_tuning.dart`, `global_config_screen.dart`):
 
 ### 1. Permanent Removal of Top Overlays & Code Purge (`live_trip_screen.dart`)
 - **Permanently Deleted Legacy Top Elements:** Purged all top floating overlays, badges, radar animations, and banners:
@@ -74,23 +74,26 @@ Completed full architectural cleanup and UX redesign of the customer Live Trip /
 
 ### 2. Integrated Draggable Searching Bottom Sheet (`_LiveTripSearchingSheet`)
 - Refactored customer searching view into a unified, fluid `DraggableScrollableSheet` (`initialChildSize: 0.28`, `minChildSize: 0.20`, `maxChildSize: 0.72`, `snap: true`).
-- **Internal Matchmaking Status:** Moved the active connection status message (`live_trip_status`), live spinner, and nearby driver count badge directly into the top of the bottom sheet.
+- **Internal Matchmaking Status:** Moved the active connection status message (`live_trip_status`), live spinner, and nearby driver count badge directly into the top of the bottom sheet. Includes real-time stage radius display: `"$nearbyDriversCount nearby (${stageRadius}km)"`.
 - **Offer Fare & In-Trip Actions:** Positioned the Offer Fare display with fare boost pencil icon (`boost_fare_pencil_button`) and Split Fare action button (`split_fare_button`).
 - **Delivery Security PIN & Driver Bids:** Embedded `_DeliveryPinBanner` (when PIN is required) and `_BidCarousel` (for real-time driver negotiation bids).
 - **Route Summary:** Shows pickup and destination addresses with styled route markers.
 - **Privacy-Protected Cancellation:** Placed `'Cancel trip'` lower down within the scrollable sheet content so that it is never exposed openly on initial sheet load; the user must intentionally drag upwards to reveal and tap the cancellation action.
 
-### 3. Dynamic Map Camera Animation Loop & 15km Nearby Driver Real-Time Markers
-- **Dynamic Camera Loop (`_startCameraLoop`):**
-  - **Step 1:** Automatically centers and zooms on the pickup location (`zoom: 15.5`), showcasing available nearby driver icons. Holds for ~5 seconds.
+### 3. Dynamic Map Camera Animation Loop & Stage-Based Driver Search Radii
+- **Stage-Based Driver Radius (`_activeStageRadiusKm`):** Drivers are displayed strictly matching the active dispatch stage radius (Tier 1: 0–3 km, Tier 2: 0–6 km, Tier 3: 0–10 km or as configured in `system_settings/dispatch`) via `DispatchTuning.radiusForTier(trip.dispatchTier)`. Dynamic updates to the trip's `dispatchTier` or Hub configurations immediately re-evaluate nearby driver filtering.
+- **Configurable Hub Settings (`global_config_screen.dart`, `system_config_service.dart`, `dispatch_tuning.dart`):**
+  - Added `cameraPickupDwellSec` (default: 5s, range 2–30s) and `cameraDropoffDwellSec` (default: 2s, range 1–15s) to `DispatchTuning` and the Hub Dispatch Console card (`7. Dispatch Console — Radii, Countdowns & Auto-Recycle`).
+  - Saved and merged into `system_settings/dispatch`, streamed in real-time by client devices.
+- **Automated Dynamic Camera Loop (`_startCameraLoop`):**
+  - **Step 1:** Automatically centers and zooms on the pickup location (`zoom: 15.5`), showcasing available nearby driver icons within the active stage radius. Pauses for the Hub-configured pickup dwell duration (`_dispatchTuning.cameraPickupDwellSec`).
   - **Step 2:** Smoothly pans and zooms the camera along the route polyline to the drop-off destination.
-  - **Step 3:** Holds at the drop-off destination for ~2 seconds, then smoothly pans back to the pickup point. Repeats indefinitely while searching.
+  - **Step 3:** Holds at the drop-off destination for the Hub-configured drop-off dwell duration (`_dispatchTuning.cameraDropoffDwellSec`), then smoothly pans back to the pickup point. Repeats gracefully while matchmaking.
   - Includes user-interaction pause (`_pauseCameraLoopForUser`) suspending the loop for 12 seconds when the user touches or interacts with the map.
-- **15km Radius Nearby Drivers Stream:** Subscribes to `driver_status` (`isOnline == true`) and filters drivers by vehicle category matching and distance (`Distance().as(LengthUnit.Kilometer, pickup, pos) <= 15.0`).
 - **Custom Vehicle Marker (`osm_map_view.dart`):** Updated `_PinGlyph` to recognize `label == 'DRIVER'` and render circular vehicle pin icons with gold border and car glyph.
 
 ### Verification
-- `analyze_files` across `sese_ride`: **0 errors, 0 warnings**.
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
 
 
 ## 2026-10-25 — Zero-API Cost Address History, Local Cache & Smart Hybrid Search System

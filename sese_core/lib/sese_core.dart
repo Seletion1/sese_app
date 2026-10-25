@@ -20,6 +20,7 @@ export 'auth/firebase_auth_repository.dart';
 export 'auth/stub_auth_repository.dart';
 export 'config/app_check_config.dart';
 export 'models/car_tier_thresholds.dart';
+export 'models/dispatch_tuning.dart';
 export 'models/pricing_config.dart';
 export 'models/driver_streak_state.dart';
 export 'models/driver_verification.dart';
