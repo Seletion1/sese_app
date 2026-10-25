@@ -237,27 +237,52 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  /// Advances the trip, running mandatory cash collection checks at pickup
+  /// Advances the trip, running role-based payment collection checks at pickup
   /// and drop-off, and requiring the delivery PIN for completion.
   Future<void> _advanceOrPin(ActiveTrip trip, String next) async {
-    if (next == 'IN_PROGRESS') {
-      // Step 1: Pickup Cash Check (Sender Cash Portion)
-      if (trip.paymentMethod == 'cash' || trip.paymentMethod == 'split') {
+    final mode = trip.paymentMode.toLowerCase();
+    final isSplit = mode == 'split' ||
+        trip.splitEnabled ||
+        trip.paymentMethod.toLowerCase() == 'split';
+    final isReceiverPays = mode == 'receiver_pays';
+    final isSenderPays = mode == 'sender_pays' || (!isSplit && !isReceiverPays);
+    final isPrepaid = trip.isPrepaidTrip && !isSplit;
+
+    if (next == 'IN_PROGRESS' && !isPrepaid) {
+      // Step 1: Pickup Stage Collection Check
+      // - Sender Pays: Prompt full fare collection from sender
+      // - Split Payment: Prompt collection of only the sender's pre-agreed portion
+      // - Receiver Pays: 0 collection prompt at pickup
+      if (isSplit) {
+        final confirmed = await _showPickupSplitCheckDialog(trip);
+        if (confirmed != true) return;
+      } else if (isSenderPays) {
         final confirmed = await _showPickupCashCheckDialog(trip);
         if (confirmed != true) return;
       }
     }
+
     if (next == 'COMPLETED') {
-      // Step 2: Drop-Off Cash Check (Receiver Cash Portion)
-      if (trip.paymentMethod == 'cash' || trip.paymentMethod == 'split') {
-        final confirmed = await _showDropoffCashCheckDialog(trip);
-        if (confirmed != true) return;
+      if (!isPrepaid) {
+        // Step 2: Drop-Off Stage Collection Check
+        // - Receiver Pays: Prompt full fare collection from receiver
+        // - Split Payment: Prompt collection of the remaining balance from receiver
+        // - Sender Pays: 0 collection prompt at drop-off (already collected at pickup)
+        if (isSplit) {
+          final confirmed = await _showDropoffSplitCheckDialog(trip);
+          if (confirmed != true) return;
+        } else if (isReceiverPays) {
+          final confirmed = await _showDropoffCashCheckDialog(trip);
+          if (confirmed != true) return;
+        }
       }
+
       if (trip.serviceType != 'ride') {
         await _askDeliveryPin(trip);
         return;
       }
     }
+
     await _run(
       () => widget.streakService.advanceTripStatus(trip.tripId, next),
       'Could not update trip status.',
@@ -280,7 +305,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ],
         ),
         content: Text(
-          'Collect $fareStr CASH from Sender before taking package.',
+          trip.serviceType == 'ride'
+              ? 'Collect $fareStr CASH from Booker/Sender before starting ride.'
+              : 'Collect $fareStr CASH from Sender before taking package.',
         ),
         actions: [
           TextButton(
@@ -312,7 +339,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ],
         ),
         content: Text(
-          'Collect $fareStr CASH from Receiver before releasing package.',
+          trip.serviceType == 'ride'
+              ? 'Collect $fareStr CASH from Rider/Receiver before ending ride.'
+              : 'Collect $fareStr CASH from Receiver before releasing package.',
         ),
         actions: [
           TextButton(
@@ -322,6 +351,111 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirm Cash Collected'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _showPickupSplitCheckDialog(ActiveTrip trip) {
+    final senderShare = trip.senderShareAmount ?? (trip.fareAmount / 2);
+    final receiverShare =
+        trip.receiverShareAmount ?? (trip.fareAmount - senderShare);
+    final senderStr = '₦${senderShare.toStringAsFixed(0)}';
+    final receiverStr = '₦${receiverShare.toStringAsFixed(0)}';
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.call_split_rounded, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Pickup Split Check'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Split Payment Order:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Collect only the Sender\'s pre-agreed portion of $senderStr CASH at pickup.',
+            ),
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Note: The remaining balance of $receiverStr will be collected from the Receiver at drop-off.',
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm Sender Paid'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool?> _showDropoffSplitCheckDialog(ActiveTrip trip) {
+    final senderShare = trip.senderShareAmount ?? (trip.fareAmount / 2);
+    final receiverShare =
+        trip.receiverShareAmount ?? (trip.fareAmount - senderShare);
+    final receiverStr = '₦${receiverShare.toStringAsFixed(0)}';
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.call_split_rounded, color: Colors.amber),
+            SizedBox(width: 8),
+            Text('Drop-off Split Check'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Split Payment Balance:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              trip.serviceType == 'ride'
+                  ? 'Collect the remaining balance of $receiverStr CASH from the Rider before ending ride.'
+                  : 'Collect the remaining balance of $receiverStr CASH from the Receiver before releasing package.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm Receiver Paid'),
           ),
         ],
       ),
@@ -473,12 +607,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   }
 
   String _paymentLabel(ActiveTrip trip) {
-    final method = trip.paymentMethod.toLowerCase();
-    if (method == 'cash') {
-      return trip.splitEnabled ? 'SPLIT (SENDER)' : 'SENDER P...';
-    } else if (method == 'split') {
+    final mode = trip.paymentMode.toLowerCase();
+    if (mode == 'split' ||
+        trip.splitEnabled ||
+        trip.paymentMethod.toLowerCase() == 'split') {
       return 'SPLIT PAYMENT';
-    } else if (method == 'wallet') {
+    } else if (mode == 'receiver_pays') {
+      return 'RECEIVER PAYS';
+    } else if (mode == 'sender_pays') {
+      return 'SENDER PAYS';
+    } else if (trip.paymentMethod.toLowerCase() == 'wallet') {
       return 'WALLET PREPAID';
     }
     return trip.paymentMethod.toUpperCase();

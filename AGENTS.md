@@ -60,6 +60,32 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Payment Mode & Split Payment Workflow, Dynamic Calculations & Role-Based Driver Collection
+
+Implemented the full interactive Payment Mode and Split Payment workflow across `sese_ride`, `sese_core`, and Cloud Functions (`trips.ts`, `customer_dispatch_screen.dart`, `split_payment_sheet.dart`, `driver_active_trip_card.dart`, `trip_models.dart`):
+
+### 1. Interactive Split Payment Bottom Sheet (`split_payment_sheet.dart` & `customer_dispatch_screen.dart`)
+- **Instant Bottom Sheet Launch:** Tapping "Split Payment" opens `SplitPaymentSheet` with the total fare, quick split percentage chips (25%, 50%, 75%), custom amount text input with currency prefix (`₦`), and live balance calculator.
+- **Wallet Balance Verification:** Dynamically retrieves the sender's withdrawable cash balance from `wallets/{uid}` via `SeseCoinService().getBalances(uid)`. Validates that the sender's entered amount does not exceed their wallet balance or the total fare.
+- **Dynamic Real-Time Calculation:** Automatically computes the receiver's remaining balance (`widget.totalFare - senderAmount = receiverBalance`) on every keystroke, rendering a clear breakdown for confirmation before dispatch.
+- **State Binding:** Persists `paymentMode: 'split'`, `senderShareAmount`, and `receiverShareAmount` to `TripDraft` and Firestore payload before broadcasting. Shows an informative breakdown card under the payment selector with an "Edit Split" shortcut.
+
+### 2. Role-Based Driver Payment Collection Prompts (`driver_active_trip_card.dart`)
+- **Sender Pays:** At pickup (`IN_PROGRESS`), prompts the driver to collect the full fare CASH from the sender. Drops collection prompt at drop-off (`COMPLETED`) so drivers are never asked to collect twice.
+- **Receiver Pays:** Suppresses collection prompts at pickup. At drop-off (`COMPLETED`), prompts the driver to collect the full fare CASH from the receiver before completing the trip or releasing packages.
+- **Split Payment:**
+  - **At Pickup (`IN_PROGRESS`):** Prompts driver to collect/verify only the sender's pre-agreed portion (`₦${trip.senderShareAmount}`).
+  - **At Drop-off (`COMPLETED`):** Prompts driver to collect only the remaining balance (`₦${trip.receiverShareAmount}`) from the receiver.
+- **Driver Card Header:** Displays clean, contextual badges (`SENDER PAYS`, `RECEIVER PAYS`, `SPLIT PAYMENT`).
+
+### 3. Server-Authoritative Trip Minting (`trips.ts`)
+- Updated `createTrip` Cloud Function to persist `paymentMode`, `senderShareAmount`, and `receiverShareAmount` onto the top-level trip document alongside `splitPaymentData`.
+- Deployed via `firebase deploy --only functions:createTrip`.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
+
 ## 2026-10-25 — Live Searching Screen Overhaul: Stage-Based Radii, Hub-Configurable Dwell Timings & Dynamic Camera Loop
 
 Completed full architectural cleanup and UX redesign of the customer Live Trip / Searching screen (`live_trip_screen.dart`, `osm_map_view.dart`, `dispatch_tuning.dart`, `global_config_screen.dart`):

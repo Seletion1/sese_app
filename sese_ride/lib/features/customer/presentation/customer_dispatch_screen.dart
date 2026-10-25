@@ -14,6 +14,7 @@ import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
 import 'pick_on_map_screen.dart';
+import 'widgets/split_payment_sheet.dart';
 
 /// Minimal model for a saved Home or Work place fetched from
 /// `users/{uid}.savedPlaces`. Private to this file — no separate model
@@ -292,6 +293,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   bool _isReceivePackageMode = false;
   bool _requireDeliveryPin = false;
   String _paymentMode = 'sender_pays'; // 'sender_pays', 'receiver_pays', 'split'
+  double? _splitSenderAmount;
+  double? _splitReceiverAmount;
 
   // ── Remote config (HUB overrides: splitPaymentMasterEnabled, forceDeliveryPinSystemWide)
   // Loaded once in initState from Firestore; falls back to safe defaults when
@@ -1672,6 +1675,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         }
         return;
       }
+      if (_splitSenderAmount == null || _splitReceiverAmount == null) {
+        await _openSplitPaymentSheet();
+        if (_splitSenderAmount == null) return;
+      }
       // Split settles against a REGISTERED receiver, so it is the one flow
       // that still needs a drop-off number — everything else may ship
       // without secondary contacts.
@@ -1762,6 +1769,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           durationMins: fareResp.durationMins,
           isVerifiedCustomer: verifiedCustomer,
           paymentMethod: _paymentMode == 'split' ? 'split' : 'cash',
+          paymentMode: _paymentMode,
+          senderShareAmount: _paymentMode == 'split' ? _splitSenderAmount : null,
+          receiverShareAmount: _paymentMode == 'split' ? _splitReceiverAmount : null,
           // Rides never request a PIN (no toggle exists in the ride review;
           // gating here also covers Delivery→Ride toggles carrying a stale
           // `_requireDeliveryPin`). The server mints rides PIN-free anyway —
@@ -1834,6 +1844,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       'fareToken': fareResp.fareToken,
       'distanceKm': fareResp.distanceKm,
       'durationMins': fareResp.durationMins,
+      'paymentMethod': _paymentMode == 'split' ? 'split' : 'cash',
+      'paymentMode': _paymentMode,
+      if (_splitSenderAmount != null) 'senderShareAmount': _splitSenderAmount,
+      if (_splitReceiverAmount != null)
+        'receiverShareAmount': _splitReceiverAmount,
     };
     debugPrint('Dispatch payload: $dispatchPayload');
 
@@ -3021,6 +3036,63 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
+  double get _currentPrimaryFare {
+    final resp = _fareResponse;
+    if (resp == null) return 0;
+    final isDelivery = _selectedModeIndex == 0;
+    if (isDelivery) {
+      final firstCat = _selectedDeliveryCategories.isNotEmpty
+          ? _selectedDeliveryCategories.first
+          : VehicleCategory.motorcycle;
+      final tierId = _deliveryTierIds[firstCat] ?? firstCat.name;
+      final custom = _customTierFares[tierId];
+      if (custom != null && custom > 0) return custom;
+      return resp.tierById(tierId)?.fareAmount ?? 0;
+    } else {
+      final firstTier = _selectedRideTierIds.isNotEmpty
+          ? _selectedRideTierIds.first
+          : 'comfort';
+      final custom = _customTierFares[firstTier];
+      if (custom != null && custom > 0) return custom;
+      return resp.tierById(firstTier)?.fareAmount ?? 0;
+    }
+  }
+
+  Future<void> _openSplitPaymentSheet() async {
+    final fare = _currentPrimaryFare;
+    if (fare <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Please select a vehicle category first to calculate fare.'),
+        ),
+      );
+      return;
+    }
+
+    final result = await SplitPaymentSheet.show(
+      context: context,
+      totalFare: fare,
+      userId: widget.user?.uid ?? '',
+      initialSenderAmount: _splitSenderAmount,
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _paymentMode = 'split';
+        _splitSenderAmount = result.senderAmount;
+        _splitReceiverAmount = result.receiverAmount;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Split confirmed: You pay ₦${result.senderAmount.toStringAsFixed(0)}, Receiver pays ₦${result.receiverAmount.toStringAsFixed(0)}',
+          ),
+        ),
+      );
+    }
+  }
+
   /// Who-pays selector. Values are mode-agnostic on the wire (non-split
   /// collapses to `cash` at dispatch) — only the LABELS switch: delivery
   /// talks Sender/Receiver (a parcel changes hands), rides talk
@@ -3071,8 +3143,92 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 ),
               ],
               selected: {_paymentMode},
-              onSelectionChanged: (set) => setState(() => _paymentMode = set.first),
+              onSelectionChanged: (set) async {
+                final selected = set.first;
+                if (selected == 'split') {
+                  await _openSplitPaymentSheet();
+                } else {
+                  setState(() {
+                    _paymentMode = selected;
+                    _splitSenderAmount = null;
+                    _splitReceiverAmount = null;
+                  });
+                }
+              },
             ),
+            if (_paymentMode == 'split' && _splitSenderAmount != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primaryContainer
+                      .withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.call_split_rounded,
+                                size: 16,
+                                color: Theme.of(context).colorScheme.primary),
+                            const SizedBox(width: 6),
+                            const Text(
+                              'Split Payment Breakdown',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                        InkWell(
+                          onTap: _openSplitPaymentSheet,
+                          child: Text(
+                            'Edit Split',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.primary,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Sender (You): ₦${_splitSenderAmount!.toStringAsFixed(0)}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        Text(
+                          'Receiver: ₦${_splitReceiverAmount!.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (!splitMasterEnabled)
               const Padding(
                 padding: EdgeInsets.only(top: 6),

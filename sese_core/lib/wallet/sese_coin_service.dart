@@ -93,6 +93,9 @@ class SeseCoinService {
     }
   }
 
+  /// Alias for [fetchWallet] returning cash and coin balances.
+  Future<DualWallet> getBalances(String uid) => fetchWallet(uid);
+
   /// Manual "Convert to Wallet" — moves the entire SeSe Coin balance into
   /// the withdrawable cash wallet. The callable enforces
   /// `minConvertibleBonus`; throws [SeseCoinException] otherwise.

@@ -236,6 +236,15 @@ class ActiveTrip {
   /// True when the trip involves split fare payments.
   final bool splitEnabled;
 
+  /// Payment mode indicating who pays: 'sender_pays', 'receiver_pays', or 'split'.
+  final String paymentMode;
+
+  /// Custom contribution amount for the sender in split payments.
+  final double? senderShareAmount;
+
+  /// Remaining balance to be collected from the receiver in split payments.
+  final double? receiverShareAmount;
+
   /// 4-digit security PIN issued for drop-off verification.
   /// Populated server-side when [deliveryPinRequired] is true.
   final String? deliveryPin;
@@ -289,6 +298,9 @@ class ActiveTrip {
     this.paymentMethod = 'cash',
     this.vehicleCategory = '',
     this.splitEnabled = false,
+    this.paymentMode = 'sender_pays',
+    this.senderShareAmount,
+    this.receiverShareAmount,
     this.deliveryPin,
     this.deliveryPinRequired = false,
   });
@@ -446,6 +458,13 @@ class ActiveTrip {
       splitEnabled: map['splitEnabled'] == true ||
           map['splitPayment'] != null ||
           map['paymentMethod'] == 'split',
+      paymentMode: (map['paymentMode'] ??
+              (map['paymentMethod'] == 'split' ? 'split' : 'sender_pays'))
+          .toString(),
+      senderShareAmount: (map['senderShareAmount'] as num?)?.toDouble() ??
+          (map['splitPayment']?['senderShare'] as num?)?.toDouble(),
+      receiverShareAmount: (map['receiverShareAmount'] as num?)?.toDouble() ??
+          (map['splitPayment']?['receiverShare'] as num?)?.toDouble(),
       deliveryPin: (map['deliveryPin'] ?? map['order']?['deliveryPin'])?.toString(),
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
@@ -501,6 +520,15 @@ class TripDraft {
   /// prepaid rail). Minted onto the trip doc; drives departure protection.
   final String paymentMethod;
 
+  /// Payment mode indicating who pays: 'sender_pays', 'receiver_pays', or 'split'.
+  final String paymentMode;
+
+  /// Custom contribution amount for the sender in split payments.
+  final double? senderShareAmount;
+
+  /// Remaining balance to be collected from the receiver in split payments.
+  final double? receiverShareAmount;
+
   /// User choice toggle: whether a 4-digit security PIN is required.
   final bool requireDeliveryPin;
 
@@ -528,6 +556,9 @@ class TripDraft {
     this.customTierFares,
     this.isVerifiedCustomer = false,
     this.paymentMethod = 'cash',
+    this.paymentMode = 'sender_pays',
+    this.senderShareAmount,
+    this.receiverShareAmount,
     this.requireDeliveryPin = false,
     this.receiverPhone,
   });
@@ -562,6 +593,10 @@ class TripDraft {
       'durationMins': durationMins,
       'isVerifiedCustomer': isVerifiedCustomer,
       'paymentMethod': paymentMethod,
+      'paymentMode': paymentMode,
+      if (senderShareAmount != null) 'senderShareAmount': senderShareAmount,
+      if (receiverShareAmount != null)
+        'receiverShareAmount': receiverShareAmount,
       'requireDeliveryPin': requireDeliveryPin,
     };
     if (receiverPhone != null && receiverPhone!.isNotEmpty) {

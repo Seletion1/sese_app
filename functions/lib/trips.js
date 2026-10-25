@@ -353,7 +353,7 @@ async function maskedPhones(customerId, pickupPhone, dropoffPhone, d) {
  * the live trip document. Returns `{ tripId }`.
  */
 exports.createTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to book.");
     }
@@ -513,8 +513,11 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             deliveryPin: pinCode,
             requireDeliveryPin: isPinRequired,
         } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_w = (_v = d.vehicleCategory) !== null && _v !== void 0 ? _v : d.category) !== null && _w !== void 0 ? _w : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: verified.tiers, baselineFare,
-        proposedFare, fareAmount: proposedFare, fareBoosted: false, boostPercent: 0, paymentMethod,
-        customTierFares, distanceKm: verified.distanceKm, durationMins: verified.durationMins, declineCount: 0, reassignmentCount: 0, reassignmentHistory: [], idlePromptSent: false, attemptedDriverIds: [], pingDriverId: null, pingExpiresAt: null, driver: null, driverLocation: null, createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
+        proposedFare, fareAmount: proposedFare, fareBoosted: false, boostPercent: 0, paymentMethod, paymentMode: String((_x = d.paymentMode) !== null && _x !== void 0 ? _x : (paymentMethod === "split" ? "split" : "sender_pays")), senderShareAmount: d.senderShareAmount != null
+            ? Number(d.senderShareAmount)
+            : (splitPaymentData ? Number(splitPaymentData.senderShare) : null), receiverShareAmount: d.receiverShareAmount != null
+            ? Number(d.receiverShareAmount)
+            : (splitPaymentData ? Number(splitPaymentData.receiverShare) : null), customTierFares, distanceKm: verified.distanceKm, durationMins: verified.durationMins, declineCount: 0, reassignmentCount: 0, reassignmentHistory: [], idlePromptSent: false, attemptedDriverIds: [], pingDriverId: null, pingExpiresAt: null, driver: null, driverLocation: null, createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
     // Save PIN doc for secure driver verification
     if (isPinRequired && pinCode != null) {
         try {

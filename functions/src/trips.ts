@@ -665,6 +665,13 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     fareBoosted: false,
     boostPercent: 0,
     paymentMethod,
+    paymentMode: String((d as any).paymentMode ?? (paymentMethod === "split" ? "split" : "sender_pays")),
+    senderShareAmount: (d as any).senderShareAmount != null
+      ? Number((d as any).senderShareAmount)
+      : (splitPaymentData ? Number(splitPaymentData.senderShare) : null),
+    receiverShareAmount: (d as any).receiverShareAmount != null
+      ? Number((d as any).receiverShareAmount)
+      : (splitPaymentData ? Number(splitPaymentData.receiverShare) : null),
     customTierFares,
     distanceKm: verified.distanceKm,
     durationMins: verified.durationMins,
