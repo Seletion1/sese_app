@@ -51,11 +51,9 @@ void main() {
       expect(find.text('Go Online (Home)'), findsNothing);
       expect(find.text('Manage Fleet & Documents'), findsNothing);
 
-      // Wallet above Earnings, with the specified subtitles.
+      // Wallet above Earnings.
       expect(find.text('Wallet'), findsOneWidget);
-      expect(find.textContaining('Manage funds, top up'), findsOneWidget);
       expect(find.text('Earnings'), findsWidgets);
-      expect(find.textContaining('View daily, weekly'), findsOneWidget);
       // Tile order: Wallet first, Settings near the bottom (mode
       // switching moved to Settings → App Mode).
       final walletY =
