@@ -263,8 +263,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     super.dispose();
   }
 
-  Future<void> _loadConfigurations() async {
-    setState(() => _loading = true);
+  Future<void> _loadConfigurations({bool silent = false}) async {
+    if (!silent) {
+      setState(() => _loading = true);
+    }
     final configs = await widget.configService.getAllConfigs();
     if (!mounted) return;
     final maxBids = await widget.configService.getMaxVisibleBids();
@@ -302,7 +304,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     if (!mounted) return;
     setState(() {
       _allConfigs = configs;
-      _paystackPublicKeyCtrl.text = remoteKeys.paystackPublicKey;
+      if (!silent) {
+        _paystackPublicKeyCtrl.text = remoteKeys.paystackPublicKey;
       _paystackSecretKeyCtrl.text = remoteKeys.paystackSecretKey;
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
@@ -365,8 +368,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _maxBonusThresholdCtrl.text = finConfig.maxBonusThreshold.toStringAsFixed(0);
       _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
       _loading = false;
-    });
+    }
+  });
+  if (!silent) {
     _populateFormForCurrentSelection();
+  }
   }
 
   String get _currentDocId {
@@ -755,13 +761,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         }, SetOptions(merge: true));
       } catch (_) {}
 
-      await _loadConfigurations();
+      await _loadConfigurations(silent: true);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Successfully published config: ${config.id}'),
+          content: const Text('Settings updated successfully'),
           backgroundColor: Colors.green.shade800,
+          duration: const Duration(seconds: 3),
         ),
       );
     } catch (e) {
@@ -786,7 +793,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
+    if (_loading && _allConfigs.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 

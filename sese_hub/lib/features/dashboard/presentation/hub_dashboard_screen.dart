@@ -11,6 +11,7 @@ import '../../support/hub_support_chat_screen.dart';
 import '../../verification/presentation/vehicle_approvals_screen.dart';
 import '../../trips/presentation/active_rides_console_screen.dart';
 import '../../onboarding/presentation/admin_user_onboarding_screen.dart';
+import '../services/hub_route_persistence.dart';
 import 'hub_user_wallet_card.dart';
 
 /// Unified permission-gated hub shell. Mounted ONLY after [HubAccessService]
@@ -61,7 +62,8 @@ class HubDashboardScreen extends StatefulWidget {
   State<HubDashboardScreen> createState() => _HubDashboardScreenState();
 }
 
-class _HubDashboardScreenState extends State<HubDashboardScreen> {
+class _HubDashboardScreenState extends State<HubDashboardScreen>
+    with WidgetsBindingObserver {
   /// Currently selected [HubTab] (may be profile or any module tab).
   HubTab _activeTab = HubTab.profile;
 
@@ -70,11 +72,15 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
   /// when a new tab is promoted from More.
   late List<HubTab> _recentTabs;
 
+  /// Cache of instantiated screen widgets keeping state warm across tab switches.
+  final Map<HubTab, Widget> _screenCache = {};
+
   final _auth = FirebaseAuthRepository(isHubApp: true);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Staff push topics (support escalations + announcements). Mounted
     // only after hub_staff qualification, so subscribers are staff.
     // ignore: discarded_futures
@@ -85,6 +91,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
           'staff_${widget.user!.email.trim().toLowerCase()}');
     }
     _initRecentTabs();
+    _restorePersistedState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && (widget.user?.uid ?? '').isNotEmpty) {
         MandatoryLegalAcceptanceDialog.checkAndShow(
@@ -94,6 +101,82 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
         );
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _persistCurrentNavigation();
+    }
+  }
+
+  void _persistCurrentNavigation() {
+    HubRoutePersistence.saveActiveTab(_activeTab.name);
+    HubRoutePersistence.saveRecentTabs(_recentTabs.map((t) => t.name).toList());
+  }
+
+  Future<void> _restorePersistedState() async {
+    try {
+      final savedTabName = await HubRoutePersistence.getSavedActiveTab();
+      final savedRecentNames = await HubRoutePersistence.getSavedRecentTabs();
+      final savedSubRoute = await HubRoutePersistence.getSavedSubRoute();
+
+      if (!mounted) return;
+
+      final allTabs = _allTabs;
+      setState(() {
+        if (savedRecentNames != null && savedRecentNames.isNotEmpty) {
+          final restored = <HubTab>[];
+          for (final name in savedRecentNames) {
+            try {
+              final tab = HubTab.values.byName(name);
+              if (allTabs.contains(tab) && tab != HubTab.profile) {
+                restored.add(tab);
+              }
+            } catch (_) {}
+          }
+          if (restored.isNotEmpty) {
+            _recentTabs = restored;
+          }
+        }
+
+        if (savedTabName != null) {
+          try {
+            final tab = HubTab.values.byName(savedTabName);
+            if (allTabs.contains(tab)) {
+              _activeTab = tab;
+            }
+          } catch (_) {}
+        }
+      });
+
+      if (savedSubRoute != null && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (savedSubRoute == 'settings') {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => HubSettingsScreen(
+                  configService: widget.configService,
+                ),
+              ),
+            ).then((_) {
+              HubRoutePersistence.saveSubRoute(null);
+            });
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('HubDashboardScreen: error restoring persisted state: $e');
+    }
   }
 
   /// Seed [_recentTabs] from the first (up to 3) module tabs the user can see.
@@ -185,11 +268,29 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
     }
   }
 
+  /// Body using [IndexedStack] to keep states of visited tabs warm across switches.
+  Widget _buildStackBody(List<HubTab> allTabs) {
+    _screenCache.putIfAbsent(_activeTab, () => _screenFor(_activeTab));
+    final activeIndex = allTabs.indexOf(_activeTab);
+    return IndexedStack(
+      index: activeIndex >= 0 ? activeIndex : 0,
+      children: allTabs.map((t) {
+        if (_screenCache.containsKey(t)) {
+          return _screenCache[t]!;
+        }
+        return const SizedBox.shrink();
+      }).toList(),
+    );
+  }
+
   /// Navigate to [tab] directly (bottom bar or rail tap).
   void _onTabSelected(HubTab tab) {
     setState(() {
       _activeTab = tab;
-      if (tab == HubTab.profile) return;
+      if (tab == HubTab.profile) {
+        _persistCurrentNavigation();
+        return;
+      }
       if (_recentTabs.contains(tab)) {
         // Already in recent: bubble it to the front.
         _recentTabs.remove(tab);
@@ -199,6 +300,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
         if (_recentTabs.length >= 3) _recentTabs.removeLast();
         _recentTabs.insert(0, tab);
       }
+      _persistCurrentNavigation();
     });
   }
 
@@ -224,13 +326,16 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
         },
         onOpenSettings: () {
           Navigator.of(ctx).pop();
+          HubRoutePersistence.saveSubRoute('settings');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => HubSettingsScreen(
                 configService: widget.configService,
               ),
             ),
-          );
+          ).then((_) {
+            HubRoutePersistence.saveSubRoute(null);
+          });
         },
       ),
     );
@@ -242,6 +347,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
         if (_recentTabs.length >= 3) _recentTabs.removeLast();
         _recentTabs.insert(0, selected);
       }
+      _persistCurrentNavigation();
     });
   }
 
@@ -283,26 +389,26 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
       _activeTab = HubTab.profile;
     }
 
-    final activeScreen = _screenFor(_activeTab);
+    final stackBody = _buildStackBody(allTabs);
 
     // Wide screens keep a full side rail.
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 900;
         if (isWide) {
-          return _buildWideLayout(allTabs, activeScreen);
+          return _buildWideLayout(allTabs, stackBody);
         }
 
         // Mobile: lone tab renders bar-less (NavigationBar asserts >= 2).
         if (allTabs.length < 2) {
-          return Scaffold(body: activeScreen);
+          return Scaffold(body: stackBody);
         }
-        return _buildMobileLayout(activeScreen);
+        return _buildMobileLayout(stackBody);
       },
     );
   }
 
-  Widget _buildWideLayout(List<HubTab> allTabs, Widget activeScreen) {
+  Widget _buildWideLayout(List<HubTab> allTabs, Widget stackBody) {
     final safeIndex = allTabs.contains(_activeTab)
         ? allTabs.indexOf(_activeTab)
         : 0;
@@ -327,13 +433,13 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
                 ),
             ],
           ),
-          Expanded(child: activeScreen),
+          Expanded(child: stackBody),
         ],
       ),
     );
   }
 
-  Widget _buildMobileLayout(Widget activeScreen) {
+  Widget _buildMobileLayout(Widget stackBody) {
     // Bottom bar always has _recentTabs (up to 3) + "More" (always last).
     final bottomTabs = _recentTabs.toList();
     final moreSelected = !bottomTabs.contains(_activeTab) &&
@@ -383,7 +489,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen> {
     ];
 
     return Scaffold(
-      body: activeScreen,
+      body: stackBody,
       bottomNavigationBar: NavigationBar(
         key: const Key('hub_navigation_bar'),
         selectedIndex: selectedIndex,

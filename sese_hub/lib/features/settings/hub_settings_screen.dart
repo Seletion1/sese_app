@@ -6,6 +6,7 @@ import '../config/presentation/global_config_screen.dart';
 import '../config/services/system_config_service.dart';
 import '../dashboard/presentation/hub_dashboard_screen.dart'
     show showHubThemePickerSheet;
+import '../dashboard/services/hub_route_persistence.dart';
 import 'calling_config_screen.dart';
 
 /// Dedicated Settings screen for `sese_hub` staff.
@@ -222,11 +223,16 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
               infoDescription:
                   'Switch between self-hosted WebRTC (Firebase signaling) and ZegoCloud SDK, configure credentials, or test the audio pipeline.',
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CallingConfigScreen(),
-                ),
-              ),
+              onTap: () {
+                HubRoutePersistence.saveSubRoute('calling_config');
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CallingConfigScreen(),
+                  ),
+                ).then((_) {
+                  HubRoutePersistence.saveSubRoute('settings');
+                });
+              },
             ),
           ),
           const SizedBox(height: 24),

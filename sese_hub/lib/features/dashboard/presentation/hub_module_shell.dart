@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// One sub-section inside a Hub module: title + icon + content + the
 /// permission code required to see it (null = no extra gate beyond the
@@ -63,11 +64,44 @@ class HubModuleShell extends StatefulWidget {
 
 class _HubModuleShellState extends State<HubModuleShell> {
   late int _index;
+  String get _prefKey =>
+      'hub_module_section_${widget.title.replaceAll(RegExp(r'\s+'), '_').toLowerCase()}';
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex;
+    _restoreSavedSection();
+  }
+
+  Future<void> _restoreSavedSection() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedId = prefs.getString(_prefKey);
+      if (savedId != null && mounted) {
+        final visible = _visible;
+        final found = visible.indexWhere((s) => s.id == savedId);
+        if (found != -1 && found != _index) {
+          setState(() => _index = found);
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _selectSection(int i, String sectionId) {
+    setState(() => _index = i);
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString(_prefKey, sectionId);
+    }).catchError((_) {});
+  }
+
+  @override
+  void didUpdateWidget(covariant HubModuleShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final visible = _visible;
+    if (visible.isNotEmpty && _index >= visible.length) {
+      _index = visible.length - 1;
+    }
   }
 
   List<HubModuleSection> get _visible {
@@ -154,7 +188,7 @@ class _HubModuleShellState extends State<HubModuleShell> {
                                 : null,
                             onTap: () {
                               Navigator.of(context).pop();
-                              setState(() => _index = i);
+                              _selectSection(i, s.id);
                             },
                           );
                         },

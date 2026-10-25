@@ -66,10 +66,9 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
       setState(() => _isSaving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Calling configuration saved! Active provider: ${_selectedProvider == CallProviderType.webrtc ? "WebRTC P2P" : "ZegoCloud"}',
-          ),
+          content: const Text('Settings updated successfully'),
           backgroundColor: Colors.green.shade700,
+          duration: const Duration(seconds: 3),
         ),
       );
     }

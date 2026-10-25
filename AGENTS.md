@@ -60,6 +60,28 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Hub In-Place Form Submission, Route Persistence & Tab State Memory
+
+Implemented in-place form saving and cross-session route/tab state persistence across `sese_hub`:
+
+### 1. In-Place Form Submission & Save Behavior (`global_config_screen.dart`, `hub_module_shell.dart`, `calling_config_screen.dart`)
+- **Root Cause of Save Resets:** Saving dynamic configurations triggered `_loadConfigurations()` with `_loading = true`, destroying `HubModuleShell` and replacing it with a full-screen `CircularProgressIndicator`. When rebuilt, the module shell reverted its active section index to `0` (`Scope & Region`), clobbered input controllers, and lost scroll position.
+- **Silent Background Refreshes:** Refactored `_loadConfigurations({bool silent = false})`. When `silent: true` is supplied during saves, the full-screen loading spinner is bypassed, keeping input controllers and the widget hierarchy active.
+- **Non-Intrusive Feedback:** Replaced redirects and disruptive states with a non-intrusive green SnackBar notification: `"Settings updated successfully"`.
+- **Module Section Persistence (`HubModuleShell`):** Integrated `SharedPreferences` caching per module shell instance (`hub_section_${moduleTitle}`) so that even across widget rebuilds or sub-menu navigation, the selected side-sheet section (e.g. `Third-Party APIs`, `Dispatch Console`, `Fares & Commission`) is permanently remembered and restored.
+
+### 2. Hub App State & Route Persistence (`hub_dashboard_screen.dart`, `hub_route_persistence.dart`, `hub_settings_screen.dart`)
+- **`HubRoutePersistence` Service:** Built a lightweight persistence layer in `sese_hub/lib/features/dashboard/services/hub_route_persistence.dart` saving:
+  - `activeTab`: Current active [HubTab] enum string.
+  - `recentTabs`: List of recent module tabs driving bottom bar navigation.
+  - `subRoute`: Active sub-screen routes (e.g., `'settings'` or `'calling_config'`).
+- **Warm Screen Memory via `IndexedStack`:** Replaced direct screen swaps with an `IndexedStack` backing in `HubDashboardScreen`. Visiting a module screen keeps its state and form inputs warm in memory across bottom bar and navigation rail switching, preventing unnecessary teardown and rebuilds.
+- **Lifecycle Observers & Startup Restoration:** Registered `WidgetsBindingObserver` in `HubDashboardScreen` to auto-persist navigation state on app backgrounding (`paused`, `inactive`, `hidden`). On startup, `_restorePersistedState()` seamlessly restores the admin's exact active tab, recent tab stack, and opens any active sub-route without bouncing to the default home screen.
+
+### 3. Verification
+- `flutter analyze` on `sese_hub`: **No issues found (0 errors, 0 warnings)**.
+- `flutter analyze` on `sese_ride`: **No issues found (0 errors, 0 warnings)**.
+
 ## 2026-10-25 — Booking Flow Address Sheet Collapsing & Order Pool Full-Screen Modal Overhaul
 
 Executed UI/UX overhaul across customer booking dispatch flow (`customer_dispatch_screen.dart`) and driver order pool modal (`order_pool_sheet.dart`):
