@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/vehicle_category.dart';
+import '../services/icon_cache_service.dart';
 import '../theme/app_theme.dart';
 
 /// Illustration key for the premium vehicle & package vector set.
@@ -99,12 +100,76 @@ class VehicleIllustration extends StatelessWidget {
   /// Fixed canvas ratio every painter below draws against (120 × 72).
   static const double aspectRatio = 5 / 3;
 
+  /// Returns the corresponding cache manifest key for [art].
+  static String iconKeyFor(VehicleArt art) {
+    switch (art) {
+      case VehicleArt.bicycle:
+        return 'vehicle_bicycle';
+      case VehicleArt.motorcycle:
+        return 'vehicle_motorcycle';
+      case VehicleArt.keke:
+        return 'vehicle_keke';
+      case VehicleArt.sedan:
+        return 'vehicle_sedan';
+      case VehicleArt.premium:
+        return 'vehicle_premium';
+      case VehicleArt.luxe:
+        return 'vehicle_luxe';
+      case VehicleArt.van:
+        return 'vehicle_van';
+      case VehicleArt.truck:
+        return 'vehicle_truck';
+      case VehicleArt.packageSend:
+        return 'sender_box';
+      case VehicleArt.packageReceive:
+        return 'receiver_box';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = accentColor ?? AppColors.seseGold;
-    return CustomPaint(
-      size: Size(height * aspectRatio, height),
+    final w = height * aspectRatio;
+    final key = iconKeyFor(art);
+
+    final vectorFallback = CustomPaint(
+      size: Size(w, height),
       painter: _painterFor(art, accent, selected),
+    );
+
+    return SizedBox(
+      width: w,
+      height: height,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (selected)
+            Positioned(
+              bottom: 0,
+              child: Container(
+                width: w * 0.75,
+                height: 4,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.45),
+                      blurRadius: 6,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          IconCacheService.instance.buildIcon(
+            key,
+            width: w,
+            height: height,
+            fit: BoxFit.contain,
+            fallback: vectorFallback,
+          ),
+        ],
+      ),
     );
   }
 

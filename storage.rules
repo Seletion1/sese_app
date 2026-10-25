@@ -168,6 +168,12 @@ service firebase.storage {
                     request.resource.size < 2 * 1024 * 1024;
     }
 
+    // ── Public UI Assets (Vehicles, boxes, system icons) ───────────
+    match /ui_assets/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
     // ── Default: block all other unauthenticated or unexpected writes ─────────
     match /{allPaths=**} {
       allow read: if request.auth != null;

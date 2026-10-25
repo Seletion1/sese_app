@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-25T18:11:04.396Z",
+  "icons": {
+    "vehicle_bicycle": {
+      "filename": "sese_bicycle.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_bicycle.png?alt=media&token=1f7f66c1-946c-4a62-ad09-f6dc9178e214",
+      "sizeBytes": 324900,
+      "md5": "5XS3vzJJ06oi3IO22lS7+g==",
+      "token": "1f7f66c1-946c-4a62-ad09-f6dc9178e214"
+    },
+    "vehicle_sedan": {
+      "filename": "sese_car_sedan.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_car_sedan.png?alt=media&token=54931c91-8808-49e2-a311-885fb01ec3ed",
+      "sizeBytes": 190980,
+      "md5": "/Peviwxd0bl3nmKYYGprBA==",
+      "token": "54931c91-8808-49e2-a311-885fb01ec3ed"
+    },
+    "vehicle_premium": {
+      "filename": "sese_executive_premium.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_executive_premium.png?alt=media&token=cabfafc0-4f4a-439a-9095-82bbc69a10d2",
+      "sizeBytes": 200738,
+      "md5": "Iqoq9z7CuoNUOAJjLimpYw==",
+      "token": "cabfafc0-4f4a-439a-9095-82bbc69a10d2"
+    },
+    "vehicle_luxe": {
+      "filename": "sese_luxe_super.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_luxe_super.png?alt=media&token=9702e54d-3f89-4bcd-a0bd-c48448af3f21",
+      "sizeBytes": 171744,
+      "md5": "mK7bf8dQwOtky9f9jlAwfg==",
+      "token": "9702e54d-3f89-4bcd-a0bd-c48448af3f21"
+    },
+    "vehicle_motorcycle": {
+      "filename": "sese_motorcycle.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_motorcycle.png?alt=media&token=4794dece-511b-40d6-b709-783d1e4b8433",
+      "sizeBytes": 374347,
+      "md5": "EdIex7fG9dUcM/Nru50NhQ==",
+      "token": "4794dece-511b-40d6-b709-783d1e4b8433"
+    },
+    "receiver_box": {
+      "filename": "sese_receiver_box.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_receiver_box.png?alt=media&token=ea9547a7-55a2-4b1b-abad-fd6cb48cbaff",
+      "sizeBytes": 318972,
+      "md5": "sLPvAMTiPpqkkFOPXVBMGQ==",
+      "token": "ea9547a7-55a2-4b1b-abad-fd6cb48cbaff"
+    },
+    "sender_box": {
+      "filename": "sese_send_box.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_send_box.png?alt=media&token=f1277a8b-1098-46dc-804a-57b40ec18af8",
+      "sizeBytes": 379788,
+      "md5": "/n0dKauboZFE35b9zIFQ8Q==",
+      "token": "f1277a8b-1098-46dc-804a-57b40ec18af8"
+    },
+    "vehicle_comfort": {
+      "filename": "sese_standard_comfort.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_standard_comfort.png?alt=media&token=18f1a268-7297-407f-864a-f0957735ff88",
+      "sizeBytes": 189738,
+      "md5": "VeoP0Tgpb2Bb9Y17HYANlw==",
+      "token": "18f1a268-7297-407f-864a-f0957735ff88"
+    },
+    "vehicle_keke": {
+      "filename": "sese_tricycle.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_tricycle.png?alt=media&token=1317a0da-69b2-48e5-b034-8f01e6f091f0",
+      "sizeBytes": 503399,
+      "md5": "ENaQ74oAYaesohUdOtYQGQ==",
+      "token": "1317a0da-69b2-48e5-b034-8f01e6f091f0"
+    },
+    "vehicle_truck": {
+      "filename": "sese_truck.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_truck.png?alt=media&token=2aa94f88-fb10-46eb-a2ec-faec5d6c6d24",
+      "sizeBytes": 221853,
+      "md5": "m2bFM7dCCSdlJK8rO1vdug==",
+      "token": "2aa94f88-fb10-46eb-a2ec-faec5d6c6d24"
+    },
+    "vehicle_van": {
+      "filename": "sese_van.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_van.png?alt=media&token=5f7c81d6-e3be-41fc-9b69-7e92bd642ee6",
+      "sizeBytes": 145209,
+      "md5": "jcSZoq0b6cghB42LC+ezdg==",
+      "token": "5f7c81d6-e3be-41fc-9b69-7e92bd642ee6"
+    },
+    "vehicle_tricycle": {
+      "filename": "sese_tricycle.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_tricycle.png?alt=media&token=1317a0da-69b2-48e5-b034-8f01e6f091f0",
+      "sizeBytes": 503399,
+      "md5": "ENaQ74oAYaesohUdOtYQGQ==",
+      "token": "1317a0da-69b2-48e5-b034-8f01e6f091f0"
+    },
+    "vehicle_car": {
+      "filename": "sese_car_sedan.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_car_sedan.png?alt=media&token=54931c91-8808-49e2-a311-885fb01ec3ed",
+      "sizeBytes": 190980,
+      "md5": "/Peviwxd0bl3nmKYYGprBA==",
+      "token": "54931c91-8808-49e2-a311-885fb01ec3ed"
+    },
+    "package_send": {
+      "filename": "sese_send_box.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_send_box.png?alt=media&token=f1277a8b-1098-46dc-804a-57b40ec18af8",
+      "sizeBytes": 379788,
+      "md5": "/n0dKauboZFE35b9zIFQ8Q==",
+      "token": "f1277a8b-1098-46dc-804a-57b40ec18af8"
+    },
+    "package_receive": {
+      "filename": "sese_receiver_box.png",
+      "url": "https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_receiver_box.png?alt=media&token=ea9547a7-55a2-4b1b-abad-fd6cb48cbaff",
+      "sizeBytes": 318972,
+      "md5": "sLPvAMTiPpqkkFOPXVBMGQ==",
+      "token": "ea9547a7-55a2-4b1b-abad-fd6cb48cbaff"
+    }
+  }
+}

@@ -60,6 +60,35 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Custom 3D Vehicle & UI Icon System: Firebase Storage, Dynamic Manifest, Self-Healing Caching & Offline Fallbacks
+
+Implemented a high-fidelity custom icon pipeline and self-healing caching infrastructure across `sese_core`, `sese_ride`, Firebase Storage, and Firestore:
+
+### 1. Source Processing & Asset Pipeline
+- **Clean Alpha Extraction:** Processed transparent PNG assets for all vehicle categories (`bicycle`, `motorcycle`, `tricycle`/`keke`, `sedan`/`car`, `comfort`, `premium`, `luxe`, `van`, `truck`) and package types (`sender_box`, `receiver_box`). Negative spaces (bicycle spokes, motorcycle frame/chassis cutouts, box handles) are cleanly extracted with zero halo or residual artifacts.
+- **Bundled Offline Support:** Copied transparent PNGs into `sese_core/assets/icons/` and `sese_ride/assets/icons/` registered in `pubspec.yaml` ensuring instant 0ms offline availability on clean app install.
+
+### 2. Backend Cloud Storage, Public Rules & Dynamic Firestore Manifest
+- **Firebase Storage Deployment:** Uploaded all 11 transparent PNGs to `sese-ride.firebasestorage.app/ui_assets/icons/` with cryptographic UUID download tokens.
+- **Storage Rules Hardening (`storage.rules`):** Added public read access rule for `ui_assets/{allPaths=**}` with admin-only mutation gating. Deployed to production via `firebase deploy --only storage`.
+- **Dynamic Cloud Manifest (`system_configs/ui_icons` & `icon_manifest.json`):** Generated a structured JSON manifest mapping each icon key to its cloud download URL, token, MD5 hash, and size in bytes. Synced to Firestore `system_configs/ui_icons` for over-the-air updates without app store re-releases.
+
+### 3. Flutter Client-Side Caching Service (`IconCacheService`)
+- **Initialization & Pre-warming (`IconCacheService.instance.initialize()`):** Warmed up asynchronously in `sese_ride/lib/main.dart` on app boot. Ensures local storage directory `app_documents/sese_icons/` exists, verifies existing cached files, primes missing items from bundled assets, and streams updates from Firebase Storage in background.
+- **Self-Healing Fallback (`getLocalFile` & `_CachedIconWidget`):** 
+  - Resolves locally cached `File` first with zero network latency.
+  - If a file is deleted by OS cache clearing or user action, automatically initiates background re-download while rendering bundled package asset fallback.
+  - Multi-tier fallback hierarchy: Local disk -> Bundled asset -> Direct network stream -> Vector CustomPainter fallback.
+
+### 4. Seamless UI Integration (`VehicleIllustration`)
+- Updated `VehicleIllustration` to dynamically map `VehicleArt` to icon cache keys.
+- Renders the custom 3D photo-realistic vehicle or box icon with subtle gold selection glow (`selected: true`) and automatic fallback to legacy vector custom painters in headless or test environments.
+- Automatically enhances `customer_home_map_screen.dart` (Action cards for Book Ride, Send Item, Receive Item), `customer_dispatch_screen.dart` (vehicle selection chips & review lists), and driver screens without any breaking layout changes.
+
+### Verification
+- `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+- Storage rules compiled and deployed cleanly.
+
 ## 2026-10-25 — Payment Mode & Split Payment Workflow, Dynamic Calculations & Role-Based Driver Collection
 
 Implemented the full interactive Payment Mode and Split Payment workflow across `sese_ride`, `sese_core`, and Cloud Functions (`trips.ts`, `customer_dispatch_screen.dart`, `split_payment_sheet.dart`, `driver_active_trip_card.dart`, `trip_models.dart`):

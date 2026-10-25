@@ -41,6 +41,7 @@ flutter:
   assets:
     - assets/sese_logo.svg
     - assets/sese_logo_hub.svg
+    - assets/icons/
     - assets/sounds/online_chime.wav
     - assets/sounds/offline_chime.wav
     - assets/sounds/incoming_message.wav

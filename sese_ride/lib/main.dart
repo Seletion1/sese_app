@@ -74,6 +74,11 @@ void main() async {
   // Never throws: RemoteConfigService falls back to compiled defaults.
   await RemoteConfigService.init();
 
+  // Prime custom UI icons cache (vehicles, package boxes) from local storage
+  // and sync from backend Firebase Storage.
+  // ignore: discarded_futures
+  unawaited(IconCacheService.instance.initialize());
+
   // Non-blocking Over-The-Air (OTA) Dart patch check via Shorebird.
   // Downloads updates in background; applied on next cold app restart.
   // ignore: discarded_futures

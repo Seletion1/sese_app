@@ -53,6 +53,7 @@ export 'services/push_notification_service.dart';
 export 'services/support_media_service.dart';
 export 'services/media_permission_service.dart';
 export 'services/remote_keys_service.dart';
+export 'services/icon_cache_service.dart';
 export 'widgets/apple_sign_in_button.dart';
 export 'widgets/google_sign_in_button.dart';
 export 'widgets/sese_app_bar.dart';
