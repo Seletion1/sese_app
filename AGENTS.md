@@ -60,6 +60,31 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-25 — Booking Flow Address Sheet Collapsing & Order Pool Full-Screen Modal Overhaul
+
+Executed UI/UX overhaul across customer booking dispatch flow (`customer_dispatch_screen.dart`) and driver order pool modal (`order_pool_sheet.dart`):
+
+### 1. Booking Flow & Address Sheet Integration (`customer_dispatch_screen.dart`)
+- **Integrated Top Step Indicator Badge:** Merged the multi-stage step indicator (`1`, `2`, `3`) directly into the top floating address card header during Step 1, removing duplicate vertical blocks.
+- **Auto-Collapsing 2-Line Summary:** Once pickup and drop-off addresses are inputted and resolved (`_addressesReady`), the card automatically collapses into a slim 2-line summary card showing:
+  - Line 1: Green circle + pickup address.
+  - Line 2: Red pin + destination address.
+  - Interactive tap or drag gestures and edit pen button allowing instant re-expansion.
+- **Edge-to-Edge Interactive Map Canvas:** Replaced nested scrollable layout with a full-height interactive map view (`_RouteMapPreview`), framing Point A, Point B, and route polylines with 96px padding so route geometry is never hidden under sheets or bottom buttons.
+
+### 2. Order Pool & Detail Modal Overhaul (`order_pool_sheet.dart`)
+- **Clean Card View:** Eliminated redundant notification strings from order pool list rows to keep cards focused on core metrics.
+- **Full-Screen Interactive Map Route Preview:** Opening an order displays a full-screen background map (`SeSeMapView`) with pickup (A), drop-off (B), driver location, live route polylines, and top navigation controls (back & zoom).
+- **Draggable Bottom Sheet & Unified Action CTA:**
+  - Embedded in `DraggableScrollableSheet` with sender profile, fare, route addresses, and distance/time metrics.
+  - **Stacking Order:** Percentage suggestion pills (`+5%`, `+10%`, highlighted in brand gold `AppColors.seseGold`) and base fare reset are stacked directly above the bottom primary button, with the edit pen icon placed neatly in front.
+  - **Unified Accept Action:** A single prominent primary button at the very bottom smoothly transforms from `"Accept ($fare)"` to `"Send Counter-Offer ($amount)"` when a counter-offer is selected.
+  - **Keyboard Visibility & Insets Fix:** Wrapped with `SingleChildScrollView` and bottom view inset padding (`MediaQuery.of(context).viewInsets.bottom`), ensuring the software keyboard never covers or obscures the custom price input box.
+
+### 3. Verification
+- `flutter analyze` on `order_pool_sheet.dart`: **No issues found**.
+- `flutter analyze` on `customer_dispatch_screen.dart`: **No issues found**.
+
 ## 2026-10-25 — Trip Price Calculation Nearest 100 Rounding Engine
 
 Implemented round-to-nearest-100 price calculation engine across Cloud Functions (`functions/src/pricing.ts`, `functions/src/trips.ts`) and shared core (`sese_core/lib/services/pricing_calculator.dart`, `sese_core/lib/models/pricing_config.dart`):

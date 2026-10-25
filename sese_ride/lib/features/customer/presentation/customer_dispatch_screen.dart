@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -234,6 +233,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // when the live pair matches the preview pair (see [_previewMatchesLive]).
   LatLng? _previewPickup;
   LatLng? _previewDropoff;
+
+  /// Whether the Step 1 address sheet is collapsed to show the 2-line summary
+  /// and maximize map area once addresses are entered.
+  bool _isAddressCardCollapsed = false;
 
   // Last pair a route was fetched for. Skips redundant Directions calls when
   // coordinates resolve to an already-routed pair (e.g. a toggle round-trip
@@ -1034,6 +1037,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     setState(() {
       _suggestions = [];
       _isLoadingSuggestions = false;
+      if (_pickupLatLng != null) {
+        _isAddressCardCollapsed = true;
+      }
     });
 
     _hideSuggestionsOverlay();
@@ -1118,6 +1124,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     setState(() {
       _suggestions = [];
       _isLoadingSuggestions = false;
+      if (_dropoffLatLng != null) {
+        _isAddressCardCollapsed = true;
+      }
     });
 
     _hideSuggestionsOverlay();
@@ -1219,12 +1228,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final pickup = _pickupLatLng;
     final dropoff = _dropoffLatLng;
     if (pickup != null && dropoff != null) {
-      if (pickup != _previewPickup || dropoff != _previewDropoff) {
-        setState(() {
-          _previewPickup = pickup;
-          _previewDropoff = dropoff;
-        });
-      }
+      setState(() {
+        _previewPickup = pickup;
+        _previewDropoff = dropoff;
+        _isAddressCardCollapsed = true;
+      });
     }
     _fetchRoutePreview();
   }
@@ -1899,8 +1907,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               Expanded(
                 child: Text(title, overflow: TextOverflow.ellipsis),
               ),
-              const SizedBox(width: 8),
-              _buildHeaderStepBadge(),
+              if (_currentStep != 0) ...[
+                const SizedBox(width: 8),
+                _buildHeaderStepBadge(),
+              ],
             ],
           ),
           leading: BackButton(
@@ -1918,10 +1928,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             // Expanded. Steps 2-3 keep their scrolling content.
             if (_currentStep == 0)
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                  child: _buildStep1Content(),
-                ),
+                child: _buildStep1Content(),
               )
             else
               Expanded(
@@ -2073,43 +2080,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     return Expanded(child: line);
   }
 
-  /// Current step header (title + subtitle) shown above the step content.
-  /// Keeps the Stepper's text labels so step context is never lost.
-  Widget _buildStepHeader() {
-    final String title;
-    final String subtitle;
-    switch (_currentStep) {
-      case 0:
-        title = 'Enter Locations';
-        subtitle = 'Pickup & destination';
-        break;
-      case 1:
-        title = _selectedModeIndex == 0 ? 'Choose Vehicles' : 'Choose Tiers';
-        subtitle = _selectedModeIndex == 0
-            ? 'Select vehicle types to broadcast'
-            : 'Select tiers to broadcast';
-        break;
-      default:
-        title = 'Review & Confirm';
-        subtitle = 'Check details before booking';
-        break;
-    }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title,
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 2),
-          Text(subtitle,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-        ],
-      ),
-    );
-  }
-
   /// Active step content (exactly one step's body is ever in the tree, so a
   /// single Next/Confirm button exists — same contract the Stepper's
   /// controlsBuilder provided).
@@ -2194,181 +2164,376 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Step 1: Locations ─────────────────────────────────────────────────────
 
   Widget _buildStep1Content() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Map claims everything the fields don't need: the step counter now
-        // lives in the AppBar badge and the duplicate Pick-on-Map buttons
-        // are gone, so the fixed chrome above the map is just the step
-        // header + address fields (~240px). The 180px floor keeps typing
-        // usable when the keyboard halves the viewport.
-        final mapHeight = math.max(
-          180.0,
-          constraints.maxHeight - 240.0,
-        );
+    final previewPickup = _previewPickup ?? _pickupLatLng;
+    final previewDropoff = _previewDropoff ?? _dropoffLatLng;
 
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildStepHeader(),
-                if (_selectedModeIndex == 0) _buildContextAwareModeSelector(),
-                // ── Pickup field ── anchored for the floating suggestions overlay ──
-                CompositedTransformTarget(
-                  link: _pickupLayerLink,
-                  child: TextField(
-                    controller: _pickupController,
-                    focusNode: _pickupFocusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Pickup Location',
-                      hintText: 'Where from?',
-                      alignLabelWithHint: true,
-                      prefixIcon: const Icon(Icons.trip_origin, color: Colors.green),
-                      suffixIcon: (_pickupGeocoding || (_isLoadingSuggestions && _suggestingForPickup))
-                          ? const Padding(
-                              padding: EdgeInsets.all(14),
-                              child: SizedBox(
-                                  width: 16, height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2)))
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (_pickupLatLng != null)
-                                  const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                                IconButton(
-                                  key: const Key('pickup_pick_on_map_icon'),
-                                  icon: const Icon(Icons.map_outlined),
-                                  tooltip: 'Pick pickup on map',
-                                  onPressed: () => _openPickOnMap(target: 'pickup'),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.my_location),
-                                  tooltip: 'Re-detect my location',
-                                  onPressed: _initPickupLocation,
-                                ),
-                              ],
-                            ),
-                      helperText: 'Auto-detected — tap to edit',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      isDense: false,
-                      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-                    ),
-                    // Coordinate invalidation is handled by _onPickupChanged listener.
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // ── Drop-off field ── anchored for the floating suggestions overlay ──
-                CompositedTransformTarget(
-                  link: _dropoffLayerLink,
-                  child: TextField(
-                    controller: _dropoffController,
-                    focusNode: _dropoffFocusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Destination / Drop-off',
-                      hintText: 'Where to?',
-                      alignLabelWithHint: true,
-                      prefixIcon: const Icon(Icons.location_on, color: Colors.red),
-                      suffixIcon: ((_isLoadingSuggestions && !_suggestingForPickup) || _dropoffGeocoding)
-                          ? const Padding(
-                              padding: EdgeInsets.all(14),
-                              child: SizedBox(
-                                  width: 16, height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2)))
-                          : Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (_dropoffLatLng != null)
-                                  const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                                IconButton(
-                                  key: const Key('dropoff_pick_on_map_icon'),
-                                  icon: const Icon(Icons.map_outlined),
-                                  tooltip: 'Pick destination on map',
-                                  onPressed: () => _openPickOnMap(target: 'destination'),
-                                ),
-                              ],
-                            ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      isDense: false,
-                      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-                    ),
-                  ),
-                ),
-                // Map picking lives in the inline field icons above
-                // (`pickup_pick_on_map_icon` / `dropoff_pick_on_map_icon`) —
-                // no duplicate text buttons here, so the map below starts
-                // higher and claims the reclaimed space.
-
-                // Module 3: Home / Work quick-select chips (shown when drop-off is empty).
-                _buildSavedPlaceChips(),
-                if (!_addressesReady && !_pickupGeocoding && _suggestions.isEmpty && !_isLoadingSuggestions)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Row(
-                      children: [
-                        Icon(Icons.info_outline, size: 14, color: Colors.grey.shade500),
-                        const SizedBox(width: 6),
-                        Text(
-                          _pickupLatLng == null
-                              ? 'Enter your pickup address'
-                              : 'Type a destination to continue',
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-                        ),
-                      ],
-                    ),
-                  ),
-                // Sticky preview: stays mounted on the last both-known pair across
-                // Sending/Receiving toggles so the native map view + tiles survive
-                // the switch (no teardown, no grey reload). Route polyline, spinner,
-                // and badge only render while the live pair matches the preview
-                // pair — otherwise pins alone, no stale route claim.
-                if (_previewPickup != null && _previewDropoff != null)
-                  SizedBox(
-                    height: mapHeight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 12, bottom: 12),
-                      child: _RouteMapPreview(
-                        pickup: _previewPickup!,
-                        dropoff: _previewDropoff!,
-                        routePoints:
-                            _previewMatchesLive ? _routePoints : const <LatLng>[],
-                        isLoadingRoute: _fetchingRoute && _previewMatchesLive,
-                        distanceM: _previewMatchesLive ? _routeDistanceM : 0,
-                        durationS: _previewMatchesLive ? _routeDurationS : 0,
-                      ),
-                    ),
-                  ),
-              ],
+    return Stack(
+      children: [
+        // ── Layer 0: Full Interactive Map Background ──
+        if (previewPickup != null)
+          Positioned.fill(
+            child: _RouteMapPreview(
+              pickup: previewPickup,
+              dropoff: previewDropoff,
+              routePoints:
+                  _previewMatchesLive ? _routePoints : const <LatLng>[],
+              isLoadingRoute: _fetchingRoute && _previewMatchesLive,
+              distanceM: _previewMatchesLive ? _routeDistanceM : 0,
+              durationS: _previewMatchesLive ? _routeDurationS : 0,
+              padding: _isAddressCardCollapsed ? 96.0 : 130.0,
+            ),
+          )
+        else
+          Positioned.fill(
+            child: Container(
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withValues(alpha: 0.3),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
           ),
-        );
+
+        // ── Layer 1: Merged Draggable / Collapsible Address Sheet ──
+        Positioned(
+          top: 8,
+          left: 12,
+          right: 12,
+          child: _buildStep1AddressSheet(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep1AddressSheet() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return GestureDetector(
+      onVerticalDragEnd: (details) {
+        if (details.primaryVelocity != null) {
+          if (details.primaryVelocity! < -150 && _addressesReady) {
+            setState(() => _isAddressCardCollapsed = true);
+          } else if (details.primaryVelocity! > 150) {
+            setState(() => _isAddressCardCollapsed = false);
+          }
+        }
       },
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        child: _isAddressCardCollapsed && _addressesReady
+            ? _buildStep1CollapsedSummary(scheme)
+            : _buildStep1ExpandedCard(scheme),
+      ),
+    );
+  }
+
+  Widget _buildStep1CollapsedSummary(ColorScheme scheme) {
+    return Card(
+      elevation: 4,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => setState(() => _isAddressCardCollapsed = false),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    'Step 1: Locations',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const Spacer(),
+                  _buildHeaderStepBadge(),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: AppColors.seseGold.withValues(alpha: 0.18),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.edit,
+                      size: 14,
+                      color: AppColors.seseGold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.circle, size: 8, color: Colors.green),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _pickupController.text.isNotEmpty
+                          ? _pickupController.text
+                          : 'Pickup location',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  const Icon(Icons.location_on, size: 10, color: Colors.redAccent),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _dropoffController.text.isNotEmpty
+                          ? _dropoffController.text
+                          : 'Destination',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStep1ExpandedCard(ColorScheme scheme) {
+    return Card(
+      elevation: 6,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.65,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Text(
+                    'Step 1: Locations',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const Spacer(),
+                  _buildHeaderStepBadge(),
+                  if (_addressesReady) ...[
+                    const SizedBox(width: 6),
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_up),
+                      tooltip: 'Collapse sheet',
+                      onPressed: () =>
+                          setState(() => _isAddressCardCollapsed = true),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_selectedModeIndex == 0) _buildContextAwareModeSelector(),
+              const SizedBox(height: 6),
+              // ── Pickup field ──
+              CompositedTransformTarget(
+                link: _pickupLayerLink,
+                child: TextField(
+                  controller: _pickupController,
+                  focusNode: _pickupFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Pickup Location',
+                    hintText: 'Where from?',
+                    alignLabelWithHint: true,
+                    prefixIcon:
+                        const Icon(Icons.trip_origin, color: Colors.green),
+                    suffixIcon: (_pickupGeocoding ||
+                            (_isLoadingSuggestions && _suggestingForPickup))
+                        ? const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)))
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_pickupLatLng != null)
+                                const Icon(Icons.check_circle,
+                                    color: Colors.green, size: 20),
+                              IconButton(
+                                key: const Key('pickup_pick_on_map_icon'),
+                                icon: const Icon(Icons.map_outlined),
+                                tooltip: 'Pick pickup on map',
+                                onPressed: () =>
+                                    _openPickOnMap(target: 'pickup'),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.my_location),
+                                tooltip: 'Re-detect my location',
+                                onPressed: _initPickupLocation,
+                              ),
+                            ],
+                          ),
+                    helperText: 'Auto-detected — tap to edit',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    isDense: false,
+                    contentPadding:
+                        const EdgeInsets.fromLTRB(12, 14, 12, 10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // ── Drop-off field ──
+              CompositedTransformTarget(
+                link: _dropoffLayerLink,
+                child: TextField(
+                  controller: _dropoffController,
+                  focusNode: _dropoffFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Destination / Drop-off',
+                    hintText: 'Where to?',
+                    alignLabelWithHint: true,
+                    prefixIcon:
+                        const Icon(Icons.location_on, color: Colors.red),
+                    suffixIcon: ((_isLoadingSuggestions &&
+                                !_suggestingForPickup) ||
+                            _dropoffGeocoding)
+                        ? const Padding(
+                            padding: EdgeInsets.all(14),
+                            child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2)))
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_dropoffLatLng != null)
+                                const Icon(Icons.check_circle,
+                                    color: Colors.green, size: 20),
+                              IconButton(
+                                key: const Key('dropoff_pick_on_map_icon'),
+                                icon: const Icon(Icons.map_outlined),
+                                tooltip: 'Pick destination on map',
+                                onPressed: () =>
+                                    _openPickOnMap(target: 'destination'),
+                              ),
+                            ],
+                          ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    isDense: false,
+                    contentPadding:
+                        const EdgeInsets.fromLTRB(12, 14, 12, 10),
+                  ),
+                ),
+              ),
+              // Home / Work chips
+              _buildSavedPlaceChips(),
+              if (!_addressesReady &&
+                  !_pickupGeocoding &&
+                  _suggestions.isEmpty &&
+                  !_isLoadingSuggestions)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 14, color: Colors.grey.shade500),
+                      const SizedBox(width: 6),
+                      Text(
+                        _pickupLatLng == null
+                            ? 'Enter your pickup address'
+                            : 'Type a destination to continue',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey.shade500),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_addressesReady) ...[
+                const SizedBox(height: 6),
+                Center(
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.map_outlined, size: 14),
+                    label: const Text('Collapse to view map',
+                        style: TextStyle(fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: scheme.primary,
+                    ),
+                    onPressed: () =>
+                        setState(() => _isAddressCardCollapsed = true),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -3368,7 +3533,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 /// geometry with straight-line fallback supplied by the parent).
 class _RouteMapPreview extends StatefulWidget {
   final LatLng pickup;
-  final LatLng dropoff;
+  final LatLng? dropoff;
   final List<LatLng> routePoints;
   final bool isLoadingRoute;
 
@@ -3380,13 +3545,17 @@ class _RouteMapPreview extends StatefulWidget {
   /// 0 when routing failed and a straight line is shown.
   final int durationS;
 
+  /// Camera padding when framing bounds.
+  final double padding;
+
   const _RouteMapPreview({
     required this.pickup,
-    required this.dropoff,
+    this.dropoff,
     required this.routePoints,
     required this.isLoadingRoute,
     this.distanceM = 0,
     this.durationS = 0,
+    this.padding = 88.0,
   });
 
   @override
@@ -3419,7 +3588,8 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pickup != widget.pickup ||
         oldWidget.dropoff != widget.dropoff ||
-        oldWidget.routePoints.length != widget.routePoints.length) {
+        oldWidget.routePoints.length != widget.routePoints.length ||
+        oldWidget.padding != widget.padding) {
       // New bounds — restart the attempt budget so the reframe lands even
       // if the first post-layout shot misses.
       _fitAttempts = 0;
@@ -3436,11 +3606,16 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     _fitAttempts++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (widget.dropoff == null) {
+        // ignore: discarded_futures
+        _mapController.move(widget.pickup, 14.5);
+        return;
+      }
       // ignore: discarded_futures
       _mapController.fitPoints(
         widget.pickup,
-        widget.dropoff,
-        padding: 56,
+        widget.dropoff!,
+        padding: widget.padding,
       );
       if (_fitAttempts < _maxFitAttempts) {
         Future.delayed(_fitRetryDelay, _fitBounds);
@@ -3461,14 +3636,16 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     // both markers with padding after the controller is available.
     final pickup = widget.pickup;
     final dropoff = widget.dropoff;
-    final center = LatLng(
-      (pickup.latitude + dropoff.latitude) / 2,
-      (pickup.longitude + dropoff.longitude) / 2,
-    );
+    final center = dropoff != null
+        ? LatLng(
+            (pickup.latitude + dropoff.latitude) / 2,
+            (pickup.longitude + dropoff.longitude) / 2,
+          )
+        : pickup;
 
     final markers = [
       SeSeMapView.pin(point: pickup, color: Colors.green),
-      SeSeMapView.pin(point: dropoff, color: Colors.red),
+      if (dropoff != null) SeSeMapView.pin(point: dropoff, color: Colors.red),
     ];
 
     final polylines = [
