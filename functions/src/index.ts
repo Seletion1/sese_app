@@ -131,6 +131,12 @@ export {
   adminRegisterUser,
 } from "./adminOnboarding";
 
+export {
+  sendTransactionalEmail,
+  sendEmailOtp,
+  verifyEmailOtp,
+} from "./email";
+
 interface CalculateFareData {
   pickup: { lat: number; lng: number };
   dropoff: { lat: number; lng: number };

@@ -142,6 +142,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _mapboxQuotaCapCtrl = TextEditingController(text: '50000');
   final _cartoQuotaCapCtrl = TextEditingController(text: '100000');
   final _exchangeRateApiKeyCtrl = TextEditingController(text: 'ex_live_79a2b8c3d4e5f6g7h8i9_sample');
+  final _resendApiKeyCtrl = TextEditingController();
   final _osmTileServerUrlCtrl = TextEditingController(
       text: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
   final _remoteMinTopUpCtrl = TextEditingController(text: '1300');
@@ -162,6 +163,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _obscureGoogleMapsKey = true;
   bool _obscureMapboxKey = true;
   bool _obscureExchangeRateKey = true;
+  bool _obscureResendKey = true;
 
   // Driver Resting Break & Timer Configuration
   final _driverBreakOption1Ctrl = TextEditingController(text: '30');
@@ -254,6 +256,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _mapboxQuotaCapCtrl.dispose();
     _cartoQuotaCapCtrl.dispose();
     _exchangeRateApiKeyCtrl.dispose();
+    _resendApiKeyCtrl.dispose();
     _osmTileServerUrlCtrl.dispose();
     _remoteMinTopUpCtrl.dispose();
     _remoteWithdrawalThresholdCtrl.dispose();
@@ -312,6 +315,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _exchangeRateApiKeyCtrl.text = remoteKeys.exchangeRateApiKey.isEmpty
           ? 'ex_live_79a2b8c3d4e5f6g7h8i9_sample'
           : remoteKeys.exchangeRateApiKey;
+      _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
       _activeMapProvider =
           GlobalMapConfig(activeProvider: remoteKeys.activeMapProvider).normalizedProvider;
       _manualOverrideProvider =
@@ -696,6 +700,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               : GlobalMapConfig.defaultMapboxStyle,
           featureProviders: Map<String, String>.from(_featureProviders),
           exchangeRateApiKey: _exchangeRateApiKeyCtrl.text.trim(),
+          resendApiKey: _resendApiKeyCtrl.text.trim(),
           activeMapProvider: _activeMapProvider,
           osmTileServerUrl: _osmTileServerUrlCtrl.text.trim(),
           manualOverrideProvider:
@@ -1083,6 +1088,30 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                         onPressed: () {
                           setState(() {
                             _obscureExchangeRateKey = !_obscureExchangeRateKey;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: TextFormField(
+                    controller: _resendApiKeyCtrl,
+                    obscureText: _obscureResendKey,
+                    decoration: InputDecoration(
+                      labelText: 'Resend API Key (re_...)',
+                      helperText: 'Transactional email API key for noreply@sesetech.com',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureResendKey
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureResendKey = !_obscureResendKey;
                           });
                         },
                       ),

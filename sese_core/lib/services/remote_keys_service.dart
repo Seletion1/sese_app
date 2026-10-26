@@ -21,6 +21,7 @@ class RemoteKeysConfig {
   final Map<String, String> featureProviders;
 
   final String exchangeRateApiKey;
+  final String resendApiKey;
 
   /// Active map provider: `'google'`, `'mapbox'`, or `'cartodb'`.
   /// Legacy `'open_street_map'` / `'osm'` values are normalised to `'cartodb'`.
@@ -50,6 +51,7 @@ class RemoteKeysConfig {
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
     this.featureProviders = const {},
     this.exchangeRateApiKey = 'ex_live_79a2b8c3d4e5f6g7h8i9_sample',
+    this.resendApiKey = '',
     this.activeMapProvider = 'cartodb',
     this.osmTileServerUrl =
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
@@ -156,6 +158,12 @@ class RemoteKeysConfig {
               'ex_live_79a2b8c3d4e5f6g7h8i9_sample')
           .toString()
           .trim(),
+      resendApiKey: (map['resendApiKey'] ??
+              map['resend_api_key'] ??
+              map['resendKey'] ??
+              '')
+          .toString()
+          .trim(),
       activeMapProvider: (map['activeMapProvider'] ??
               map['active_map_provider'] ??
               map['activeProvider'] ??
@@ -238,6 +246,8 @@ class RemoteKeysConfig {
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
       'exchangeRateApiKey': exchangeRateApiKey.trim(),
+      'resendApiKey': resendApiKey.trim(),
+      'resend_api_key': resendApiKey.trim(),
       'activeMapProvider': activeMapProvider,
       'activeProvider': mapCfg.normalizedProvider,
       'osmTileServerUrl': osmTileServerUrl.trim(),

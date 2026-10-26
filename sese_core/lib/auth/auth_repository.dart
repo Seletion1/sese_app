@@ -99,6 +99,21 @@ abstract class AuthRepository {
     UserRole? role,
   });
 
+  /// Triggers Firebase Phone Authentication SMS OTP delivery for [phoneNumber].
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required void Function(String verificationId, int? resendToken) codeSent,
+    required void Function(Object exception) verificationFailed,
+    required void Function(String verificationId) codeAutoRetrievalTimeout,
+  });
+
+  /// Completes Phone Auth sign-in using [verificationId] and 6-digit SMS [smsCode].
+  Future<AppUser> signInWithPhoneCredential({
+    required String verificationId,
+    required String smsCode,
+    UserRole? selectedRole,
+  });
+
   /// Signs out the currently authenticated user.
   Future<void> signOut();
 }

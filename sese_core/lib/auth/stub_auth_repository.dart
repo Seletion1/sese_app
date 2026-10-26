@@ -74,6 +74,32 @@ class StubAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required void Function(String verificationId, int? resendToken) codeSent,
+    required void Function(Object exception) verificationFailed,
+    required void Function(String verificationId) codeAutoRetrievalTimeout,
+  }) async {
+    codeSent('stub_verification_id', 123456);
+  }
+
+  @override
+  Future<AppUser> signInWithPhoneCredential({
+    required String verificationId,
+    required String smsCode,
+    UserRole? selectedRole,
+  }) async {
+    return AppUser(
+      uid: 'stub_user',
+      fullName: 'Phone User',
+      email: 'phone@test.co',
+      phoneNumber: '+2348012345678',
+      role: selectedRole ?? UserRole.customer,
+      createdAt: DateTime.now(),
+    );
+  }
+
+  @override
   Future<void> signOut() async {}
 }
 

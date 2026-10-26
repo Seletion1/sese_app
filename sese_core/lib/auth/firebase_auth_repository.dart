@@ -780,6 +780,68 @@ class FirebaseAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required void Function(String verificationId, int? resendToken) codeSent,
+    required void Function(Object exception) verificationFailed,
+    required void Function(String verificationId) codeAutoRetrievalTimeout,
+  }) async {
+    final auth = _auth;
+    if (auth == null) {
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized.',
+      );
+    }
+    await auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber.trim(),
+      verificationCompleted: (fb.PhoneAuthCredential credential) async {
+        try {
+          await auth.signInWithCredential(credential);
+        } catch (e) {
+          debugPrint('verifyPhoneNumber auto-completion error: $e');
+        }
+      },
+      verificationFailed: (fb.FirebaseAuthException e) {
+        verificationFailed(e);
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        codeSent(verificationId, resendToken);
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        codeAutoRetrievalTimeout(verificationId);
+      },
+    );
+  }
+
+  @override
+  Future<AppUser> signInWithPhoneCredential({
+    required String verificationId,
+    required String smsCode,
+    UserRole? selectedRole,
+  }) async {
+    final auth = _auth;
+    if (auth == null) {
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized.',
+      );
+    }
+    final credential = fb.PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode.trim(),
+    );
+    final userCredential = await auth.signInWithCredential(credential);
+    final firebaseUser = userCredential.user!;
+    final appUser = await _fetchAppUser(firebaseUser, selectedRole: selectedRole);
+    if (appUser.role == UserRole.customer || appUser.role == UserRole.driver) {
+      // ignore: discarded_futures
+      _recordAuthProvider(firebaseUser.uid, appUser.role, 'phone');
+    }
+    return appUser;
+  }
+
+  @override
   Future<void> deleteAccount({String? password}) async {
     final auth = _auth;
     final currentUser = auth?.currentUser;
