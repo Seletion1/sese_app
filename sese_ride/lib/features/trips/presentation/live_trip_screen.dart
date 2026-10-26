@@ -1226,7 +1226,9 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                 ],
               ),
 
-              if (trip.deliveryPinRequired && trip.deliveryPin != null) ...[
+              if (trip.deliveryPinRequired &&
+                  trip.deliveryPin != null &&
+                  trip.deliveryPin!.trim().isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _DeliveryPinBanner(pin: trip.deliveryPin!),
               ],

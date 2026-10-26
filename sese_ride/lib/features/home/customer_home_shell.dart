@@ -181,96 +181,9 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
               builder: (context, snapshot) {
                 final activeTrips = snapshot.data ?? [];
                 if (activeTrips.isEmpty) return const SizedBox.shrink();
-                final trip = activeTrips.first;
-                return Material(
-                  elevation: 6,
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => LiveTripScreen(
-                            tripId: trip.tripId,
-                            repository: widget.tripRepository ??
-                                FirestoreTripRepository(),
-                          ),
-                        ),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                      child: Row(
-                        children: [
-                          Icon(
-                            trip.serviceType == 'send_item'
-                                ? Icons.local_shipping
-                                : Icons.directions_car,
-                            color: Theme.of(context).colorScheme.onPrimaryContainer,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  trip.status == TripStatus.driverAccepted ||
-                                          trip.status == TripStatus.driverArriving
-                                      ? 'Driver is on the way'
-                                      : trip.status == TripStatus.inProgress
-                                          ? 'Trip in progress'
-                                          : 'Searching for driver...',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onPrimaryContainer,
-                                  ),
-                                ),
-                                if (trip.dropoffAddress.isNotEmpty)
-                                  Text(
-                                    'To: ${trip.dropoffAddress}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onPrimaryContainer
-                                          .withValues(alpha: 0.8),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'View',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onPrimaryContainer,
-                                ),
-                              ),
-                              Icon(
-                                Icons.chevron_right,
-                                size: 18,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onPrimaryContainer,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                return _MultiBookingBanner(
+                  activeTrips: activeTrips,
+                  tripRepository: widget.tripRepository,
                 );
               },
             ),
@@ -438,6 +351,288 @@ class _VerificationBanner extends StatelessWidget {
               ),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+class _MultiBookingBanner extends StatefulWidget {
+  final List<ActiveTrip> activeTrips;
+  final TripRepository? tripRepository;
+
+  const _MultiBookingBanner({
+    required this.activeTrips,
+    this.tripRepository,
+  });
+
+  @override
+  State<_MultiBookingBanner> createState() => _MultiBookingBannerState();
+}
+
+class _MultiBookingBannerState extends State<_MultiBookingBanner> {
+  int _currentPage = 0;
+  final _pageController = PageController();
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.activeTrips.isEmpty) return const SizedBox.shrink();
+
+    if (widget.activeTrips.length == 1) {
+      return _ActiveTripCardBanner(
+        trip: widget.activeTrips.first,
+        tripRepository: widget.tripRepository,
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Active Requests (${_currentPage + 1} of ${widget.activeTrips.length})',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+              Row(
+                children: List.generate(
+                  widget.activeTrips.length,
+                  (index) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    width: _currentPage == index ? 14 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(3),
+                      color: _currentPage == index
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer
+                              .withValues(alpha: 0.3),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 68,
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: widget.activeTrips.length,
+            onPageChanged: (idx) => setState(() => _currentPage = idx),
+            itemBuilder: (context, index) {
+              return _ActiveTripCardBanner(
+                trip: widget.activeTrips[index],
+                tripRepository: widget.tripRepository,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActiveTripCardBanner extends StatelessWidget {
+  final ActiveTrip trip;
+  final TripRepository? tripRepository;
+
+  const _ActiveTripCardBanner({
+    required this.trip,
+    this.tripRepository,
+  });
+
+  bool get _isSearching =>
+      trip.status == TripStatus.searchingDriver ||
+      trip.status == TripStatus.waitingForAcceptance ||
+      trip.status == TripStatus.bidding ||
+      trip.status == TripStatus.marketplaceOpen ||
+      trip.status == TripStatus.driverPinged;
+
+  @override
+  Widget build(BuildContext context) {
+    final onPrimary = Theme.of(context).colorScheme.onPrimaryContainer;
+
+    final String statusText;
+    if (trip.status == TripStatus.driverAccepted ||
+        trip.status == TripStatus.driverArriving) {
+      statusText = 'Driver is on the way';
+    } else if (trip.status == TripStatus.driverArrived) {
+      statusText = 'Driver has arrived';
+    } else if (trip.status == TripStatus.inProgress) {
+      statusText = 'Trip in progress';
+    } else if (trip.status == TripStatus.needsCustomerAction) {
+      statusText = 'Action Needed: Boost Fare';
+    } else {
+      statusText = 'Searching for driver...';
+    }
+
+    return Material(
+      elevation: 6,
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => LiveTripScreen(
+                tripId: trip.tripId,
+                repository: tripRepository ?? FirestoreTripRepository(),
+              ),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                trip.serviceType == 'send_item' || trip.serviceType == 'receive_item'
+                    ? Icons.local_shipping
+                    : Icons.directions_car,
+                color: onPrimary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        if (_isSearching) ...[
+                          const _SearchingRadarIndicator(
+                            color: AppColors.seseGold,
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Expanded(
+                          child: Text(
+                            statusText,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: onPrimary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (trip.dropoffAddress.isNotEmpty)
+                      Text(
+                        'To: ${trip.dropoffAddress}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: onPrimary.withValues(alpha: 0.8),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'View',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: onPrimary,
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 18,
+                    color: onPrimary,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchingRadarIndicator extends StatefulWidget {
+  final Color color;
+
+  const _SearchingRadarIndicator({required this.color});
+
+  @override
+  State<_SearchingRadarIndicator> createState() =>
+      _SearchingRadarIndicatorState();
+}
+
+class _SearchingRadarIndicatorState extends State<_SearchingRadarIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.color
+                .withValues(alpha: 0.3 + (_controller.value * 0.7)),
+            boxShadow: [
+              BoxShadow(
+                color: widget.color
+                    .withValues(alpha: 0.4 * _controller.value),
+                blurRadius: 6 * _controller.value,
+                spreadRadius: 2 * _controller.value,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.color,
+              ),
+            ),
+          ),
         );
       },
     );

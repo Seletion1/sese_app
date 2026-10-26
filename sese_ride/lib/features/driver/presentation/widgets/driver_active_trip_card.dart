@@ -277,7 +277,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         }
       }
 
-      if (trip.serviceType != 'ride') {
+      if (trip.serviceType != 'ride' && trip.deliveryPinRequired) {
         await _askDeliveryPin(trip);
         return;
       }

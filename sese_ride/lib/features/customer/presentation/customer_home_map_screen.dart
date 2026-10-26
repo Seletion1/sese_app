@@ -199,8 +199,10 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
                             final activeTrips =
                                 (snapshot.data ?? []).where((t) => t.isLive).toList();
                             if (activeTrips.isEmpty) return const SizedBox.shrink();
-                            final trip = activeTrips.first;
-                            return _buildActiveTripFloatingPill(trip);
+                            if (activeTrips.length > 1) {
+                              return _buildMultiActiveTripFloatingPills(activeTrips);
+                            }
+                            return _buildActiveTripFloatingPill(activeTrips.first);
                           },
                         ),
                       ),
@@ -232,9 +234,73 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     );
   }
 
+  int _activePillIndex = 0;
+
+  Widget _buildMultiActiveTripFloatingPills(List<ActiveTrip> activeTrips) {
+    if (_activePillIndex >= activeTrips.length) {
+      _activePillIndex = 0;
+    }
+    final currentTrip = activeTrips[_activePillIndex];
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildActiveTripFloatingPill(currentTrip),
+        const SizedBox(height: 4),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade700.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _activePillIndex =
+                          (_activePillIndex - 1 + activeTrips.length) %
+                              activeTrips.length;
+                    });
+                  },
+                  child: const Icon(Icons.arrow_left, size: 18),
+                ),
+                Text(
+                  '${_activePillIndex + 1} of ${activeTrips.length} active',
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _activePillIndex =
+                          (_activePillIndex + 1) % activeTrips.length;
+                    });
+                  },
+                  child: const Icon(Icons.arrow_right, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildActiveTripFloatingPill(ActiveTrip trip) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+
+    final isSearching = trip.status == TripStatus.searchingDriver ||
+        trip.status == TripStatus.waitingForAcceptance ||
+        trip.status == TripStatus.bidding ||
+        trip.status == TripStatus.marketplaceOpen ||
+        trip.status == TripStatus.driverPinged;
 
     final String statusText;
     final Color badgeColor;
@@ -285,22 +351,34 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: badgeColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: badgeColor.withValues(alpha: 0.5),
-                      blurRadius: 6,
-                      spreadRadius: 2,
-                    ),
-                  ],
+              if (isSearching) ...[
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE5A93C)),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
+                const SizedBox(width: 8),
+              ] else ...[
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: badgeColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: badgeColor.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               Icon(
                 trip.serviceType == 'send_item' ||
                         trip.serviceType == 'receive_item'
