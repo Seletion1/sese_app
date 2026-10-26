@@ -79,78 +79,25 @@ abstract final class MapProviderPolicy {
     }
   }
 
-  /// Resolves the renderer. Respects [MapConfigController.instance] and
-  /// dynamic fallbacks including the Mapbox fallback and circuit breaker.
-  ///
-  /// When [feature] is non-null and Hub-pinned to an explicit provider, that
-  /// provider wins (subject to key/fallback safety). Defaults to the slot
-  /// for [context] via [featureForContext].
+  /// Resolves the renderer. Respects [MapConfigController.instance] circular
+  /// rotation fallback chain (**Google Maps → Mapbox → CartoDB → Google Maps**).
   static MapProvider resolve(
     MapContext context, {
     String? activeMapProvider,
     GlobalMapConfig? mapConfig,
     MapFeature? feature,
   }) {
-    final cfg = mapConfig ??
-        (activeMapProvider != null && activeMapProvider.isNotEmpty
-            ? GlobalMapConfig(activeProvider: activeMapProvider)
-            : MapConfigController.instance.currentConfig);
-
     final slot = feature ?? featureForContext(context);
-    if (slot != null) {
-      final pinned = cfg.featureProviderRaw(slot);
-      if (pinned != 'auto') {
-        return _resolveCode(pinned, cfg);
-      }
-    }
+    final effectiveType = slot != null
+        ? MapConfigController.instance.providerTypeForFeature(slot)
+        : MapConfigController.instance.effectiveProviderType;
 
-    if (cfg.isCartoDb) return MapProvider.cartoDb;
-
-    if (cfg.isMapbox) {
-      if (MapConfigController.instance.isMapboxFallbackActive ||
-          !cfg.hasValidMapboxToken) {
-        return MapProvider.cartoDb;
-      }
-      return MapProvider.mapbox;
-    }
-
-    if (cfg.isGoogle) {
-      if (MapConfigController.instance.isGoogleFallbackActive ||
-          !cfg.hasValidApiKey) {
-        // Cascade: try Mapbox, then CartoDB
-        if (cfg.hasValidMapboxToken &&
-            !MapConfigController.instance.isMapboxFallbackActive) {
-          return MapProvider.mapbox;
-        }
-        return MapProvider.cartoDb;
-      }
-      return MapProvider.googleMaps;
-    }
-
-    return MapProvider.cartoDb;
-  }
-
-  /// Resolves an explicit Hub-pinned provider code with full safety:
-  /// missing keys, GMS absence (handled by callers via [gmsOk]), and active
-  /// fallbacks all cascade down the chain instead of going blank.
-  static MapProvider _resolveCode(String code, GlobalMapConfig cfg) {
-    final controller = MapConfigController.instance;
-    switch (code) {
-      case 'google':
-        if (controller.isGoogleFallbackActive || !cfg.hasValidApiKey) {
-          if (cfg.hasValidMapboxToken && !controller.isMapboxFallbackActive) {
-            return MapProvider.mapbox;
-          }
-          return MapProvider.cartoDb;
-        }
+    switch (effectiveType) {
+      case MapProviderType.google:
         return MapProvider.googleMaps;
-      case 'mapbox':
-        if (controller.isMapboxFallbackActive || !cfg.hasValidMapboxToken) {
-          return MapProvider.cartoDb;
-        }
+      case MapProviderType.mapbox:
         return MapProvider.mapbox;
-      case 'cartodb':
-      default:
+      case MapProviderType.cartodb:
         return MapProvider.cartoDb;
     }
   }
@@ -458,6 +405,13 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
     if (_isTripContext(widget.mapContext)) {
       _frozenConfig = MapConfigController.instance.snapshotConfig();
     }
+    final resolved = MapProviderPolicy.resolve(
+      widget.mapContext,
+      feature: widget.feature,
+    );
+    MapConfigController.instance.incrementUsage(
+      MapProviderType.fromCode(resolved.name),
+    );
   }
 
   @override

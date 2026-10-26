@@ -43,6 +43,10 @@ class RemoteKeysConfig {
   final int driverBreakOption2Minutes;
   final bool driverBreakEnabled;
 
+  final int googleMonthlyCap;
+  final int mapboxMonthlyCap;
+  final int cartoMonthlyCap;
+
   const RemoteKeysConfig({
     this.paystackPublicKey = 'pk_test_07354be9dc28e79ca4cb7d2cc4818d81ebfd696b',
     this.paystackSecretKey = 'sk_test_4e0edebfb09041155f816f2e8cff7cfb5bbfac98',
@@ -66,6 +70,9 @@ class RemoteKeysConfig {
     this.driverBreakOption1Minutes = 30,
     this.driverBreakOption2Minutes = 60,
     this.driverBreakEnabled = true,
+    this.googleMonthlyCap = 20000,
+    this.mapboxMonthlyCap = 50000,
+    this.cartoMonthlyCap = 100000,
   });
 
   factory RemoteKeysConfig.fromMap(Map<String, dynamic>? map) {
@@ -207,6 +214,9 @@ class RemoteKeysConfig {
           map['driver_break_option_2_minutes'] ?? map['driverBreakOption2Minutes'],
           60),
       driverBreakEnabled: (map['driver_break_enabled'] ?? map['driverBreakEnabled']) != false,
+      googleMonthlyCap: intOf(map['googleMonthlyCap'] ?? map['googleQuotaCap'], 20000),
+      mapboxMonthlyCap: intOf(map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap'], 50000),
+      cartoMonthlyCap: intOf(map['cartoMonthlyCap'] ?? map['cartoQuotaCap'], 100000),
     );
   }
 
@@ -224,6 +234,9 @@ class RemoteKeysConfig {
                 ? manualOverrideProvider
                 : null,
         featureProviders: Map<String, String>.from(featureProviders),
+        googleMonthlyCap: googleMonthlyCap,
+        mapboxMonthlyCap: mapboxMonthlyCap,
+        cartoMonthlyCap: cartoMonthlyCap,
       );
 
   Map<String, dynamic> toMap() {
@@ -242,6 +255,9 @@ class RemoteKeysConfig {
       'mapboxStyle': mapboxStyle.trim(),
       'mapbox_style': mapboxStyle.trim(),
       'featureProviders': Map<String, String>.from(featureProviders),
+      'googleMonthlyCap': googleMonthlyCap,
+      'mapboxMonthlyCap': mapboxMonthlyCap,
+      'cartoMonthlyCap': cartoMonthlyCap,
       for (final f in MapFeature.values)
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],

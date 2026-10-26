@@ -47,18 +47,100 @@ class MapConfigController {
   int _tileErrorCount = 0;
   bool _circuitOpen = false;
 
+  // ── Usage counter state ───────────────────────────────────────────────────
+
+  int _googleUsageCount = 0;
+  int _mapboxUsageCount = 0;
+  int _cartoUsageCount = 0;
+
+  bool _isCartoFallbackActive = false;
+  String? _cartoFallbackReason;
+
   // ── Accessors ──────────────────────────────────────────────────────────────
 
   /// The current synchronous snapshot of the map configuration.
   GlobalMapConfig get currentConfig => configNotifier.value;
 
-  bool get isGoogleFallbackActive => _isGoogleFallbackActive || _circuitOpen;
-  String? get fallbackReason => _circuitOpen
-      ? 'Google Maps circuit breaker open (quota/tile errors). Resets monthly.'
-      : _googleFallbackReason;
+  int get googleUsageCount => _googleUsageCount;
+  int get mapboxUsageCount => _mapboxUsageCount;
+  int get cartoUsageCount => _cartoUsageCount;
 
-  bool get isMapboxFallbackActive => _isMapboxFallbackActive;
-  String? get mapboxFallbackReason => _mapboxFallbackReason;
+  bool get isGoogleQuotaExceeded =>
+      _googleUsageCount >= currentConfig.googleMonthlyCap;
+  bool get isMapboxQuotaExceeded =>
+      _mapboxUsageCount >= currentConfig.mapboxMonthlyCap;
+  bool get isCartoQuotaExceeded =>
+      _cartoUsageCount >= currentConfig.cartoMonthlyCap;
+
+  bool get isGoogleFallbackActive =>
+      _isGoogleFallbackActive || _circuitOpen || isGoogleQuotaExceeded;
+  String? get fallbackReason {
+    if (_circuitOpen) {
+      return 'Google Maps circuit breaker open (quota/tile errors). Resets monthly.';
+    }
+    if (isGoogleQuotaExceeded) {
+      return 'Google Maps monthly usage cap (${currentConfig.googleMonthlyCap}) reached.';
+    }
+    return _googleFallbackReason;
+  }
+
+  bool get isMapboxFallbackActive =>
+      _isMapboxFallbackActive || isMapboxQuotaExceeded;
+  String? get mapboxFallbackReason {
+    if (isMapboxQuotaExceeded) {
+      return 'Mapbox monthly usage cap (${currentConfig.mapboxMonthlyCap}) reached.';
+    }
+    return _mapboxFallbackReason;
+  }
+
+  /// Increments usage counter for [provider] and triggers fallback if cap is hit.
+  void incrementUsage(MapProviderType provider) {
+    switch (provider) {
+      case MapProviderType.google:
+        _googleUsageCount++;
+        if (_googleUsageCount >= currentConfig.googleMonthlyCap) {
+          triggerGoogleFallback(
+            reason:
+                'Google Maps monthly quota cap (${currentConfig.googleMonthlyCap}) reached.',
+          );
+        }
+        break;
+      case MapProviderType.mapbox:
+        _mapboxUsageCount++;
+        if (_mapboxUsageCount >= currentConfig.mapboxMonthlyCap) {
+          triggerMapboxFallback(
+            reason:
+                'Mapbox monthly quota cap (${currentConfig.mapboxMonthlyCap}) reached.',
+          );
+        }
+        break;
+      case MapProviderType.cartodb:
+        _cartoUsageCount++;
+        if (_cartoUsageCount >= currentConfig.cartoMonthlyCap) {
+          _isCartoFallbackActive = true;
+          _cartoFallbackReason =
+              'CartoDB monthly quota cap (${currentConfig.cartoMonthlyCap}) reached.';
+          configNotifier.value = configNotifier.value;
+        }
+        break;
+    }
+  }
+
+  /// Manually resets usage counters (e.g. from Admin Hub).
+  void resetUsageCounters() {
+    _googleUsageCount = 0;
+    _mapboxUsageCount = 0;
+    _cartoUsageCount = 0;
+    _isGoogleFallbackActive = false;
+    _isMapboxFallbackActive = false;
+    _isCartoFallbackActive = false;
+    _googleFallbackReason = null;
+    _mapboxFallbackReason = null;
+    _cartoFallbackReason = null;
+    resetCircuitBreaker();
+    configNotifier.value = configNotifier.value;
+    debugPrint('MapConfigController: Usage counters and fallbacks reset.');
+  }
 
   /// Backwards-compat alias — always false now that OSM is deprecated.
   bool get isOsm => false;
@@ -196,27 +278,46 @@ class MapConfigController {
 
   // ── Effective provider resolution ──────────────────────────────────────────
 
-  /// Shared chain resolver: maps a canonical provider code to the effective
-  /// type, honouring fallback state, the circuit breaker, and credential
-  /// presence. Fallback chain: **Google Maps → Mapbox → CartoDB**.
+  /// Shared circular rotation chain resolver:
+  ///
+  /// Rotation sequence:
+  /// 1. Google Maps (Primary)
+  /// 2. Mapbox (Secondary)
+  /// 3. CartoDB (Tertiary)
+  /// 4. Loop back to Google Maps if CartoDB fails/hits cap to guarantee 100% service continuity.
   MapProviderType _resolveChain(String providerCode, GlobalMapConfig cfg) {
     final type = MapProviderType.fromCode(providerCode);
+
+    bool canUseGoogle() =>
+        !isGoogleFallbackActive && cfg.hasValidApiKey && !isGoogleQuotaExceeded;
+
+    bool canUseMapbox() =>
+        !_isMapboxFallbackActive &&
+        cfg.hasValidMapboxToken &&
+        !isMapboxQuotaExceeded;
+
+    bool canUseCarto() =>
+        !_isCartoFallbackActive && !isCartoQuotaExceeded;
+
     switch (type) {
       case MapProviderType.google:
-        if (isGoogleFallbackActive || !cfg.hasValidApiKey) {
-          if (cfg.hasValidMapboxToken && !_isMapboxFallbackActive) {
-            return MapProviderType.mapbox;
-          }
-          return MapProviderType.cartodb;
-        }
+        if (canUseGoogle()) return MapProviderType.google;
+        if (canUseMapbox()) return MapProviderType.mapbox;
+        if (canUseCarto()) return MapProviderType.cartodb;
+        // Circular loop back to Google Maps to maintain continuous service
         return MapProviderType.google;
+
       case MapProviderType.mapbox:
-        if (_isMapboxFallbackActive || !cfg.hasValidMapboxToken) {
-          return MapProviderType.cartodb;
-        }
-        return MapProviderType.mapbox;
+        if (canUseMapbox()) return MapProviderType.mapbox;
+        if (canUseCarto()) return MapProviderType.cartodb;
+        if (canUseGoogle()) return MapProviderType.google;
+        return MapProviderType.google;
+
       case MapProviderType.cartodb:
-        return MapProviderType.cartodb;
+        if (canUseCarto()) return MapProviderType.cartodb;
+        if (canUseGoogle()) return MapProviderType.google;
+        if (canUseMapbox()) return MapProviderType.mapbox;
+        return MapProviderType.google;
     }
   }
 

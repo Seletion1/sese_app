@@ -154,6 +154,11 @@ class GlobalMapConfig {
   /// this field controls.
   final String mapboxStyle;
 
+  /// Configurable monthly request/usage caps for each provider.
+  final int googleMonthlyCap;
+  final int mapboxMonthlyCap;
+  final int cartoMonthlyCap;
+
   /// Default fallback Google Maps API key bundled with the app.
   static const String defaultGoogleMapsApiKey =
       'AIzaSyAN5bY0G6qglEcaImzxHoxMq8EsslYIPtw';
@@ -180,6 +185,9 @@ class GlobalMapConfig {
     this.manualOverrideProvider,
     this.featureProviders = const {},
     this.mapboxStyle = defaultMapboxStyle,
+    this.googleMonthlyCap = 20000,
+    this.mapboxMonthlyCap = 50000,
+    this.cartoMonthlyCap = 100000,
   });
 
   // ── Normalised provider resolution ────────────────────────────────────────
@@ -392,6 +400,10 @@ class GlobalMapConfig {
       }
     }
 
+    final gCap = (map['googleMonthlyCap'] ?? map['googleQuotaCap'] ?? map['googleMonthlyCap']) as num?;
+    final mCap = (map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap'] ?? map['mapboxMonthlyCap']) as num?;
+    final cCap = (map['cartoMonthlyCap'] ?? map['cartoQuotaCap'] ?? map['cartoMonthlyCap']) as num?;
+
     return GlobalMapConfig(
       activeProvider: provider,
       apiKey: (key != null && key.isNotEmpty) ? key : defaultGoogleMapsApiKey,
@@ -408,6 +420,9 @@ class GlobalMapConfig {
       mapboxStyle: (style != null && style.isNotEmpty)
           ? style
           : defaultMapboxStyle,
+      googleMonthlyCap: gCap?.toInt() ?? 20000,
+      mapboxMonthlyCap: mCap?.toInt() ?? 50000,
+      cartoMonthlyCap: cCap?.toInt() ?? 100000,
     );
   }
 
@@ -427,6 +442,9 @@ class GlobalMapConfig {
       'tileUrlTemplate': tileUrlTemplate.trim(),
       'osmTileServerUrl': tileUrlTemplate.trim(),
       'featureProviders': Map<String, String>.from(featureProviders),
+      'googleMonthlyCap': googleMonthlyCap,
+      'mapboxMonthlyCap': mapboxMonthlyCap,
+      'cartoMonthlyCap': cartoMonthlyCap,
       for (final f in MapFeature.values)
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
@@ -443,6 +461,9 @@ class GlobalMapConfig {
     String? manualOverrideProvider,
     Map<String, String>? featureProviders,
     String? mapboxStyle,
+    int? googleMonthlyCap,
+    int? mapboxMonthlyCap,
+    int? cartoMonthlyCap,
   }) {
     return GlobalMapConfig(
       activeProvider: activeProvider ?? this.activeProvider,
@@ -453,6 +474,9 @@ class GlobalMapConfig {
           manualOverrideProvider ?? this.manualOverrideProvider,
       featureProviders: featureProviders ?? this.featureProviders,
       mapboxStyle: mapboxStyle ?? this.mapboxStyle,
+      googleMonthlyCap: googleMonthlyCap ?? this.googleMonthlyCap,
+      mapboxMonthlyCap: mapboxMonthlyCap ?? this.mapboxMonthlyCap,
+      cartoMonthlyCap: cartoMonthlyCap ?? this.cartoMonthlyCap,
     );
   }
 }

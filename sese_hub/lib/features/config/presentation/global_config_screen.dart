@@ -720,6 +720,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           driverBreakOption2Minutes:
               int.tryParse(_driverBreakOption2Ctrl.text.trim()) ?? 60,
           driverBreakEnabled: _driverBreakEnabled,
+          googleMonthlyCap:
+              int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
+          mapboxMonthlyCap:
+              int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
+          cartoMonthlyCap:
+              int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
         ),
       );
 
@@ -736,6 +742,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               ? _mapboxStyleCtrl.text.trim()
               : GlobalMapConfig.defaultMapboxStyle,
           featureProviders: Map<String, String>.from(_featureProviders),
+          googleMonthlyCap:
+              int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
+          mapboxMonthlyCap:
+              int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
+          cartoMonthlyCap:
+              int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
           tileUrlTemplate: (_osmTileServerUrlCtrl.text.trim().isNotEmpty &&
                   !_osmTileServerUrlCtrl.text.trim().contains('light_all'))
               ? _osmTileServerUrlCtrl.text.trim()
@@ -1393,24 +1405,137 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       ),
                     ),
                   ),
-                // Circuit-breaker reset button — visible when the Google circuit is open
+                // ── Live Map Provider Usage Stats & Circular Rotation Controls ──
                 _CappedField(
-                  preferredWidth: 360,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.electrical_services_rounded),
-                    label: const Text('Reset Google Circuit Breaker'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red.shade700,
-                      side: BorderSide(color: Colors.red.shade300),
-                    ),
-                    onPressed: () {
-                      MapConfigController.instance.resetCircuitBreaker();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Google Maps circuit breaker reset. Will attempt Google Maps on next map load.',
-                          ),
-                          duration: Duration(seconds: 3),
+                  preferredWidth: 700,
+                  child: ValueListenableBuilder<GlobalMapConfig>(
+                    valueListenable: MapConfigController.instance.configNotifier,
+                    builder: (context, _, __) {
+                      final ctrl = MapConfigController.instance;
+                      final gCap = int.tryParse(_googleQuotaCapCtrl.text) ?? 20000;
+                      final mCap = int.tryParse(_mapboxQuotaCapCtrl.text) ?? 50000;
+                      final cCap = int.tryParse(_cartoQuotaCapCtrl.text) ?? 100000;
+
+                      final gRatio = (ctrl.googleUsageCount / (gCap > 0 ? gCap : 1)).clamp(0.0, 1.0);
+                      final mRatio = (ctrl.mapboxUsageCount / (mCap > 0 ? mCap : 1)).clamp(0.0, 1.0);
+                      final cRatio = (ctrl.cartoUsageCount / (cCap > 0 ? cCap : 1)).clamp(0.0, 1.0);
+
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.sync_alt_rounded, color: Colors.blueAccent),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Text(
+                                    'Circular Fallback Rotation Chain: Google Maps ➔ Mapbox ➔ CartoDB ➔ Google Maps',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Google Maps Usage: ${ctrl.googleUsageCount} / $gCap calls',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: ctrl.isGoogleQuotaExceeded ? Colors.red : null,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      LinearProgressIndicator(
+                                        value: gRatio,
+                                        color: ctrl.isGoogleQuotaExceeded ? Colors.red : Colors.blue,
+                                        backgroundColor: Colors.grey.shade200,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Mapbox Usage: ${ctrl.mapboxUsageCount} / $mCap calls',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: ctrl.isMapboxQuotaExceeded ? Colors.red : null,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      LinearProgressIndicator(
+                                        value: mRatio,
+                                        color: ctrl.isMapboxQuotaExceeded ? Colors.red : Colors.purple,
+                                        backgroundColor: Colors.grey.shade200,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'CartoDB Usage: ${ctrl.cartoUsageCount} / $cCap calls',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: ctrl.isCartoQuotaExceeded ? Colors.red : null,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      LinearProgressIndicator(
+                                        value: cRatio,
+                                        color: ctrl.isCartoQuotaExceeded ? Colors.red : Colors.orange,
+                                        backgroundColor: Colors.grey.shade200,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.refresh_rounded, size: 16),
+                                label: const Text('Reset Usage Counters & Circuit Breaker'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.blue.shade800,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                onPressed: () {
+                                  MapConfigController.instance.resetUsageCounters();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Usage counters and circuit breaker reset successfully.',
+                                      ),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
