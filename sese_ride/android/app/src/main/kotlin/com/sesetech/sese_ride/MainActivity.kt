@@ -1,6 +1,5 @@
 package com.sesetech.sese_ride
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -59,28 +58,10 @@ class MainActivity : FlutterActivity() {
         startActivity(intent)
     }
 
-    // Reports whether Google Play Services can render maps on this device.
-    // Used by SeSeMapView to fall back to OpenStreetMap tiles where GMS is
-    // missing or on low-RAM devices where native map SDK hybrid composition
-    // causes Scudo memory exhaustion and frame drops.
+    // Reports whether Google Play Services is installed and operational on this device.
+    // Used by SeseUniversalMap to verify GMS presence before rendering Google Maps.
     private fun isGooglePlayServicesAvailable(): Boolean {
         return try {
-            val actManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (actManager != null) {
-                if (actManager.isLowRamDevice) return false
-                val memInfo = ActivityManager.MemoryInfo()
-                actManager.getMemoryInfo(memInfo)
-                // Devices with <= 4GB total RAM (such as Nokia G20, entry-tier MediaTek devices)
-                // experience severe frame dropping (700+ skipped frames) and dynamite JIT compiler loops
-                // in Google Maps platform views. Gracefully fallback to lightweight pure Dart raster tiles (CartoDB / Mapbox).
-                if (memInfo.totalMem <= 4L * 1024 * 1024 * 1024) {
-                    return false
-                }
-            }
-            val model = Build.MODEL ?: ""
-            if (model.contains("G20", ignoreCase = true) || model.contains("Nokia", ignoreCase = true)) {
-                return false
-            }
             val apiClass = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
             val instance = apiClass.getMethod("getInstance").invoke(null)
             val code = apiClass.getMethod("isGooglePlayServicesAvailable", Context::class.java)
