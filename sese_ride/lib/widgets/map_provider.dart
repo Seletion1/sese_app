@@ -172,12 +172,11 @@ abstract final class GmsAvailability {
   @visibleForTesting
   static bool? debugOverride;
 
-  /// Synchronously returns whether GMS is available if already resolved.
+  /// Synchronously returns whether GMS is available (defaults to true so Google Maps renders instantly).
   static bool? get isAvailableSync {
     if (debugOverride != null) return debugOverride;
     if (_cachedValue != null) return _cachedValue;
-    if (!Platform.isAndroid) return true;
-    return null;
+    return true; // Optimistic default for synchronous initial frame render
   }
 
   static Future<bool> isAvailable() {
