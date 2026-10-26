@@ -207,8 +207,8 @@ class DriverStreakService {
   /// into the 3km–5km outer-radius pool). Single-field `whereIn` — no
   /// composite index required. Denied reads end as empty.
   Stream<List<ActiveTrip>> marketplaceStream({
-    int limit = 20,
     String? driverId,
+    int limit = 20,
   }) {
     final db = _db;
     if (db == null) return Stream.value(const <ActiveTrip>[]);

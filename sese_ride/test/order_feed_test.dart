@@ -21,7 +21,10 @@ class _FakeDispatchService extends DriverStreakService {
   Stream<List<ActiveTrip>> tier2PingStream(String driverId) => _tier2.stream;
 
   @override
-  Stream<List<ActiveTrip>> marketplaceStream({int limit = 20}) =>
+  Stream<List<ActiveTrip>> marketplaceStream({
+    String? driverId,
+    int limit = 20,
+  }) =>
       _market.stream;
 
   Future<void> close() async {
