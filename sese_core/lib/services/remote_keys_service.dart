@@ -48,13 +48,13 @@ class RemoteKeysConfig {
   final int cartoMonthlyCap;
 
   const RemoteKeysConfig({
-    this.paystackPublicKey = 'pk_test_07354be9dc28e79ca4cb7d2cc4818d81ebfd696b',
-    this.paystackSecretKey = 'sk_test_4e0edebfb09041155f816f2e8cff7cfb5bbfac98',
+    this.paystackPublicKey = '',
+    this.paystackSecretKey = '',
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
     this.featureProviders = const {},
-    this.exchangeRateApiKey = 'ex_live_79a2b8c3d4e5f6g7h8i9_sample',
+    this.exchangeRateApiKey = '',
     this.resendApiKey = '',
     this.activeMapProvider = 'cartodb',
     this.osmTileServerUrl =
@@ -244,8 +244,6 @@ class RemoteKeysConfig {
     return {
       'paystackPublicKey': paystackPublicKey.trim(),
       'paystack_public_key': paystackPublicKey.trim(),
-      'paystackSecretKey': paystackSecretKey.trim(),
-      'paystack_secret_key': paystackSecretKey.trim(),
       'googleMapsApiKey': googleMapsApiKey.trim(),
       'mapApiKey': googleMapsApiKey.trim(),
       'apiKey': googleMapsApiKey.trim(),

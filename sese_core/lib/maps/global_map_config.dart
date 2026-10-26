@@ -159,9 +159,8 @@ class GlobalMapConfig {
   final int mapboxMonthlyCap;
   final int cartoMonthlyCap;
 
-  /// Default fallback Google Maps API key bundled with the app.
-  static const String defaultGoogleMapsApiKey =
-      'AIzaSyAN5bY0G6qglEcaImzxHoxMq8EsslYIPtw';
+  /// Default fallback Google Maps API key passed via compile-time environment `--dart-define`.
+  static const String defaultGoogleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
 
   /// CartoDB free basemap tiles — no API key required. Voyager matches the
   /// Google Maps clean aesthetic (road colors, fonts); `{r}` serves @2x

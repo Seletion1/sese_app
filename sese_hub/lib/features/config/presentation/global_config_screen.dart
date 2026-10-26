@@ -132,8 +132,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _minPayoutThresholdCtrl = TextEditingController(text: '20000');
 
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
-  final _paystackPublicKeyCtrl = TextEditingController(text: 'pk_test_07354be9dc28e79ca4cb7d2cc4818d81ebfd696b');
-  final _paystackSecretKeyCtrl = TextEditingController(text: 'sk_test_4e0edebfb09041155f816f2e8cff7cfb5bbfac98');
+  final _paystackPublicKeyCtrl = TextEditingController();
+  final _paystackSecretKeyCtrl = TextEditingController();
   final _googleMapsApiKeyCtrl = TextEditingController();
   final _mapboxApiKeyCtrl = TextEditingController();
   final _mapboxStyleCtrl =
