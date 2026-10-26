@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Automatic Country & Dial Code Detection Utility.
 ///
 /// Detection Flow:
-/// 1. Primary Check: Read SIM operator country code via native telephony
+/// 1. Primary Check: Read persistent user override from SharedPreferences.
+/// 2. Secondary Check: Read SIM operator country code via native telephony
 ///    metadata (`PlatformDispatcher.instance.locale.countryCode`).
-/// 2. Secondary Check: Fallback to device timezone / system locale list.
-/// 3. Default Fallback: Default to Nigeria (`NG` / `+234`) if offline or
+/// 3. Tertiary Check: Fallback to device timezone / system locale list.
+/// 4. Default Fallback: Default to Nigeria (`NG` / `+234`) if offline or
 ///    permissions/locales are unavailable.
 class CountryDetectionService {
   CountryDetectionService._();
@@ -14,6 +16,7 @@ class CountryDetectionService {
 
   static const String defaultCountryCode = 'NG';
   static const String defaultDialCode = '+234';
+  static const String kSavedCountryKey = 'user_selected_country_code';
 
   String? _cachedCountryCode;
 
@@ -26,18 +29,31 @@ class CountryDetectionService {
 
     String? detected;
 
-    // 1. Primary Check: PlatformDispatcher primary locale country code
+    // 1. Primary Check: User-selected country override from SharedPreferences
     try {
-      final primaryCode =
-          PlatformDispatcher.instance.locale.countryCode?.trim().toUpperCase();
-      if (_isValidAlpha2(primaryCode)) {
-        detected = primaryCode;
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(kSavedCountryKey)?.trim().toUpperCase();
+      if (_isValidAlpha2(saved)) {
+        detected = saved;
       }
     } catch (e) {
-      debugPrint('CountryDetectionService: Primary locale check failed: $e');
+      debugPrint('CountryDetectionService: SharedPreferences check failed: $e');
     }
 
-    // 2. Secondary Check: Locale list fallback
+    // 2. Secondary Check: PlatformDispatcher primary locale country code
+    if (detected == null) {
+      try {
+        final primaryCode =
+            PlatformDispatcher.instance.locale.countryCode?.trim().toUpperCase();
+        if (_isValidAlpha2(primaryCode)) {
+          detected = primaryCode;
+        }
+      } catch (e) {
+        debugPrint('CountryDetectionService: Primary locale check failed: $e');
+      }
+    }
+
+    // 3. Tertiary Check: Locale list fallback
     if (detected == null) {
       try {
         final locales = PlatformDispatcher.instance.locales;
@@ -108,6 +124,20 @@ class CountryDetectionService {
       if (upper.contains(entry.key)) {
         setCountryCode(entry.value);
         return;
+      }
+    }
+  }
+
+  /// Manually override and persist the selected country code to SharedPreferences.
+  Future<void> saveManualCountry(String isoCode) async {
+    final clean = isoCode.trim().toUpperCase();
+    if (_isValidAlpha2(clean)) {
+      _cachedCountryCode = clean;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(kSavedCountryKey, clean);
+      } catch (e) {
+        debugPrint('CountryDetectionService.saveManualCountry error: $e');
       }
     }
   }

@@ -172,9 +172,15 @@ class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
 
   void _handleInputChanged(PhoneNumber number) {
     _currentPhoneNumber = number;
-    _activeIsoCode = number.isoCode ?? _activeIsoCode;
+    final newIso = number.isoCode ?? _activeIsoCode;
+    if (newIso != _activeIsoCode) {
+      _activeIsoCode = newIso;
+      // Persist manual user country selection across sessions
+      // ignore: discarded_futures
+      CountryDetectionService.instance.saveManualCountry(newIso);
+    }
 
-    // Sanitize to strict E.164 (strips leading zero if user typed 080... with +234)
+    // Sanitize to strict E.164 in background (strips leading zero if user typed 080... with +234)
     final rawNumber = number.phoneNumber ?? _internalController.text;
     final normalized = SesePhoneSanitizer.normalize(
       rawNumber,
@@ -221,16 +227,7 @@ class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
       onInputValidated: widget.onValidated,
       validator: widget.validator ??
           (val) {
-            if (val == null || val.trim().isEmpty) {
-              return 'Please enter a valid phone number';
-            }
-            final normalized = SesePhoneSanitizer.normalize(
-              val,
-              defaultIsoCode: _activeIsoCode,
-            );
-            if (!SesePhoneSanitizer.isValidE164(normalized)) {
-              return 'Invalid international phone number';
-            }
+            // Non-intrusive default validator: allow input freely without blocking typing
             return null;
           },
       selectorConfig: SelectorConfig(

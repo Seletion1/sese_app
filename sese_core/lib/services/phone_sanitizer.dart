@@ -35,6 +35,7 @@ class SesePhoneSanitizer {
   /// Known dial codes mapped to default ISO alpha-2 codes.
   static const Map<String, String> dialCodeToIso = {
     '234': 'NG',
+    '229': 'BJ',
     '254': 'KE',
     '1': 'US',
     '44': 'GB',
@@ -59,6 +60,7 @@ class SesePhoneSanitizer {
   /// ISO alpha-2 to dial code mapping.
   static const Map<String, String> isoToDialCode = {
     'NG': '+234',
+    'BJ': '+229',
     'KE': '+254',
     'US': '+1',
     'GB': '+44',

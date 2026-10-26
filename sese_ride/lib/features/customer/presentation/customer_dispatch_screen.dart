@@ -1440,14 +1440,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       _pickupLatLng == _previewPickup &&
       _dropoffLatLng == _previewDropoff;
 
-  /// Step 3 contact numbers are OPTIONAL: empty means the customer offers
-  /// no secondary contact ("call me when you get there" — the booker's own
-  /// account number stays reachable on the trip regardless). A non-empty
-  /// entry must still be a valid Nigerian number, so a typo'd digit can
-  /// never silently become the driver's only coordination line.
-  bool get _phonesValid =>
-      isOptionalNigerianPhoneNumber(_pickupPhoneController.text) &&
-      isOptionalNigerianPhoneNumber(_dropoffPhoneController.text);
+  /// Non-intrusive phone input: customer input is free and unconstrained across
+  /// all flows (Ride Booking, Send Item, Receive Item). Background normalization
+  /// formats E.164 values quietly for the server/driver.
+  bool get _phonesValid => true;
 
   void _onPhoneChanged() {
     // Refresh Confirm-button enablement + inline validation errors.
@@ -1618,28 +1614,17 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Future<void> _confirmAndDispatch() async {
     final fareResp = _fareResponse;
     if (fareResp == null || _creatingTrip) return;
-    // Phones are optional — only a malformed non-empty entry blocks. Empty
-    // normalizes to '' and travels that way; the backend accepts empties
-    // and the driver still reaches the booker via the minted customerPhone.
-    if (!_phonesValid) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Phone numbers are optional, but entries must be valid '
-              '(e.g. 08012345678 or +2348012345678) — fix or clear the field.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
 
     final isDelivery = _selectedModeIndex == 0;
-    final pickupPhone =
-        SesePhoneSanitizer.normalize(_pickupPhoneController.text.trim());
-    final dropoffPhone =
-        SesePhoneSanitizer.normalize(_dropoffPhoneController.text.trim());
+    final activeIso = CountryDetectionService.instance.currentCountryCode;
+    final pickupPhone = SesePhoneSanitizer.normalize(
+      _pickupPhoneController.text.trim(),
+      defaultIsoCode: activeIso,
+    );
+    final dropoffPhone = SesePhoneSanitizer.normalize(
+      _dropoffPhoneController.text.trim(),
+      defaultIsoCode: activeIso,
+    );
     final pickup = _pickupLatLng!;
     final dropoff = _dropoffLatLng!;
     final orderedRideTiers = _orderedRideTierIds;
@@ -3903,12 +3888,7 @@ class _RouteReviewCard extends StatelessWidget {
                   // (see onPhoneChanged guard below).
                   onPhoneChanged?.call();
                 },
-                validator: (value) {
-                  // Optional: empty passes, non-empty must validate.
-                  return isOptionalNigerianPhoneNumber(value)
-                      ? null
-                      : 'Enter a valid phone number';
-                },
+                validator: (value) => null,
               ),
             ),
 
@@ -3996,12 +3976,7 @@ class _RouteReviewCard extends StatelessWidget {
                   // No echo-back (see pickup field + onPhoneChanged guard).
                   onPhoneChanged?.call();
                 },
-                validator: (value) {
-                  // Optional: empty passes, non-empty must validate.
-                  return isOptionalNigerianPhoneNumber(value)
-                      ? null
-                      : 'Enter a valid phone number';
-                },
+                validator: (value) => null,
               ),
             ),
 
