@@ -270,10 +270,18 @@ class RoleController extends ChangeNotifier {
           .collection('trips')
           .where('driver.driverId', isEqualTo: driverId)
           .where('status', whereIn: activeStatuses)
-          .limit(1)
+          .limit(10)
           .get();
 
-      return snap.docs.isNotEmpty;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final customerId = String(data['customerId'] ?? data['userId'] ?? '');
+        // Exclude self-booked customer orders
+        if (customerId != driverId) {
+          return true;
+        }
+      }
+      return false;
     } catch (e) {
       debugPrint('RoleController.checkDriverHasActiveTrip error: $e');
       return false;

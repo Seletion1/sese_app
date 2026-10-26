@@ -95,14 +95,16 @@ class OrderFeedState extends State<OrderFeed> {
     List<ActiveTrip> marketplace,
   ) {
     final byId = <String, ActiveTrip>{};
-    if (tier1 != null) {
+    if (tier1 != null && tier1.customerId != widget.driverId) {
       byId[tier1.tripId] = tier1;
     }
     for (final t in tier2) {
-      byId.putIfAbsent(t.tripId, () => t);
+      if (t.customerId != widget.driverId) {
+        byId.putIfAbsent(t.tripId, () => t);
+      }
     }
     for (final t in marketplace) {
-      if (_withinPoolRadius(t)) {
+      if (t.customerId != widget.driverId && _withinPoolRadius(t)) {
         byId.putIfAbsent(t.tripId, () => t);
       }
     }

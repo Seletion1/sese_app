@@ -755,7 +755,8 @@ async function findNearestDrivers(
   count: number,
   tuning: DispatchTuning,
   radiusKm?: number,
-  vehicleCategory?: string
+  vehicleCategory?: string,
+  customerId?: string
 ): Promise<NearbyDriver[]> {
   const minBalance = await getMinWalletBalanceToOnline();
 
@@ -769,6 +770,9 @@ async function findNearestDrivers(
   const ranked: NearbyDriver[] = [];
   for (const doc of snap.docs) {
     if (attempted.includes(doc.id)) continue;
+
+    // Self-dispatch protection: never ping or match the customer as the driver
+    if (customerId && doc.id === customerId) continue;
 
     const data = doc.data();
 
@@ -832,6 +836,7 @@ async function startTier1(
   const attempted = attemptedIdsOf(data);
   const serviceType = String(data.serviceType ?? "ride");
   const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
+  const customerId = String(data.customerId ?? data.userId ?? "");
   const nearest =
     pickup == null
       ? []
@@ -842,7 +847,8 @@ async function startTier1(
           1,
           tuning,
           tuning.tier1RadiusKm,
-          vehicleCategory
+          vehicleCategory,
+          customerId
         );
   if (nearest.length === 0) return false; // Nobody online — sweep retries.
 
@@ -871,6 +877,7 @@ async function startTier2(
   const attempted = attemptedIdsOf(data);
   const serviceType = String(data.serviceType ?? "ride");
   const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
+  const customerId = String(data.customerId ?? data.userId ?? "");
   const nearest =
     pickup == null
       ? []
@@ -881,7 +888,8 @@ async function startTier2(
           tuning.tier2Count,
           tuning,
           tuning.tier2RadiusKm,
-          vehicleCategory
+          vehicleCategory,
+          customerId
         );
   if (nearest.length === 0) {
     await startTier3(tripRef);
@@ -1261,6 +1269,15 @@ export const acceptTrip = onCall(async (request) => {
 
     const data = snap.data()!;
     const status = String(data.status ?? "");
+
+    // Self-assignment guard: drivers cannot accept orders they created as customer
+    const orderCustomerId = String(data.customerId ?? data.userId ?? "");
+    if (orderCustomerId && orderCustomerId === driverId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You cannot accept an order you created as a customer."
+      );
+    }
 
     if (status === "WAITING_FOR_ACCEPTANCE") {
       if (!isPingTarget(data, driverId)) {
@@ -1792,6 +1809,15 @@ export const submitBid = onCall(async (request) => {
     throw new HttpsError("not-found", "Trip not found.");
   }
   const tripData = tripSnap.data()!;
+
+  // Self-assignment guard: drivers cannot bid on orders they created as customer
+  const orderCustomerId = String(tripData.customerId ?? tripData.userId ?? "");
+  if (orderCustomerId && orderCustomerId === driverId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "You cannot bid on an order you created as a customer."
+    );
+  }
 
   // 2. Validate offered fare against baseline, rounded to nearest 100
   const baseline = Number(tripData.baselineFare ?? tripData.fareAmount ?? 0);

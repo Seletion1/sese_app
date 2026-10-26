@@ -163,7 +163,11 @@ class DriverStreakService {
         .map((snap) {
           for (final d in snap.docs) {
             final trip = ActiveTrip.fromMap(d.id, d.data());
-            if (trip.status == TripStatus.waitingForAcceptance) return trip;
+            // Filter out self-booked customer trips
+            if (trip.status == TripStatus.waitingForAcceptance &&
+                trip.customerId != driverId) {
+              return trip;
+            }
           }
           return null;
         })
@@ -187,7 +191,9 @@ class DriverStreakService {
         .map(
           (snap) => snap.docs
               .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-              .where((t) => t.status == TripStatus.waitingForAcceptance)
+              .where((t) =>
+                  t.status == TripStatus.waitingForAcceptance &&
+                  t.customerId != driverId)
               .toList(),
         )
         .handleError((Object _) => const <ActiveTrip>[]);
@@ -200,7 +206,10 @@ class DriverStreakService {
   /// `MARKETPLACE_LIST` (ignored / rejected / timed-out orders recycled
   /// into the 3km–5km outer-radius pool). Single-field `whereIn` — no
   /// composite index required. Denied reads end as empty.
-  Stream<List<ActiveTrip>> marketplaceStream({int limit = 20}) {
+  Stream<List<ActiveTrip>> marketplaceStream({
+    int limit = 20,
+    String? driverId,
+  }) {
     final db = _db;
     if (db == null) return Stream.value(const <ActiveTrip>[]);
     return db
@@ -212,8 +221,10 @@ class DriverStreakService {
         .limit(limit)
         .snapshots()
         .map(
-          (snap) =>
-              snap.docs.map((d) => ActiveTrip.fromMap(d.id, d.data())).toList(),
+          (snap) => snap.docs
+              .map((d) => ActiveTrip.fromMap(d.id, d.data()))
+              .where((t) => driverId == null || driverId.isEmpty || t.customerId != driverId)
+              .toList(),
         )
         .handleError((Object _) => const <ActiveTrip>[]);
   }
@@ -233,7 +244,8 @@ class DriverStreakService {
         .map((snap) {
           for (final d in snap.docs) {
             final trip = ActiveTrip.fromMap(d.id, d.data());
-            if (trip.isLive) return trip;
+            // Filter out self-booked customer trips (role-based isolation)
+            if (trip.isLive && trip.customerId != driverId) return trip;
           }
           return null;
         })
