@@ -297,136 +297,162 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
               ],
             ),
           ),
-          // Offer details + streak tag + Accept CTA.
+          // Offer details + streak tag + Sticky Accept CTA.
           Expanded(
             flex: 4,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _OfferCountdown(controller: _countdown),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.seseGoldLight,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      widget.streakTag,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          color: Colors.black87),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _AddressRow(
-                    dotColor: Colors.blue,
-                    badge: 'A',
-                    label: 'Pickup',
-                    value: trip.pickupAddress.isEmpty
-                        ? 'Pickup location (see map)'
-                        : trip.pickupAddress,
-                  ),
-                  if (trip.isVerifiedCustomer) ...[
-                    const SizedBox(height: 8),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: VerifiedCustomerBadge(),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  _AddressRow(
-                    dotColor: Colors.green,
-                    badge: 'B',
-                    label: 'Drop-off',
-                    value: trip.dropoffAddress.isEmpty
-                        ? 'Drop-off location (see map)'
-                        : trip.dropoffAddress,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const UserAvatar(
-                              displayName: 'Rider', radius: 20),
-                          if (trip.isVerifiedCustomer) ...[
-                            const SizedBox(height: 2),
-                            const VerifiedBadge(
-                                variant: VerifiedBadgeVariant.customer),
-                          ],
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _OfferCountdown(controller: _countdown),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.seseGoldLight,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            widget.streakTag,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: Colors.black87),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _AddressRow(
+                          dotColor: Colors.blue,
+                          badge: 'A',
+                          label: 'Pickup',
+                          value: trip.pickupAddress.isEmpty
+                              ? 'Pickup location (see map)'
+                              : trip.pickupAddress,
+                        ),
+                        if (trip.isVerifiedCustomer) ...[
+                          const SizedBox(height: 8),
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: VerifiedCustomerBadge(),
+                          ),
                         ],
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 8),
+                        _AddressRow(
+                          dotColor: Colors.green,
+                          badge: 'B',
+                          label: 'Drop-off',
+                          value: trip.dropoffAddress.isEmpty
+                              ? 'Drop-off location (see map)'
+                              : trip.dropoffAddress,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
                           children: [
-                            Text(
-                              _fareLabel,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 18),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const UserAvatar(
+                                    displayName: 'Rider', radius: 20),
+                                if (trip.isVerifiedCustomer) ...[
+                                  const SizedBox(height: 2),
+                                  const VerifiedBadge(
+                                      variant: VerifiedBadgeVariant.customer),
+                                ],
+                              ],
                             ),
-                            if (_perKmLabel.isNotEmpty)
-                              Text(
-                                _perKmLabel,
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 12),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _fareLabel,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18),
+                                  ),
+                                  if (_perKmLabel.isNotEmpty)
+                                    Text(
+                                      _perKmLabel,
+                                      style: const TextStyle(
+                                          color: Colors.grey, fontSize: 12),
+                                    ),
+                                ],
                               ),
+                            ),
+                            Chip(
+                              label: Text(
+                                trip.serviceType == 'send_item'
+                                    ? 'Courier'
+                                    : 'Ride',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12),
+                              ),
+                              backgroundColor: Colors.blue,
+                              side: BorderSide.none,
+                              visualDensity: VisualDensity.compact,
+                            ),
                           ],
                         ),
-                      ),
-                      Chip(
-                        label: Text(
-                          trip.serviceType == 'send_item'
-                              ? 'Courier'
-                              : 'Ride',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Skipping, or letting this expire, breaks your daily streak.',
+                          textAlign: TextAlign.center,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.redAccent),
                         ),
-                        backgroundColor: Colors.blue,
-                        side: BorderSide.none,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Skipping, or letting this expire, breaks your daily streak.',
-                    textAlign: TextAlign.center,
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.redAccent),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    key: const Key('accept_offer_button'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.seseGold,
-                      foregroundColor: Colors.black,
-                      minimumSize: const Size.fromHeight(56),
-                      textStyle: const TextStyle(
-                          fontSize: 17, fontWeight: FontWeight.bold),
+                      ],
                     ),
-                    onPressed: _busy ? null : _accept,
-                    child: _accepting
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.black),
-                          )
-                        : Text('Accept for $_fareLabel'),
                   ),
-                ],
-              ),
+                ),
+                // Pinned sticky bottom container with system navigation bar clearance
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).scaffoldBackgroundColor,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          offset: const Offset(0, -3),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        key: const Key('accept_offer_button'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.seseGold,
+                          foregroundColor: Colors.black,
+                          minimumSize: const Size.fromHeight(54),
+                          textStyle: const TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: _busy ? null : _accept,
+                        child: _accepting
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.black),
+                              )
+                            : Text('Accept for $_fareLabel'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

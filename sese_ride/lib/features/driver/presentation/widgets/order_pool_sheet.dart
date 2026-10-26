@@ -164,7 +164,12 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                       child: ListView.separated(
                         key: const Key('order_pool_list'),
                         controller: scrollController,
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
+                        padding: EdgeInsets.fromLTRB(
+                          12,
+                          4,
+                          12,
+                          20 + MediaQuery.of(context).padding.bottom,
+                        ),
                         itemCount: trips.length,
                         separatorBuilder: (_, _) =>
                             const SizedBox(height: 8),
@@ -733,13 +738,13 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
             ),
           ),
 
-          // ── Layer 2: Draggable Bottom Sheet ──
+          // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
           DraggableScrollableSheet(
-            initialChildSize: 0.46,
-            minChildSize: 0.22,
+            initialChildSize: 0.50,
+            minChildSize: 0.28,
             maxChildSize: 0.90,
             snap: true,
-            snapSizes: const [0.22, 0.46, 0.90],
+            snapSizes: const [0.28, 0.50, 0.90],
             builder: (context, scrollController) {
               return Container(
                 decoration: BoxDecoration(
@@ -772,12 +777,8 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                     Expanded(
                       child: SingleChildScrollView(
                         controller: scrollController,
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          10,
-                          16,
-                          20 + MediaQuery.of(context).viewInsets.bottom,
-                        ),
+                        padding:
+                            const EdgeInsets.fromLTRB(16, 10, 16, 12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -1136,64 +1137,82 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                               ),
                             ],
 
-                            const SizedBox(height: 12),
+                          ],
+                        ),
+                      ),
+                    ),
 
-                            // ── Unified Primary Action Button ──
-                            // Primary "Accept" button at the very bottom of the sheet,
-                            // switching cleanly to "Send Counter-Offer" when a pill
-                            // or custom amount is selected.
-                            SizedBox(
-                              width: double.infinity,
-                              child: FilledButton.icon(
-                                key: Key(
-                                    'pool_primary_action_${trip.tripId}'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: _isCounterOffer
-                                      ? scheme.primary
-                                      : AppColors.seseGold,
-                                  foregroundColor: Colors.black87,
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 14),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                onPressed: _isCounterOffer
-                                    ? ((_submittingBid || _bidError != null)
-                                        ? null
-                                        : _submitBid)
-                                    : (_accepting ? null : _acceptNow),
-                                icon: (_accepting || _submittingBid)
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.black87,
-                                        ),
-                                      )
-                                    : Icon(
-                                        _isCounterOffer
-                                            ? Icons.send_rounded
-                                            : Icons.flash_on,
-                                        size: 20,
-                                      ),
-                                label: Text(
-                                  _accepting
-                                      ? 'Claiming trip...'
-                                      : _submittingBid
-                                          ? 'Submitting...'
-                                          : _isCounterOffer
-                                              ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
-                                              : 'Accept ($fareLabel)',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 15,
-                                  ),
-                                ),
-                              ),
+                    // ── Sticky Primary Action Button Footer ──
+                    // Pinned to the bottom of the sheet, always visible without manual scrolling
+                    SafeArea(
+                      top: false,
+                      child: Container(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          8,
+                          16,
+                          16 + MediaQuery.of(context).viewInsets.bottom,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.08),
+                              offset: const Offset(0, -3),
+                              blurRadius: 8,
                             ),
                           ],
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: Key(
+                                'pool_primary_action_${trip.tripId}'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _isCounterOffer
+                                  ? scheme.primary
+                                  : AppColors.seseGold,
+                              foregroundColor: Colors.black87,
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: _isCounterOffer
+                                ? ((_submittingBid || _bidError != null)
+                                    ? null
+                                    : _submitBid)
+                                : (_accepting ? null : _acceptNow),
+                            icon: (_accepting || _submittingBid)
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black87,
+                                    ),
+                                  )
+                                : Icon(
+                                    _isCounterOffer
+                                        ? Icons.send_rounded
+                                        : Icons.flash_on,
+                                    size: 20,
+                                  ),
+                            label: Text(
+                              _accepting
+                                  ? 'Claiming trip...'
+                                  : _submittingBid
+                                      ? 'Submitting...'
+                                      : _isCounterOffer
+                                          ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
+                                          : 'Accept ($fareLabel)',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),

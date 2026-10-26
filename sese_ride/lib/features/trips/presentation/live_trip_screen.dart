@@ -1676,15 +1676,15 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 ),
               ),
 
-              // 4. Subtle Cancellation Option
+              // 4. Subtle Cancellation Option — with generous bottom clearance
               if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Center(
                   child: TextButton(
                     onPressed: widget.onCancel,
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.red.shade600,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     ),
                     child: const Text(
                       'Cancel ride',
@@ -1696,7 +1696,9 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                     ),
                   ),
                 ),
-              ],
+                const SizedBox(height: 8),
+              ] else
+                const SizedBox(height: 8),
             ],
           ),
         ),

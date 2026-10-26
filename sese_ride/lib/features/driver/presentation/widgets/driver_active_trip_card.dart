@@ -1003,36 +1003,41 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ),
         ],
       ),
-      child: SingleChildScrollView(
-        controller: scrollController,
-        physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 1. Tappable / Draggable Centered handle bar
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: widget.onToggleCollapse ?? _toggleInternalSheet,
-              child: Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 4, bottom: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+      // Column layout: non-scrolling header+action, then scrollable body with
+      // route details and secondary options.
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Non-scrolling sticky header ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. Tappable / Draggable Centered handle bar
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: widget.onToggleCollapse ?? _toggleInternalSheet,
+                  child: Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 4, bottom: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
 
-            // 2. Customer Header Row: Avatar, First Name, Subtitle, and 3 Inline Action Icons
-            Row(
-              children: [
-                Container(
-                  width: 44,
+                // 2. Customer Header Row: Avatar, First Name, Subtitle, and 3 Inline Action Icons
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
                   height: 44,
                   decoration: const BoxDecoration(
                     color: Color(0xFFFEF3C7),
@@ -1127,21 +1132,39 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             ),
             const SizedBox(height: 10),
 
-            // 3. Primary Action Button (Slide-to-Action)
-            _SlideToActionButton(
-              key: const Key('driver_slide_action_button'),
-              label: _nextLabel,
-              busy: _busy,
-              enabled: next != null,
-              onSlideComplete: () {
-                if (next != null) {
-                  _advanceOrPin(trip, next);
-                }
-              },
+                // 3. Primary Action Button (Slide-to-Action) — pinned in sticky header
+                _SlideToActionButton(
+                  key: const Key('driver_slide_action_button'),
+                  label: _nextLabel,
+                  busy: _busy,
+                  enabled: next != null,
+                  onSlideComplete: () {
+                    if (next != null) {
+                      _advanceOrPin(trip, next);
+                    }
+                  },
+                ),
+                const SizedBox(height: 4),
+              ],
             ),
-            const SizedBox(height: 10),
+          ),
 
-            // 4. Route Details Box (PICKUP & DROPOFF)
+          // ── Scrollable body: route details, banners, cancel ──
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                6,
+                16,
+                16 + MediaQuery.of(context).padding.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 4. Route Details Box (PICKUP & DROPOFF)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
@@ -1396,8 +1419,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ],
 
-            // Cancellation option — hidden below sheet fold by default on initial view
-            const SizedBox(height: 16),
+            // Cancellation option — visible after scrolling, with generous bottom clearance
+            const SizedBox(height: 24),
             Center(
               child: TextButton.icon(
                 key: const Key('driver_cancel_trip_button'),
@@ -1424,8 +1447,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       },
               ),
             ),
-          ],
-        ),
+            const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
