@@ -68,6 +68,7 @@ class PlaceSuggestion {
 /// Test seams are unchanged — widget tests keep working offline.
 class LocationService {
   static final GoogleMapsService _maps = GoogleMapsService();
+  static final MapboxService _mapbox = const MapboxService();
 
   /// Test seams to mock location and reverse geocoding in tests.
   static Future<LatLng?> Function()? customPositionProvider;
@@ -191,48 +192,76 @@ class LocationService {
       CountryDetectionService.instance.updateFromAddress(addr);
       return addr;
     }
-    // Hub feature pin: explicit 'google' skips Nominatim; explicit
-    // 'cartodb' skips Google. Otherwise the chain decides the primary and
-    // the other engine stays as fallback (search never goes single-point).
+
     final controller = MapConfigController.instance;
-    final isGoogle = controller.geocodingNominatimOnly
-        ? false
-        : controller.geocodingGoogleOnly || controller.isGoogle;
-    if (isGoogle) {
-      // Primary: Google Geocoding proxy.
-      final addr = await _maps.reverseGeocode(lat, lng);
-      // Detect the raw-coord fallback format ("12.34567, 5.67890") and retry
-      // with Nominatim so the user always sees a meaningful street address —
-      // unless Hub pinned Google-only.
-      final isRawCoord = RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(addr.trim());
-      if (!isRawCoord) {
-        CountryDetectionService.instance.updateFromAddress(addr);
-        return addr;
+    final cfg = controller.currentConfig;
+    final fallbackCoord = '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+
+    bool isRaw(String s) =>
+        s.trim().isEmpty || RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(s.trim());
+
+    // Fallback chain: Google Maps → Mapbox → CartoDB (Nominatim).
+    // Honors explicit Hub engine selection.
+    if (controller.isMapbox) {
+      if (cfg.hasValidMapboxToken) {
+        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
+        if (!isRaw(mbAddr)) {
+          CountryDetectionService.instance.updateFromAddress(mbAddr);
+          return mbAddr;
+        }
       }
-      if (controller.geocodingGoogleOnly) {
-        CountryDetectionService.instance.updateFromAddress(addr);
-        return addr;
+      final nom = await _nominatimReverseGeocode(lat, lng);
+      if (!isRaw(nom)) {
+        CountryDetectionService.instance.updateFromAddress(nom);
+        return nom;
       }
-      final fallback = await _nominatimReverseGeocode(lat, lng);
-      final result = fallback.isNotEmpty ? fallback : addr;
-      CountryDetectionService.instance.updateFromAddress(result);
-      return result;
+      final gAddr = await _maps.reverseGeocode(lat, lng);
+      if (!isRaw(gAddr)) {
+        CountryDetectionService.instance.updateFromAddress(gAddr);
+        return gAddr;
+      }
+      return fallbackCoord;
+    } else if (controller.isCartoDb) {
+      final nom = await _nominatimReverseGeocode(lat, lng);
+      if (!isRaw(nom)) {
+        CountryDetectionService.instance.updateFromAddress(nom);
+        return nom;
+      }
+      if (cfg.hasValidMapboxToken) {
+        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
+        if (!isRaw(mbAddr)) {
+          CountryDetectionService.instance.updateFromAddress(mbAddr);
+          return mbAddr;
+        }
+      }
+      final gAddr = await _maps.reverseGeocode(lat, lng);
+      if (!isRaw(gAddr)) {
+        CountryDetectionService.instance.updateFromAddress(gAddr);
+        return gAddr;
+      }
+      return fallbackCoord;
     } else {
-      // Primary: OpenStreetMap Nominatim for OSM / CartoDB configurations.
-      final fallback = await _nominatimReverseGeocode(lat, lng);
-      if (fallback.isNotEmpty) {
-        CountryDetectionService.instance.updateFromAddress(fallback);
-        return fallback;
+      // Primary: Google Maps
+      final gAddr = await _maps.reverseGeocode(lat, lng);
+      if (!isRaw(gAddr)) {
+        CountryDetectionService.instance.updateFromAddress(gAddr);
+        return gAddr;
       }
-      // Fallback to Google proxy if Nominatim is offline/slow — unless Hub
-      // pinned Nominatim-only.
-      if (controller.geocodingNominatimOnly) {
-        CountryDetectionService.instance.updateFromAddress('');
-        return '';
+      // Fallback 1: Mapbox
+      if (cfg.hasValidMapboxToken) {
+        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
+        if (!isRaw(mbAddr)) {
+          CountryDetectionService.instance.updateFromAddress(mbAddr);
+          return mbAddr;
+        }
       }
-      final addr = await _maps.reverseGeocode(lat, lng);
-      CountryDetectionService.instance.updateFromAddress(addr);
-      return addr;
+      // Fallback 2: CartoDB / Nominatim
+      final nom = await _nominatimReverseGeocode(lat, lng);
+      if (!isRaw(nom)) {
+        CountryDetectionService.instance.updateFromAddress(nom);
+        return nom;
+      }
+      return fallbackCoord;
     }
   }
 
@@ -306,26 +335,23 @@ class LocationService {
     }
   }
 
-  // ── Forward Geocode (Google Places via proxy with Nominatim fallback) ────
+  // ── Forward Geocode (Google / Mapbox / Nominatim fallback chain) ──────────
 
-  /// Converts a free-text [query] into a [LatLng] via Places Autocomplete +
-  /// one Details call. Returns `null` on miss or network error.
+  /// Converts a free-text [query] into a [LatLng] via Google, Mapbox, or Nominatim.
   static Future<LatLng?> forwardGeocode(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return null;
 
-    final isGoogle = MapConfigController.instance.isGoogle;
-    if (isGoogle) {
-      try {
-        final details = await _maps.geocode(trimmed);
-        if (details != null) return LatLng(details.lat, details.lng);
-      } catch (e) {
-        debugPrint('LocationService.forwardGeocode error: $e');
+    final controller = MapConfigController.instance;
+    final cfg = controller.currentConfig;
+
+    if (controller.isMapbox) {
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.geocode(trimmed);
+          if (mb != null) return LatLng(mb.lat, mb.lng);
+        } catch (_) {}
       }
-      final nomResults = await _nominatimSearch(trimmed);
-      if (nomResults.isNotEmpty) return nomResults.first.latLng;
-      return null;
-    } else {
       final nomResults = await _nominatimSearch(trimmed);
       if (nomResults.isNotEmpty) return nomResults.first.latLng;
       try {
@@ -333,11 +359,44 @@ class LocationService {
         if (details != null) return LatLng(details.lat, details.lng);
       } catch (_) {}
       return null;
+    } else if (controller.isCartoDb) {
+      final nomResults = await _nominatimSearch(trimmed);
+      if (nomResults.isNotEmpty) return nomResults.first.latLng;
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.geocode(trimmed);
+          if (mb != null) return LatLng(mb.lat, mb.lng);
+        } catch (_) {}
+      }
+      try {
+        final details = await _maps.geocode(trimmed);
+        if (details != null) return LatLng(details.lat, details.lng);
+      } catch (_) {}
+      return null;
+    } else {
+      // Primary: Google Maps
+      try {
+        final details = await _maps.geocode(trimmed);
+        if (details != null) return LatLng(details.lat, details.lng);
+      } catch (e) {
+        debugPrint('LocationService.forwardGeocode Google error: $e');
+      }
+      // Fallback 1: Mapbox
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.geocode(trimmed);
+          if (mb != null) return LatLng(mb.lat, mb.lng);
+        } catch (_) {}
+      }
+      // Fallback 2: Nominatim
+      final nomResults = await _nominatimSearch(trimmed);
+      if (nomResults.isNotEmpty) return nomResults.first.latLng;
+      return null;
     }
   }
 
-  /// Fetches autocomplete predictions for [query] via the proxy, falling back to
-  /// Nominatim search if proxy yields no predictions or fails.
+  /// Fetches autocomplete predictions for [query] using Google Places, Mapbox,
+  /// or Nominatim based on the active Hub engine and fallback chain.
   static Future<List<PlaceSuggestion>> fetchSuggestions(
     String query, {
     double? biasLat,
@@ -349,71 +408,74 @@ class LocationService {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
 
-    // Hub feature pin (same rule as [reverseGeocode]): explicit 'google'
-    // skips Nominatim; explicit 'cartodb' skips Google; otherwise the chain
-    // decides the primary with the other as fallback.
     final controller = MapConfigController.instance;
-    final isGoogle = controller.geocodingNominatimOnly
-        ? false
-        : controller.geocodingGoogleOnly || controller.isGoogle;
-    if (isGoogle) {
-      try {
-        final predictions = await _maps.autocomplete(
-          trimmed,
-          lat: biasLat,
-          lng: biasLng,
-        );
-        if (predictions.isNotEmpty) {
-          return predictions
-              .map((p) => PlaceSuggestion(
-                    description: p.description.isNotEmpty
-                        ? p.description
-                        : [p.mainText, p.secondaryText]
-                            .where((s) => s.isNotEmpty)
-                            .join(', '),
-                    mainText: p.mainText.isNotEmpty ? p.mainText : null,
-                    secondaryText:
-                        p.secondaryText.isNotEmpty ? p.secondaryText : null,
-                    lat: 0,
-                    lng: 0,
-                    placeId: p.placeId,
-                  ))
-              .toList();
-        }
-      } catch (e) {
-        debugPrint('LocationService.fetchSuggestions error: $e');
+    final cfg = controller.currentConfig;
+
+    List<PlaceSuggestion> toSuggestions(List<PlacePrediction> preds) => preds
+        .map((p) => PlaceSuggestion(
+              description: p.description.isNotEmpty
+                  ? p.description
+                  : [p.mainText, p.secondaryText]
+                      .where((s) => s.isNotEmpty)
+                      .join(', '),
+              mainText: p.mainText.isNotEmpty ? p.mainText : null,
+              secondaryText:
+                  p.secondaryText.isNotEmpty ? p.secondaryText : null,
+              lat: 0,
+              lng: 0,
+              placeId: p.placeId,
+            ))
+        .toList();
+
+    if (controller.isMapbox) {
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+          if (mb.isNotEmpty) return toSuggestions(mb);
+        } catch (_) {}
       }
-      if (controller.geocodingGoogleOnly) return [];
-      return _nominatimSearch(trimmed);
-    } else {
-      final nomResults = await _nominatimSearch(trimmed);
-      if (nomResults.isNotEmpty) return nomResults;
-      if (controller.geocodingNominatimOnly) return [];
+      final nom = await _nominatimSearch(trimmed);
+      if (nom.isNotEmpty) return nom;
       try {
-        final predictions = await _maps.autocomplete(
-          trimmed,
-          lat: biasLat,
-          lng: biasLng,
-        );
-        if (predictions.isNotEmpty) {
-          return predictions
-              .map((p) => PlaceSuggestion(
-                    description: p.description.isNotEmpty
-                        ? p.description
-                        : [p.mainText, p.secondaryText]
-                            .where((s) => s.isNotEmpty)
-                            .join(', '),
-                    mainText: p.mainText.isNotEmpty ? p.mainText : null,
-                    secondaryText:
-                        p.secondaryText.isNotEmpty ? p.secondaryText : null,
-                    lat: 0,
-                    lng: 0,
-                    placeId: p.placeId,
-                  ))
-              .toList();
-        }
+        final g = await _maps.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+        if (g.isNotEmpty) return toSuggestions(g);
       } catch (_) {}
       return [];
+    } else if (controller.isCartoDb) {
+      final nom = await _nominatimSearch(trimmed);
+      if (nom.isNotEmpty) return nom;
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+          if (mb.isNotEmpty) return toSuggestions(mb);
+        } catch (_) {}
+      }
+      try {
+        final g = await _maps.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+        if (g.isNotEmpty) return toSuggestions(g);
+      } catch (_) {}
+      return [];
+    } else {
+      // Primary: Google Maps
+      try {
+        final predictions = await _maps.autocomplete(
+          trimmed,
+          lat: biasLat,
+          lng: biasLng,
+        );
+        if (predictions.isNotEmpty) return toSuggestions(predictions);
+      } catch (e) {
+        debugPrint('LocationService.fetchSuggestions Google error: $e');
+      }
+      // Fallback 1: Mapbox
+      if (cfg.hasValidMapboxToken) {
+        try {
+          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+          if (mb.isNotEmpty) return toSuggestions(mb);
+        } catch (_) {}
+      }
+      // Fallback 2: Nominatim
+      return _nominatimSearch(trimmed);
     }
   }
 
@@ -428,6 +490,27 @@ class LocationService {
     }
     final placeId = suggestion.placeId;
     if (placeId == null || placeId.isEmpty) return suggestion;
+
+    // Direct Mapbox feature ID resolution:
+    if (placeId.startsWith('address.') ||
+        placeId.startsWith('poi.') ||
+        placeId.startsWith('neighborhood.') ||
+        placeId.startsWith('place.')) {
+      try {
+        final details = await _mapbox.geocode(suggestion.description);
+        if (details != null) {
+          return PlaceSuggestion(
+            description: details.formattedAddress,
+            mainText: details.name,
+            secondaryText: suggestion.secondaryText,
+            lat: details.lat,
+            lng: details.lng,
+            placeId: placeId,
+          );
+        }
+      } catch (_) {}
+    }
+
     try {
       final details = await _maps.details(placeId);
       final display = details.displayAddress.isNotEmpty
@@ -448,6 +531,19 @@ class LocationService {
       );
     } catch (e) {
       debugPrint('LocationService.resolvePrediction error: $e');
+      try {
+        final mbDetails = await _mapbox.geocode(suggestion.description);
+        if (mbDetails != null) {
+          return PlaceSuggestion(
+            description: mbDetails.formattedAddress,
+            mainText: mbDetails.name,
+            secondaryText: suggestion.secondaryText,
+            lat: mbDetails.lat,
+            lng: mbDetails.lng,
+            placeId: placeId,
+          );
+        }
+      } catch (_) {}
       return null;
     }
   }
@@ -463,21 +559,15 @@ class LocationService {
     return (latLng: suggestions.first.latLng, displayName: suggestions.first.description);
   }
 
-  // ── Route geometry (Google Directions → OSRM fallback) ───────────────────
+  // ── Route geometry (Google Directions → Mapbox → OSRM fallback chain) ────
 
   /// Full driving route: road polyline + distance (metres) + duration (seconds).
   ///
   /// Routing priority:
-  /// 1. **Google Directions API** via the `googleMapsProxy` callable — traffic-
-  ///    aware, highest accuracy for Nigeria road networks.
-  /// 2. **OSRM public router** (`router.project-osrm.org`) — free, requires no
-  ///    auth and no API key, good coverage of Lagos / South-West Nigeria. Used
-  ///    whenever Google fails (auth race on startup, quota, network timeout).
-  /// 3. **Empty result** — caller draws a straight pickup→dropoff line as an
-  ///    absolute last resort so the booking flow is never blocked.
-  ///
-  /// [distanceM] and [durationS] are 0 when only the fallback straight line is
-  /// used; callers should hide the distance/ETA badge in that case.
+  /// 1. **Google Directions API** via the `googleMapsProxy` callable — traffic-aware.
+  /// 2. **Mapbox Directions API** — turn-by-turn routing with traffic metrics.
+  /// 3. **OSRM public router** (`router.project-osrm.org`) — free, requires no key.
+  /// 4. **Empty result** — caller draws a straight line as last resort.
   static Future<({List<LatLng> points, int distanceM, int durationS})> fetchRoute(
     LatLng pickup,
     LatLng dropoff,
@@ -488,34 +578,86 @@ class LocationService {
       return (points: pts, distanceM: 0, durationS: 0);
     }
 
-    // ── 1. Google Directions (proxy callable) ─────────────────────────────
-    try {
-      final route = await _maps.directions(
-        originLat: pickup.latitude,
-        originLng: pickup.longitude,
-        destLat: dropoff.latitude,
-        destLng: dropoff.longitude,
-      );
-      if (route.points.isNotEmpty) {
-        return (
-          points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
-          distanceM: route.distanceM,
-          durationS: route.durationS,
+    final controller = MapConfigController.instance;
+    final cfg = controller.currentConfig;
+
+    Future<({List<LatLng> points, int distanceM, int durationS})?> tryGoogle() async {
+      try {
+        final route = await _maps.directions(
+          originLat: pickup.latitude,
+          originLng: pickup.longitude,
+          destLat: dropoff.latitude,
+          destLng: dropoff.longitude,
         );
+        if (route.points.isNotEmpty) {
+          return (
+            points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
+            distanceM: route.distanceM,
+            durationS: route.durationS,
+          );
+        }
+      } catch (e) {
+        debugPrint('LocationService.fetchRoute: Google Directions failed: $e');
       }
-    } catch (e) {
-      debugPrint('LocationService.fetchRoute: Google Directions failed: $e');
+      return null;
     }
 
-    // ── 2. OSRM public router (free fallback) ─────────────────────────────
-    try {
-      final result = await _fetchOsrmRoute(pickup, dropoff);
-      if (result.points.isNotEmpty) return result;
-    } catch (e) {
-      debugPrint('LocationService.fetchRoute: OSRM fallback failed: $e');
+    Future<({List<LatLng> points, int distanceM, int durationS})?> tryMapbox() async {
+      if (!cfg.hasValidMapboxToken) return null;
+      try {
+        final route = await _mapbox.directions(
+          originLat: pickup.latitude,
+          originLng: pickup.longitude,
+          destLat: dropoff.latitude,
+          destLng: dropoff.longitude,
+        );
+        if (route.points.isNotEmpty) {
+          return (
+            points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
+            distanceM: route.distanceM,
+            durationS: route.durationS,
+          );
+        }
+      } catch (e) {
+        debugPrint('LocationService.fetchRoute: Mapbox Directions failed: $e');
+      }
+      return null;
     }
 
-    // ── 3. No road data — caller uses straight line ────────────────────────
+    Future<({List<LatLng> points, int distanceM, int durationS})?> tryOsrm() async {
+      try {
+        final result = await _fetchOsrmRoute(pickup, dropoff);
+        if (result.points.isNotEmpty) return result;
+      } catch (e) {
+        debugPrint('LocationService.fetchRoute: OSRM fallback failed: $e');
+      }
+      return null;
+    }
+
+    if (controller.isMapbox) {
+      final mb = await tryMapbox();
+      if (mb != null) return mb;
+      final osrm = await tryOsrm();
+      if (osrm != null) return osrm;
+      final g = await tryGoogle();
+      if (g != null) return g;
+    } else if (controller.isCartoDb) {
+      final osrm = await tryOsrm();
+      if (osrm != null) return osrm;
+      final mb = await tryMapbox();
+      if (mb != null) return mb;
+      final g = await tryGoogle();
+      if (g != null) return g;
+    } else {
+      // Primary: Google → Mapbox → OSRM
+      final g = await tryGoogle();
+      if (g != null) return g;
+      final mb = await tryMapbox();
+      if (mb != null) return mb;
+      final osrm = await tryOsrm();
+      if (osrm != null) return osrm;
+    }
+
     return (points: <LatLng>[], distanceM: 0, durationS: 0);
   }
 

@@ -653,6 +653,23 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
             final Widget mapCanvas;
 
+            // Deduplicate markers to prevent collision and overlapping blue-dot markers
+            final isGoogleBranch = targetProvider == MapProvider.googleMaps;
+            final baseMarkers = widget.markers.where((m) {
+              final id = m.id.toLowerCase();
+              final isUserLocationId = id == 'live_user_blue_dot' ||
+                  id == 'user_location' ||
+                  id == 'my_location' ||
+                  id == 'current_location';
+              if (isGoogleBranch && widget.showMyLocation && isUserLocationId) {
+                return false;
+              }
+              if (!isGoogleBranch && isUserLocationId) {
+                return false;
+              }
+              return true;
+            }).toList();
+
             // ignore: deprecated_member_use
             if (targetProvider == MapProvider.googleMaps) {
               mapCanvas = _GoogleMapBranch(
@@ -661,7 +678,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 mapController: widget.mapController,
                 initialCenter: widget.initialCenter,
                 initialZoom: widget.initialZoom,
-                markers: widget.markers,
+                markers: baseMarkers,
                 polylines: widget.polylines,
                 isDarkOverride: widget.isDarkOverride,
                 showMyLocation: widget.showMyLocation,
@@ -677,15 +694,9 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                   ? mapConfig.resolveMapboxTileUrl(isDark: isDark)
                   : mapConfig.resolveTileUrl(isDark: isDark);
 
-              // Seamless blue-dot parity: if showMyLocation is true and markers
-              // do not already supply a user blue dot, inject a live blue-dot pin.
-              // The dot tracks `userLocation` (live GPS per tick) and only
-              // falls back to the creation center when no fix is held.
-              final rasterMarkers = List<MapPin>.from(widget.markers);
-              if (widget.showMyLocation &&
-                  !rasterMarkers.any((m) =>
-                      m.color == Colors.blue &&
-                      (m.label == null || m.label!.isEmpty))) {
+              // Single authoritative live blue-dot pin for raster engines
+              final rasterMarkers = List<MapPin>.from(baseMarkers);
+              if (widget.showMyLocation) {
                 rasterMarkers.insert(
                   0,
                   MapPin(
@@ -859,6 +870,16 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
     super.initState();
     _currentCenter = widget.initialCenter;
     _ensureAndroidHybridComposition();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GoogleMapBranch oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((widget.initialCenter.latitude != oldWidget.initialCenter.latitude ||
+            widget.initialCenter.longitude != oldWidget.initialCenter.longitude) &&
+        widget.mapController.isFollowingUser) {
+      widget.mapController.move(widget.initialCenter, widget.initialZoom);
+    }
   }
 
   /// Configures Android Platform View composition mode.

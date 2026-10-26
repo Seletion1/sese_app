@@ -121,11 +121,104 @@ function asLatLng(obj) {
     return { lat, lng };
 }
 /**
- * Callable: Google Maps Platform proxy (autocomplete, details, geocode,
- * reverse-geocode, directions). Auth required; every branch validates and
- * maps Google statuses to user-safe errors. The server key never leaves
- * this function.
+ * Extracts a complete, human-readable structured street address from Google Geocoding results.
+ * Prevents returning standalone house numbers, raw plus-codes, or coordinate strings when
+ * street components (`street_number`, `route`, and locality) are present.
  */
+function extractStructuredAddress(results, fallbackCoord) {
+    if (!Array.isArray(results) || results.length === 0)
+        return fallbackCoord;
+    const validResults = results.filter((r) => typeof r === "object" && r !== null);
+    if (validResults.length === 0)
+        return fallbackCoord;
+    const priorityTypes = [
+        "street_address",
+        "premise",
+        "subpremise",
+        "route",
+        "intersection",
+        "point_of_interest",
+        "establishment",
+        "neighborhood",
+        "sublocality",
+    ];
+    let bestResult = validResults.find((r) => Array.isArray(r.types) && r.types.some((t) => priorityTypes.slice(0, 4).includes(t)));
+    if (!bestResult) {
+        bestResult =
+            validResults.find((r) => Array.isArray(r.types) && r.types.some((t) => priorityTypes.includes(t))) || validResults[0];
+    }
+    let streetNumber = "";
+    let route = "";
+    let neighborhood = "";
+    let sublocality = "";
+    let locality = "";
+    for (const r of validResults) {
+        if (!Array.isArray(r.address_components))
+            continue;
+        for (const c of r.address_components) {
+            if (!c || typeof c !== "object" || !Array.isArray(c.types))
+                continue;
+            const name = typeof c.long_name === "string" ? c.long_name.trim() : "";
+            if (!name)
+                continue;
+            if (!streetNumber && c.types.includes("street_number")) {
+                streetNumber = name;
+            }
+            if (!route && c.types.includes("route")) {
+                route = name;
+            }
+            if (!neighborhood && c.types.includes("neighborhood")) {
+                neighborhood = name;
+            }
+            if (!sublocality && (c.types.includes("sublocality") || c.types.includes("sublocality_level_1"))) {
+                sublocality = name;
+            }
+            if (!locality && c.types.includes("locality")) {
+                locality = name;
+            }
+        }
+    }
+    let streetPart = "";
+    if (streetNumber && route) {
+        streetPart = `${streetNumber} ${route}`;
+    }
+    else if (route) {
+        streetPart = route;
+    }
+    else if (streetNumber) {
+        streetPart = streetNumber;
+    }
+    const areaPart = neighborhood || sublocality || locality;
+    const rawFormatted = typeof bestResult.formatted_address === "string"
+        ? bestResult.formatted_address.trim()
+        : "";
+    const isTooShortOrNumberOnly = /^\d+[\s,]*([A-Za-z]+)?$/.test(rawFormatted) ||
+        /^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}/i.test(rawFormatted);
+    if (isTooShortOrNumberOnly && streetPart && areaPart) {
+        const parts = [streetPart, areaPart];
+        if (locality && locality !== areaPart)
+            parts.push(locality);
+        return parts.join(", ");
+    }
+    if (rawFormatted && !isTooShortOrNumberOnly) {
+        return rawFormatted;
+    }
+    if (streetPart) {
+        const parts = [streetPart];
+        if (areaPart && areaPart !== streetPart)
+            parts.push(areaPart);
+        if (locality && locality !== areaPart)
+            parts.push(locality);
+        return parts.join(", ");
+    }
+    if (areaPart) {
+        const parts = [areaPart];
+        if (locality && locality !== areaPart)
+            parts.push(locality);
+        return parts.join(", ");
+    }
+    return rawFormatted || fallbackCoord;
+}
 exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
@@ -166,7 +259,7 @@ exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
             const placeId = cleanInput(data.input);
             const json = await googleGet("/maps/api/place/details/json", {
                 place_id: placeId,
-                fields: "place_id,geometry,name,formatted_address",
+                fields: "place_id,geometry,name,formatted_address,address_components",
                 language: "en",
             });
             const status = typeof json.status === "string" ? json.status : "";
@@ -178,13 +271,13 @@ exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
             if (!point) {
                 throw new https_1.HttpsError("not-found", "That place has no coordinates.");
             }
+            const rawFormatted = typeof result.formatted_address === "string" ? result.formatted_address : "";
+            const structured = extractStructuredAddress([result], rawFormatted);
             const dto = {
                 placeId: typeof result.place_id === "string" ? result.place_id : placeId,
                 lat: point.lat,
                 lng: point.lng,
-                formattedAddress: typeof result.formatted_address === "string"
-                    ? result.formatted_address
-                    : "",
+                formattedAddress: structured || rawFormatted,
                 name: typeof result.name === "string" ? result.name : "",
             };
             return { details: dto };
@@ -237,14 +330,10 @@ exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
                 }
                 throwForStatus(status, action);
             }
-            const first = Array.isArray(json.results) ? json.results[0] : null;
-            const m = typeof first === "object" && first !== null
-                ? first
-                : {};
-            const formatted = typeof m.formatted_address === "string" && m.formatted_address
-                ? m.formatted_address
-                : `${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}`;
-            return { address: formatted };
+            const fallback = `${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}`;
+            const results = Array.isArray(json.results) ? json.results : [];
+            const structured = extractStructuredAddress(results, fallback);
+            return { address: structured };
         }
         case "directions": {
             if (!isLat(data.originLat) ||

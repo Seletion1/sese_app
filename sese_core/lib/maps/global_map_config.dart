@@ -61,6 +61,42 @@ enum MapFeature {
     return MapFeature.geocoding;
   }
 }
+
+/// Curated Mapbox styles supported across Dynamic Hub configuration and client rendering.
+abstract final class MapboxStyles {
+  /// Default Light mode style: high-contrast street geometry with turn labels.
+  static const String streetsV12 = 'mapbox/streets-v12';
+
+  /// Topographic and recreational terrain style.
+  static const String outdoorsV12 = 'mapbox/outdoors-v12';
+
+  /// Minimal clean light aesthetic.
+  static const String lightV11 = 'mapbox/light-v11';
+
+  /// Default Dark/Night mode style.
+  static const String darkV11 = 'mapbox/dark-v11';
+
+  /// High-visibility turn-by-turn driving style.
+  static const String navigationDayV1 = 'mapbox/navigation-day-v1';
+
+  /// All selectable styles for Hub configuration dropdown.
+  static const List<String> availableStyles = [
+    streetsV12,
+    outdoorsV12,
+    lightV11,
+    darkV11,
+    navigationDayV1,
+  ];
+
+  /// Human-readable labels for Hub admin UI.
+  static const Map<String, String> styleLabels = {
+    streetsV12: 'Streets (Default Light)',
+    outdoorsV12: 'Outdoors',
+    lightV11: 'Light (Minimal)',
+    darkV11: 'Dark (Default Night)',
+    navigationDayV1: 'Navigation Day',
+  };
+}
 /// Global map configuration model stored in Firestore `/system_config/remote_keys`.
 ///
 /// Drives map rendering across customer and driver apps in real-time.
@@ -130,9 +166,11 @@ class GlobalMapConfig {
   static const String _cartoDark =
       'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
-  /// Default Mapbox style: light theme mirroring the Google Maps clean
-  /// aesthetic (see [mapboxStyle]).
-  static const String defaultMapboxStyle = 'mapbox/light-v11';
+  /// Default Mapbox style: streets light theme (see [mapboxStyle]).
+  static const String defaultMapboxStyle = MapboxStyles.streetsV12;
+
+  /// Default Mapbox dark theme for night / dark mode.
+  static const String defaultDarkMapboxStyle = MapboxStyles.darkV11;
 
   const GlobalMapConfig({
     this.activeProvider = 'cartodb',
@@ -260,11 +298,16 @@ class GlobalMapConfig {
     if (token == null || token.isEmpty) {
       return isDark ? _cartoDark : _cartoLight;
     }
-    // Dark mode without an explicit dark style: Mapbox dark theme keeps the
-    // mimesis (dark edition) instead of forcing light tiles at night.
+    // Dynamic theme-listening logic:
+    // When the app or device is in dark mode, dynamically use Mapbox dark style.
+    // When in light mode, use the selected style (defaulting to streets-v12).
     final style = normalizedMapboxStyle;
-    final effectiveStyle =
-        (isDark && style == 'mapbox/light-v11') ? 'mapbox/dark-v11' : style;
+    final String effectiveStyle;
+    if (isDark) {
+      effectiveStyle = style == MapboxStyles.darkV11 ? style : MapboxStyles.darkV11;
+    } else {
+      effectiveStyle = style == MapboxStyles.darkV11 ? MapboxStyles.streetsV12 : style;
+    }
     return 'https://api.mapbox.com/styles/v1/$effectiveStyle/tiles/256/{z}/{x}/{y}{r}?access_token=$token';
   }
 
@@ -279,7 +322,7 @@ class GlobalMapConfig {
       return tileUrlTemplate.trim();
     }
     if (isCartoDb && hasValidApiKey) {
-      return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?api_key=${apiKey!.trim()}';
+      return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${apiKey!.trim()}';
     }
     return isDark ? _cartoDark : _cartoLight;
   }

@@ -1228,18 +1228,52 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       ),
                     ),
                   ),
-                _CappedField(
-                  preferredWidth: 360,
-                  child: TextFormField(
-                    controller: _mapboxStyleCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Mapbox Style ID (Google mimesis)',
-                      helperText:
-                          'Default mapbox/light-v11. Custom: mapbox://styles/<user>/<id>.',
-                      border: OutlineInputBorder(),
+                // ── Mapbox Style Theme (Dropdown conditional on Mapbox active) ──
+                if (_activeMapProvider == 'mapbox' ||
+                    _manualOverrideProvider == 'mapbox' ||
+                    _featureProviders.values.contains('mapbox'))
+                  _CappedField(
+                    preferredWidth: 360,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Mapbox Style Theme',
+                        helperText:
+                            'Select map theme. Switches to dark-v11 automatically in night mode.',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                      ),
+                      child: DropdownButton<String>(
+                        value: MapboxStyles.availableStyles.contains(_mapboxStyleCtrl.text.trim())
+                            ? _mapboxStyleCtrl.text.trim()
+                            : (_mapboxStyleCtrl.text.trim().isNotEmpty
+                                ? _mapboxStyleCtrl.text.trim()
+                                : MapboxStyles.streetsV12),
+                        isExpanded: true,
+                        underline: const SizedBox.shrink(),
+                        items: [
+                          for (final style in MapboxStyles.availableStyles)
+                            DropdownMenuItem<String>(
+                              value: style,
+                              child: Text(MapboxStyles.styleLabels[style] ?? style),
+                            ),
+                          if (!MapboxStyles.availableStyles.contains(_mapboxStyleCtrl.text.trim()) &&
+                              _mapboxStyleCtrl.text.trim().isNotEmpty)
+                            DropdownMenuItem<String>(
+                              value: _mapboxStyleCtrl.text.trim(),
+                              child: Text('Custom (${_mapboxStyleCtrl.text.trim()})'),
+                            ),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => _mapboxStyleCtrl.text = val);
+                          }
+                        },
+                      ),
                     ),
                   ),
-                ),
                 // ── Monthly API-call quota caps (backend sequential
                 // fallback: Google → Mapbox → CartoDB/coast → Google PAYG).
                 // Counters reset on month roll-over, server-side.

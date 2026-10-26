@@ -70,6 +70,7 @@ export 'maps/local_geocoder_service.dart';
 export 'maps/offline_map_manager.dart';
 export 'maps/place_models.dart';
 export 'maps/google_maps_service.dart';
+export 'maps/mapbox_service.dart';
 export 'maps/global_map_config.dart';
 export 'maps/map_config_controller.dart';
 export 'maps/recent_locations_repository.dart';

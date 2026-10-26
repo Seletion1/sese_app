@@ -60,6 +60,38 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-26 — Global Map Engine, Theme-Aware Mapbox Styles & Geocoding Resolution Architecture
+
+Executed comprehensive map engine refactoring, structured geocoding resolution, CartoDB layer rendering fix, and Hub dynamic style configuration:
+
+### 1. Dynamic Mapbox Geocoding & Routing Engine (`MapboxService`)
+- **First-Class Mapbox Client**: Built `MapboxService` in `sese_core/lib/maps/mapbox_service.dart` providing `reverseGeocode`, `autocomplete`, `geocode`, and `directions`.
+- **High-Granularity Filter**: Restricts geocoding to `types=address,poi,neighborhood,locality&country=ng&language=en` with proximity biasing, eliminating truncation to broad neighborhood/area names and ensuring street-level accuracy.
+- **Cascading Fallback Chain (Google Maps → Mapbox → CartoDB)**: Integrated into `LocationService` so all reverse-geocoding, address search autocomplete, forward-geocoding, and driving route polylines seamlessly honor the active engine or cascade gracefully.
+
+### 2. Theme-Aware Mapbox Styles (`MapboxStyles`)
+- **Curated Styles Catalog**: Registered `MapboxStyles` with `streetsV12` (Default Light), `darkV11` (Default Dark), `outdoorsV12`, `lightV11`, and `navigationDayV1`.
+- **Dynamic Theme-Listening**: Updated `GlobalMapConfig.resolveMapboxTileUrl` to automatically switch between the selected light style and `mapbox/dark-v11` whenever the app/system theme toggles.
+
+### 3. Dynamic Hub UI & Conditional Style Selector
+- **Conditional Visibility**: In `global_config_screen.dart`, "Mapbox Style Theme" is conditionally rendered only when Mapbox is active as the engine or pinned to a feature.
+- **Curated Dropdown Menu**: Replaced raw text input with a `DropdownButton` populated with human-readable curated style options and automatic fallback preservation.
+
+### 4. Structured Street Geocoding Resolution (`googleMaps.ts`)
+- **Structured Address Extraction**: Enhanced `extractStructuredAddress` in `googleMapsProxy` to inspect all results and parse `address_components` (`street_number`, `route`, `neighborhood`, `sublocality`, `locality`).
+- **Eliminated House Number Truncation**: Prevents standalone numbers or raw coordinate strings from being returned when complete street data exists, guaranteeing clean addresses like "14 Isiaka Jimoh Street, Agbede".
+
+### 5. CartoDB Layer Rendering & Marker Deduplication
+- **Retina & Zoom Overscaling**: Added `{r}` to CartoDB URLs and configured `maxNativeZoom: 18` on `TileLayer` to eliminate 404 tile errors causing blank screens at zoom 19.
+- **Instantaneous Tile Display**: Set `tileDisplay: TileDisplay.instantaneous()` and `evictErrorTileStrategy: dispose` to eliminate tile overlapping and ghosting artifacts.
+- **Marker Deduplication**: Stripped redundant user location pins on Google Maps (where native blue dot is active) and unified raster maps to a single live blue dot pin, eliminating marker collision bugs.
+- **Viewport Synchronization**: Added `didUpdateWidget` camera tracking across `_GoogleMapBranchState` and `_OsmMapViewState` for seamless recentering on coordinate changes.
+
+### 6. Verification
+- `analyze_files` across `sese_core`, `sese_ride`, and `sese_hub`: **0 errors, 0 warnings**.
+- Cloud Functions compiled cleanly via `tsc`.
+- Live `hot_restart` applied with **0 runtime errors**.
+
 ## 2026-10-26 — Global Incoming Call Overlay Root Navigator Routing
 
 Resolved `Navigator operation requested with a context that does not include a Navigator` exception when accepting incoming VoIP audio calls:

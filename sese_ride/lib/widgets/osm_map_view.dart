@@ -133,6 +133,16 @@ class _OsmMapViewState extends State<OsmMapView> {
   base.LatLng? _lastCenter;
 
   @override
+  void didUpdateWidget(covariant OsmMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if ((widget.initialCenter.latitude != oldWidget.initialCenter.latitude ||
+            widget.initialCenter.longitude != oldWidget.initialCenter.longitude) &&
+        widget.mapController.isFollowingUser) {
+      widget.mapController.move(widget.initialCenter, widget.initialZoom);
+    }
+  }
+
+  @override
   void dispose() {
     _idleDebounce?.cancel();
     super.dispose();
@@ -170,14 +180,14 @@ class _OsmMapViewState extends State<OsmMapView> {
       );
     }
 
-    // Prefer custom tile URL template from remote keys if set, else fall back to CartoDB.
+    // Prefer custom tile URL template from remote keys if set, else fall back to CartoDB with retina {r} support.
     final tileUrl = (widget.customTileUrlTemplate != null &&
             widget.customTileUrlTemplate!.trim().isNotEmpty &&
             !widget.customTileUrlTemplate!.contains('light_all'))
         ? widget.customTileUrlTemplate!
         : (isDark
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png');
 
     final effectiveKey = widget.providerKey ??
         (tileUrl.contains('mapbox') ? 'mapbox' : 'cartodb');
@@ -205,10 +215,14 @@ class _OsmMapViewState extends State<OsmMapView> {
           urlTemplate: tileUrl,
           subdomains: const ['a', 'b', 'c', 'd'],
           userAgentPackageName: 'com.sesetech.sese_ride',
-          // Retina tiles (`{r}` → `@2x`) for CartoDB Voyager and Mapbox
-          // raster styles — both endpoints serve @2x. Crisp pins/labels on
-          // high-density screens at the cost of ~4x tile bytes.
-          retinaMode: true,
+          // Cap native zoom to 18 for CartoDB to prevent 404 blank screens at zoom 19
+          maxNativeZoom: 18,
+          maxZoom: 19,
+          // Instantaneous display eliminates layer overlapping and tile ghosting
+          tileDisplay: const fm.TileDisplay.instantaneous(),
+          evictErrorTileStrategy: fm.EvictErrorTileStrategy.dispose,
+          // Only enable retinaMode when template has {r} or on Mapbox endpoints
+          retinaMode: tileUrl.contains('{r}') || tileUrl.contains('mapbox'),
           errorTileCallback: (fm.TileImage tile, Object error, StackTrace? stackTrace) {
             widget.onTileError?.call();
           },
