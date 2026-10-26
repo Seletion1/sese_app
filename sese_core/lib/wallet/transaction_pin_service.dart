@@ -72,15 +72,29 @@ class TransactionPinService {
     final db = _db;
     if (db == null || uid.isEmpty) return false;
     try {
-      final doc = await db
+      final userDoc = await db
           .collection('users')
           .doc(uid)
           .collection('private')
           .doc('auth')
           .get();
-      final data = doc.data();
-      return data != null &&
-          (data['pinHash'] ?? '').toString().isNotEmpty;
+      final userData = userDoc.data();
+      if (userData != null && (userData['pinHash'] ?? '').toString().isNotEmpty) {
+        return true;
+      }
+
+      final driverDoc = await db
+          .collection('drivers')
+          .doc(uid)
+          .collection('private')
+          .doc('auth')
+          .get();
+      final driverData = driverDoc.data();
+      if (driverData != null && (driverData['pinHash'] ?? '').toString().isNotEmpty) {
+        return true;
+      }
+
+      return false;
     } catch (_) {
       return false;
     }

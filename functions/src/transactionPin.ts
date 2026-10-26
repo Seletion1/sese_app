@@ -63,51 +63,59 @@ interface PinRecord {
  * (first-time JIT setup path).
  */
 async function readPinRecord(uid: string): Promise<PinRecord | null> {
-  const snap = await db()
-    .collection("users")
-    .doc(uid)
-    .collection("private")
-    .doc("auth")
-    .get();
-  if (!snap.exists) return null;
-  const d = snap.data() ?? {};
-  const hash = String(d.pinHash ?? "");
-  const salt = String(d.pinSalt ?? "");
-  if (!hash || !salt) return null;
-  return { hash, salt };
+  for (const col of ["users", "drivers"]) {
+    try {
+      const snap = await db()
+        .collection(col)
+        .doc(uid)
+        .collection("private")
+        .doc("auth")
+        .get();
+      if (snap.exists) {
+        const d = snap.data() ?? {};
+        const hash = String(d.pinHash ?? "");
+        const salt = String(d.pinSalt ?? "");
+        if (hash && salt) return { hash, salt };
+      }
+    } catch (_) {}
+  }
+  return null;
 }
 
 /**
- * One-time silent migration: the legacy plaintext `users/{uid}.securityPin`
+ * One-time silent migration: the legacy plaintext `securityPin` field
  * is hashed into the private record and the plaintext field DELETED. Runs
- * inside PIN verification so no user action is needed — the server already
- * holds the plaintext, so hashing it server-side loses nothing. Returns
- * true when a migration happened.
+ * inside PIN verification so no user action is needed. Returns true when
+ * a migration happened.
  */
 async function migrateLegacyPin(uid: string): Promise<boolean> {
-  const userRef = db().collection("users").doc(uid);
-  const snap = await userRef.get();
-  const legacy = snap.data()?.securityPin;
-  if (typeof legacy !== "string" || !PIN_RE.test(legacy.trim())) return false;
-  const salt = randomSaltHex();
-  await db()
-    .collection("users")
-    .doc(uid)
-    .collection("private")
-    .doc("auth")
-    .set(
-      {
-        pinHash: hashPin(legacy.trim(), salt),
-        pinSalt: salt,
-        migratedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-  await userRef.update({
-    securityPin: admin.firestore.FieldValue.delete(),
-  });
-  return true;
+  for (const col of ["users", "drivers"]) {
+    try {
+      const ref = db().collection(col).doc(uid);
+      const snap = await ref.get();
+      const legacy = snap.data()?.securityPin;
+      if (typeof legacy === "string" && PIN_RE.test(legacy.trim())) {
+        const salt = randomSaltHex();
+        await ref
+          .collection("private")
+          .doc("auth")
+          .set(
+            {
+              pinHash: hashPin(legacy.trim(), salt),
+              pinSalt: salt,
+              migratedAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        await ref.update({
+          securityPin: admin.firestore.FieldValue.delete(),
+        });
+        return true;
+      }
+    } catch (_) {}
+  }
+  return false;
 }
 
 interface PinLock {
@@ -116,25 +124,47 @@ interface PinLock {
 }
 
 async function readPinLock(uid: string): Promise<PinLock> {
-  try {
-    const snap = await db().collection("users").doc(uid).get();
-    const raw = (snap.data()?.pinLock ?? {}) as Record<string, unknown>;
-    return {
-      failCount:
-        typeof raw.failCount === "number" && Number.isFinite(raw.failCount)
-          ? Math.max(0, Math.floor(raw.failCount))
-          : 0,
-      lockedUntilMs:
-        typeof raw.lockedUntilMs === "number" && Number.isFinite(raw.lockedUntilMs)
-          ? raw.lockedUntilMs
-          : 0,
-    };
-  } catch {
-    return { failCount: 0, lockedUntilMs: 0 };
+  for (const col of ["users", "drivers"]) {
+    try {
+      const snap = await db().collection(col).doc(uid).get();
+      if (!snap.exists) continue;
+      const raw = (snap.data()?.pinLock ?? {}) as Record<string, unknown>;
+      return {
+        failCount:
+          typeof raw.failCount === "number" && Number.isFinite(raw.failCount)
+            ? Math.max(0, Math.floor(raw.failCount))
+            : 0,
+        lockedUntilMs:
+          typeof raw.lockedUntilMs === "number" && Number.isFinite(raw.lockedUntilMs)
+            ? raw.lockedUntilMs
+            : 0,
+      };
+    } catch (_) {}
   }
+  return { failCount: 0, lockedUntilMs: 0 };
 }
 
 async function writePinLock(uid: string, lock: PinLock): Promise<void> {
+  for (const col of ["users", "drivers"]) {
+    try {
+      const ref = db().collection(col).doc(uid);
+      const snap = await ref.get();
+      if (snap.exists) {
+        await ref.set(
+          {
+            pinLock: {
+              failCount: lock.failCount,
+              lockedUntilMs: lock.lockedUntilMs,
+            },
+          },
+          { merge: true }
+        );
+        return;
+      }
+    } catch (e) {
+      console.warn(`transactionPin: pinLock write failed for ${col}/${uid}: ${e}`);
+    }
+  }
   try {
     await db().collection("users").doc(uid).set(
       {
@@ -145,9 +175,7 @@ async function writePinLock(uid: string, lock: PinLock): Promise<void> {
       },
       { merge: true }
     );
-  } catch (e) {
-    console.warn(`transactionPin: pinLock write failed for ${uid}: ${e}`);
-  }
+  } catch (_) {}
 }
 
 /**
@@ -241,19 +269,30 @@ export const setTransactionPin = onCall<SetPinData>(async (request) => {
   }
 
   const salt = randomSaltHex();
-  await db()
-    .collection("users")
-    .doc(uid)
-    .collection("private")
-    .doc("auth")
-    .set(
-      {
-        pinHash: hashPin(pin, salt),
-        pinSalt: salt,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+  const pinData = {
+    pinHash: hashPin(pin, salt),
+    pinSalt: salt,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  let written = false;
+  for (const col of ["users", "drivers"]) {
+    const docRef = db().collection(col).doc(uid);
+    const snap = await docRef.get();
+    if (snap.exists) {
+      await docRef.collection("private").doc("auth").set(pinData, { merge: true });
+      written = true;
+    }
+  }
+  if (!written) {
+    await db()
+      .collection("users")
+      .doc(uid)
+      .collection("private")
+      .doc("auth")
+      .set(pinData, { merge: true });
+  }
+
   // A successful change clears any lockout from earlier guesses.
   await writePinLock(uid, { failCount: 0, lockedUntilMs: 0 });
   return { ok: true };

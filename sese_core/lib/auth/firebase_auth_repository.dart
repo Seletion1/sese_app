@@ -731,6 +731,9 @@ class FirebaseAuthRepository implements AuthRepository {
           }
         }
       }
+      try {
+        await fbUser.reload();
+      } catch (_) {}
     } on fb.FirebaseAuthException {
       rethrow;
     } on PlatformException catch (e) {
@@ -755,10 +758,22 @@ class FirebaseAuthRepository implements AuthRepository {
     final firestore = _firestore;
     if (firestore == null || uid.isEmpty) return;
     try {
-      final collection = role == UserRole.driver ? 'drivers' : 'users';
-      await firestore.collection(collection).doc(uid).set({
-        'authProviders': FieldValue.arrayUnion([providerId]),
-      }, SetOptions(merge: true));
+      if (role != null) {
+        final collection = role == UserRole.driver ? 'drivers' : 'users';
+        await firestore.collection(collection).doc(uid).set({
+          'authProviders': FieldValue.arrayUnion([providerId]),
+        }, SetOptions(merge: true));
+      } else {
+        for (final col in ['users', 'drivers']) {
+          final docRef = firestore.collection(col).doc(uid);
+          final snap = await docRef.get();
+          if (snap.exists) {
+            await docRef.set({
+              'authProviders': FieldValue.arrayUnion([providerId]),
+            }, SetOptions(merge: true));
+          }
+        }
+      }
     } catch (e) {
       debugPrint('FirebaseAuthRepository._recordAuthProvider error: $e');
     }

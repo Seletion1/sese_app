@@ -87,17 +87,19 @@ class _AuthScreenState extends State<AuthScreen> {
 
   void _onControllerUpdate() {
     if (!mounted) return;
-    if (_controller.firstName != _firstNameController.text) {
-      _firstNameController.text = _controller.firstName;
-    }
-    if (_controller.lastName != _lastNameController.text) {
-      _lastNameController.text = _controller.lastName;
-    }
-    if (_controller.email != _emailController.text) {
-      _emailController.text = _controller.email;
-    }
-    if (_controller.phoneNumber != _phoneController.text) {
-      _phoneController.text = _controller.phoneNumber;
+    if (_controller.isOAuthPrePopulated) {
+      if (_controller.firstName != _firstNameController.text) {
+        _firstNameController.text = _controller.firstName;
+      }
+      if (_controller.lastName != _lastNameController.text) {
+        _lastNameController.text = _controller.lastName;
+      }
+      if (_controller.email != _emailController.text && _controller.email.isNotEmpty) {
+        _emailController.text = _controller.email;
+      }
+      if (_controller.phoneNumber != _phoneController.text && _controller.phoneNumber.isNotEmpty) {
+        _phoneController.text = _controller.phoneNumber;
+      }
     }
     setState(() {});
   }
@@ -370,11 +372,18 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _submitEmailPassword() async {
     if (!_formKey.currentState!.validate()) return;
-    _controller.setLoading(true);
-    _controller.clearError();
 
     final email = _emailController.text.trim();
     final password = _passwordController.text;
+
+    _controller.email = email;
+    _controller.password = password;
+    _controller.firstName = _firstNameController.text.trim();
+    _controller.lastName = _lastNameController.text.trim();
+    _controller.phoneNumber = _phoneController.text.trim();
+
+    _controller.setLoading(true);
+    _controller.clearError();
 
     if (email.isEmpty) {
       _showError('Please enter your email address.');

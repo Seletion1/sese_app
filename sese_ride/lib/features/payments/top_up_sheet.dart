@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../wallet/transaction_pin_prompt.dart';
 import 'payment_service.dart';
 import 'paystack_checkout_screen.dart';
 
@@ -85,6 +86,13 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       setState(() => _error = 'Minimum top-up amount is ₦$minStr.');
       return;
     }
+
+    final transactionPin = await TransactionPinPrompt.collectPin(
+      context,
+      uid: widget.user.uid,
+    );
+    if (transactionPin == null || transactionPin.isEmpty || !mounted) return;
+
     setState(() {
       _busy = true;
       _error = null;
@@ -93,6 +101,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       final auth = await widget.service.initializeTopUp(
         amountNaira: amount,
         email: widget.user.email,
+        transactionPin: transactionPin,
       );
       if (!mounted) return;
       // Embedded checkout first (card/transfer/USSD inside the app).

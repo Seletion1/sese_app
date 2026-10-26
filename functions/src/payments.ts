@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 
 import { settleTransfer } from "./payouts";
+import { requireValidPin } from "./transactionPin";
 
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
@@ -132,6 +133,7 @@ interface InitializePaymentData {
   purpose?: string;
   tripId?: string;
   email?: string;
+  transactionPin?: string;
 }
 
 /**
@@ -144,6 +146,10 @@ export const initializePayment = onCall<InitializePaymentData>(
       throw new HttpsError("unauthenticated", "You must sign in to pay.");
     }
     const uid = request.auth.uid;
+
+    // Transaction-PIN gate: verified server-side before initializing Paystack payment intent.
+    await requireValidPin(uid, request.data?.transactionPin);
+
     const secret = await paystackSecret();
 
     const d = request.data ?? {};

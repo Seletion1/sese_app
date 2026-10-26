@@ -332,6 +332,7 @@ class PaymentService {
   Future<PaymentAuthorization> initializeTopUp({
     required double amountNaira,
     required String email,
+    String? transactionPin,
   }) async {
     if (amountNaira < minTopUpNaira) {
       throw const PaymentException(
@@ -347,6 +348,8 @@ class PaymentService {
         'amountKobo': amountKobo,
         'purpose': 'wallet_topup',
         'email': email,
+        if (transactionPin != null && transactionPin.isNotEmpty)
+          'transactionPin': transactionPin,
       });
       final url = (data['authorizationUrl'] ?? '').toString();
       final reference = (data['reference'] ?? '').toString();
