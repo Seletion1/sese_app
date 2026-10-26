@@ -39,6 +39,7 @@ const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const https_1 = require("firebase-functions/v2/https");
 const payouts_1 = require("./payouts");
+const transactionPin_1 = require("./transactionPin");
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
  *
@@ -139,13 +140,15 @@ async function paystackGet(path, secret) {
  * Returns `{ authorizationUrl, accessCode, reference }`.
  */
 exports.initializePayment = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to pay.");
     }
     const uid = request.auth.uid;
+    // Transaction-PIN gate: verified server-side before initializing Paystack payment intent.
+    await (0, transactionPin_1.requireValidPin)(uid, (_a = request.data) === null || _a === void 0 ? void 0 : _a.transactionPin);
     const secret = await paystackSecret();
-    const d = (_a = request.data) !== null && _a !== void 0 ? _a : {};
+    const d = (_b = request.data) !== null && _b !== void 0 ? _b : {};
     const amountKobo = typeof d.amountKobo === "number" ? Math.round(d.amountKobo) : NaN;
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_AMOUNT_KOBO) {
         throw new https_1.HttpsError("invalid-argument", "Minimum payment is ₦100. Enter a valid amount.");
@@ -158,7 +161,7 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
     if (purpose === "trip_payment" && !tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required for trip payments.");
     }
-    const email = (_b = request.auth.token.email) !== null && _b !== void 0 ? _b : (typeof d.email === "string" ? d.email.trim() : "");
+    const email = (_c = request.auth.token.email) !== null && _c !== void 0 ? _c : (typeof d.email === "string" ? d.email.trim() : "");
     if (!email || !email.includes("@")) {
         throw new https_1.HttpsError("invalid-argument", "A valid email is required for the receipt.");
     }
@@ -193,8 +196,8 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
                 purpose,
             },
         }, secret);
-        accessCode = String((_c = data["access_code"]) !== null && _c !== void 0 ? _c : "");
-        authorizationUrl = String((_d = data["authorization_url"]) !== null && _d !== void 0 ? _d : "");
+        accessCode = String((_d = data["access_code"]) !== null && _d !== void 0 ? _d : "");
+        authorizationUrl = String((_e = data["authorization_url"]) !== null && _e !== void 0 ? _e : "");
         if (!authorizationUrl) {
             throw new https_1.HttpsError("internal", "Paystack returned no checkout URL.");
         }

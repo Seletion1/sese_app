@@ -234,7 +234,7 @@ class _CountrySearchSheetState extends State<_CountrySearchSheet> {
                       controller: scrollController,
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       itemCount: matches.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const Divider(height: 1, indent: 16, endIndent: 16),
                       itemBuilder: (context, i) {
                         final c = matches[i];

@@ -34,7 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.setTransactionPin = exports.googleMapsProxy = exports.triggerExchangeRatesSync = exports.syncGlobalExchangeRates = exports.sendTargetedBroadcast = exports.deleteAccount = exports.onAgentReplied = exports.onSupportMessageCreated = exports.convertSeseCoins = exports.settleSplitPayment = exports.respondSplitPayment = exports.requestSplitPayment = exports.transferWalletFunds = exports.lookupP2pRecipient = exports.settleTransfer = exports.processWalletWithdrawal = exports.verifyBankAccount = exports.resolveBankAccount = exports.paystackBanks = exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = exports.getCyclePeriodKey = exports.resolveDynamicStreakRewards = exports.evaluateAndGrantStreakRewards = exports.scheduledResetStreaks = exports.onTripCancelled = exports.onTripCompleted = exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = exports.onTripChatMessage = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = void 0;
-exports.calculateFare = exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.verifyTransactionPin = void 0;
+exports.calculateFare = exports.verifyEmailOtp = exports.sendEmailOtp = exports.sendTransactionalEmail = exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.verifyTransactionPin = void 0;
 const admin = __importStar(require("firebase-admin"));
 // DEPLOYMENT CREDENTIAL-PROBE GUARD.
 // `admin.initializeApp()` calls google-auth-library, which probes the GCE
@@ -150,6 +150,10 @@ Object.defineProperty(exports, "lookupAccountForOnboarding", { enumerable: true,
 Object.defineProperty(exports, "sendOnboardingOtp", { enumerable: true, get: function () { return adminOnboarding_1.sendOnboardingOtp; } });
 Object.defineProperty(exports, "verifyOnboardingOtp", { enumerable: true, get: function () { return adminOnboarding_1.verifyOnboardingOtp; } });
 Object.defineProperty(exports, "adminRegisterUser", { enumerable: true, get: function () { return adminOnboarding_1.adminRegisterUser; } });
+var email_1 = require("./email");
+Object.defineProperty(exports, "sendTransactionalEmail", { enumerable: true, get: function () { return email_1.sendTransactionalEmail; } });
+Object.defineProperty(exports, "sendEmailOtp", { enumerable: true, get: function () { return email_1.sendEmailOtp; } });
+Object.defineProperty(exports, "verifyEmailOtp", { enumerable: true, get: function () { return email_1.verifyEmailOtp; } });
 /**
  * Callable Function: calculateFare
  *

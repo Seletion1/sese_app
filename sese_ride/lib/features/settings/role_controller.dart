@@ -275,7 +275,8 @@ class RoleController extends ChangeNotifier {
 
       for (final doc in snap.docs) {
         final data = doc.data();
-        final customerId = String(data['customerId'] ?? data['userId'] ?? '');
+        final customerId =
+            (data['customerId'] ?? data['userId'] ?? '').toString();
         // Exclude self-booked customer orders
         if (customerId != driverId) {
           return true;
