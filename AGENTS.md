@@ -60,6 +60,28 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-26 — Mode/session restoration & Driver balance pill
+
+- Persisted Customer/Driver mode in per-user SharedPreferences and merged
+  `users/{uid}.sessionState`, then restore from whichever local/server snapshot
+  has the newer timestamp. The Firestore read is time-bounded so offline startup
+  still falls back to local mode and then the account role.
+- Persisted the active-trip protection deadline as an absolute timestamp on
+  both stores. Relaunch resumes the remaining portion of the 10-minute window;
+  expiry returns to Driver Mode. Explicitly entering Driver Mode cancels the
+  in-memory timer, preventing an old customer-mode timer from routing later.
+- Persisted the granted driver session ID locally and restore online UI only
+  when it still matches the server's active session. An initial cached offline
+  snapshot does not delete the ID; this avoids a Firestore cache/server update
+  race falsely treating the same valid session as superseded. Existing Android
+  SeSe logo overlay and online notification remain the foreground service
+  signal; no new background-service dependency was introduced.
+- The Driver shell already had exactly four bottom-navigation items, so it
+  remained unchanged. Replaced the map's daily gross pill with a live
+  server-backed cash wallet balance pill that opens Earnings.
+- Verification was attempted, but the sandbox denied shell access for
+  `flutter analyze`; tests were not run per policy.
+
 ## 2026-10-26 — Global Map Engine, Theme-Aware Mapbox Styles & Geocoding Resolution Architecture
 
 Executed comprehensive map engine refactoring, structured geocoding resolution, CartoDB layer rendering fix, and Hub dynamic style configuration:

@@ -51,14 +51,14 @@ abstract final class ModeSwitcher {
     final hasActiveTrip =
         await RoleController.instance.checkDriverHasActiveTrip(user.uid);
 
-    RoleController.instance.setCurrentRole(UserRole.customer);
+    await RoleController.instance.activateMode(user.uid, UserRole.customer);
 
     if (hasActiveTrip) {
       RoleController.instance.startActiveTripCountdown(
+        userId: user.uid,
         onExpired: () {
           debugPrint(
               'Active trip protection timer expired: auto-switching to Driver Mode');
-          RoleController.instance.setCurrentRole(UserRole.driver);
           navigator.pushAndRemoveUntil(
             MaterialPageRoute(
               builder: (_) => DriverHomeShell(user: user, auth: auth),
@@ -68,7 +68,7 @@ abstract final class ModeSwitcher {
         },
       );
     } else {
-      RoleController.instance.cancelActiveTripCountdown();
+      RoleController.instance.cancelActiveTripCountdown(userId: user.uid);
     }
 
     navigator.pushAndRemoveUntil(
@@ -130,7 +130,7 @@ abstract final class ModeSwitcher {
 
     switch (scenario) {
       case DriverOnboardingScenario.scenarioA:
-        RoleController.instance.setCurrentRole(UserRole.driver);
+        await RoleController.instance.activateMode(user.uid, UserRole.driver);
         navigator.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => DriverHomeShell(user: user, auth: auth),

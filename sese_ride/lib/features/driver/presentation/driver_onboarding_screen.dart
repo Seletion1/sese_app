@@ -479,7 +479,11 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
         ),
       );
       if (confirmed != true || !mounted) return;
-      RoleController.instance.setCurrentRole(UserRole.customer);
+      await RoleController.instance.activateMode(
+        widget.user.uid,
+        UserRole.customer,
+      );
+      if (!mounted) return;
       final customerUser = widget.user.copyWith(role: UserRole.customer);
       final nav = Navigator.of(context);
       if (nav.canPop()) {
@@ -1245,4 +1249,3 @@ class _FullScreenLocationPickerScreenState
     );
   }
 }
-

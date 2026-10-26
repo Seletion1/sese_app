@@ -23,6 +23,7 @@ import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
+import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
 import 'widgets/map_provider.dart' show GmsAvailability;
 
@@ -309,6 +310,8 @@ class _AuthGateState extends State<_AuthGate> {
   /// Using [widget.authRepository] when injected (tests), or a fresh
   /// [FirebaseAuthRepository] otherwise — both are created exactly once.
   late final AuthRepository _auth;
+  String? _modeRestoreUid;
+  Future<UserRole>? _modeRestoreFuture;
 
   @override
   void initState() {
@@ -331,6 +334,8 @@ class _AuthGateState extends State<_AuthGate> {
         final user = snapshot.data;
 
         if (user == null) {
+          _modeRestoreUid = null;
+          _modeRestoreFuture = null;
           return LoginPage(auth: _auth);
         }
 
@@ -350,6 +355,44 @@ class _AuthGateState extends State<_AuthGate> {
         //   Fleet & Vehicles stays reachable while verification is pending.
         if (user.role == UserRole.driver && user.isPendingOnboarding) {
           return DriverOnboardingScreen(user: user, auth: _auth);
+        }
+
+        if (user.role == UserRole.customer || user.role == UserRole.driver) {
+          if (_modeRestoreUid != user.uid || _modeRestoreFuture == null) {
+            _modeRestoreUid = user.uid;
+            _modeRestoreFuture = RoleController.instance.restoreSession(
+              userId: user.uid,
+              fallbackRole: user.role,
+              onProtectionExpired: () {
+                final navigator = IncomingCallOverlay.navigatorKey.currentState;
+                if (navigator == null) return;
+                navigator.pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (_) => DriverHomeShell(user: user, auth: _auth),
+                  ),
+                  (route) => false,
+                );
+              },
+            );
+          }
+          return FutureBuilder<UserRole>(
+            future: _modeRestoreFuture,
+            builder: (context, modeSnapshot) {
+              if (modeSnapshot.connectionState != ConnectionState.done) {
+                return const Scaffold(body: SizedBox.shrink());
+              }
+              switch (modeSnapshot.data ?? user.role) {
+                case UserRole.customer:
+                  return CustomerHomeShell(user: user, auth: _auth);
+                case UserRole.driver:
+                  return DriverHomeShell(user: user, auth: _auth);
+                case UserRole.admin:
+                case UserRole.superRole:
+                case UserRole.agent:
+                  return CustomerHomeShell(user: user, auth: _auth);
+              }
+            },
+          );
         }
 
         switch (user.role) {

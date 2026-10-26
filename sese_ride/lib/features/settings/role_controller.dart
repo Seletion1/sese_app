@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Driver onboarding status scenarios when a Customer attempts to switch to Driver Mode.
 enum DriverOnboardingScenario {
@@ -39,6 +42,14 @@ class RoleController extends ChangeNotifier {
 
   Timer? _countdownTimer;
   VoidCallback? _onCountdownExpired;
+  String? _countdownUserId;
+  int? _countdownExpiresAtMs;
+
+  static const String _sessionStateField = 'sessionState';
+  static const String _activeModeField = 'activeMode';
+  static const String _activeModeUpdatedAtField = 'activeModeUpdatedAtMs';
+  static const String _activeTripProtectionExpiryField =
+      'activeTripProtectionExpiresAtMs';
 
   /// Human-readable countdown display (e.g., "09:59").
   String get countdownDisplay {
@@ -51,6 +62,124 @@ class RoleController extends ChangeNotifier {
     if (_currentRole != role) {
       _currentRole = role;
       notifyListeners();
+    }
+  }
+
+  /// Restores the last user-selected ride mode, choosing the newest local or
+  /// server snapshot so offline mode changes survive relaunch and later sync.
+  Future<UserRole> restoreSession({
+    required String userId,
+    required UserRole fallbackRole,
+    required VoidCallback onProtectionExpired,
+  }) async {
+    if (userId.isEmpty) return fallbackRole;
+
+    String? localMode;
+    var localUpdatedAtMs = 0;
+    int? localProtectionExpiryMs;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      localMode = prefs.getString(_localModeKey(userId));
+      localUpdatedAtMs = prefs.getInt(_localModeUpdatedAtKey(userId)) ?? 0;
+      localProtectionExpiryMs =
+          prefs.getInt(_localProtectionExpiryKey(userId));
+    } catch (e) {
+      debugPrint('RoleController.restoreSession local state failed: $e');
+    }
+
+    String? serverMode;
+    var serverUpdatedAtMs = 0;
+    int? serverProtectionExpiryMs;
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get()
+          .timeout(const Duration(seconds: 4));
+      final state = snapshot.data()?[_sessionStateField];
+      if (state is Map) {
+        serverMode = state[_activeModeField]?.toString();
+        serverUpdatedAtMs = _asMillis(state[_activeModeUpdatedAtField]) ?? 0;
+        serverProtectionExpiryMs =
+            _asMillis(state[_activeTripProtectionExpiryField]);
+      }
+    } catch (e) {
+      debugPrint('RoleController.restoreSession server state unavailable: $e');
+    }
+
+    final useServer = serverUpdatedAtMs >= localUpdatedAtMs &&
+        _modeFromString(serverMode) != null;
+    final restoredRole = useServer
+        ? _modeFromString(serverMode)!
+        : _modeFromString(localMode) ?? fallbackRole;
+    setCurrentRole(restoredRole);
+
+    if (restoredRole == UserRole.customer) {
+      final expiry = (useServer
+              ? serverProtectionExpiryMs
+              : localProtectionExpiryMs) ??
+          (useServer ? localProtectionExpiryMs : serverProtectionExpiryMs);
+      if (expiry != null) {
+        final remainingMs = expiry - DateTime.now().millisecondsSinceEpoch;
+        if (remainingMs > 0) {
+          startActiveTripCountdown(
+            userId: userId,
+            expiresAtMs: expiry,
+            duration: Duration(milliseconds: remainingMs),
+            onExpired: onProtectionExpired,
+          );
+        } else {
+          await activateMode(userId, UserRole.driver);
+          await _clearActiveTripProtection(userId);
+          return UserRole.driver;
+        }
+      }
+    }
+
+    return restoredRole;
+  }
+
+  /// Updates the active mode in memory and writes it to both local storage
+  /// and the user's server session snapshot.
+  Future<void> activateMode(String userId, UserRole role) async {
+    setCurrentRole(role);
+    if (userId.isEmpty) return;
+
+    if (role == UserRole.driver) {
+      _cancelCountdownTimer();
+      _hasActiveTripProtection = false;
+      _remainingCountdownSeconds = 600;
+      _countdownUserId = null;
+      _countdownExpiresAtMs = null;
+      _onCountdownExpired = null;
+      notifyListeners();
+    }
+
+    final updatedAtMs = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_localModeKey(userId), role.name);
+      await prefs.setInt(_localModeUpdatedAtKey(userId), updatedAtMs);
+      if (role == UserRole.driver) {
+        await prefs.remove(_localProtectionExpiryKey(userId));
+      }
+    } catch (e) {
+      debugPrint('RoleController.activateMode local write failed: $e');
+    }
+
+    final sessionState = <String, dynamic>{
+      _activeModeField: role.name,
+      _activeModeUpdatedAtField: updatedAtMs,
+      if (role == UserRole.driver) _activeTripProtectionExpiryField: null,
+    };
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .set({_sessionStateField: sessionState}, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('RoleController.activateMode server write failed: $e');
     }
   }
 
@@ -151,32 +280,143 @@ class RoleController extends ChangeNotifier {
     }
   }
 
-  /// Starts the 10-Minute countdown for active trip protection.
-  void startActiveTripCountdown({required VoidCallback onExpired}) {
-    cancelActiveTripCountdown();
+  /// Starts or resumes the active-trip protection timer against an absolute
+  /// expiry so backgrounding or process recreation does not restart 10 minutes.
+  void startActiveTripCountdown({
+    required VoidCallback onExpired,
+    String? userId,
+    int? expiresAtMs,
+    Duration duration = const Duration(minutes: 10),
+  }) {
+    _cancelCountdownTimer();
     _hasActiveTripProtection = true;
-    _remainingCountdownSeconds = 600; // 10 minutes
+    _countdownUserId = userId;
+    _countdownExpiresAtMs = expiresAtMs ??
+        DateTime.now().add(duration).millisecondsSinceEpoch;
+    _remainingCountdownSeconds = math
+        .max(
+          0,
+          ((_countdownExpiresAtMs! - DateTime.now().millisecondsSinceEpoch) /
+                  1000)
+              .ceil(),
+        )
+        .toInt();
     _onCountdownExpired = onExpired;
     notifyListeners();
 
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingCountdownSeconds > 0) {
-        _remainingCountdownSeconds--;
-        notifyListeners();
-      } else {
+    if (userId != null) {
+      unawaited(_persistActiveTripProtection(userId, _countdownExpiresAtMs!));
+    }
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final expiresAt = _countdownExpiresAtMs;
+      if (expiresAt == null) return;
+      _remainingCountdownSeconds = math
+          .max(
+            0,
+            ((expiresAt - DateTime.now().millisecondsSinceEpoch) / 1000).ceil(),
+          )
+          .toInt();
+      if (_remainingCountdownSeconds == 0) {
+        final expiredUserId = _countdownUserId;
+        final onExpired = _onCountdownExpired;
         cancelActiveTripCountdown();
-        _onCountdownExpired?.call();
+        if (expiredUserId != null) {
+          unawaited(activateMode(expiredUserId, UserRole.driver));
+        } else {
+          setCurrentRole(UserRole.driver);
+        }
+        onExpired?.call();
+      } else {
+        notifyListeners();
       }
     });
   }
 
   /// Cancels any active countdown timer.
-  void cancelActiveTripCountdown() {
-    _countdownTimer?.cancel();
-    _countdownTimer = null;
+  void cancelActiveTripCountdown({String? userId}) {
+    final ownerId = userId ?? _countdownUserId;
+    _cancelCountdownTimer();
     _hasActiveTripProtection = false;
     _remainingCountdownSeconds = 600;
+    _countdownUserId = null;
+    _countdownExpiresAtMs = null;
+    _onCountdownExpired = null;
     notifyListeners();
+    if (ownerId != null) unawaited(_clearActiveTripProtection(ownerId));
+  }
+
+  void _cancelCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+  }
+
+  Future<void> _persistActiveTripProtection(
+    String userId,
+    int expiresAtMs,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_localProtectionExpiryKey(userId), expiresAtMs);
+    } catch (e) {
+      debugPrint('RoleController: local trip protection save failed: $e');
+    }
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .set({
+            _sessionStateField: {
+              _activeTripProtectionExpiryField: expiresAtMs,
+            },
+          }, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('RoleController: server trip protection save failed: $e');
+    }
+  }
+
+  Future<void> _clearActiveTripProtection(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_localProtectionExpiryKey(userId));
+    } catch (e) {
+      debugPrint('RoleController: local trip protection clear failed: $e');
+    }
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .set({
+            _sessionStateField: {
+              _activeTripProtectionExpiryField: null,
+            },
+          }, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('RoleController: server trip protection clear failed: $e');
+    }
+  }
+
+  static String _localModeKey(String userId) => 'active_mode_$userId';
+  static String _localModeUpdatedAtKey(String userId) =>
+      'active_mode_updated_at_$userId';
+  static String _localProtectionExpiryKey(String userId) =>
+      'active_trip_protection_expires_at_$userId';
+
+  static UserRole? _modeFromString(String? value) {
+    return switch (value) {
+      'customer' => UserRole.customer,
+      'driver' => UserRole.driver,
+      _ => null,
+    };
+  }
+
+  static int? _asMillis(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is Timestamp) return value.millisecondsSinceEpoch;
+    if (value is DateTime) return value.millisecondsSinceEpoch;
+    return null;
   }
 
   @override

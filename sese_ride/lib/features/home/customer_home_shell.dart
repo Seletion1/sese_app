@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -142,7 +144,10 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
             // back to Driver Mode. Self-hides when no protection is armed.
             ActiveTripCountdownBanner(
               onReturnToDriver: () {
-                RoleController.instance.setCurrentRole(UserRole.driver);
+                unawaited(RoleController.instance.activateMode(
+                  widget.user.uid,
+                  UserRole.driver,
+                ));
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(
                     builder: (_) => DriverHomeShell(

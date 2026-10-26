@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/remote_config_service.dart';
 import '../../customer/services/location_service.dart';
 import '../../notifications/notification_inbox_screen.dart';
@@ -29,7 +30,6 @@ import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
 import '../../payments/top_up_sheet.dart';
 import '../../wallet/earnings_screen.dart';
-import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -82,6 +82,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   /// Real-time subscription to driver availability document (`driver_status/{uid}`).
   StreamSubscription<DriverStatusSnapshot>? _statusSubscription;
+  bool _hasReceivedInitialStatusSnapshot = false;
 
   /// Listener callback for silent FCM data messages indicating session termination.
   VoidCallback? _pushSessionListener;
@@ -246,6 +247,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _statusSubscription =
         _status.driverStatusStream(widget.driverId).listen((snapshot) {
       if (!mounted) return;
+      if (!_hasReceivedInitialStatusSnapshot) {
+        _hasReceivedInitialStatusSnapshot = true;
+        unawaited(_restoreOnlineSession(snapshot));
+      }
       // If we are currently online on this device, check if our session was revoked:
       if (_isOnline) {
         final sessionRevoked = (_currentSessionId != null &&
@@ -274,6 +279,63 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         .addListener(_pushSessionListener!);
   }
 
+  Future<void> _restoreOnlineSession(DriverStatusSnapshot snapshot) async {
+    SharedPreferences prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('DriverDashboard: could not restore online session: $e');
+      return;
+    }
+    final savedSessionId = prefs.getString('driver_online_session');
+
+    if (!snapshot.isOnline) return;
+
+    final activeSessionId = snapshot.activeSessionId;
+    if (activeSessionId == null || savedSessionId != activeSessionId) {
+      if (savedSessionId != null) {
+        await prefs.remove('driver_online_session');
+      }
+      if (mounted) {
+        setState(() => _sessionOverriddenOnOtherDevice = true);
+      }
+      return;
+    }
+
+    if (!mounted || _isOnline) return;
+    setState(() {
+      _isOnline = true;
+      _currentSessionId = activeSessionId;
+      _streaks.activeSessionId = activeSessionId;
+      _sessionOverriddenOnOtherDevice = false;
+    });
+    // Re-establish the visible online signal after process recreation. The
+    // dashboard GPS stream is already started in initState and remains alive
+    // while the Android foreground overlay service keeps the app process up.
+    unawaited(PushNotificationService.showOngoingOnlineAlert());
+    unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
+    unawaited(MediaPermissionService.ensureBackgroundLocation());
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      unawaited(DriverOverlayService.instance.closeOverlayWidget());
+    } else {
+      unawaited(DriverOverlayService.instance.showOverlayWidget());
+    }
+  }
+
+  Future<void> _persistOnlineSession(String? sessionId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      const key = 'driver_online_session';
+      if (sessionId == null || sessionId.isEmpty) {
+        await prefs.remove(key);
+      } else {
+        await prefs.setString(key, sessionId);
+      }
+    } catch (e) {
+      debugPrint('DriverDashboard: online session persistence failed: $e');
+    }
+  }
+
   void _handleRemoteSessionTermination() {
     if (!_isOnline && !_sessionOverriddenOnOtherDevice) return;
     setState(() {
@@ -292,6 +354,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     PushNotificationService.cancelOnlineAlert();
     // ignore: discarded_futures
     PushNotificationService.unsubscribe('driver_${widget.driverId}');
+    unawaited(_persistOnlineSession(null));
   }
 
   @override
@@ -610,6 +673,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         PushNotificationService.cancelOnlineAlert();
         // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
+        unawaited(_persistOnlineSession(null));
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You are now OFFLINE.')),
         );
@@ -1163,6 +1227,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _currentSessionId = decision.sessionId;
           _streaks.activeSessionId = decision.sessionId;
         });
+        unawaited(_persistOnlineSession(decision.sessionId));
         // Audio feedback: online chime.
         // ignore: discarded_futures
         AppSoundService.instance.playOnlineSound();
@@ -1693,30 +1758,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  /// Compact status pill up top (minimal vertical space).
-  ///
-  /// - OFFLINE: glowing green "GO ONLINE" pill — one tap goes online
-  ///   immediately (verification guard + server grant still apply).
-  /// - ONLINE: "Slide to go offline" slider thumb; completing the slide
-  ///   opens the go-offline confirmation sheet.
-  Widget _buildDailyEarningsCounter() {
-    return StreamBuilder<List<TripEarning>>(
-      stream: EarningsService().completedTripEarningsStream(widget.driverId),
+  /// Small live cash-balance pill; the full earnings view is one tap away.
+  Widget _buildBalancePill() {
+    return StreamBuilder<DualWallet>(
+      stream: const SeseCoinService().walletStream(widget.driverId),
       builder: (context, snapshot) {
-        final earnings = snapshot.data ?? const [];
-        final todaySummary = EarningsService.summarizeDay(earnings, DateTime.now());
-        final dailyTotal = todaySummary.day.gross;
-
-        // WHY: hide the pill when offline with zero earnings so the driver
-        // never sees a static "₦0.00" badge that implies active tracking.
-        // While ONLINE, always show it (even at zero) so they see real-time
-        // progress. While OFFLINE with prior earnings, show it as a recap.
-        if (!_isOnline && dailyTotal == 0) return const SizedBox.shrink();
+        final balance = snapshot.data?.mainWalletBalance ?? 0;
 
         return Material(
           color: Colors.transparent,
           child: InkWell(
-            key: const Key('daily_earnings_pill'),
+            key: const Key('current_balance_pill'),
             borderRadius: BorderRadius.circular(20),
             onTap: () {
               final effectiveUser = widget.user ??
@@ -1734,28 +1786,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               );
             },
-            child: Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFF2A900), width: 1.2),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 6,
-                    offset: Offset(0, 2),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface.withValues(
+                        alpha: 0.92,
+                      ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: AppColors.seseGold.withValues(alpha: 0.7),
                   ),
-                ],
-              ),
-              child: Text(
-                '₦${dailyTotal.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.3,
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 5,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  child: Text(
+                    '$_currencySymbol${balance.toStringAsFixed(2)}',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
+                        ),
+                  ),
                 ),
               ),
             ),
@@ -1828,7 +1887,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                           ),
                   ),
                 ),
-          _buildDailyEarningsCounter(),
+          _buildBalancePill(),
         ],
       ),
     );
