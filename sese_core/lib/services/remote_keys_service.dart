@@ -23,6 +23,9 @@ class RemoteKeysConfig {
   final String exchangeRateApiKey;
   final String resendApiKey;
 
+  /// CartoDB API Key (optional). Empty when not configured.
+  final String cartoApiKey;
+
   /// Active map provider: `'google'`, `'mapbox'`, or `'cartodb'`.
   /// Legacy `'open_street_map'` / `'osm'` values are normalised to `'cartodb'`.
   final String activeMapProvider;
@@ -53,10 +56,11 @@ class RemoteKeysConfig {
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
+    this.cartoApiKey = '',
     this.featureProviders = const {},
     this.exchangeRateApiKey = '',
     this.resendApiKey = '',
-    this.activeMapProvider = 'cartodb',
+    this.activeMapProvider = 'google',
     this.osmTileServerUrl =
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
     this.manualOverrideProvider = '',
@@ -149,6 +153,13 @@ class RemoteKeysConfig {
       }
     }
 
+    final rawCartoKey = (map['cartoApiKey'] ??
+            map['carto_api_key'] ??
+            map['cartoKey'] ??
+            '')
+        .toString()
+        .trim();
+
     return RemoteKeysConfig(
       paystackPublicKey: pubKey,
       paystackSecretKey: secKey,
@@ -159,6 +170,7 @@ class RemoteKeysConfig {
       mapboxStyle: rawStyle.isNotEmpty
           ? rawStyle
           : GlobalMapConfig.defaultMapboxStyle,
+      cartoApiKey: rawCartoKey,
       featureProviders: features,
       exchangeRateApiKey: (map['exchangeRateApiKey'] ??
               map['exchange_rate_api_key'] ??
@@ -175,7 +187,7 @@ class RemoteKeysConfig {
               map['active_map_provider'] ??
               map['activeProvider'] ??
               map['mapProvider'] ??
-              'cartodb')
+              'google')
           .toString(),
       osmTileServerUrl: (() {
         final raw = (map['osmTileServerUrl'] ??
@@ -228,6 +240,7 @@ class RemoteKeysConfig {
         mapboxStyle: mapboxStyle.isNotEmpty
             ? mapboxStyle
             : GlobalMapConfig.defaultMapboxStyle,
+        cartoApiKey: cartoApiKey.isNotEmpty ? cartoApiKey : null,
         tileUrlTemplate: osmTileServerUrl,
         manualOverrideProvider:
             manualOverrideProvider.isNotEmpty && manualOverrideProvider != 'auto'
@@ -252,6 +265,8 @@ class RemoteKeysConfig {
       'mapboxApiKey': mapboxToken.trim(),
       'mapboxStyle': mapboxStyle.trim(),
       'mapbox_style': mapboxStyle.trim(),
+      'cartoApiKey': cartoApiKey.trim(),
+      'carto_api_key': cartoApiKey.trim(),
       'featureProviders': Map<String, String>.from(featureProviders),
       'googleMonthlyCap': googleMonthlyCap,
       'mapboxMonthlyCap': mapboxMonthlyCap,

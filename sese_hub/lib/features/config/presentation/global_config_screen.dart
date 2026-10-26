@@ -136,6 +136,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _paystackSecretKeyCtrl = TextEditingController();
   final _googleMapsApiKeyCtrl = TextEditingController();
   final _mapboxApiKeyCtrl = TextEditingController();
+  final _cartoApiKeyCtrl = TextEditingController();
   final _mapboxStyleCtrl =
       TextEditingController(text: GlobalMapConfig.defaultMapboxStyle);
   final _googleQuotaCapCtrl = TextEditingController(text: '20000');
@@ -148,7 +149,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _remoteMinTopUpCtrl = TextEditingController(text: '1300');
   final _remoteWithdrawalThresholdCtrl = TextEditingController(text: '20000');
   final _maxCashTripAmountCtrl = TextEditingController(text: '50000');
-  String _activeMapProvider = 'cartodb';
+  String _activeMapProvider = 'google';
   String _manualOverrideProvider = 'auto';
 
   /// Per-feature provider pins, keyed by [MapFeature.code]. `'auto'` (or
@@ -162,6 +163,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _obscurePaystackSecret = true;
   bool _obscureGoogleMapsKey = true;
   bool _obscureMapboxKey = true;
+  bool _obscureCartoKey = true;
   bool _obscureExchangeRateKey = true;
   bool _obscureResendKey = true;
 
@@ -251,6 +253,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _paystackSecretKeyCtrl.dispose();
     _googleMapsApiKeyCtrl.dispose();
     _mapboxApiKeyCtrl.dispose();
+    _cartoApiKeyCtrl.dispose();
     _mapboxStyleCtrl.dispose();
     _googleQuotaCapCtrl.dispose();
     _mapboxQuotaCapCtrl.dispose();
@@ -312,6 +315,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _paystackSecretKeyCtrl.text = remoteKeys.paystackSecretKey;
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
+      _cartoApiKeyCtrl.text = remoteKeys.cartoApiKey;
       _exchangeRateApiKeyCtrl.text = remoteKeys.exchangeRateApiKey.isEmpty
           ? 'ex_live_79a2b8c3d4e5f6g7h8i9_sample'
           : remoteKeys.exchangeRateApiKey;
@@ -695,6 +699,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           paystackSecretKey: _paystackSecretKeyCtrl.text.trim(),
           googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
           mapboxToken: _mapboxApiKeyCtrl.text.trim(),
+          cartoApiKey: _cartoApiKeyCtrl.text.trim(),
           mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
               ? _mapboxStyleCtrl.text.trim()
               : GlobalMapConfig.defaultMapboxStyle,
@@ -737,6 +742,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               : GlobalMapConfig.defaultGoogleMapsApiKey,
           mapboxToken: _mapboxApiKeyCtrl.text.trim().isNotEmpty
               ? _mapboxApiKeyCtrl.text.trim()
+              : null,
+          cartoApiKey: _cartoApiKeyCtrl.text.trim().isNotEmpty
+              ? _cartoApiKeyCtrl.text.trim()
               : null,
           mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
               ? _mapboxStyleCtrl.text.trim()
@@ -1077,6 +1085,31 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                         onPressed: () {
                           setState(() {
                             _obscureMapboxKey = !_obscureMapboxKey;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: TextFormField(
+                    controller: _cartoApiKeyCtrl,
+                    obscureText: _obscureCartoKey,
+                    decoration: InputDecoration(
+                      labelText: 'CartoDB API Key (Optional)',
+                      helperText:
+                          'Optional API key for CartoDB basemap tiles. Leave blank to use free public CDN.',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureCartoKey
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureCartoKey = !_obscureCartoKey;
                           });
                         },
                       ),

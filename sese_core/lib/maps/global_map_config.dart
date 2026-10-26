@@ -124,6 +124,9 @@ class GlobalMapConfig {
   /// When set, this takes precedence over [apiKey] for the Mapbox provider.
   final String? mapboxToken;
 
+  /// CartoDB API Key (optional). When set, appended to CartoDB tile URLs.
+  final String? cartoApiKey;
+
   /// Custom tile URL template for CartoDB or any other raster tile source.
   final String tileUrlTemplate;
 
@@ -177,9 +180,10 @@ class GlobalMapConfig {
   static const String defaultDarkMapboxStyle = MapboxStyles.darkV11;
 
   const GlobalMapConfig({
-    this.activeProvider = 'cartodb',
+    this.activeProvider = 'google',
     this.apiKey = defaultGoogleMapsApiKey,
     this.mapboxToken,
+    this.cartoApiKey,
     this.tileUrlTemplate = _cartoLight,
     this.manualOverrideProvider,
     this.featureProviders = const {},
@@ -322,6 +326,11 @@ class GlobalMapConfig {
   String resolveTileUrl({bool isDark = false}) {
     if (isMapbox) return resolveMapboxTileUrl(isDark: isDark);
 
+    final cleanCartoKey = (cartoApiKey ?? '').trim();
+    if (cleanCartoKey.isNotEmpty) {
+      return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
+    }
+
     // CartoDB: prefer explicit custom template, then key-authenticated, then free.
     if (tileUrlTemplate.trim().isNotEmpty &&
         (tileUrlTemplate.contains('carto') ||
@@ -343,7 +352,7 @@ class GlobalMapConfig {
             map['activeMapProvider'] ??
             map['active_map_provider'] ??
             map['mapProvider'] ??
-            'cartodb')
+            'google')
         .toString();
 
     final key = (map['apiKey'] ??
@@ -358,6 +367,12 @@ class GlobalMapConfig {
             map['mapbox_token'] ??
             map['mapboxApiKey'] ??
             map['mapbox_api_key'])
+        ?.toString()
+        .trim();
+
+    final cartoKey = (map['cartoApiKey'] ??
+            map['carto_api_key'] ??
+            map['cartoKey'])
         ?.toString()
         .trim();
 
@@ -407,6 +422,7 @@ class GlobalMapConfig {
       activeProvider: provider,
       apiKey: (key != null && key.isNotEmpty) ? key : defaultGoogleMapsApiKey,
       mapboxToken: (mbToken != null && mbToken.isNotEmpty) ? mbToken : null,
+      cartoApiKey: (cartoKey != null && cartoKey.isNotEmpty) ? cartoKey : null,
       tileUrlTemplate:
           (tileUrl.isNotEmpty && !tileUrl.contains('light_all'))
               ? tileUrl
@@ -428,6 +444,7 @@ class GlobalMapConfig {
   Map<String, dynamic> toMap() {
     final cleanKey = (apiKey ?? '').trim();
     final cleanMbToken = (mapboxToken ?? '').trim();
+    final cleanCartoKey = (cartoApiKey ?? '').trim();
     return {
       'activeProvider': normalizedProvider,
       'activeMapProvider': normalizedProvider,
@@ -437,6 +454,8 @@ class GlobalMapConfig {
       'mapboxToken': cleanMbToken,
       'mapbox_token': cleanMbToken,
       'mapboxApiKey': cleanMbToken,
+      'cartoApiKey': cleanCartoKey,
+      'carto_api_key': cleanCartoKey,
       'mapboxStyle': mapboxStyle.trim(),
       'tileUrlTemplate': tileUrlTemplate.trim(),
       'osmTileServerUrl': tileUrlTemplate.trim(),
@@ -456,6 +475,7 @@ class GlobalMapConfig {
     String? activeProvider,
     String? apiKey,
     String? mapboxToken,
+    String? cartoApiKey,
     String? tileUrlTemplate,
     String? manualOverrideProvider,
     Map<String, String>? featureProviders,
@@ -468,6 +488,7 @@ class GlobalMapConfig {
       activeProvider: activeProvider ?? this.activeProvider,
       apiKey: apiKey ?? this.apiKey,
       mapboxToken: mapboxToken ?? this.mapboxToken,
+      cartoApiKey: cartoApiKey ?? this.cartoApiKey,
       tileUrlTemplate: tileUrlTemplate ?? this.tileUrlTemplate,
       manualOverrideProvider:
           manualOverrideProvider ?? this.manualOverrideProvider,
