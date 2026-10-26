@@ -93,6 +93,15 @@ class MapConfigController {
     return _mapboxFallbackReason;
   }
 
+  bool get isCartoFallbackActive =>
+      _isCartoFallbackActive || isCartoQuotaExceeded;
+  String? get cartoFallbackReason {
+    if (isCartoQuotaExceeded) {
+      return 'CartoDB monthly usage cap (${currentConfig.cartoMonthlyCap}) reached.';
+    }
+    return _cartoFallbackReason;
+  }
+
   /// Increments usage counter for [provider] and triggers fallback if cap is hit.
   void incrementUsage(MapProviderType provider) {
     switch (provider) {

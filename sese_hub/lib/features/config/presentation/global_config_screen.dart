@@ -1443,7 +1443,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   preferredWidth: 700,
                   child: ValueListenableBuilder<GlobalMapConfig>(
                     valueListenable: MapConfigController.instance.configNotifier,
-                    builder: (context, _, __) {
+                    builder: (context, _, _) {
                       final ctrl = MapConfigController.instance;
                       final gCap = int.tryParse(_googleQuotaCapCtrl.text) ?? 20000;
                       final mCap = int.tryParse(_mapboxQuotaCapCtrl.text) ?? 50000;
