@@ -60,6 +60,25 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-26 — Pure Dart Hardware Probing (/proc/meminfo & getprop) Zero-ANR Fallback
+
+Eliminated remaining ANR Signal 3 dumps and `DEVELOPER_ERROR` broker crashes on entry-tier Android devices (Nokia G20):
+
+### 1. Root Cause Analysis
+- Hot restart only updates the Dart VM; running APK processes previously compiled with older native code do not reload `MainActivity.kt`.
+- Consequently, `_channel.invokeMethod('isAvailable')` continued to return `true` on hot-restarted sessions, causing Google Maps SDK to instantiate platform views, trigger Davey frame drops (1.7s), and trip the Android ANR watchdog (Signal 3).
+
+### 2. Pure Dart Linux Hardware Probing (`map_provider.dart`)
+- **Direct `/proc/meminfo` Synchronous Inspection**: `GmsAvailability._isLowRamOrProblematicDevice` directly reads `/proc/meminfo` on Android to synchronously inspect `MemTotal`. Devices with `<= 4.4GB` RAM (such as Nokia G20 with 3.8GB) are identified synchronously before any widget build or platform view creation.
+- **Model Property Detection via `getprop ro.product.model`**: Checks `ro.product.model` via asynchronous fallback.
+- **Zero-Latency Raster Fallback**: If either check triggers, `GmsAvailability.isAvailableSync` and `isAvailable()` instantly return `false`, immediately routing `SeseUniversalMap` to pure Dart raster tiles (CartoDB / Mapbox) without ever calling Google Maps SDK or touching platform views.
+- **Works Instantly on Hot Restart**: Operates entirely in user-space Dart without requiring a full native APK recompile.
+
+### 3. Verification
+- `analyze_files` across `sese_core`, `sese_ride`, and `sese_hub`: **0 errors, 0 warnings**.
+- `hot_restart` applied live to connected Nokia G20.
+- `get_runtime_errors`: **No runtime errors found**.
+
 ## 2026-10-26 — Nokia G20 / Budget Device Google Play Services Dynamite Thrashing & Zero-ANR Raster Fallback
 
 Resolved native dynamite JIT compiler loop (`Compiler allocated 9094KB`, `4494KB`, `5128KB`), 760+ frame drop stalls, and `DEVELOPER_ERROR` broker crashes on Nokia G20:

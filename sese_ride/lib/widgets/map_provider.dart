@@ -173,9 +173,45 @@ abstract final class GmsAvailability {
   @visibleForTesting
   static bool? debugOverride;
 
-  /// Synchronously returns whether GMS is available if already resolved,
-  /// or null if the async probe is still in flight.
-  static bool? get isAvailableSync => debugOverride ?? _cachedValue;
+  /// Probes `/proc/meminfo` synchronously on Android to identify entry-tier devices (<= 4GB RAM).
+  ///
+  /// On devices with <= 4GB RAM (e.g. Nokia G20, MediaTek entry devices), Google Play Services
+  /// maps dynamite compiler loop drops hundreds of frames and causes native Scudo memory
+  /// exhaustion and ANR watchdog kills.
+  static bool _isLowRamOrProblematicDevice() {
+    if (!Platform.isAndroid) return false;
+    try {
+      final meminfoFile = File('/proc/meminfo');
+      if (meminfoFile.existsSync()) {
+        final content = meminfoFile.readAsStringSync();
+        final match = RegExp(r'MemTotal:\s+(\d+)\s+kB', caseSensitive: false).firstMatch(content);
+        if (match != null) {
+          final memKb = int.tryParse(match.group(1) ?? '');
+          // If total RAM <= 4.2GB (~4,400,000 kB), classify as entry-tier / low-RAM device.
+          if (memKb != null && memKb <= 4400000) {
+            debugPrint('GmsAvailability: Low-RAM device detected via /proc/meminfo ($memKb kB). Routing to pure Dart raster tiles.');
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('GmsAvailability: Error probing /proc/meminfo: $e');
+    }
+    return false;
+  }
+
+  /// Synchronously returns whether GMS is available if already resolved or detectable via
+  /// direct Linux hardware inspection, or null if the async probe is still in flight.
+  static bool? get isAvailableSync {
+    if (debugOverride != null) return debugOverride;
+    if (_cachedValue != null) return _cachedValue;
+    if (!Platform.isAndroid) return true;
+    if (_isLowRamOrProblematicDevice()) {
+      _cachedValue = false;
+      return false;
+    }
+    return null;
+  }
 
   static Future<bool> isAvailable() {
     final forced = debugOverride;
@@ -188,6 +224,24 @@ abstract final class GmsAvailability {
       _cachedValue = true;
       return true;
     }
+
+    // Synchronous memory check via /proc/meminfo (works instantly across hot restarts).
+    if (_isLowRamOrProblematicDevice()) {
+      _cachedValue = false;
+      return false;
+    }
+
+    // Check device model property via getprop ro.product.model.
+    try {
+      final proc = await Process.run('getprop', ['ro.product.model']);
+      final model = proc.stdout.toString().toLowerCase();
+      if (model.contains('g20') || model.contains('nokia')) {
+        debugPrint('GmsAvailability: Detected $model device. Forcing pure raster tile fallback.');
+        _cachedValue = false;
+        return false;
+      }
+    } catch (_) {}
+
     try {
       final available = await _channel.invokeMethod<bool>('isAvailable') ?? false;
       _cachedValue = available;
