@@ -167,10 +167,15 @@ abstract final class GmsAvailability {
       MethodChannel('com.sesetech.sese_ride/gms_availability');
 
   static Future<bool>? _cached;
+  static bool? _cachedValue;
 
   /// Test seam: force a fixed answer.
   @visibleForTesting
   static bool? debugOverride;
+
+  /// Synchronously returns whether GMS is available if already resolved,
+  /// or null if the async probe is still in flight.
+  static bool? get isAvailableSync => debugOverride ?? _cachedValue;
 
   static Future<bool> isAvailable() {
     final forced = debugOverride;
@@ -179,12 +184,18 @@ abstract final class GmsAvailability {
   }
 
   static Future<bool> _check() async {
-    if (!Platform.isAndroid) return true;
-    try {
-      return await _channel.invokeMethod<bool>('isAvailable') ?? true;
-    } catch (e) {
-      debugPrint('GmsAvailability check failed, assuming available: $e');
+    if (!Platform.isAndroid) {
+      _cachedValue = true;
       return true;
+    }
+    try {
+      final available = await _channel.invokeMethod<bool>('isAvailable') ?? false;
+      _cachedValue = available;
+      return available;
+    } catch (e) {
+      debugPrint('GmsAvailability check failed, assuming raster fallback: $e');
+      _cachedValue = false;
+      return false;
     }
   }
 }
@@ -493,11 +504,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
   @override
   Widget build(BuildContext context) {
+    final initialGms = GmsAvailability.isAvailableSync ?? (!Platform.isAndroid);
     return FutureBuilder<bool>(
       future: GmsAvailability.isAvailable(),
-      initialData: true,
+      initialData: initialGms,
       builder: (context, gmsSnapshot) {
-        final gmsOk = gmsSnapshot.data ?? true;
+        final gmsOk = gmsSnapshot.data ?? initialGms;
         return ValueListenableBuilder<GlobalMapConfig>(
           valueListenable: MapConfigController.instance.configNotifier,
           builder: (context, liveConfig, _) {

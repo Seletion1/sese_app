@@ -66,9 +66,19 @@ class MainActivity : FlutterActivity() {
     private fun isGooglePlayServicesAvailable(): Boolean {
         return try {
             val actManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-            if (actManager?.isLowRamDevice == true) {
-                // Low-RAM device (e.g. Android Go / entry-tier device):
-                // Gracefully fallback to lightweight raster tiles (CartoDB / Mapbox).
+            if (actManager != null) {
+                if (actManager.isLowRamDevice) return false
+                val memInfo = ActivityManager.MemoryInfo()
+                actManager.getMemoryInfo(memInfo)
+                // Devices with <= 4GB total RAM (such as Nokia G20, entry-tier MediaTek devices)
+                // experience severe frame dropping (700+ skipped frames) and dynamite JIT compiler loops
+                // in Google Maps platform views. Gracefully fallback to lightweight pure Dart raster tiles (CartoDB / Mapbox).
+                if (memInfo.totalMem <= 4L * 1024 * 1024 * 1024) {
+                    return false
+                }
+            }
+            val model = Build.MODEL ?: ""
+            if (model.contains("G20", ignoreCase = true) || model.contains("Nokia", ignoreCase = true)) {
                 return false
             }
             val apiClass = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
@@ -77,7 +87,7 @@ class MainActivity : FlutterActivity() {
                 .invoke(instance, this) as Int
             code == 0 // ConnectionResult.SUCCESS
         } catch (_: Exception) {
-            true
+            false
         }
     }
 

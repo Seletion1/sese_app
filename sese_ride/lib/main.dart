@@ -24,17 +24,23 @@ import 'features/driver/presentation/driver_onboarding_screen.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/customer/services/location_service.dart';
+import 'widgets/map_provider.dart' show GmsAvailability;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Globally enable Android Hybrid Composition so native Google Maps platform views
-  // render stable OpenGL textures without locking up or dropping context when dynamically switching engines.
+  // Use Texture Layer Hybrid Composition (TLHC) so native Google Maps renders
+  // directly through Flutter's lightweight texture pipeline without creating
+  // separate heavy Android window surfaces or triggering ANR onLayout stalls.
   final GoogleMapsFlutterPlatform mapsImplementation =
       GoogleMapsFlutterPlatform.instance;
   if (mapsImplementation is GoogleMapsFlutterAndroid) {
-    mapsImplementation.useAndroidViewSurface = true;
+    mapsImplementation.useAndroidViewSurface = false;
   }
+
+  // Prime GMS availability check so map surfaces have synchronous 0ms resolution.
+  // ignore: discarded_futures
+  unawaited(GmsAvailability.isAvailable());
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
