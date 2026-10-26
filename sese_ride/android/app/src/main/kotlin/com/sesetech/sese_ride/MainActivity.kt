@@ -37,6 +37,15 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_CHECK_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "pinDebugToken") {
+                val token = call.argument("token") as? String ?: PINNED_DEBUG_TOKEN
+                pinAppCheckDebugToken(token)
+                result.success(true)
+            } else {
+                result.notImplemented()
+            }
+        }
     }
 
     // singleTop delivery: notification/bubble taps that resolve to the
@@ -72,30 +81,45 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun pinAppCheckDebugToken() {
+    private fun pinAppCheckDebugToken(customToken: String? = null) {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val tokenToPin = customToken ?: PINNED_DEBUG_TOKEN
+        val secretKey = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
+
+        // 1. Write directly to default and app-specific SharedPreferences stores
+        val storeNames = listOf(
+            "com.google.firebase.appcheck.debug.store.[DEFAULT]",
+            "com.google.firebase.appcheck.debug.store.1:618721373016:android:9fb16cb52c1804c550932d"
+        )
+        storeNames.forEach { name ->
+            try {
+                val prefs = getSharedPreferences(name, Context.MODE_PRIVATE)
+                if (prefs.getString(secretKey, null) != tokenToPin) {
+                    prefs.edit().putString(secretKey, tokenToPin).apply()
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Also try dynamic FirebaseApp persistenceKey if Firebase is initialized
         try {
             val firebaseAppClass = Class.forName("com.google.firebase.FirebaseApp")
             val app = firebaseAppClass.getMethod("getInstance").invoke(null)
-            val persistenceKey =
-                firebaseAppClass.getMethod("getPersistenceKey").invoke(app) as String
+            val persistenceKey = firebaseAppClass.getMethod("getPersistenceKey").invoke(app) as String
             val prefs = getSharedPreferences(
                 "com.google.firebase.appcheck.debug.store.$persistenceKey",
                 Context.MODE_PRIVATE,
             )
-            val secretKey = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
-            if (prefs.getString(secretKey, null) != PINNED_DEBUG_TOKEN) {
-                prefs.edit().putString(secretKey, PINNED_DEBUG_TOKEN).apply()
+            if (prefs.getString(secretKey, null) != tokenToPin) {
+                prefs.edit().putString(secretKey, tokenToPin).apply()
             }
-        } catch (_: Exception) {
-            // Firebase / App Check not on the classpath yet — skip silently.
-        }
+        } catch (_: Exception) {}
     }
 
     companion object {
         const val TAG = "sese_ride"
         const val CHANNEL = "com.sesetech.sese_ride/app_launcher"
         const val GMS_CHANNEL = "com.sesetech.sese_ride/gms_availability"
+        const val APP_CHECK_CHANNEL = "com.sesetech.sese_ride/app_check"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"
     }
 }

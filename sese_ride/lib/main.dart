@@ -4,6 +4,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -54,6 +55,14 @@ void main() async {
       'sese_ride pinned App Check debug token: '
       '${AppCheckConfig.seseRideDebugToken}',
     );
+    try {
+      await const MethodChannel('com.sesetech.sese_ride/app_check').invokeMethod(
+        'pinDebugToken',
+        {'token': AppCheckConfig.seseRideDebugToken},
+      );
+    } catch (e) {
+      debugPrint('AppCheck pin error: $e');
+    }
   }
   await FirebaseAppCheck.instance.activate(
     providerAndroid: kDebugMode

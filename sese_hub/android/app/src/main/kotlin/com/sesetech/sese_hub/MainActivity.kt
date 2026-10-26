@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
@@ -12,41 +14,55 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
-    /**
-     * Pins the Firebase App Check debug secret for sese_hub to [PINNED_DEBUG_TOKEN]
-     * so every debug build/install reuses the same token registered in the
-     * Firebase console (App Check > Apps > Manage debug tokens).
-     *
-     * - Runs on debuggable builds ONLY; release builds are untouched.
-     * - Uses reflection so nothing breaks when Firebase / App Check is not
-     *   integrated yet; it simply no-ops until firebase-appcheck-debug is added.
-     * - Must run before the first App Check token fetch (Dart Firebase init),
-     *   which is guaranteed here since Activity.onCreate precedes the engine.
-     *
-     * WARNING: internal SharedPreferences keys of the App Check SDK. If a future
-     * SDK version changes them, update the constants below.
-     */
-    private fun pinAppCheckDebugToken() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_CHECK_CHANNEL).setMethodCallHandler { call, result ->
+            if (call.method == "pinDebugToken") {
+                val token = call.argument("token") as? String ?: PINNED_DEBUG_TOKEN
+                pinAppCheckDebugToken(token)
+                result.success(true)
+            } else {
+                result.notImplemented()
+            }
+        }
+    }
+
+    private fun pinAppCheckDebugToken(customToken: String? = null) {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val tokenToPin = customToken ?: PINNED_DEBUG_TOKEN
+        val secretKey = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
+
+        // 1. Write directly to default SharedPreferences store
+        val storeNames = listOf(
+            "com.google.firebase.appcheck.debug.store.[DEFAULT]",
+            "com.google.firebase.appcheck.debug.store.1:618721373016:android:3e02049c0d164ca650932d"
+        )
+        storeNames.forEach { name ->
+            try {
+                val prefs = getSharedPreferences(name, Context.MODE_PRIVATE)
+                if (prefs.getString(secretKey, null) != tokenToPin) {
+                    prefs.edit().putString(secretKey, tokenToPin).apply()
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Also try dynamic FirebaseApp persistenceKey if initialized
         try {
             val firebaseAppClass = Class.forName("com.google.firebase.FirebaseApp")
             val app = firebaseAppClass.getMethod("getInstance").invoke(null)
-            val persistenceKey =
-                firebaseAppClass.getMethod("getPersistenceKey").invoke(app) as String
+            val persistenceKey = firebaseAppClass.getMethod("getPersistenceKey").invoke(app) as String
             val prefs = getSharedPreferences(
                 "com.google.firebase.appcheck.debug.store.$persistenceKey",
                 Context.MODE_PRIVATE,
             )
-            val secretKey = "com.google.firebase.appcheck.debug.DEBUG_SECRET"
-            if (prefs.getString(secretKey, null) != PINNED_DEBUG_TOKEN) {
-                prefs.edit().putString(secretKey, PINNED_DEBUG_TOKEN).apply()
+            if (prefs.getString(secretKey, null) != tokenToPin) {
+                prefs.edit().putString(secretKey, tokenToPin).apply()
             }
-        } catch (_: Exception) {
-            // Firebase / App Check not on the classpath yet — skip silently.
-        }
+        } catch (_: Exception) {}
     }
 
     companion object {
+        const val APP_CHECK_CHANNEL = "com.sesetech.sese_hub/app_check"
         // Mirrors AppCheckConfig.seseHubDebugToken in sese_core.
         const val PINNED_DEBUG_TOKEN = "e1d8dc46-7c7d-48da-a9fd-e34592249fc5"
     }
