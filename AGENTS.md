@@ -60,6 +60,24 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-26 — Global Incoming Call Overlay Root Navigator Routing
+
+Resolved `Navigator operation requested with a context that does not include a Navigator` exception when accepting incoming VoIP audio calls:
+
+### 1. Root Cause Analysis
+- `IncomingCallOverlay` is declared in `MaterialApp.builder: (context, child) => IncomingCallOverlay(...)`.
+- In Flutter, `MaterialApp.builder` executes *above* the internal root `Navigator` widget in the element tree.
+- Consequently, invoking `Navigator.of(context)` from `IncomingCallOverlayState` threw `FlutterError` because its `BuildContext` is an ancestor of the `Navigator`, not a descendant.
+
+### 2. Architecture Fix
+- **Static Root Navigator Key (`IncomingCallOverlay.navigatorKey`)**: Added a public static `GlobalKey<NavigatorState>` to `IncomingCallOverlay` and wired it to `MaterialApp(navigatorKey: IncomingCallOverlay.navigatorKey)`.
+- **Decoupled Push Transition (`_acceptCall`)**: Updated `_acceptCall()` to resolve `widget.navKey?.currentState ?? IncomingCallOverlay.navigatorKey.currentState ?? Navigator.maybeOf(context)`. Tapping the Accept button pushes `InAppCallScreen` cleanly over the active view stack from anywhere in the app.
+
+### 3. Verification
+- `analyze_files` across `sese_core`, `sese_ride`, and `sese_hub`: **0 errors, 0 warnings**.
+- `hot_restart` applied live to connected test device.
+- `get_runtime_errors`: **No runtime errors found**.
+
 ## 2026-10-26 — Pure Dart Hardware Probing (/proc/meminfo & getprop) Zero-ANR Fallback
 
 Eliminated remaining ANR Signal 3 dumps and `DEVELOPER_ERROR` broker crashes on entry-tier Android devices (Nokia G20):

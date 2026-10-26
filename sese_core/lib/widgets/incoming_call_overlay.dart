@@ -18,7 +18,18 @@ import 'in_app_call_screen.dart';
 class IncomingCallOverlay extends StatefulWidget {
   final Widget child;
 
-  const IncomingCallOverlay({super.key, required this.child});
+  /// Global navigator key used to push [InAppCallScreen] when the call is accepted
+  /// from outside or above the [Navigator] hierarchy (e.g. within [MaterialApp.builder]).
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+  /// Optional instance override for navigatorKey.
+  final GlobalKey<NavigatorState>? navKey;
+
+  const IncomingCallOverlay({
+    super.key,
+    required this.child,
+    this.navKey,
+  });
 
   @override
   State<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
@@ -76,7 +87,16 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _stopRingtone();
     setState(() => _incomingSession = null);
 
-    Navigator.of(context).push(
+    final navState = widget.navKey?.currentState ??
+        IncomingCallOverlay.navigatorKey.currentState ??
+        Navigator.maybeOf(context);
+
+    if (navState == null) {
+      debugPrint('IncomingCallOverlay: Cannot push InAppCallScreen — no Navigator found.');
+      return;
+    }
+
+    navState.push(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => InAppCallScreen(

@@ -232,6 +232,7 @@ class _MyAppState extends State<MyApp> {
       valueListenable: ThemeController.instance,
       builder: (context, themeMode, _) {
         return MaterialApp(
+          navigatorKey: IncomingCallOverlay.navigatorKey,
           title: 'sese_ride',
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
