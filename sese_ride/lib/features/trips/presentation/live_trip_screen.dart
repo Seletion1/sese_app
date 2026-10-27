@@ -1642,193 +1642,191 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
             ),
 
             // Scrollable body: communication, route, cancellation
-            Flexible(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _CommunicationButton(
-                            key: const Key('customer_direct_call_icon'),
-                            icon: Icons.phone_outlined,
-                            label: 'Direct Call',
-                            color: const Color(0xFF10B981),
-                            bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                            onTap: () => _makeDirectPhoneCall(context),
-                          ),
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('customer_direct_call_icon'),
+                          icon: Icons.phone_outlined,
+                          label: 'Direct Call',
+                          color: const Color(0xFF10B981),
+                          bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                          onTap: () => _makeDirectPhoneCall(context),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _CommunicationButton(
-                            key: const Key('customer_inapp_call_icon'),
-                            icon: Icons.phone_in_talk_outlined,
-                            label: 'In-App Call',
-                            color: const Color(0xFFD97706),
-                            bgColor: const Color(0xFFFEF3C7),
-                            onTap: () => _startInAppCall(context),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _CommunicationButton(
-                            key: const Key('customer_chat_icon'),
-                            icon: Icons.chat_bubble_outline,
-                            label: 'Chat',
-                            color: Colors.black87,
-                            bgColor: Colors.grey.shade100,
-                            onTap: () => _openTripChat(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-
-              // 3. Route Details Box (PICKUP & DROPOFF) matching driver card layout
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Pickup row
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 3),
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFF10B981),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'PICKUP',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF10B981),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                trip.pickupAddress.isEmpty
-                                    ? 'Pickup location on map'
-                                    : trip.pickupAddress,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 6),
-                      child: Divider(height: 1),
-                    ),
-                    // Dropoff row
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 3),
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFEF4444),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'DROPOFF',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFFEF4444),
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                trip.dropoffAddress.isEmpty
-                                    ? 'Drop-off location on map'
-                                    : trip.dropoffAddress,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // 4. Subtle Cancellation Option — with generous bottom clearance
-              if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
-                const SizedBox(height: 12),
-                Center(
-                  child: TextButton(
-                    onPressed: widget.onCancel,
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red.shade600,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
-                    child: const Text(
-                      'Cancel ride',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        decoration: TextDecoration.underline,
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('customer_inapp_call_icon'),
+                          icon: Icons.phone_in_talk_outlined,
+                          label: 'In-App Call',
+                          color: const Color(0xFFD97706),
+                          bgColor: const Color(0xFFFEF3C7),
+                          onTap: () => _startInAppCall(context),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('customer_chat_icon'),
+                          icon: Icons.chat_bubble_outline,
+                          label: 'Chat',
+                          color: Colors.black87,
+                          bgColor: Colors.grey.shade100,
+                          onTap: () => _openTripChat(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 3. Route Details Box (PICKUP & DROPOFF) matching driver card layout
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Pickup row
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'PICKUP',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF10B981),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    trip.pickupAddress.isEmpty
+                                        ? 'Pickup location on map'
+                                        : trip.pickupAddress,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 6),
+                          child: Divider(height: 1),
+                        ),
+                        // Dropoff row
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'DROPOFF',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFFEF4444),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    trip.dropoffAddress.isEmpty
+                                        ? 'Drop-off location on map'
+                                        : trip.dropoffAddress,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
-              ] else ...[
-                const SizedBox(height: 8),
-              ],
-            ],
-          ),
-        ),
-      ),
+
+                  // 4. Subtle Cancellation Option — with generous bottom clearance
+                  if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: TextButton(
+                        onPressed: widget.onCancel,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade600,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                        child: const Text(
+                          'Cancel ride',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                  ],
+                ],
+              ),
+            ),
     );
   }
 }
