@@ -37,10 +37,13 @@ class SeseCountryCatalog {
   /// Any country not in this table defaults to USD ('$').
   static const Map<String, ({String code, String symbol})> _knownCurrencies = {
     'NG': (code: 'NGN', symbol: '₦'),
+    'BJ': (code: 'XOF', symbol: 'CFA'),
+    'GH': (code: 'GHS', symbol: '₵'),
+    'TG': (code: 'XOF', symbol: 'CFA'),
+    'CM': (code: 'XAF', symbol: 'FCFA'),
     'KE': (code: 'KES', symbol: 'KSh '),
     'US': (code: 'USD', symbol: r'$'),
     'GB': (code: 'GBP', symbol: '£'),
-    'GH': (code: 'GHS', symbol: '₵'),
     'ZA': (code: 'ZAR', symbol: 'R'),
     'UG': (code: 'UGX', symbol: 'USh'),
     'RW': (code: 'RWF', symbol: 'FRw'),
@@ -98,7 +101,7 @@ class SeseCountryCatalog {
     _codeMap = map;
 
     // Sort with primary markets first (NG, KE, GH, US, GB, etc.), then alphabetically
-    const priority = ['NG', 'KE', 'GH', 'ZA', 'UG', 'RW', 'TZ', 'US', 'GB', 'CA'];
+    const priority = ['NG', 'BJ', 'GH', 'TG', 'CM', 'KE', 'ZA', 'UG', 'RW', 'TZ', 'US', 'GB', 'CA'];
     final list = map.values.toList()
       ..sort((a, b) {
         final aPrio = priority.indexOf(a.countryCode);

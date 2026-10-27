@@ -5,8 +5,7 @@
     <!-- Driver live-map positioning (OpenStreetMap layer + zero-trust GPS fix). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- On-device speech-to-text dictation in Support Chat (voice input only;
-         no audio is recorded, stored, or transmitted). -->
+    <!-- Voice notes in Support Chat and In-App VoIP audio calls. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Scoped contacts access: used ONLY when the user taps the Contacts icon
          next to a recipient phone field to select a contact from their device.

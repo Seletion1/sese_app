@@ -336,13 +336,17 @@ exports.onSupportMessageCreated = (0, firestore_1.onDocumentCreated)("support_ch
     const chatData = chatSnap.data();
     if (chatData["status"] !== "ai_active")
         return;
-    // Image-only messages (a photo of a damaged parcel, a payment receipt)
-    // carry no text to reason about, so acknowledge and invite detail rather
-    // than escalating immediately — the user is mid-escalation, not in danger.
+    // Image-only or voice note messages carry no text to reason about, so
+    // acknowledge and invite detail or let the user know an agent will listen.
     const msgType = String((_c = msg["type"]) !== null && _c !== void 0 ? _c : "text");
     const userText = String((_d = msg["text"]) !== null && _d !== void 0 ? _d : "").trim();
     const hasImage = typeof msg["imageUrl"] === "string" && msg["imageUrl"].length > 0;
+    const hasAudio = msgType === "audio" || (typeof msg["audioUrl"] === "string" && msg["audioUrl"].length > 0);
     if (!userText) {
+        if (hasAudio) {
+            await postAiMessage(chatId, "Thanks for your voice note! A support agent will listen to it and reply here shortly.", "voice_note");
+            return;
+        }
         if (hasImage) {
             await postAiMessage(chatId, "Thanks — I can see the image you've sent. An agent will take a closer look at it. " +
                 "In the meantime, could you tell me briefly what the photo shows?", "image_only");

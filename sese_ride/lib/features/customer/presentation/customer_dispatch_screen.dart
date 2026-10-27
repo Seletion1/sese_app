@@ -47,25 +47,23 @@ bool isValidNigerianPhoneNumber(String? input) {
       );
 }
 
-/// Optional variant of [isValidNigerianPhoneNumber] for the Step 3 contact
-/// fields: empty (no secondary contact — e.g. "call me when you get there")
-/// is valid; a non-empty entry must still validate. Never blocks confirm.
+/// Optional variant of phone validation for Step 3 contact fields:
+/// empty (no secondary contact — e.g. "call me when you get there") is valid;
+/// non-empty entries are normalized and validated for E.164 compliance across
+/// all supported countries (Nigeria, Benin, Ghana, etc.).
 bool isOptionalNigerianPhoneNumber(String? input) {
   if (input == null || input.trim().isEmpty) return true;
-  return isValidNigerianPhoneNumber(input);
+  final activeIso = CountryDetectionService.instance.currentCountryCode;
+  final norm = SesePhoneSanitizer.normalize(input, defaultIsoCode: activeIso);
+  return SesePhoneSanitizer.isValidE164(norm) || isValidNigerianPhoneNumber(input);
 }
 
 /// Strips any hardcoded country prefix from a stored/profile number down to
 /// the national digits the [SesePhoneInputField] box expects.
-///
-/// The widget renders its own +234 prefix in the selector, so seeding its
-/// controller with a full E.164 value (`+234801...` from `user.phoneNumber`
-/// or a device contact) would duplicate the code (`+234 +23481...`). The
-/// widget also self-heals this on init — this is the defense-in-depth half
-/// at the call site, so controller text is clean even before first build.
 String nationalDisplayDigits(String? raw) {
   if (raw == null || raw.trim().isEmpty) return '';
-  return SesePhoneSanitizer.parse(raw).nationalNumber;
+  final activeIso = CountryDetectionService.instance.currentCountryCode;
+  return SesePhoneSanitizer.parse(raw, defaultIsoCode: activeIso).nationalNumber;
 }
 
 /// Step-by-step booking screen for both Ride-Hailing and Package Delivery.

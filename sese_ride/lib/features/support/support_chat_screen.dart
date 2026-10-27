@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:sese_core/sese_core.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import 'support_chat_service.dart';
 
@@ -158,10 +163,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   }
 
   /// Picks a photo and sends it to the thread.
-  ///
-  /// Images only, by policy: the Firestore rules reject an audio message type
-  /// on every chat in the schema, and Storage rejects any non-image MIME, so
-  /// there is intentionally no audio counterpart here.
   Future<void> _pickAndSendImage(String chatId, String status) async {
     if (SupportChatStatus.isLocked(status)) return;
     // Runtime permission handshake BEFORE the native picker (otherwise the
@@ -200,6 +201,43 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       setState(() => _waiting = false);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  /// Uploads a voice note and sends it as an audio message.
+  Future<void> _sendVoiceNote(
+    String chatId,
+    String status, {
+    required String filePath,
+    required int durationSeconds,
+  }) async {
+    if (SupportChatStatus.isLocked(status)) return;
+    if (filePath.isEmpty) return;
+    setState(() {
+      _uploading = true;
+      _waiting = true;
+    });
+    try {
+      final bytes = await File(filePath).readAsBytes();
+      await _chat.sendVoiceNote(
+        chatId: chatId,
+        userId: widget.user.uid,
+        audioBytes: bytes,
+        durationSeconds: durationSeconds,
+      );
+    } on SupportChatException catch (e) {
+      if (!mounted) return;
+      setState(() => _waiting = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _waiting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not send voice note. Try again.')),
+      );
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -447,13 +485,15 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                                       : () => _pickAndSendImage(chatId, status),
                                 ),
                                 const SizedBox(width: 4),
-                                _VoiceInputButton(
-                                  enabled: !isLocked && !_sending,
-                                  onWords: (words) {
-                                    final cur = _inputCtrl.text;
-                                    _inputCtrl.text =
-                                        cur.isEmpty ? words : '$cur $words';
-                                  },
+                                _VoiceNoteRecorderButton(
+                                  enabled: !isLocked && !_sending && !_uploading,
+                                  onVoiceNote: (path, durationSec) =>
+                                      _sendVoiceNote(
+                                    chatId,
+                                    status,
+                                    filePath: path,
+                                    durationSeconds: durationSec,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 FilledButton(
@@ -489,101 +529,180 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   }
 }
 
-/// On-device speech-to-text voice input for the support composer.
-///
-/// Dictates into the text field (send still posts plain text) — this is
-/// voice INPUT, not voice notes: no audio is recorded, stored, or sent,
-/// and trip/support chats accept text/images only per security rules.
-class _VoiceInputButton extends StatefulWidget {
-  final bool enabled;
-  final void Function(String words) onWords;
+// ---------------------------------------------------------------------------
+// Voice Note Recorder Button
+// ---------------------------------------------------------------------------
 
-  const _VoiceInputButton({required this.enabled, required this.onWords});
+/// Tap-to-record voice note button in the support chat composer.
+///
+/// Tap to start recording, tap again to stop and send. Shows a recording
+/// timer and a cancel option while active. Uses [AudioRecorder] from
+/// `package:record` for cross-platform AAC/M4A capture.
+class _VoiceNoteRecorderButton extends StatefulWidget {
+  final bool enabled;
+  final void Function(String filePath, int durationSeconds) onVoiceNote;
+
+  const _VoiceNoteRecorderButton({
+    required this.enabled,
+    required this.onVoiceNote,
+  });
 
   @override
-  State<_VoiceInputButton> createState() => _VoiceInputButtonState();
+  State<_VoiceNoteRecorderButton> createState() =>
+      _VoiceNoteRecorderButtonState();
 }
 
-class _VoiceInputButtonState extends State<_VoiceInputButton> {
-  SpeechToText? _stt;
-  bool _listening = false;
+class _VoiceNoteRecorderButtonState extends State<_VoiceNoteRecorderButton> {
+  final _recorder = AudioRecorder();
+  bool _recording = false;
   bool _busy = false;
+  String? _recordingPath;
+  int _elapsedSeconds = 0;
+  Timer? _timer;
 
   @override
   void dispose() {
-    try {
-      _stt?.stop();
-    } catch (_) {}
+    _timer?.cancel();
+    _recorder.dispose();
     super.dispose();
   }
 
-  Future<void> _toggle() async {
+  Future<void> _startRecording() async {
     if (_busy) return;
-    if (_listening) {
-      try {
-        await _stt?.stop();
-      } catch (_) {}
-      if (mounted) setState(() => _listening = false);
-      return;
-    }
     setState(() => _busy = true);
     try {
-      _stt ??= SpeechToText();
-      final available = await _stt!.initialize(
-        onStatus: (status) {
-          if (mounted &&
-              (status == 'done' || status == 'notListening') &&
-              _listening) {
-            setState(() => _listening = false);
-          }
-        },
-      );
+      // Request mic permission explicitly — needed on Android 12+ and iOS.
+      final status = await Permission.microphone.request();
       if (!mounted) return;
-      if (!available) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Voice input unavailable on this device.')),
-        );
+      if (!status.isGranted) {
+        if (status.isPermanentlyDenied) {
+          await openAppSettings();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Microphone permission is required to send voice notes.'),
+            ),
+          );
+        }
         return;
       }
-      await _stt!.listen(
-        listenOptions: SpeechListenOptions(
-          onDevice: true,
-          partialResults: true,
-        ),
-        onResult: (result) {
-          if (result.finalResult && result.recognizedWords.isNotEmpty) {
-            widget.onWords(result.recognizedWords);
-          }
-        },
+      final hasPermission = await _recorder.hasPermission();
+      if (!hasPermission || !mounted) return;
+
+      final dir = Directory.systemTemp;
+      final path =
+          '${dir.path}/sese_voicenote_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000),
+        path: path,
       );
-      if (mounted) setState(() => _listening = true);
-    } catch (_) {
+      _recordingPath = path;
+      _elapsedSeconds = 0;
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _elapsedSeconds++);
+      });
+      if (mounted) setState(() => _recording = true);
+    } catch (e) {
+      debugPrint('_VoiceNoteRecorderButton: start failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not start voice input.')),
+        const SnackBar(content: Text('Could not start recording.')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  Future<void> _stopAndSend() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    _timer?.cancel();
+    _timer = null;
+    try {
+      final path = await _recorder.stop();
+      final duration = _elapsedSeconds;
+      if (mounted) setState(() => _recording = false);
+      if (path == null || path.isEmpty) return;
+      widget.onVoiceNote(path, duration);
+    } catch (e) {
+      debugPrint('_VoiceNoteRecorderButton: stop failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not finish recording.')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _cancel() async {
+    _timer?.cancel();
+    _timer = null;
+    try {
+      await _recorder.stop();
+      // Delete the temp file silently.
+      if (_recordingPath != null) {
+        try {
+          await File(_recordingPath!).delete();
+        } catch (_) {}
+        _recordingPath = null;
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _recording = false);
+  }
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_recording) {
+      // Recording mode: show timer + cancel + send icons.
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Cancel',
+            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+            onPressed: _busy ? null : _cancel,
+          ),
+          Text(
+            _formatDuration(_elapsedSeconds),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.red,
+            ),
+          ),
+          IconButton(
+            key: const Key('support_voice_send'),
+            tooltip: 'Send voice note',
+            icon: _busy
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send, color: Colors.green),
+            onPressed: _busy ? null : _stopAndSend,
+          ),
+        ],
+      );
+    }
     return IconButton(
       key: const Key('support_voice_button'),
-      tooltip: _listening ? 'Stop dictation' : 'Dictate message',
+      tooltip: 'Send a voice note',
       icon: _busy
           ? const SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : Icon(
-              _listening ? Icons.stop_circle_outlined : Icons.mic_none_outlined,
-              color: _listening ? Colors.red : null,
-            ),
-      onPressed: widget.enabled && !_busy ? _toggle : null,
+          : const Icon(Icons.mic_none_outlined),
+      onPressed: widget.enabled && !_busy ? _startRecording : null,
     );
   }
 }
@@ -712,6 +831,13 @@ class _Bubble extends StatelessWidget {
               ),
             if (message.isImage && message.text.isNotEmpty)
               const SizedBox(height: 6),
+            if (message.isAudio)
+              _AudioPlayerBubble(
+                key: Key('audio_${message.id}'),
+                audioUrl: message.audioUrl!,
+                durationSeconds: message.durationSeconds ?? 0,
+                isMine: mine,
+              ),
             if (message.text.isNotEmpty)
               Text(
                 message.text,
@@ -746,6 +872,146 @@ class _Bubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Audio Player Bubble
+// ---------------------------------------------------------------------------
+
+/// Inline audio player for voice note messages in the support thread.
+///
+/// Shows a play/pause button, a progress slider, and the recorded duration.
+/// Uses [AudioPlayer] from `package:audioplayers` — no native platform views,
+/// just Dart FFI bindings so it works safely on all devices including Nokia G20.
+class _AudioPlayerBubble extends StatefulWidget {
+  final String audioUrl;
+  final int durationSeconds;
+  final bool isMine;
+
+  const _AudioPlayerBubble({
+    super.key,
+    required this.audioUrl,
+    required this.durationSeconds,
+    required this.isMine,
+  });
+
+  @override
+  State<_AudioPlayerBubble> createState() => _AudioPlayerBubbleState();
+}
+
+class _AudioPlayerBubbleState extends State<_AudioPlayerBubble> {
+  final _player = AudioPlayer();
+  PlayerState _state = PlayerState.stopped;
+  Duration _position = Duration.zero;
+  late Duration _total;
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<Duration>? _posSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _total = Duration(seconds: widget.durationSeconds.clamp(1, 3600));
+    _stateSub = _player.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _state = s);
+    });
+    _posSub = _player.onPositionChanged.listen((d) {
+      if (mounted) setState(() => _position = d);
+    });
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _position = Duration.zero);
+    });
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    _posSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePlay() async {
+    try {
+      if (_state == PlayerState.playing) {
+        await _player.pause();
+      } else {
+        await _player.play(UrlSource(widget.audioUrl));
+      }
+    } catch (e) {
+      debugPrint('_AudioPlayerBubble: playback error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not play voice note.')),
+      );
+    }
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final playing = _state == PlayerState.playing;
+    final fgColor = widget.isMine ? scheme.onPrimary : scheme.onSurface;
+    final sliderActive =
+        widget.isMine ? scheme.onPrimary : scheme.primary;
+    final totalSecs = _total.inSeconds.toDouble().clamp(1.0, double.infinity);
+    final posSecs = _position.inSeconds.toDouble().clamp(0.0, totalSecs);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          icon: Icon(
+            playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
+            size: 36,
+            color: fgColor,
+          ),
+          onPressed: _togglePlay,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: sliderActive,
+                  inactiveTrackColor: fgColor.withValues(alpha: 0.35),
+                  thumbColor: sliderActive,
+                  overlayShape: SliderComponentShape.noOverlay,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  trackHeight: 3,
+                ),
+                child: Slider(
+                  value: posSecs,
+                  min: 0,
+                  max: totalSecs,
+                  onChanged: (v) async {
+                    await _player.seek(Duration(seconds: v.toInt()));
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  playing ? _fmt(_position) : _fmt(_total),
+                  style: TextStyle(fontSize: 11, color: fgColor.withValues(alpha: 0.75)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

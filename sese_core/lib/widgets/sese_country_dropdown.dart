@@ -13,13 +13,18 @@ abstract final class CountryPickerSheet {
         (initialCountryCode != null
             ? SeseCountryCatalog.findByCode(initialCountryCode)
             : null);
+    final width = MediaQuery.of(context).size.width;
     return showModalBottomSheet<SeseCountryInfo>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
+      isDismissible: true,
+      enableDrag: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width, // 100% full width edge-to-edge
+        minWidth: width,
+        maxWidth: width,
       ),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -190,13 +195,34 @@ class _CountrySearchSheetState extends State<_CountrySearchSheet> {
       maxChildSize: 0.95,
       builder: (context, scrollController) {
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Row(
+                children: [
+                  const Text(
+                    'Select Country',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: TextField(
                 key: const Key('country_search_field'),
                 controller: _searchCtrl,
-                autofocus: true,
+                autofocus: false,
                 decoration: InputDecoration(
                   labelText: 'Search country, ISO code, or dial code',
                   hintText: 'e.g. Nigeria, NG, +234, Benin, +229',
@@ -243,14 +269,39 @@ class _CountrySearchSheetState extends State<_CountrySearchSheet> {
                         return ListTile(
                           contentPadding:
                               const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-                          leading: Text(c.flagEmoji,
-                              style: const TextStyle(fontSize: 22)),
-                          title: Text(
-                            c.countryName,
-                            style: TextStyle(
-                              fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                              fontSize: 15,
-                            ),
+                          leading: Text(
+                            c.flagEmoji,
+                            style: const TextStyle(fontSize: 26),
+                          ),
+                          title: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  c.countryName,
+                                  style: TextStyle(
+                                    fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                                    fontSize: 15,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  c.countryCode,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -275,7 +326,11 @@ class _CountrySearchSheetState extends State<_CountrySearchSheet> {
                               ],
                             ],
                           ),
-                          onTap: () => Navigator.pop(context, c),
+                          onTap: () {
+                            // ignore: discarded_futures
+                            CountryDetectionService.instance.saveManualCountry(c.countryCode);
+                            Navigator.pop(context, c);
+                          },
                         );
                       },
                     ),

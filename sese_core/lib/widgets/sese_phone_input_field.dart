@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:intl_phone_number_input/intl_phone_number_input.dart';
 
+import '../models/country_catalog.dart';
 import '../services/country_detection_service.dart';
 import '../services/phone_sanitizer.dart';
+import 'sese_country_dropdown.dart';
 
 /// Robust, unified phone input widget for SeSe applications.
 ///
 /// Features:
-/// 1. Built-in ISO 3166-1 country dataset from [intl_phone_number_input] with zero hardcoded manual lists.
-/// 2. Automatic startup country detection via [CountryDetectionService] (SIM/Locale -> Timezone -> Nigeria default).
-/// 3. Country picker dropdown with flag emojis and international dial codes allowing manual override.
-/// 4. Live E.164 normalization & leading zero sanitization via [SesePhoneSanitizer].
+/// 1. Complete input freedom: Accepts any valid format (`08161561592`,
+///    `+2348161561592`, `8161561592`, `+22997123456`) without restrictive
+///    formatters fighting or blocking user typing.
+/// 2. Automatic country detection via [CountryDetectionService] (GPS coordinates ->
+///    device timezone -> locale check -> Nigeria default).
+/// 3. Responsive, full-width edge-to-edge country picker with search bar via [CountryPickerSheet].
+/// 4. Persistent manual override stored across app launches in SharedPreferences.
+/// 5. Live E.164 normalization & leading zero sanitization via [SesePhoneSanitizer],
+///    ensuring zero duplicate country codes appear on driver screens.
 class SesePhoneInputField extends StatefulWidget {
   final TextEditingController? controller;
   final String? initialValue;
@@ -45,7 +52,7 @@ class SesePhoneInputField extends StatefulWidget {
     this.autofocus = false,
     this.focusNode,
     this.autoValidateMode = AutovalidateMode.disabled,
-    this.selectorType = PhoneInputSelectorType.DROPDOWN,
+    this.selectorType = PhoneInputSelectorType.BOTTOM_SHEET,
     this.decoration,
     this.suffixIcon,
     this.onPickContact,
@@ -58,7 +65,6 @@ class SesePhoneInputField extends StatefulWidget {
 class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
   late TextEditingController _internalController;
   late String _activeIsoCode;
-  PhoneNumber _currentPhoneNumber = PhoneNumber();
   bool _isDisposed = false;
   bool _isFormattingInternal = false;
 
@@ -73,60 +79,57 @@ class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
         CountryDetectionService.instance.currentCountryCode;
 
     // 2. Pre-populate initial value with sanitized digits if provided
-    String initialDigits = '';
     if (widget.initialValue != null && widget.initialValue!.isNotEmpty) {
       final parsed = SesePhoneSanitizer.parse(
         widget.initialValue!,
         defaultIsoCode: _activeIsoCode,
       );
       _activeIsoCode = parsed.isoCode;
-      initialDigits = parsed.nationalNumber;
+      if (_internalController.text.isEmpty) {
+        _internalController.text = parsed.nationalNumber.isNotEmpty
+            ? parsed.nationalNumber
+            : widget.initialValue!;
+      }
     } else if (_internalController.text.trim().isNotEmpty) {
-      // 2b. Externally-owned controller pre-fill guard (double-prefix fix).
-      // When the parent owns the controller and seeds it with an already-
-      // international number (e.g. dispatch pre-fills `user.phoneNumber`
-      // which is stored E.164 as `+234801...`), the raw text still carries
-      // the country prefix while the selector ALSO renders +234 — showing
-      // `+234 +23481...`. Strip to national digits now so the box holds
-      // only the subscriber number; [_handleControllerChanged] keeps all
-      // later keystrokes/pastes clean. Local numbers (no prefix) pass
-      // through untouched.
       final pre = SesePhoneSanitizer.parse(
         _internalController.text,
         defaultIsoCode: _activeIsoCode,
       );
       if (pre.hasExplicitCountryPrefix) {
         _activeIsoCode = pre.isoCode;
-        initialDigits = pre.nationalNumber;
         _isFormattingInternal = true;
         _internalController.value = TextEditingValue(
           text: pre.nationalNumber,
-          selection:
-              TextSelection.collapsed(offset: pre.nationalNumber.length),
+          selection: TextSelection.collapsed(offset: pre.nationalNumber.length),
         );
         _isFormattingInternal = false;
       }
     }
 
-    _currentPhoneNumber = PhoneNumber(
-      isoCode: _activeIsoCode,
-      phoneNumber: initialDigits,
-    );
-
     // Trigger initial detection in background if not already cached
     CountryDetectionService.instance.detectCountryCode().then((code) {
       if (!_isDisposed && widget.initialCountryCode == null && mounted) {
-        if (_activeIsoCode != code) {
+        if (_activeIsoCode != code && _internalController.text.isEmpty) {
           setState(() {
             _activeIsoCode = code;
-            _currentPhoneNumber = PhoneNumber(
-              isoCode: code,
-              phoneNumber: _internalController.text,
-            );
           });
         }
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant SesePhoneInputField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller != null && widget.controller != oldWidget.controller) {
+      _internalController.removeListener(_handleControllerChanged);
+      _internalController = widget.controller!;
+      _internalController.addListener(_handleControllerChanged);
+    }
+    if (widget.initialCountryCode != null &&
+        widget.initialCountryCode != oldWidget.initialCountryCode) {
+      _activeIsoCode = widget.initialCountryCode!.toUpperCase();
+    }
   }
 
   @override
@@ -142,58 +145,80 @@ class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
   void _handleControllerChanged() {
     if (_isFormattingInternal) return;
     final rawText = _internalController.text;
-    if (rawText.isEmpty) return;
-
-    final parsed = SesePhoneSanitizer.parse(rawText, defaultIsoCode: _activeIsoCode);
-    if (parsed.hasExplicitCountryPrefix) {
-      _isFormattingInternal = true;
-      final cleanDigits = parsed.nationalNumber;
-      final newIso = parsed.isoCode;
-
-      if (newIso != _activeIsoCode || rawText.contains(parsed.dialCode)) {
-        _activeIsoCode = newIso;
-        _currentPhoneNumber = PhoneNumber(
-          isoCode: _activeIsoCode,
-          phoneNumber: cleanDigits,
-        );
-
-        _internalController.value = TextEditingValue(
-          text: cleanDigits,
-          selection: TextSelection.collapsed(offset: cleanDigits.length),
-        );
-
-        if (mounted) {
-          setState(() {});
-        }
-      }
-      _isFormattingInternal = false;
+    if (rawText.isEmpty) {
+      widget.onChanged?.call('');
+      widget.onValidated?.call(true);
+      return;
     }
+
+    // If user pasted/typed a number with explicit '+' or dial code, adapt country
+    final parsed = SesePhoneSanitizer.parse(rawText, defaultIsoCode: _activeIsoCode);
+    if (parsed.hasExplicitCountryPrefix && parsed.isoCode != _activeIsoCode) {
+      _activeIsoCode = parsed.isoCode;
+      if (mounted) setState(() {});
+    }
+
+    _notifyCurrentValue();
   }
 
-  void _handleInputChanged(PhoneNumber number) {
-    _currentPhoneNumber = number;
-    final newIso = number.isoCode ?? _activeIsoCode;
-    if (newIso != _activeIsoCode) {
-      _activeIsoCode = newIso;
-      // Persist manual user country selection across sessions
-      // ignore: discarded_futures
-      CountryDetectionService.instance.saveManualCountry(newIso);
-    }
-
-    // Sanitize to strict E.164 in background (strips leading zero if user typed 080... with +234)
-    final rawNumber = number.phoneNumber ?? _internalController.text;
-    final normalized = SesePhoneSanitizer.normalize(
-      rawNumber,
-      defaultIsoCode: _activeIsoCode,
-    );
+  void _notifyCurrentValue() {
+    final rawText = _internalController.text.trim();
+    final normalized = rawText.isEmpty
+        ? ''
+        : SesePhoneSanitizer.normalize(
+            rawText,
+            defaultIsoCode: _activeIsoCode,
+          );
 
     widget.onChanged?.call(normalized);
-    widget.onPhoneNumberChanged?.call(number);
+
+    final country = SeseCountryCatalog.findByCode(_activeIsoCode);
+    final dial = country?.dialCode ?? SesePhoneSanitizer.getDialCode(_activeIsoCode);
+    widget.onPhoneNumberChanged?.call(
+      PhoneNumber(
+        phoneNumber: normalized,
+        isoCode: _activeIsoCode,
+        dialCode: dial,
+      ),
+    );
+
+    widget.onValidated?.call(
+      rawText.isEmpty || SesePhoneSanitizer.isValidE164(normalized),
+    );
+  }
+
+  Future<void> _openCountryPicker() async {
+    if (!widget.enabled) return;
+    final picked = await CountryPickerSheet.show(
+      context,
+      initialCountryCode: _activeIsoCode,
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _activeIsoCode = picked.countryCode;
+      });
+      // Persist manual user selection
+      await CountryDetectionService.instance.saveManualCountry(picked.countryCode);
+      _notifyCurrentValue();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final country = SeseCountryCatalog.findByCode(_activeIsoCode) ??
+        SeseCountryCatalog.findByCode('NG') ??
+        SeseCountryInfo(
+          countryCode: _activeIsoCode,
+          countryName: 'Nigeria',
+          flagEmoji: CountryDetectionService.countryCodeToEmoji(_activeIsoCode),
+          dialCode: SesePhoneSanitizer.getDialCode(_activeIsoCode),
+          currencyCode: 'NGN',
+          currencySymbol: '₦',
+        );
 
     final effectiveSuffixIcon = widget.onPickContact != null
         ? IconButton(
@@ -203,60 +228,88 @@ class _SesePhoneInputFieldState extends State<SesePhoneInputField> {
               color: theme.primaryColor,
             ),
             tooltip: 'Select from contacts',
-            onPressed: widget.onPickContact,
+            onPressed: widget.enabled ? widget.onPickContact : null,
           )
         : widget.suffixIcon;
 
-    final defaultDecoration = (widget.decoration ?? const InputDecoration()).copyWith(
-      labelText: widget.labelText,
-      hintText: widget.hintText,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      suffixIcon: effectiveSuffixIcon,
+    final prefixSelector = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('country_picker_prefix_button'),
+        onTap: widget.enabled ? _openCountryPicker : null,
+        borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                country.flagEmoji,
+                style: const TextStyle(fontSize: 20),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                country.dialCode,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.arrow_drop_down,
+                size: 18,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              const SizedBox(width: 4),
+              Container(
+                width: 1,
+                height: 20,
+                color: theme.dividerColor.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ),
+        ),
+      ),
     );
 
-    return InternationalPhoneNumberInput(
+    final inputDec = (widget.decoration ?? const InputDecoration()).copyWith(
+      labelText: widget.labelText,
+      hintText: widget.hintText,
+      prefixIcon: prefixSelector,
+      prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+      suffixIcon: effectiveSuffixIcon,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+
+    return TextFormField(
       key: const Key('sese_phone_input_field'),
-      textFieldController: _internalController,
+      controller: _internalController,
       focusNode: widget.focusNode,
-      autoFocus: widget.autofocus,
-      isEnabled: widget.enabled,
-      autoValidateMode: widget.autoValidateMode,
-      initialValue: _currentPhoneNumber,
-      onInputChanged: _handleInputChanged,
-      onInputValidated: widget.onValidated,
-      validator: widget.validator ??
-          (val) {
-            // Non-intrusive default validator: allow input freely without blocking typing
-            return null;
-          },
-      selectorConfig: SelectorConfig(
-        selectorType: widget.selectorType,
-        setSelectorButtonAsPrefixIcon: true,
-        leadingPadding: 12,
-        useEmoji: true,
-      ),
-      searchBoxDecoration: InputDecoration(
-        labelText: 'Search country name or dial code',
-        hintText: 'e.g. Nigeria, +234, Canada, +1',
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      ),
-      selectorTextStyle: TextStyle(
-        color: theme.textTheme.bodyMedium?.color ?? Colors.black87,
-        fontWeight: FontWeight.w600,
-        fontSize: 14,
-      ),
-      textStyle: TextStyle(
-        color: theme.textTheme.bodyMedium?.color ?? Colors.black87,
+      autofocus: widget.autofocus,
+      enabled: widget.enabled,
+      keyboardType: TextInputType.phone,
+      autovalidateMode: widget.autoValidateMode,
+      style: TextStyle(
         fontSize: 15,
+        color: isDark ? Colors.white : Colors.black87,
       ),
-      inputDecoration: widget.decoration ?? defaultDecoration,
-      formatInput: true,
-      keyboardType: const TextInputType.numberWithOptions(
-        signed: true,
-        decimal: false,
-      ),
+      decoration: inputDec,
+      validator: (val) {
+        if (widget.validator != null) {
+          return widget.validator!(val);
+        }
+        // Non-intrusive default: allow typing freely, empty is always valid
+        if (val == null || val.trim().isEmpty) return null;
+        final digits = val.replaceAll(RegExp(r'\D'), '');
+        if (digits.length < 6) {
+          return 'Please enter a complete phone number';
+        }
+        return null;
+      },
     );
   }
 }

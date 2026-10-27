@@ -429,6 +429,10 @@ class _AuthScreenState extends State<AuthScreen> {
         final fullName =
             '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'.trim();
 
+        final phoneNormalized = SesePhoneSanitizer.normalize(
+          _phoneController.text.trim(),
+        );
+
         final repo = _auth is FirebaseAuthRepository
             ? _auth
             : null;
@@ -437,7 +441,7 @@ class _AuthScreenState extends State<AuthScreen> {
           appUser = await repo.registerWithReferral(
             fullName: fullName,
             email: email,
-            phoneNumber: _phoneController.text.trim(),
+            phoneNumber: phoneNormalized,
             password: password.isNotEmpty
                 ? password
                 : 'OAuth-Registered-User-123!',
@@ -448,7 +452,7 @@ class _AuthScreenState extends State<AuthScreen> {
           appUser = await _auth.register(
             fullName: fullName,
             email: email,
-            phoneNumber: _phoneController.text.trim(),
+            phoneNumber: phoneNormalized,
             password: password.isNotEmpty
                 ? password
                 : 'OAuth-Registered-User-123!',
@@ -783,14 +787,10 @@ class _AuthScreenState extends State<AuthScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
+                      SesePhoneInputField(
                         controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: buildInputDecoration(
-                          labelText: 'Phone Number',
-                          hintText: '08012345678',
-                          prefixIcon: Icons.phone_outlined,
-                        ),
+                        labelText: 'Phone Number',
+                        hintText: '8012345678',
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) {
                             return 'Phone number is required';

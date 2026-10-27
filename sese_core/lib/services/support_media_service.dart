@@ -14,9 +14,8 @@ import 'media_permission_service.dart';
 /// here keeps the path, size cap, and MIME policy identical on both sides;
 /// a drift between two copies once caused every upload to 403.
 ///
-/// Images only — `storage.rules` `isImage()` rejects non-image MIME and the
-/// Firestore rules reject any audio message type, so there is deliberately
-/// no audio path here.
+/// Images (≤ 2MB) and Audio voice notes (≤ 5MB) are supported under
+/// `support_media/{userId}/...` matching storage and firestore security rules.
 class SupportMediaService {
   final FirebaseStorage? _storage;
 
@@ -35,6 +34,13 @@ class SupportMediaService {
   static String pathFor(String userId, String suffix) {
     return 'support_media/$userId/'
         '${DateTime.now().millisecondsSinceEpoch}_$suffix';
+  }
+
+  /// Storage path for an audio voice note. Must stay `support_media/{userId}/...`
+  /// to match the storage rules.
+  static String audioPathFor(String userId, [String ext = 'm4a']) {
+    return 'support_media/$userId/'
+        '${DateTime.now().millisecondsSinceEpoch}_voice.$ext';
   }
 
   /// Picks a photo, handshaking the OS runtime permission FIRST
@@ -98,6 +104,35 @@ class SupportMediaService {
       debugPrint('SupportMediaService.upload failed: $e');
       throw const SupportMediaException(
         'Could not upload that photo. Try again.',
+      );
+    }
+  }
+
+  /// Uploads [bytes] of an audio recording (e.g. m4a/aac) to [storagePath]
+  /// and returns the download URL.
+  /// Throws [SupportMediaException] on failure.
+  Future<String> uploadAudio({
+    required Uint8List bytes,
+    required String storagePath,
+    String mimeType = 'audio/m4a',
+  }) async {
+    final bucket = _bucket;
+    if (bucket == null || bytes.isEmpty) {
+      throw const SupportMediaException(
+        'Voice notes are unavailable right now.',
+      );
+    }
+    try {
+      final ref = bucket.ref().child(storagePath);
+      await ref.putData(
+        bytes,
+        SettableMetadata(contentType: mimeType),
+      );
+      return await ref.getDownloadURL();
+    } catch (e) {
+      debugPrint('SupportMediaService.uploadAudio failed: $e');
+      throw const SupportMediaException(
+        'Could not upload voice note. Try again.',
       );
     }
   }

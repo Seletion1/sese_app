@@ -941,21 +941,36 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if adminSupportAccess() || isChatParticipant(chatId);
-        // Text/Images only — voice notes are hard-disabled: `type` may be
-        // absent (legacy text) or 'text'/'image'; audio/voice types never
-        // pass. Images must carry an imageUrl (Storage support_media/).
+        // Text/Images/Audio support messages:
+        // `type` may be absent (legacy text) or 'text'/'image'/'audio'.
+        // Images may carry an imageUrl (Storage support_media/).
+        // Audio may carry an optional audioUrl (Storage support_media/) and
+        // optional duration or durationSeconds.
         allow create: if isAuthenticated() && isNotSuspended() &&
           (!('type' in request.resource.data) ||
-            request.resource.data.type in ['text', 'image']) &&
+            request.resource.data.type in ['text', 'image', 'audio']) &&
           (!('imageUrl' in request.resource.data) ||
-            request.resource.data.imageUrl is string) && (
+            (request.resource.data.imageUrl is string &&
+             request.resource.data.imageUrl.size() < 1024)) &&
+          (!('audioUrl' in request.resource.data) ||
+            (request.resource.data.audioUrl is string &&
+             request.resource.data.audioUrl.size() < 1024)) &&
+          (!('duration' in request.resource.data) ||
+            (request.resource.data.duration is int ||
+             request.resource.data.duration is float)) &&
+          (!('durationSeconds' in request.resource.data) ||
+            (request.resource.data.durationSeconds is int ||
+             request.resource.data.durationSeconds is float)) &&
+          (!('text' in request.resource.data) ||
+            (request.resource.data.text is string &&
+             request.resource.data.text.size() <= 5000)) && (
           (isChatParticipant(chatId) &&
            request.resource.data.senderType == 'user' &&
            request.resource.data.senderId == request.auth.uid &&
-           request.resource.data.text is string) ||
+           (!('text' in request.resource.data) || request.resource.data.text is string)) ||
           (adminSupportAccess() &&
            request.resource.data.senderType == 'agent' &&
-           request.resource.data.text is string) ||
+           (!('text' in request.resource.data) || request.resource.data.text is string)) ||
           (isChatParticipant(chatId) &&
            request.resource.data.senderType == 'ai' &&
            request.resource.data.senderId == 'ai_assistant')

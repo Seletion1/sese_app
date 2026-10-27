@@ -342,14 +342,22 @@ export const onSupportMessageCreated = onDocumentCreated(
     const chatData = chatSnap.data()!;
     if (chatData["status"] !== "ai_active") return;
 
-    // Image-only messages (a photo of a damaged parcel, a payment receipt)
-    // carry no text to reason about, so acknowledge and invite detail rather
-    // than escalating immediately — the user is mid-escalation, not in danger.
+    // Image-only or voice note messages carry no text to reason about, so
+    // acknowledge and invite detail or let the user know an agent will listen.
     const msgType = String(msg["type"] ?? "text");
     const userText = String(msg["text"] ?? "").trim();
     const hasImage = typeof msg["imageUrl"] === "string" && msg["imageUrl"].length > 0;
+    const hasAudio = msgType === "audio" || (typeof msg["audioUrl"] === "string" && msg["audioUrl"].length > 0);
 
     if (!userText) {
+      if (hasAudio) {
+        await postAiMessage(
+          chatId,
+          "Thanks for your voice note! A support agent will listen to it and reply here shortly.",
+          "voice_note"
+        );
+        return;
+      }
       if (hasImage) {
         await postAiMessage(
           chatId,

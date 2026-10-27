@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -964,6 +967,13 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
                           .toString();
                       final text = (m['text'] ?? '').toString();
                       final imageUrl = (m['imageUrl'] ?? '').toString();
+                      final audioUrl = (m['audioUrl'] ?? '').toString();
+                      final rawDuration = m['durationSeconds'] ?? m['duration'];
+                      final durationSeconds = rawDuration is num
+                          ? rawDuration.toInt()
+                          : (int.tryParse(rawDuration?.toString() ?? '') ?? 0);
+                      final type = (m['type'] ?? '').toString();
+                      final isAudio = type == 'audio' || audioUrl.isNotEmpty;
                       final isAgent = senderType == 'agent';
                       final isAi = senderType == 'ai' || senderType == 'ai_assistant';
 
@@ -1033,17 +1043,28 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
                                     ),
                                   ),
                                 ),
-                              Text(
-                                text,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: isAgent
-                                      ? Theme.of(context).colorScheme.onPrimary
-                                      : isAi
-                                          ? Theme.of(context).colorScheme.onTertiaryContainer
-                                          : Theme.of(context).colorScheme.onSurface,
+                              if (isAudio && audioUrl.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                  child: _HubAudioPlayerBubble(
+                                    key: Key('hub_audio_${docs[i].id}'),
+                                    audioUrl: audioUrl,
+                                    durationSeconds: durationSeconds,
+                                    isAgent: isAgent,
+                                  ),
                                 ),
-                              ),
+                              if (text.isNotEmpty)
+                                Text(
+                                  text,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: isAgent
+                                        ? Theme.of(context).colorScheme.onPrimary
+                                        : isAi
+                                            ? Theme.of(context).colorScheme.onTertiaryContainer
+                                            : Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -1191,6 +1212,143 @@ class _CsatStars extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hub Audio Player Bubble
+// ---------------------------------------------------------------------------
+
+class _HubAudioPlayerBubble extends StatefulWidget {
+  final String audioUrl;
+  final int durationSeconds;
+  final bool isAgent;
+
+  const _HubAudioPlayerBubble({
+    super.key,
+    required this.audioUrl,
+    required this.durationSeconds,
+    required this.isAgent,
+  });
+
+  @override
+  State<_HubAudioPlayerBubble> createState() => _HubAudioPlayerBubbleState();
+}
+
+class _HubAudioPlayerBubbleState extends State<_HubAudioPlayerBubble> {
+  final _player = AudioPlayer();
+  PlayerState _state = PlayerState.stopped;
+  Duration _position = Duration.zero;
+  late Duration _total;
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<Duration>? _posSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _total = Duration(seconds: widget.durationSeconds.clamp(1, 3600));
+    _stateSub = _player.onPlayerStateChanged.listen((s) {
+      if (mounted) setState(() => _state = s);
+    });
+    _posSub = _player.onPositionChanged.listen((d) {
+      if (mounted) setState(() => _position = d);
+    });
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _position = Duration.zero);
+    });
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    _posSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePlay() async {
+    try {
+      if (_state == PlayerState.playing) {
+        await _player.pause();
+      } else {
+        await _player.play(UrlSource(widget.audioUrl));
+      }
+    } catch (e) {
+      debugPrint('_HubAudioPlayerBubble: playback error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not play audio message.')),
+      );
+    }
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final playing = _state == PlayerState.playing;
+    final fgColor = widget.isAgent ? scheme.onPrimary : scheme.onSurface;
+    final sliderActive = widget.isAgent ? scheme.onPrimary : scheme.primary;
+    final totalSecs = _total.inSeconds.toDouble().clamp(1.0, double.infinity);
+    final posSecs = _position.inSeconds.toDouble().clamp(0.0, totalSecs);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints(),
+          icon: Icon(
+            playing ? Icons.pause_circle_filled : Icons.play_circle_filled,
+            size: 34,
+            color: fgColor,
+          ),
+          onPressed: _togglePlay,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: sliderActive,
+                  inactiveTrackColor: fgColor.withValues(alpha: 0.35),
+                  thumbColor: sliderActive,
+                  overlayShape: SliderComponentShape.noOverlay,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                  trackHeight: 3,
+                ),
+                child: Slider(
+                  value: posSecs,
+                  min: 0,
+                  max: totalSecs,
+                  onChanged: (v) async {
+                    await _player.seek(Duration(seconds: v.toInt()));
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text(
+                  playing ? _fmt(_position) : _fmt(_total),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: fgColor.withValues(alpha: 0.75),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

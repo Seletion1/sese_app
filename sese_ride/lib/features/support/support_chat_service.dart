@@ -20,13 +20,17 @@ class SupportMessage {
   final String text;
   final DateTime? timestamp;
 
-  /// 'text' | 'image'. Voice is deliberately not representable — the security
-  /// rules reject any audio type on every chat in the schema, so a voice-note
-  /// field here could only ever produce a message that fails to send.
+  /// 'text' | 'image' | 'audio'.
   final String type;
 
-  /// Storage URL when [type] is 'image'. Null for text.
+  /// Storage URL when [type] is 'image'. Null for text/audio.
   final String? imageUrl;
+
+  /// Storage URL when [type] is 'audio'. Null for text/image.
+  final String? audioUrl;
+
+  /// Duration of the voice note in seconds, if [type] is 'audio'.
+  final int? durationSeconds;
 
   /// Which KB topic the assistant matched. Null for user/agent rows.
   /// Surfaced to agents so they can see what the bot thought was asked.
@@ -40,6 +44,8 @@ class SupportMessage {
     this.timestamp,
     this.type = 'text',
     this.imageUrl,
+    this.audioUrl,
+    this.durationSeconds,
     this.topic,
   });
 
@@ -47,6 +53,7 @@ class SupportMessage {
   bool get isAi => senderType == 'ai';
   bool get isAgent => senderType == 'agent';
   bool get isImage => type == 'image' && (imageUrl ?? '').isNotEmpty;
+  bool get isAudio => type == 'audio' && (audioUrl ?? '').isNotEmpty;
 
   /// Display label above non-user bubbles.
   String get senderLabel {
@@ -77,16 +84,28 @@ class SupportMessage {
     final senderId =
         (map['senderId'] ?? map['senderUid'] ?? map['userId'] ?? '').toString();
     final imageUrl = (map['imageUrl'] ?? '').toString();
+    final audioUrl = (map['audioUrl'] ?? '').toString();
+    final rawDuration = map['durationSeconds'] ?? map['duration'];
+    int? durationSec;
+    if (rawDuration is num) {
+      durationSec = rawDuration.toInt();
+    } else if (rawDuration is String) {
+      durationSec = int.tryParse(rawDuration);
+    }
+    final rawType = (map['type'] ?? '').toString();
+    final type = rawType == 'image'
+        ? 'image'
+        : (rawType == 'audio' ? 'audio' : 'text');
     return SupportMessage(
       id: id,
       senderType: senderType,
       senderId: senderId,
       text: (map['text'] ?? '').toString(),
       timestamp: when,
-      // Absent `type` is legacy text; anything else is coerced to text so a
-      // malformed value can never render as an unknown type.
-      type: map['type'] == 'image' ? 'image' : 'text',
+      type: type,
       imageUrl: imageUrl.isEmpty ? null : imageUrl,
+      audioUrl: audioUrl.isEmpty ? null : audioUrl,
+      durationSeconds: durationSec,
       topic: (map['topic'] ?? '').toString().isEmpty
           ? null
           : map['topic'].toString(),
@@ -366,9 +385,60 @@ class SupportChatService {
     }
   }
 
-  /// Shared write for text and image rows.
+  /// Sends a voice note to the support thread.
   ///
-  /// `type` is always explicitly written as 'text' or 'image' because the
+  /// Uploads audio bytes via [SupportMediaService.uploadAudio], then writes the message
+  /// with `type: 'audio'`, `audioUrl`, and `durationSeconds`.
+  Future<void> sendVoiceNote({
+    required String chatId,
+    required String userId,
+    required Uint8List audioBytes,
+    required int durationSeconds,
+    String? mimeType,
+  }) async {
+    if (audioBytes.isEmpty) return;
+    final db = _db;
+    if (db == null) {
+      throw const SupportChatException(
+        'unavailable',
+        'Voice notes are unavailable right now.',
+      );
+    }
+
+    final media = SupportMediaService(_storage);
+    final ext = mimeType?.contains('aac') == true ? 'aac' : 'm4a';
+    final path = SupportMediaService.audioPathFor(userId, ext);
+
+    String url;
+    try {
+      url = await media.uploadAudio(
+        bytes: audioBytes,
+        storagePath: path,
+        mimeType: mimeType ?? 'audio/m4a',
+      );
+    } on SupportMediaException catch (e) {
+      throw SupportChatException('upload-failed', e.message);
+    }
+
+    try {
+      await _writeUserMessage(
+        chatId: chatId,
+        userId: userId,
+        text: '',
+        type: 'audio',
+        audioUrl: url,
+        durationSeconds: durationSeconds,
+      );
+    } catch (_) {
+      // Best-effort cleanup; never mask the original failure.
+      await media.deleteQuietly(path);
+      rethrow;
+    }
+  }
+
+  /// Shared write for text, image, and audio rows.
+  ///
+  /// `type` is always explicitly written as 'text', 'image', or 'audio' because the
   /// rules branch on `'type' in request.resource.data`.
   Future<void> _writeUserMessage({
     required String chatId,
@@ -376,6 +446,8 @@ class SupportChatService {
     required String text,
     String type = 'text',
     String? imageUrl,
+    String? audioUrl,
+    int? durationSeconds,
   }) async {
     final db = _db;
     if (db == null || chatId.isEmpty || userId.isEmpty) {
@@ -397,14 +469,19 @@ class SupportChatService {
         'type': type,
         'text': text,
         'imageUrl': ?imageUrl,
+        'audioUrl': ?audioUrl,
+        'durationSeconds': ?durationSeconds,
         'timestamp': FieldValue.serverTimestamp(),
       });
       // Update lastMessage / updatedAt on the parent doc.
       batch.update(
         db.collection('support_chats').doc(chatId),
         {
-          'lastMessage':
-              text.isNotEmpty ? text : (type == 'image' ? '📷 Photo' : ''),
+          'lastMessage': text.isNotEmpty
+              ? text
+              : (type == 'image'
+                  ? '📷 Photo'
+                  : (type == 'audio' ? '🎤 Voice note' : '')),
           'updatedAt': FieldValue.serverTimestamp(),
         },
       );

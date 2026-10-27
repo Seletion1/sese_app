@@ -965,10 +965,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.18,
+      minChildSize: 0.20,
       maxChildSize: 0.85,
       snap: true,
-      snapSizes: const [0.18, 0.36, 0.85],
+      snapSizes: const [0.20, 0.36, 0.85],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
@@ -1011,7 +1011,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         children: [
           // ── Non-scrolling sticky header ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1024,7 +1024,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     child: Container(
                       width: 44,
                       height: 4,
-                      margin: const EdgeInsets.only(top: 4, bottom: 8),
+                      margin: const EdgeInsets.only(top: 2, bottom: 6),
                       decoration: BoxDecoration(
                         color: Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(2),
@@ -1037,100 +1037,100 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 Row(
                   children: [
                     Container(
-                      width: 44,
-                  height: 44,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFEF3C7),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.person,
-                      color: Color(0xFFD97706),
-                      size: 26,
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFEF3C7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.person,
+                          color: Color(0xFFD97706),
+                          size: 24,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              _firstName(trip.customerName.isEmpty
-                                  ? 'Customer'
-                                  : trip.customerName),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  _firstName(trip.customerName.isEmpty
+                                      ? 'Customer'
+                                      : trip.customerName),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified,
+                                color: Colors.blue,
+                                size: 16,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.verified,
-                            color: Colors.blue,
-                            size: 16,
+                          const SizedBox(height: 2),
+                          Text(
+                            trip.fareFormatted.isNotEmpty
+                                ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
+                                : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        trip.fareFormatted.isNotEmpty
-                            ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
-                            : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
+                    ),
+                    const SizedBox(width: 8),
+                    // Three clean round action icons horizontally
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _RoundActionIcon(
+                          key: const Key('driver_direct_call_icon'),
+                          icon: Icons.phone_outlined,
+                          tooltip: 'Direct Call',
+                          color: const Color(0xFF10B981),
+                          bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                          onTap: () => _makeDirectPhoneCall(context, trip),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Three clean round action icons horizontally
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _RoundActionIcon(
-                      key: const Key('driver_direct_call_icon'),
-                      icon: Icons.phone_outlined,
-                      tooltip: 'Direct Call',
-                      color: const Color(0xFF10B981),
-                      bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                      onTap: () => _makeDirectPhoneCall(context, trip),
-                    ),
-                    const SizedBox(width: 8),
-                    _RoundActionIcon(
-                      key: const Key('driver_inapp_call_icon'),
-                      icon: Icons.phone_in_talk_outlined,
-                      tooltip: 'In-App Call',
-                      color: const Color(0xFFD97706),
-                      bgColor: const Color(0xFFFEF3C7),
-                      onTap: () => _showCallContactSheet(context, trip),
-                    ),
-                    const SizedBox(width: 8),
-                    _RoundActionIcon(
-                      key: const Key('driver_chat_icon'),
-                      icon: Icons.chat_bubble_outline,
-                      tooltip: 'Chat',
-                      color: Colors.black87,
-                      bgColor: Colors.grey.shade100,
-                      onTap: () => _openChat(context, trip),
+                        const SizedBox(width: 8),
+                        _RoundActionIcon(
+                          key: const Key('driver_inapp_call_icon'),
+                          icon: Icons.phone_in_talk_outlined,
+                          tooltip: 'In-App Call',
+                          color: const Color(0xFFD97706),
+                          bgColor: const Color(0xFFFEF3C7),
+                          onTap: () => _showCallContactSheet(context, trip),
+                        ),
+                        const SizedBox(width: 8),
+                        _RoundActionIcon(
+                          key: const Key('driver_chat_icon'),
+                          icon: Icons.chat_bubble_outline,
+                          tooltip: 'Chat',
+                          color: Colors.black87,
+                          bgColor: Colors.grey.shade100,
+                          onTap: () => _openChat(context, trip),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
                 // 3. Primary Action Button (Slide-to-Action) — pinned in sticky header
                 _SlideToActionButton(
@@ -1144,7 +1144,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     }
                   },
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
               ],
             ),
           ),
@@ -1642,8 +1642,8 @@ class _SlideToActionButtonState extends State<_SlideToActionButton> {
   double _dragDistance = 0;
   bool _isDragging = false;
 
-  static const double _trackHeight = 52;
-  static const double _thumbSize = 44;
+  static const double _trackHeight = 48;
+  static const double _thumbSize = 40;
   static const double _completionFraction = 0.80;
 
   void _reset() {

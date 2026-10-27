@@ -9,6 +9,9 @@ service firebase.storage {
     function isPdf() {
       return request.resource.contentType == 'application/pdf';
     }
+    function isAudio() {
+      return request.resource.contentType.matches('audio/.*');
+    }
     // 2MB cap: client-side ImageCompressionService targets ~150–300KB per photo;
     // the 2MB ceiling is a defence-in-depth guard for PDFs and any unusual
     // client that bypasses compression. Raised from the old 10MB default.
@@ -139,12 +142,10 @@ service firebase.storage {
 
     match /support_media/{userId}/{allPaths=**} {
       allow read: if isSupportMediaOwner(userId) || isSupportStaff();
-      // Images only, ≤ 2MB. `isImage()` rejects any audio/* MIME, so voice
-      // notes can never be stored here — consistent with the Firestore rules
-      // that reject an audio message type.
-      allow write: if isSupportMediaOwner(userId) &&
-                    isImage() &&
-                    request.resource.size < 2 * 1024 * 1024;
+      // Images (≤ 2MB) or Voice Notes / Audio (≤ 5MB).
+      allow write: if (isSupportMediaOwner(userId) || isSupportStaff()) &&
+                    ((isImage() && request.resource.size < 2 * 1024 * 1024) ||
+                     (isAudio() && request.resource.size < 5 * 1024 * 1024));
     }
 
     // `trip_media/{tripId}/...`: the trip customer, the assigned driver, or

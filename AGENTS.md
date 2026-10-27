@@ -60,6 +60,60 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-27 — Universal Country Detection, Edge-to-Edge Country Picker & Phone Input Freedom
+
+- **Root Cause of US/+1 Default Selection Bug**:
+  `CountryDetectionService` previously checked `PlatformDispatcher.instance.locale.countryCode` as its primary step. Because standard Android hardware sold in Nigeria and globally defaults its system language to `en_US` (English United States), `locale.countryCode` returned `US`, overriding the user's actual location and defaulting country selection to `US / +1`.
+- **Automatic Geolocation & Country Detection Engine**:
+  - Overhauled `CountryDetectionService`:
+    1. Primary: Reads manual persistent override from `SharedPreferences` (`user_selected_country_code`). Manual selections are strictly respected across app launches.
+    2. Secondary: Inspects physical device GPS coordinates via `Geolocator` bounding boxes (Nigeria `NG`, Benin `BJ`, Ghana `GH`, Togo `TG`, Cameroon `CM`, Kenya `KE`, South Africa `ZA`, UK `GB`, US `US`, Canada `CA`).
+    3. Tertiary: Device timezone heuristic (West Africa `WAT`/UTC+1, East Africa `EAT`/UTC+3, etc.).
+    4. Quaternary: Locale country code ONLY when not contradicted by timezone (e.g. `en_US` language on UTC+1 timezone is prevented from returning `US`).
+    5. Fallback: Nigeria (`NG` / `+234`).
+- **Edge-to-Edge Smart Country Picker Sheet (`CountryPickerSheet`)**:
+  - Overhauled `CountryPickerSheet` to render 100% full-width (`minWidth: double.infinity`) touching screen borders with zero dead space.
+  - Added header with "Select Country", close button, and real-time search bar filtering by country name, ISO code, dial digits, or prefix (`+234`, `234`, `+229`, etc.).
+  - Country list items display Country Flag Emoji, Country Name, Country ISO badge, and Dial Code badge. Tapping any item updates and persists selection via `saveManualCountry`.
+- **Unrestricted Customer Phone Input (`SesePhoneInputField`)**:
+  - Replaced the restrictive `InternationalPhoneNumberInput` wrapper with a clean, responsive Flutter input.
+  - Eliminates intrusive formatting that fights cursor position or interrupts typing. Accepts any format freely (`08161561592`, `8161561592`, `+2348161561592`, `+22997...`).
+  - Prefix icon displays active country flag + dial code (`[🇳🇬 +234 ▼]`) and opens `CountryPickerSheet`.
+  - Auto-detects pasted international dial codes, updates the country selector, and eliminates duplicate dial codes.
+- **Backend Phone Normalization & Universal Validation (`functions/src/trips.ts`)**:
+  - Replaced rigid `NG_PHONE` regex and naive `normPhone` with `normalizePhone`:
+    - Strips formatting symbols.
+    - Eliminates duplicate dial codes (`+234+234...`, `+234234...`).
+    - Strips leading zero after country code (`+2340816...` -> `+234816...`).
+    - Strips leading zero on local numbers and prepends country code (`0816...` -> `+234816...`, `816...` -> `+234816...`).
+    - Supports Benin (`+229` / `+22901...`), Ghana (`+233`), Kenya (`+254`), and international numbers.
+  - Replaced false-positive rejection error (*"Phone numbers are optional, but when provided they must be valid."*) with canonical ITU-T E.164 compliance (`^\+[1-9]\d{7,14}$`), allowing valid international and regional numbers while keeping empty secondary contacts optional.
+  - Ensures drivers see clean, valid numbers with zero duplicate country codes.
+- **Universal Application Across All Flows**:
+  - Applied identically across **Ride Booking**, **Send Item**, and **Receive Item** in `customer_dispatch_screen.dart` via `_RouteReviewCard`.
+- **Verification**:
+  - Static analysis: `sese_core` (0 issues), `sese_ride` (0 issues), `sese_hub` (0 issues).
+  - Cloud Functions: `npm run build` compiled cleanly (0 errors).
+
+## 2026-10-27 — Support Chat Voice Note Recording & Playback Architecture (Replacing Speech-to-Text Crash)
+
+- **Root Cause of App Crash & Debug Disconnect**:
+  `support_chat_screen.dart` previously used `speech_to_text` with `SpeechListenOptions(onDevice: true)`. On Android devices without offline Google speech recognition models (e.g., Huawei Kirin `LYA AL10`), initializing or listening threw an unhandled native SIGSEGV crash, instantly terminating the app process and disconnecting the Dart Tooling Daemon (DTD) / Flutter debug session.
+- **Direct Voice Note Capture & Playback Architecture**:
+  Per explicit user instruction ("don't let us use it as a speech to test let's use it direct speech like drop voice note for someone"):
+  - Replaced `speech_to_text` with `package:record` (`AudioRecorder`, AAC/M4A) and `package:audioplayers` in `sese_core`, `sese_ride`, and `sese_hub`.
+  - Added tap-to-record voice note button (`_VoiceNoteRecorderButton`) in `support_chat_screen.dart` with runtime `Permission.microphone.request()`, recording timer, cancel button, and send button.
+  - Added inline audio player bubble (`_AudioPlayerBubble` in `sese_ride`, `_HubAudioPlayerBubble` in `sese_hub`) displaying play/pause controls, interactive seek slider, and duration label.
+- **Storage & Firestore Security Rules**:
+  - Updated `storage.rules`: permitted `isAudio()` (MIME `audio/*`) uploads up to 5MB in `support_media/{userId}/**` for both chat owners and hub staff.
+  - Updated `firestore.rules`: permitted `type in ['text', 'image', 'audio']` with `audioUrl` (<1024 chars), non-negative `durationSeconds`, and optional text captions in `/support_chats/{chatId}/messages/{messageId}`.
+  - Rules successfully compiled and deployed to production via `firebase deploy --only firestore:rules,storage`.
+- **Backend & Cloud Functions Handling**:
+  - Updated `supportBot.ts` in Cloud Functions to detect incoming voice notes (`type === 'audio' || audioUrl`) and acknowledge them gracefully in `ai_active` mode ("Thanks for your voice note! A support agent will listen to it and reply here shortly.") rather than failing on absent text.
+- **Verification**:
+  - Static analysis across `sese_core`, `sese_ride`, and `sese_hub` via `analyze_files`: **No errors (0 errors, 0 warnings)**.
+  - Test suite omitted per AGENTS.md mandate.
+
 ## 2026-10-26 — Mode/session restoration & Driver balance pill
 
 - Persisted Customer/Driver mode in per-user SharedPreferences and merged

@@ -279,9 +279,111 @@ export function haversineKm(
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-const NG_PHONE = /^(\+?234|0)(70|71|80|81|90|91)\d{8}$/;
-const normPhone = (v: unknown) =>
-  String(v ?? "").replace(/[\s\-()]/g, "");
+/**
+ * Known dial codes mapped to disambiguate country prefixes.
+ * Ordered longest to shortest so multi-digit codes match first.
+ */
+const KNOWN_DIAL_CODES = [
+  "234", // Nigeria
+  "229", // Benin
+  "233", // Ghana
+  "254", // Kenya
+  "256", // Uganda
+  "250", // Rwanda
+  "255", // Tanzania
+  "237", // Cameroon
+  "225", // Côte d'Ivoire
+  "221", // Senegal
+  "228", // Togo
+  "27",  // South Africa
+  "20",  // Egypt
+  "44",  // UK
+  "33",  // France
+  "49",  // Germany
+  "91",  // India
+  "86",  // China
+  "971", // UAE
+  "966", // Saudi Arabia
+  "1",   // US / Canada
+];
+
+/**
+ * Normalizes any raw phone number into canonical E.164 format.
+ * - Strips all formatting characters (spaces, dashes, parentheses, dots).
+ * - Removes duplicate dial codes (e.g. +234+234... or +234234...).
+ * - Strips leading zero after country code (e.g. +2340816... -> +234816...).
+ * - Strips leading zero on local numbers and prepends active dial code (e.g. 0816... -> +234816...).
+ * - Supports Benin (+229), Ghana (+233), Kenya (+254), US/CA (+1), UK (+44), etc.
+ */
+export function normalizePhone(raw: unknown, defaultDialCode = "+234"): string {
+  const str = String(raw ?? "").trim();
+  if (!str) return "";
+
+  let cleaned = str.replace(/[\s\(\)\-\.]/g, "");
+  if (!cleaned) return "";
+
+  const defaultPrefix = defaultDialCode.startsWith("+")
+    ? defaultDialCode.slice(1)
+    : defaultDialCode;
+
+  // 1. If starts with '+'
+  if (cleaned.startsWith("+")) {
+    let digits = cleaned.slice(1);
+    for (const code of KNOWN_DIAL_CODES) {
+      if (digits.startsWith(code)) {
+        let rest = digits.slice(code.length);
+        while (rest.startsWith(code)) {
+          rest = rest.slice(code.length);
+        }
+        if (code === "234") {
+          while (rest.startsWith("0")) {
+            rest = rest.slice(1);
+          }
+        } else if (code !== "229") {
+          rest = rest.replace(/^0+/, "");
+        }
+        return `+${code}${rest}`;
+      }
+    }
+    return `+${digits.replace(/^0+/, "")}`;
+  }
+
+  // 2. If starts with dial code digits without '+' (e.g. 2348161561592)
+  for (const code of KNOWN_DIAL_CODES) {
+    if (cleaned.startsWith(code) && cleaned.length >= code.length + 7) {
+      let rest = cleaned.slice(code.length);
+      while (rest.startsWith(code)) {
+        rest = rest.slice(code.length);
+      }
+      if (code === "234") {
+        while (rest.startsWith("0")) {
+          rest = rest.slice(1);
+        }
+      } else if (code !== "229") {
+        rest = rest.replace(/^0+/, "");
+      }
+      return `+${code}${rest}`;
+    }
+  }
+
+  // 3. Plain local national number (e.g. 08161561592 or 8161561592)
+  let national = cleaned;
+  if (national.startsWith("0")) {
+    national = national.slice(1);
+  }
+  return `+${defaultPrefix}${national}`;
+}
+
+export const normPhone = normalizePhone;
+
+/**
+ * Validates that a normalized phone number is either empty (optional)
+ * or conforms to ITU-T E.164 international standard (+ followed by 8 to 15 digits).
+ */
+const phoneOk = (p: string) => {
+  if (p === "") return true;
+  return /^\+[1-9]\d{7,14}$/.test(p);
+};
 
 /**
  * Allow-listed cancellation reason codes (mirrors `CancelTripDialog` in
@@ -458,13 +560,12 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
   const customerId = request.auth.uid;
   const d = request.data ?? {};
 
-  const pickupPhone = normPhone(d.pickupPhone ?? d.pickup?.phone);
-  const dropoffPhone = normPhone(d.dropoffPhone ?? d.dropoff?.phone);
+  const pickupPhone = normalizePhone(d.pickupPhone ?? d.pickup?.phone);
+  const dropoffPhone = normalizePhone(d.dropoffPhone ?? d.dropoff?.phone);
   // Secondary contact numbers are OPTIONAL: empty means the customer offers
   // no extra contact ("call me when you get there"). Only a malformed
   // non-empty entry is rejected. The booker's own account number is minted
   // onto the trip below and stays reachable regardless.
-  const phoneOk = (p: string) => p === "" || NG_PHONE.test(p);
   if (!phoneOk(pickupPhone) || !phoneOk(dropoffPhone)) {
     throw new HttpsError(
       "invalid-argument",
