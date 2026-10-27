@@ -961,15 +961,15 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     final controller = widget.sheetController ?? _internalSheetController;
     final isTripStarted = widget.trip.status == TripStatus.inProgress;
-    final initialSize = isTripStarted ? 0.22 : 0.36;
+    final initialSize = isTripStarted ? 0.35 : 0.45;
 
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.22,
-      maxChildSize: 0.85,
+      minChildSize: 0.28,
+      maxChildSize: 0.90,
       snap: true,
-      snapSizes: const [0.22, 0.36, 0.85],
+      snapSizes: const [0.28, 0.45, 0.90],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
@@ -1012,7 +1012,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         children: [
           // ── Non-scrolling sticky header ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1026,12 +1026,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Center(
                       child: Container(
-                        width: 44,
-                        height: 4,
-                        margin: const EdgeInsets.only(top: 2, bottom: 6),
+                        width: 48,
+                        height: 5,
+                        margin: const EdgeInsets.only(top: 2, bottom: 8),
                         decoration: BoxDecoration(
                           color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
+                          borderRadius: BorderRadius.circular(3),
                         ),
                       ),
                     ),
@@ -1050,7 +1050,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     }
                   },
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
 
                 // b. Identity Row (Mutual Customer Profile Card)
                 InkWell(
@@ -1065,12 +1065,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     );
                   },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                     child: Row(
                       children: [
                         Container(
-                          width: 38,
-                          height: 38,
+                          width: 44,
+                          height: 44,
                           decoration: const BoxDecoration(
                             color: Color(0xFFFEF3C7),
                             shape: BoxShape.circle,
@@ -1079,11 +1079,11 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                             child: Icon(
                               Icons.person,
                               color: Color(0xFFD97706),
-                              size: 22,
+                              size: 26,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1097,7 +1097,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                           : trip.customerName),
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 15,
+                                        fontSize: 17,
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
@@ -1107,19 +1107,19 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                   const Icon(
                                     Icons.verified,
                                     color: Colors.blue,
-                                    size: 15,
+                                    size: 17,
                                   ),
                                   const SizedBox(width: 6),
                                   const Icon(
                                     Icons.star_rounded,
                                     color: Colors.amber,
-                                    size: 14,
+                                    size: 16,
                                   ),
                                   const Text(
                                     ' 5.0',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 12,
+                                      fontSize: 13,
                                     ),
                                   ),
                                 ],
@@ -1130,9 +1130,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                     ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
                                     : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -1140,7 +1140,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                             ],
                           ),
                         ),
-                        const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                        const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
                       ],
                     ),
                   ),
@@ -1156,7 +1156,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               physics: const ClampingScrollPhysics(),
               padding: EdgeInsets.fromLTRB(
                 16,
-                4,
+                6,
                 16,
                 16 + MediaQuery.of(context).padding.bottom,
               ),
@@ -1664,17 +1664,17 @@ class _CommunicationButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 18),
+              Icon(icon, color: color, size: 19),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
@@ -1682,7 +1682,7 @@ class _CommunicationButton extends StatelessWidget {
                   style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: 13,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1761,8 +1761,8 @@ class _SlideToActionButtonState extends State<_SlideToActionButton> {
   double _dragDistance = 0;
   bool _isDragging = false;
 
-  static const double _trackHeight = 48;
-  static const double _thumbSize = 40;
+  static const double _trackHeight = 54;
+  static const double _thumbSize = 46;
   static const double _completionFraction = 0.80;
 
   void _reset() {

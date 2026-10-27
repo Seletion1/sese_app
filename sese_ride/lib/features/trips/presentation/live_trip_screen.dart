@@ -1062,11 +1062,11 @@ class _LiveTripSearchingSheet extends StatelessWidget {
         : '₦${trip.fareAmount.toStringAsFixed(0)}';
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.28,
-      minChildSize: 0.20,
-      maxChildSize: 0.72,
+      initialChildSize: 0.38,
+      minChildSize: 0.28,
+      maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.20, 0.28, 0.72],
+      snapSizes: const [0.28, 0.38, 0.88],
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -1512,7 +1512,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   Container(
                     key: const Key('customer_active_status_container'),
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF3C7),
                       borderRadius: BorderRadius.circular(24),
@@ -1526,14 +1526,14 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                         const Icon(
                           Icons.directions_car_filled_rounded,
                           color: Color(0xFFD97706),
-                          size: 20,
+                          size: 22,
                         ),
                         const SizedBox(width: 8),
                         Flexible(
                           child: Text(
                             _customerStatusMessage(trip.status, driver.fullName),
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF92400E),
                             ),
@@ -1544,7 +1544,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
 
                   // b. Identity Row (Mutual Driver Profile Card)
                   InkWell(
@@ -1562,15 +1562,15 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                       );
                     },
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                       child: Row(
                         children: [
                           UserAvatar(
                             displayName: driver.fullName,
                             photoUrl: driver.photoUrl,
-                            radius: 19,
+                            radius: 22,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1584,7 +1584,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                             : 'Driver',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
-                                          fontSize: 15,
+                                          fontSize: 17,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -1594,7 +1594,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                     const Icon(
                                       Icons.verified,
                                       color: Colors.blue,
-                                      size: 15,
+                                      size: 17,
                                     ),
                                     const SizedBox(width: 6),
                                     Row(
@@ -1603,13 +1603,13 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                         const Icon(
                                           Icons.star_rounded,
                                           color: Colors.amber,
-                                          size: 14,
+                                          size: 16,
                                         ),
                                         Text(
                                           ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.bold,
-                                            fontSize: 12,
+                                            fontSize: 13,
                                           ),
                                         ),
                                       ],
@@ -1622,9 +1622,9 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                       ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
                                       : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w500,
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -1632,7 +1632,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                          const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
                         ],
                       ),
                     ),

@@ -566,7 +566,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       _activeTripSheetController.animateTo(
-        0.20,
+        0.32,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
       );
@@ -577,7 +577,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       final current = _activeTripSheetController.size;
-      final target = current <= 0.25 ? 0.45 : 0.20;
+      final target = current <= 0.35 ? 0.50 : 0.32;
       _activeTripSheetController.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
