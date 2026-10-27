@@ -1686,42 +1686,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                  Expanded(
-                    child: _CommunicationButton(
-                      key: const Key('customer_direct_call_icon'),
-                      icon: Icons.phone_outlined,
-                      label: 'Direct Call',
-                      color: const Color(0xFF10B981),
-                      bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                      onTap: () => _makeDirectPhoneCall(context),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _CommunicationButton(
-                      key: const Key('customer_inapp_call_icon'),
-                      icon: Icons.phone_in_talk_outlined,
-                      label: 'In-App Call',
-                      color: const Color(0xFFD97706),
-                      bgColor: const Color(0xFFFEF3C7),
-                      onTap: () => _startInAppCall(context),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _CommunicationButton(
-                      key: const Key('customer_chat_icon'),
-                      icon: Icons.chat_bubble_outline,
-                      label: 'Chat',
-                      color: Colors.black87,
-                      bgColor: Colors.grey.shade100,
-                      onTap: () => _openTripChat(context),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
               // 3. Route Details Box (PICKUP & DROPOFF) matching driver card layout
               Container(

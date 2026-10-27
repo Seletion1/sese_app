@@ -1201,33 +1201,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                        bgColor: Colors.grey.shade100,
-                        onTap: () => _openChat(context, trip),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-              ],
-            ),
-          ),
-
-          // ── Scrollable body: route details, banners, cancel ──
-          Expanded(
-            child: SingleChildScrollView(
-              controller: scrollController,
-              physics: const ClampingScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                16,
-                6,
-                16,
-                16 + MediaQuery.of(context).padding.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+                  const SizedBox(height: 12),
                   // 4. Route Details Box (PICKUP & DROPOFF)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
