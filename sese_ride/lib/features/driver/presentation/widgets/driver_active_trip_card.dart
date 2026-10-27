@@ -7,6 +7,7 @@ import 'package:sese_core/sese_core.dart';
 import '../../../../core/services/call_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/presentation/cancel_trip_dialog.dart';
+import '../../../trips/presentation/mutual_profile_modal.dart';
 import '../../../trips/presentation/trip_chat_screen.dart';
 import '../../services/driver_streak_service.dart';
 import '../../services/proximity_trigger_service.dart';
@@ -1016,123 +1017,28 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. Tappable / Draggable Centered handle bar
+                // Full-width grabbable header touch handle area
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.onToggleCollapse ?? _toggleInternalSheet,
-                  child: Center(
-                    child: Container(
-                      width: 44,
-                      height: 4,
-                      margin: const EdgeInsets.only(top: 2, bottom: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Center(
+                      child: Container(
+                        width: 44,
+                        height: 4,
+                        margin: const EdgeInsets.only(top: 2, bottom: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
                   ),
                 ),
 
-                // 2. Customer Header Row: Avatar, First Name, Subtitle, and 3 Inline Action Icons
-                Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFEF3C7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.person,
-                          color: Color(0xFFD97706),
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  _firstName(trip.customerName.isEmpty
-                                      ? 'Customer'
-                                      : trip.customerName),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.verified,
-                                color: Colors.blue,
-                                size: 16,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            trip.fareFormatted.isNotEmpty
-                                ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
-                                : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Three clean round action icons horizontally
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _RoundActionIcon(
-                          key: const Key('driver_direct_call_icon'),
-                          icon: Icons.phone_outlined,
-                          tooltip: 'Direct Call',
-                          color: const Color(0xFF10B981),
-                          bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                          onTap: () => _makeDirectPhoneCall(context, trip),
-                        ),
-                        const SizedBox(width: 8),
-                        _RoundActionIcon(
-                          key: const Key('driver_inapp_call_icon'),
-                          icon: Icons.phone_in_talk_outlined,
-                          tooltip: 'In-App Call',
-                          color: const Color(0xFFD97706),
-                          bgColor: const Color(0xFFFEF3C7),
-                          onTap: () => _showCallContactSheet(context, trip),
-                        ),
-                        const SizedBox(width: 8),
-                        _RoundActionIcon(
-                          key: const Key('driver_chat_icon'),
-                          icon: Icons.chat_bubble_outline,
-                          tooltip: 'Chat',
-                          color: Colors.black87,
-                          bgColor: Colors.grey.shade100,
-                          onTap: () => _openChat(context, trip),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                // 3. Primary Action Button (Slide-to-Action) — pinned in sticky header
+                // a. Action Container (Primary Action Slider)
                 _SlideToActionButton(
                   key: const Key('driver_slide_action_button'),
                   label: _nextLabel,
@@ -1144,7 +1050,141 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     }
                   },
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 8),
+
+                // b. Identity Row (Mutual Customer Profile Card)
+                InkWell(
+                  key: const Key('driver_customer_profile_card'),
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    MutualProfileModal.show(
+                      context,
+                      userId: trip.customerId,
+                      fallbackName: trip.customerName.isEmpty ? 'Customer' : trip.customerName,
+                      roleLabel: 'Customer',
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFFEF3C7),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.person,
+                              color: Color(0xFFD97706),
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      _firstName(trip.customerName.isEmpty
+                                          ? 'Customer'
+                                          : trip.customerName),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.verified,
+                                    color: Colors.blue,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    color: Colors.amber,
+                                    size: 15,
+                                  ),
+                                  const Text(
+                                    ' 5.0',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                trip.fareFormatted.isNotEmpty
+                                    ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
+                                    : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
+                Row(
+                  children: [
+                    Expanded(
+                      child: _CommunicationButton(
+                        key: const Key('driver_direct_call_icon'),
+                        icon: Icons.phone_outlined,
+                        label: 'Direct Call',
+                        color: const Color(0xFF10B981),
+                        bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                        onTap: () => _makeDirectPhoneCall(context, trip),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _CommunicationButton(
+                        key: const Key('driver_inapp_call_icon'),
+                        icon: Icons.phone_in_talk_outlined,
+                        label: 'In-App Call',
+                        color: const Color(0xFFD97706),
+                        bgColor: const Color(0xFFFEF3C7),
+                        onTap: () => _showCallContactSheet(context, trip),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _CommunicationButton(
+                        key: const Key('driver_chat_icon'),
+                        icon: Icons.chat_bubble_outline,
+                        label: 'Chat',
+                        color: Colors.black87,
+                        bgColor: Colors.grey.shade100,
+                        onTap: () => _openChat(context, trip),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
               ],
             ),
           ),
@@ -1571,6 +1611,61 @@ class _CallTargetTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Clean horizontal communication button with icon and label for clear touch targets.
+class _CommunicationButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color bgColor;
+  final VoidCallback onTap;
+
+  const _CommunicationButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.bgColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

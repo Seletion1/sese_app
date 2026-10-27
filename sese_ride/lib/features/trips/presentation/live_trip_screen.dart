@@ -14,6 +14,7 @@ import '../models/bid_models.dart';
 import '../models/trip_models.dart';
 import '../services/trip_service.dart';
 import 'cancel_trip_dialog.dart';
+import 'mutual_profile_modal.dart';
 import 'split_request_sheet.dart';
 import 'trip_chat_screen.dart';
 import 'trip_rating_dialog.dart';
@@ -1357,6 +1358,27 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     });
   }
 
+  String _firstName(String fullName) {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) return 'Driver';
+    return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  String _customerStatusMessage(TripStatus status, String driverName) {
+    final firstName = _firstName(driverName);
+    switch (status) {
+      case TripStatus.driverAccepted:
+      case TripStatus.driverArriving:
+        return '$firstName is on the way to pickup';
+      case TripStatus.driverArrived:
+        return '$firstName has arrived at pickup point';
+      case TripStatus.inProgress:
+        return 'Trip in progress — sit back and relax';
+      default:
+        return 'Driver assigned to your trip';
+    }
+  }
+
   String _paymentLabel(ActiveTrip trip) {
     final mode = trip.paymentMode.toLowerCase();
     if (mode == 'split' ||
@@ -1463,103 +1485,190 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. Tappable Centered Handle Bar
+              // Full-width grabbable header touch handle area
               Center(
                 child: Container(
-                  width: 44,
-                  height: 4,
-                  margin: const EdgeInsets.only(top: 4, bottom: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Center(
+                    child: Container(
+                      width: 44,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 2, bottom: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                   ),
                 ),
               ),
 
-              // 2. Driver Header Row: Avatar, Name with verified badge, Subtitle, and 3 Inline Action Icons
-              Row(
-                children: [
-                  UserAvatar(
-                    displayName: driver.fullName,
-                    photoUrl: driver.photoUrl,
-                    radius: 22,
+              // a. Status Container (Matching driver action box layout, non-interactive real-time status)
+              Container(
+                key: const Key('customer_active_status_container'),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.directions_car_filled_rounded,
+                      color: Color(0xFFD97706),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        _customerStatusMessage(trip.status, driver.fullName),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF92400E),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // b. Identity Row (Mutual Driver Profile Card)
+              InkWell(
+                key: const Key('customer_driver_profile_card'),
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
+                  MutualProfileModal.show(
+                    context,
+                    userId: driver.driverId,
+                    fallbackName: driver.fullName,
+                    fallbackPhotoUrl: driver.photoUrl,
+                    fallbackRating: driver.rating > 0 ? driver.rating : 5.0,
+                    roleLabel: 'Driver',
+                    vehicleInfo: driver.vehicleLabel,
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                  child: Row(
+                    children: [
+                      UserAvatar(
+                        displayName: driver.fullName,
+                        photoUrl: driver.photoUrl,
+                        radius: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Flexible(
-                              child: Text(
-                                driver.fullName.isNotEmpty
-                                    ? driver.fullName
-                                    : 'Driver',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    driver.fullName.isNotEmpty
+                                        ? driver.fullName
+                                        : 'Driver',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.verified,
+                                  color: Colors.blue,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.star_rounded,
+                                      color: Colors.amber,
+                                      size: 15,
+                                    ),
+                                    Text(
+                                      ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              Icons.verified,
-                              color: Colors.blue,
-                              size: 16,
+                            const SizedBox(height: 2),
+                            Text(
+                              trip.fareFormatted.isNotEmpty
+                                  ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
+                                  : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          trip.fareFormatted.isNotEmpty
-                              ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
-                              : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
+              Row(
+                children: [
+                  Expanded(
+                    child: _CommunicationButton(
+                      key: const Key('customer_direct_call_icon'),
+                      icon: Icons.phone_outlined,
+                      label: 'Direct Call',
+                      color: const Color(0xFF10B981),
+                      bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                      onTap: () => _makeDirectPhoneCall(context),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Three clean round action icons horizontally (matching driver active card)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _RoundActionIcon(
-                        key: const Key('customer_direct_call_icon'),
-                        icon: Icons.phone_outlined,
-                        tooltip: 'Direct Call',
-                        color: const Color(0xFF10B981),
-                        bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                        onTap: () => _makeDirectPhoneCall(context),
-                      ),
-                      const SizedBox(width: 8),
-                      _RoundActionIcon(
-                        key: const Key('customer_inapp_call_icon'),
-                        icon: Icons.phone_in_talk_outlined,
-                        tooltip: 'In-App Voice Call',
-                        color: const Color(0xFFD97706),
-                        bgColor: const Color(0xFFFEF3C7),
-                        onTap: () => _startInAppCall(context),
-                      ),
-                      const SizedBox(width: 8),
-                      _RoundActionIcon(
-                        key: const Key('customer_chat_icon'),
-                        icon: Icons.chat_bubble_outline,
-                        tooltip: 'Trip Chat',
-                        color: Colors.black87,
-                        bgColor: Colors.grey.shade100,
-                        onTap: () => _openTripChat(context),
-                      ),
-                    ],
+                  Expanded(
+                    child: _CommunicationButton(
+                      key: const Key('customer_inapp_call_icon'),
+                      icon: Icons.phone_in_talk_outlined,
+                      label: 'In-App Call',
+                      color: const Color(0xFFD97706),
+                      bgColor: const Color(0xFFFEF3C7),
+                      onTap: () => _startInAppCall(context),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _CommunicationButton(
+                      key: const Key('customer_chat_icon'),
+                      icon: Icons.chat_bubble_outline,
+                      label: 'Chat',
+                      color: Colors.black87,
+                      bgColor: Colors.grey.shade100,
+                      onTap: () => _openTripChat(context),
+                    ),
                   ),
                 ],
               ),
@@ -1701,6 +1810,61 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 const SizedBox(height: 8),
               ] else
                 const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Clean horizontal communication button with icon and label for clear touch targets.
+class _CommunicationButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final Color bgColor;
+  final VoidCallback onTap;
+
+  const _CommunicationButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.bgColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
