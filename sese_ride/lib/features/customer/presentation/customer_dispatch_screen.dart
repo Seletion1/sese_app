@@ -2851,45 +2851,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           final tier = resp?.tierById(_deliveryTierIds[cat] ?? cat.name);
           final recommended =
               resp != null && _deliveryRecommended(cat, resp);
-          return CheckboxListTile(
-            value: selected,
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _vehicleCategoryLabel(cat),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (recommended)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.seseGold.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Recommended',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.seseGold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            subtitle: tier == null
-                ? null
-                : Text(tier.fareFormatted,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-            secondary: VehicleIllustration(
-              art: VehicleArt.fromCategory(cat),
-              height: 38,
-              selected: selected,
-            ),
+          return _VehicleTierTile(
+            key: Key('delivery_vehicle_${cat.name}'),
+            art: VehicleArt.fromCategory(cat),
+            title: _vehicleCategoryLabel(cat),
+            subtitle: tier?.fareFormatted,
+            selected: selected,
+            isRecommended: recommended,
             onChanged: (_) {
               setState(() {
                 if (selected && _selectedDeliveryCategories.length > 1) {
@@ -2909,7 +2877,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   ///
   /// Customers broadcast to multiple car tiers simultaneously — the first
   /// driver of any matching tier who accepts wins. Mirrors the delivery
-  /// vehicle multi-selector: [CheckboxListTile] rows, minimum one selected,
+  /// vehicle multi-selector: custom tier card rows, minimum one selected,
   /// server fare per card, "Recommended" badge, Keke card appears only for
   /// short trips (same engine logic as delivery).
   Widget _buildRideTierSelector() {
@@ -2952,45 +2920,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               (id[0].toUpperCase() + id.substring(1));
           final recommended = tier?.isRecommended ?? false;
           final selected = _selectedRideTierIds.contains(id);
-          return CheckboxListTile(
-            value: selected,
-            title: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (recommended)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.seseGold.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Recommended',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.seseGold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            subtitle: tier == null
-                ? null
-                : Text(tier.fareFormatted,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-            secondary: VehicleIllustration(
-              art: VehicleArt.fromTierId(id),
-              height: 36,
-              selected: selected,
-            ),
+          return _VehicleTierTile(
+            key: Key('ride_tier_$id'),
+            art: VehicleArt.fromTierId(id),
+            title: label,
+            subtitle: tier?.fareFormatted,
+            selected: selected,
+            isRecommended: recommended,
             // Keep at least one tier selected so the broadcast payload is
             // never empty (mirrors the delivery at-least-one constraint).
             onChanged: (_) {
@@ -4082,6 +4018,168 @@ class _InfoBanner extends StatelessWidget {
               child: Text(text,
                   style: TextStyle(fontSize: 12, color: color))),
         ],
+      ),
+    );
+  }
+}
+
+/// Custom Vehicle Tier Selection Card with expanded vehicle artwork,
+/// full width title allocation, and compact sub-row "Recommended" chip.
+class _VehicleTierTile extends StatelessWidget {
+  final VehicleArt art;
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final bool isRecommended;
+  final ValueChanged<bool> onChanged;
+
+  const _VehicleTierTile({
+    super.key,
+    required this.art,
+    required this.title,
+    this.subtitle,
+    required this.selected,
+    required this.isRecommended,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: selected
+            ? AppColors.seseGold.withValues(alpha: 0.08)
+            : (isDark ? Colors.grey.shade900 : Colors.grey.shade50),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected
+              ? AppColors.seseGold
+              : (isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+          width: selected ? 2.0 : 1.0,
+        ),
+        boxShadow: selected
+            ? [
+                BoxShadow(
+                  color: AppColors.seseGold.withValues(alpha: 0.15),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                )
+              ]
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => onChanged(!selected),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                // 1. Prominent, Larger Vehicle Image (80px width)
+                SizedBox(
+                  width: 80,
+                  child: VehicleIllustration(
+                    art: art,
+                    height: 48,
+                    selected: selected,
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // 2. Text Column (Expanded - 100% Full Width for Title & Pricing)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (subtitle != null && subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFD97706),
+                          ),
+                        ),
+                      ],
+                      if (isRecommended) ...[
+                        const SizedBox(height: 4),
+                        // 3. Compact "Recommended" Chip in sub-row
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: const Color(0xFFF59E0B)
+                                  .withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(
+                                Icons.star_rounded,
+                                size: 12,
+                                color: Color(0xFFD97706),
+                              ),
+                              SizedBox(width: 3),
+                              Text(
+                                'Recommended',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF92400E),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // 4. Selection Checkbox/Indicator
+                Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: selected ? AppColors.seseGold : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: selected ? AppColors.seseGold : Colors.grey.shade400,
+                      width: 2,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: Colors.black,
+                        )
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
