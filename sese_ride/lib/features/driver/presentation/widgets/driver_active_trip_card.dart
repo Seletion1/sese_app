@@ -961,15 +961,15 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     final controller = widget.sheetController ?? _internalSheetController;
     final isTripStarted = widget.trip.status == TripStatus.inProgress;
-    final initialSize = isTripStarted ? 0.20 : 0.36;
+    final initialSize = isTripStarted ? 0.22 : 0.36;
 
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.20,
+      minChildSize: 0.22,
       maxChildSize: 0.85,
       snap: true,
-      snapSizes: const [0.20, 0.36, 0.85],
+      snapSizes: const [0.22, 0.36, 0.85],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
@@ -1004,15 +1004,15 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ),
         ],
       ),
-      // Column layout: non-scrolling header+action, then scrollable body with
-      // route details and secondary options.
+      // Column layout: non-scrolling sticky header (Action + Identity), then
+      // scrollable body with Communication Row, Route details, and Cancellation.
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // ── Non-scrolling sticky header ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1050,7 +1050,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     }
                   },
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
 
                 // b. Identity Row (Mutual Customer Profile Card)
                 InkWell(
@@ -1069,8 +1069,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     child: Row(
                       children: [
                         Container(
-                          width: 40,
-                          height: 40,
+                          width: 38,
+                          height: 38,
                           decoration: const BoxDecoration(
                             color: Color(0xFFFEF3C7),
                             shape: BoxShape.circle,
@@ -1079,7 +1079,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                             child: Icon(
                               Icons.person,
                               color: Color(0xFFD97706),
-                              size: 24,
+                              size: 22,
                             ),
                           ),
                         ),
@@ -1097,7 +1097,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                           : trip.customerName),
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                        fontSize: 15,
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
@@ -1107,13 +1107,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                   const Icon(
                                     Icons.verified,
                                     color: Colors.blue,
-                                    size: 16,
+                                    size: 15,
                                   ),
                                   const SizedBox(width: 6),
                                   const Icon(
                                     Icons.star_rounded,
                                     color: Colors.amber,
-                                    size: 15,
+                                    size: 14,
                                   ),
                                   const Text(
                                     ' 5.0',
@@ -1145,39 +1145,63 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+              ],
+            ),
+          ),
 
-                // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
-                Row(
-                  children: [
-                    Expanded(
-                      child: _CommunicationButton(
-                        key: const Key('driver_direct_call_icon'),
-                        icon: Icons.phone_outlined,
-                        label: 'Direct Call',
-                        color: const Color(0xFF10B981),
-                        bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                        onTap: () => _makeDirectPhoneCall(context, trip),
+          // ── Scrollable body: communication actions, route details, banners, cancel ──
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              physics: const ClampingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                4,
+                16,
+                16 + MediaQuery.of(context).padding.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('driver_direct_call_icon'),
+                          icon: Icons.phone_outlined,
+                          label: 'Direct Call',
+                          color: const Color(0xFF10B981),
+                          bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                          onTap: () => _makeDirectPhoneCall(context, trip),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _CommunicationButton(
-                        key: const Key('driver_inapp_call_icon'),
-                        icon: Icons.phone_in_talk_outlined,
-                        label: 'In-App Call',
-                        color: const Color(0xFFD97706),
-                        bgColor: const Color(0xFFFEF3C7),
-                        onTap: () => _showCallContactSheet(context, trip),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('driver_inapp_call_icon'),
+                          icon: Icons.phone_in_talk_outlined,
+                          label: 'In-App Call',
+                          color: const Color(0xFFD97706),
+                          bgColor: const Color(0xFFFEF3C7),
+                          onTap: () => _showCallContactSheet(context, trip),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _CommunicationButton(
-                        key: const Key('driver_chat_icon'),
-                        icon: Icons.chat_bubble_outline,
-                        label: 'Chat',
-                        color: Colors.black87,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _CommunicationButton(
+                          key: const Key('driver_chat_icon'),
+                          icon: Icons.chat_bubble_outline,
+                          label: 'Chat',
+                          color: Colors.black87,
+                          bgColor: Colors.grey.shade100,
+                          onTap: () => _openChat(context, trip),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
                         bgColor: Colors.grey.shade100,
                         onTap: () => _openChat(context, trip),
                       ),
