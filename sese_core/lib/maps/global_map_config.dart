@@ -22,16 +22,18 @@ enum MapProviderType {
   /// `null` / unknown / legacy `'osm'` / `'open_street_map'` all fall through
   /// to [cartodb] so the app always renders something visible.
   static MapProviderType fromCode(String? raw) {
-    if (raw == null) return MapProviderType.cartodb;
+    if (raw == null) return MapProviderType.google;
     final normalized = raw.trim().toLowerCase();
-    if (normalized == 'google' || normalized == 'google_maps') {
+    if (normalized == 'google' || normalized == 'google_maps' || normalized.isEmpty) {
       return MapProviderType.google;
     }
     if (normalized == 'mapbox') {
       return MapProviderType.mapbox;
     }
-    // cartodb, osm, open_street_map, and anything else → cartodb
-    return MapProviderType.cartodb;
+    if (normalized == 'cartodb' || normalized == 'osm' || normalized == 'open_street_map') {
+      return MapProviderType.cartodb;
+    }
+    return MapProviderType.google;
   }
 }
 
@@ -204,12 +206,14 @@ class GlobalMapConfig {
     if (override != null && override.isNotEmpty && override != 'auto') {
       if (override == 'google' || override == 'google_maps') return 'google';
       if (override == 'mapbox') return 'mapbox';
-      return 'cartodb';
+      if (override == 'cartodb' || override == 'osm') return 'cartodb';
+      return 'google';
     }
     final lower = activeProvider.trim().toLowerCase();
     if (lower == 'google_maps' || lower == 'google') return 'google';
     if (lower == 'mapbox') return 'mapbox';
-    return 'cartodb'; // osm, open_street_map, cartodb, or anything else
+    if (lower == 'cartodb' || lower == 'osm') return 'cartodb';
+    return 'google';
   }
 
   MapProviderType get providerType => MapProviderType.fromCode(normalizedProvider);

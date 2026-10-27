@@ -487,9 +487,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
             bool isFallbackActive = false;
             String fallbackMessage = 'Primary map provider unavailable.';
 
-            // ── Missing API Key / GMS Graceful Fallback Guard ──────────────
-            // Covers both the global Google chain and an explicit per-feature
-            // Google pin: a pinned provider without GMS still cascades.
+            // ── Graceful Fallback Guard ──────────────────────────────────────
             if (targetProvider == MapProvider.googleMaps && !gmsOk) {
               if (mapConfig.hasValidMapboxToken &&
                   !MapConfigController.instance.isMapboxFallbackActive) {
@@ -500,19 +498,8 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 fallbackMessage = 'Google Play Services unavailable. Using CartoDB.';
               }
               isFallbackActive = true;
-            }
-            if (mapConfig.isGoogle) {
-              if (!mapConfig.hasValidApiKey) {
-                if (mapConfig.hasValidMapboxToken &&
-                    !MapConfigController.instance.isMapboxFallbackActive) {
-                  targetProvider = MapProvider.mapbox;
-                  fallbackMessage = 'Google Maps API key not set. Using Mapbox tiles.';
-                } else {
-                  targetProvider = MapProvider.cartoDb;
-                  fallbackMessage = 'Google Maps API key not set. Using CartoDB tiles.';
-                }
-                isFallbackActive = true;
-              } else if (!gmsOk) {
+            } else if (mapConfig.isGoogle) {
+              if (!gmsOk || MapConfigController.instance.isGoogleFallbackActive) {
                 if (mapConfig.hasValidMapboxToken &&
                     !MapConfigController.instance.isMapboxFallbackActive) {
                   targetProvider = MapProvider.mapbox;
@@ -522,16 +509,6 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                   fallbackMessage = 'Google Play Services unavailable. Using CartoDB.';
                 }
                 isFallbackActive = true;
-              } else if (MapConfigController.instance.isGoogleFallbackActive) {
-                if (mapConfig.hasValidMapboxToken &&
-                    !MapConfigController.instance.isMapboxFallbackActive) {
-                  targetProvider = MapProvider.mapbox;
-                } else {
-                  targetProvider = MapProvider.cartoDb;
-                }
-                isFallbackActive = true;
-                fallbackMessage = MapConfigController.instance.fallbackReason ??
-                    'Google Maps unavailable. Falling back to ${targetProvider == MapProvider.mapbox ? "Mapbox" : "CartoDB"}.';
               }
             } else if (mapConfig.isMapbox &&
                 (MapConfigController.instance.isMapboxFallbackActive ||
