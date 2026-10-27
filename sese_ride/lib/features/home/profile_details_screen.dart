@@ -313,7 +313,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             labelText: 'Primary Phone',
             helperText: 'Changing phone requires OTP verification',
             filled: true,
-            fillColor: Colors.grey.shade100,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
@@ -343,7 +343,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           decoration: InputDecoration(
             labelText: 'Secondary Phone (optional)',
             filled: true,
-            fillColor: Colors.grey.shade100,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
@@ -375,7 +375,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             labelText: 'Email Address',
             suffixIcon: const Icon(Icons.lock_outline, size: 16),
             filled: true,
-            fillColor: Colors.grey.shade100,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,

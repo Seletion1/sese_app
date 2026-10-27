@@ -199,9 +199,12 @@ class _TripRatingDialogState extends State<TripRatingDialog> {
             maxLength: 120,
             decoration: InputDecoration(
               hintText: 'Add an optional comment...',
-              hintStyle: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              hintStyle: TextStyle(
+                fontSize: 12,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+              ),
               filled: true,
-              fillColor: isDark ? const Color(0xFF282832) : const Color(0xFFF9FAFB),
+              fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               border: OutlineInputBorder(

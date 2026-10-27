@@ -313,7 +313,9 @@ class _CountrySearchSheetState extends State<_CountrySearchSheet> {
                                   fontSize: 14,
                                   color: isSel
                                       ? Theme.of(context).colorScheme.primary
-                                      : Colors.grey.shade700,
+                                      : (Theme.of(context).brightness == Brightness.dark
+                                          ? Colors.grey.shade300
+                                          : Colors.grey.shade700),
                                 ),
                               ),
                               if (isSel) ...[

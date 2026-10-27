@@ -245,7 +245,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                   hintText: 'Min ₦${min.toStringAsFixed(0)}',
                   prefixText: '₦ ',
                   filled: true,
-                  fillColor: Colors.grey.shade100,
+                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,

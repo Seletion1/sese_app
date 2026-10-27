@@ -599,7 +599,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final isDriver = _controller.selectedRole == UserRole.driver;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final inputFillColor =
-        isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF6F6F6);
+        Theme.of(context).colorScheme.surfaceContainerHighest;
 
     InputDecoration buildInputDecoration({
       required String labelText,

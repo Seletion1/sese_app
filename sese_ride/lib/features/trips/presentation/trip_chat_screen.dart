@@ -242,7 +242,7 @@ class _TripChatScreenState extends State<TripChatScreen>
                 decoration: InputDecoration(
                   hintText: 'Message trip chat…',
                   filled: true,
-                  fillColor: Colors.grey.shade100,
+                  fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,

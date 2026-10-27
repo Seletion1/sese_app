@@ -456,7 +456,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                                           ? 'Message the support agent…'
                                           : 'Ask about payouts, trips, wallet…',
                                       filled: true,
-                                      fillColor: Colors.grey.shade100,
+                                      fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                                       border: OutlineInputBorder(
                                         borderRadius:
                                             BorderRadius.circular(24),
