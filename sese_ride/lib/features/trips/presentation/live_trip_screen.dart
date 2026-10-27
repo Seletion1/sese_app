@@ -1822,8 +1822,9 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                 ),
                 const SizedBox(height: 8),
-              ] else
+              ] else ...[
                 const SizedBox(height: 8),
+              ],
             ],
           ),
         ),
