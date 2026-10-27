@@ -26,6 +26,9 @@ class MainActivity : FlutterActivity() {
             if (call.method == "bringToForeground") {
                 bringAppToForeground()
                 result.success(true)
+            } else if (call.method == "moveTaskToBack") {
+                this@MainActivity.moveTaskToBack(true)
+                result.success(true)
             } else {
                 result.notImplemented()
             }

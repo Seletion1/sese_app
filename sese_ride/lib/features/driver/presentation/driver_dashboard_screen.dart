@@ -1464,9 +1464,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
 
     // Full-screen map canvas base adapting to system theme.
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SizedBox.expand(child: _buildMapStack()),
+    return PopScope(
+      canPop: !_isOnline,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        if (_isOnline) {
+          // Minimizes app task to background without killing process & spawns floating SeSe logo
+          await DriverOverlayService.instance.moveTaskToBack();
+          await DriverOverlayService.instance.showOverlayWidget();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: SizedBox.expand(child: _buildMapStack()),
+      ),
     );
   }
 
@@ -2347,9 +2358,8 @@ class _PingListenerState extends State<_PingListener> {
         ? ping.fareFormatted
         : '₦${ping.fareAmount.toStringAsFixed(0)}';
     if (widget.isAppPaused()) {
-      // Backgrounded: expand the overlay into the full-screen order popup
-      // (details + live 6s countdown + atomic ACCEPT/REJECT in the overlay
-      // isolate). No in-app sheet while the activity is paused.
+      // Bring app to full foreground immediately for seamless incoming order review
+      await DriverOverlayService.instance.bringToForeground();
       setState(() => _sheetOpen = true);
       // ignore: discarded_futures
       AppSoundService.instance.playIncomingOrderAlert(

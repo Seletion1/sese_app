@@ -105,6 +105,16 @@ class DriverOverlayService {
     }
   }
 
+  /// Moves the app task to background on Android without destroying the process.
+  Future<void> moveTaskToBack() async {
+    if (!supported) return;
+    try {
+      await _appChannel.invokeMethod('moveTaskToBack');
+    } catch (e) {
+      debugPrint('DriverOverlayService.moveTaskToBack failed: $e');
+    }
+  }
+
   /// Shows the persistent draggable bubble (snaps to nearest screen edge).
   ///
   /// `PositionGravity.auto` snaps to whichever edge (left or right) the
