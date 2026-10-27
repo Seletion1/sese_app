@@ -668,13 +668,10 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
                 trip.status == TripStatus.driverArriving ||
                 trip.status == TripStatus.driverArrived ||
                 trip.status == TripStatus.inProgress))
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: _AcceptedDriverSheet(
-              driver: trip.driver!,
-              trip: trip,
-              onCancel: () => _cancel(context),
-            ),
+          _AcceptedDriverSheet(
+            driver: trip.driver!,
+            trip: trip,
+            onCancel: () => _cancel(context),
           ),
       ],
     );
@@ -1461,375 +1458,390 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final trip = widget.trip;
     final scheme = Theme.of(context).colorScheme;
 
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.38,
+      minChildSize: 0.28,
+      maxChildSize: 0.88,
+      snap: true,
+      snapSizes: const [0.28, 0.38, 0.88],
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 16,
+                offset: const Offset(0, -4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Full-width grabbable header touch handle area
-                  Center(
-                    child: Container(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Sticky Header (Status & Identity)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Full-width grabbable header touch handle area
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {},
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Center(
+                          child: Container(
+                            width: 48,
+                            height: 5,
+                            margin: const EdgeInsets.only(top: 2, bottom: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // a. Status Container
+                    Container(
+                      key: const Key('customer_active_status_container'),
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Center(
-                        child: Container(
-                          width: 44,
-                          height: 4,
-                          margin: const EdgeInsets.only(top: 2, bottom: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
                         ),
                       ),
-                    ),
-                  ),
-
-                  // a. Status Container (Matching driver action box layout, non-interactive real-time status)
-                  Container(
-                    key: const Key('customer_active_status_container'),
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.directions_car_filled_rounded,
-                          color: Color(0xFFD97706),
-                          size: 22,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            _customerStatusMessage(trip.status, driver.fullName),
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF92400E),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // b. Identity Row (Mutual Driver Profile Card)
-                  InkWell(
-                    key: const Key('customer_driver_profile_card'),
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () {
-                      MutualProfileModal.show(
-                        context,
-                        userId: driver.driverId,
-                        fallbackName: driver.fullName,
-                        fallbackPhotoUrl: driver.photoUrl,
-                        fallbackRating: driver.rating > 0 ? driver.rating : 5.0,
-                        roleLabel: 'Driver',
-                        vehicleInfo: driver.vehicleLabel,
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
                       child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          UserAvatar(
-                            displayName: driver.fullName,
-                            photoUrl: driver.photoUrl,
-                            radius: 22,
+                          const Icon(
+                            Icons.directions_car_filled_rounded,
+                            color: Color(0xFFD97706),
+                            size: 22,
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        driver.fullName.isNotEmpty
-                                            ? driver.fullName
-                                            : 'Driver',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 17,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Icon(
-                                      Icons.verified,
-                                      color: Colors.blue,
-                                      size: 17,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.star_rounded,
-                                          color: Colors.amber,
-                                          size: 16,
-                                        ),
-                                        Text(
-                                          ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  trip.fareFormatted.isNotEmpty
-                                      ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
-                                      : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _customerStatusMessage(trip.status, driver.fullName),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF92400E),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
+                    const SizedBox(height: 8),
 
-            // Scrollable body: communication, route, cancellation
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _CommunicationButton(
-                          key: const Key('customer_direct_call_icon'),
-                          icon: Icons.phone_outlined,
-                          label: 'Direct Call',
-                          color: const Color(0xFF10B981),
-                          bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
-                          onTap: () => _makeDirectPhoneCall(context),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _CommunicationButton(
-                          key: const Key('customer_inapp_call_icon'),
-                          icon: Icons.phone_in_talk_outlined,
-                          label: 'In-App Call',
-                          color: const Color(0xFFD97706),
-                          bgColor: const Color(0xFFFEF3C7),
-                          onTap: () => _startInAppCall(context),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _CommunicationButton(
-                          key: const Key('customer_chat_icon'),
-                          icon: Icons.chat_bubble_outline,
-                          label: 'Chat',
-                          color: Colors.black87,
-                          bgColor: Colors.grey.shade100,
-                          onTap: () => _openTripChat(context),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // 3. Route Details Box (PICKUP & DROPOFF) matching driver card layout
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
+                    // b. Identity Row (Mutual Driver Profile Card)
+                    InkWell(
+                      key: const Key('customer_driver_profile_card'),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Pickup row
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      onTap: () {
+                        MutualProfileModal.show(
+                          context,
+                          userId: driver.driverId,
+                          fallbackName: driver.fullName,
+                          fallbackPhotoUrl: driver.photoUrl,
+                          fallbackRating: driver.rating > 0 ? driver.rating : 5.0,
+                          roleLabel: 'Driver',
+                          vehicleInfo: driver.vehicleLabel,
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                        child: Row(
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.only(top: 3),
-                              child: Container(
-                                width: 10,
-                                height: 10,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
+                            UserAvatar(
+                              displayName: driver.fullName,
+                              photoUrl: driver.photoUrl,
+                              radius: 22,
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
-                                    'PICKUP',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF10B981),
-                                      letterSpacing: 0.5,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          driver.fullName.isNotEmpty
+                                              ? driver.fullName
+                                              : 'Driver',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 17,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      const Icon(
+                                        Icons.verified,
+                                        color: Colors.blue,
+                                        size: 17,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.star_rounded,
+                                            color: Colors.amber,
+                                            size: 16,
+                                          ),
+                                          Text(
+                                            ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    trip.pickupAddress.isEmpty
-                                        ? 'Pickup location on map'
-                                        : trip.pickupAddress,
-                                    style: const TextStyle(
+                                    trip.fareFormatted.isNotEmpty
+                                        ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
+                                        : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
+                                    style: TextStyle(
                                       fontSize: 13,
+                                      color: Colors.grey.shade700,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
                                     ),
-                                    maxLines: 2,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
                               ),
                             ),
+                            const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
                           ],
                         ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 6),
-                          child: Divider(height: 1),
-                        ),
-                        // Dropoff row
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(top: 3),
-                              child: Container(
-                                width: 10,
-                                height: 10,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFEF4444),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'DROPOFF',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFEF4444),
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    trip.dropoffAddress.isEmpty
-                                        ? 'Drop-off location on map'
-                                        : trip.dropoffAddress,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+              ),
 
-                  // 4. Subtle Cancellation Option — with generous bottom clearance
-                  if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
-                    const SizedBox(height: 12),
-                    Center(
-                      child: TextButton(
-                        onPressed: widget.onCancel,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red.shade600,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              // Scrollable Body (Communication, Route, Cancellation)
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: scrollController,
+                  physics: const ClampingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    4,
+                    16,
+                    16 + MediaQuery.of(context).padding.bottom,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // c. Communication Action Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _CommunicationButton(
+                              key: const Key('customer_direct_call_icon'),
+                              icon: Icons.phone_outlined,
+                              label: 'Direct Call',
+                              color: const Color(0xFF10B981),
+                              bgColor: const Color(0xFF10B981).withValues(alpha: 0.12),
+                              onTap: () => _makeDirectPhoneCall(context),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _CommunicationButton(
+                              key: const Key('customer_inapp_call_icon'),
+                              icon: Icons.phone_in_talk_outlined,
+                              label: 'In-App Call',
+                              color: const Color(0xFFD97706),
+                              bgColor: const Color(0xFFFEF3C7),
+                              onTap: () => _startInAppCall(context),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _CommunicationButton(
+                              key: const Key('customer_chat_icon'),
+                              icon: Icons.chat_bubble_outline,
+                              label: 'Chat',
+                              color: Colors.black87,
+                              bgColor: Colors.grey.shade100,
+                              onTap: () => _openTripChat(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // d. Route Details
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
                         ),
-                        child: const Text(
-                          'Cancel ride',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            decoration: TextDecoration.underline,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF10B981),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'PICKUP',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF10B981),
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        trip.pickupAddress.isEmpty
+                                            ? 'Pickup location on map'
+                                            : trip.pickupAddress,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 6),
+                              child: Divider(height: 1),
+                            ),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 3),
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFEF4444),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'DROPOFF',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFFEF4444),
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        trip.dropoffAddress.isEmpty
+                                            ? 'Drop-off location on map'
+                                            : trip.dropoffAddress,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.black87,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // e. Cancellation Option
+                      if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
+                        const SizedBox(height: 12),
+                        Center(
+                          child: TextButton(
+                            onPressed: widget.onCancel,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red.shade600,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            ),
+                            child: const Text(
+                              'Cancel ride',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ] else ...[
-                    const SizedBox(height: 8),
-                  ],
-                ],
+                        const SizedBox(height: 8),
+                      ] else ...[
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
