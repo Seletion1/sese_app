@@ -961,15 +961,15 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     final controller = widget.sheetController ?? _internalSheetController;
     final isTripStarted = widget.trip.status == TripStatus.inProgress;
-    final initialSize = isTripStarted ? 0.35 : 0.45;
+    final initialSize = isTripStarted ? 0.18 : 0.42;
 
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.28,
-      maxChildSize: 0.90,
+      minChildSize: 0.18,
+      maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.28, 0.45, 0.90],
+      snapSizes: const [0.18, 0.42, 0.88],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
