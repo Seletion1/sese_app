@@ -2598,30 +2598,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   letterSpacing: 0.2,
                 ),
               ),
-              const Spacer(),
-              if (hasCached)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.flash_on_rounded, size: 10, color: Colors.green),
-                      SizedBox(width: 2),
-                      Text(
-                        '0 API Cost',
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.green,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ),
         ),
