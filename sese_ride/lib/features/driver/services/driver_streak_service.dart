@@ -229,32 +229,23 @@ class DriverStreakService {
         .handleError((Object _) => const <ActiveTrip>[]);
   }
 
-  /// Driver's currently assigned live trip, if any. Queries live statuses
-  /// with dual-schema driver ID matching so past completed trips never
-  /// block active trip sheet rendering.
+  /// Driver's currently assigned live trip, if any.
+  ///
+  /// Queries by `driver.driverId` so Firestore Security Rules permit the read
+  /// for the assigned driver. Does NOT limit to 10 oldest docs so past
+  /// completed trips never hide the active live trip.
   Stream<ActiveTrip?> activeTripStream(String driverId) {
     final db = _db;
     if (db == null || driverId.isEmpty) return Stream.value(null);
     return db
         .collection('trips')
-        .where('status', whereIn: const [
-          'DRIVER_ACCEPTED',
-          'DRIVER_ARRIVING',
-          'DRIVER_ARRIVED',
-          'IN_PROGRESS',
-        ])
+        .where('driver.driverId', isEqualTo: driverId)
         .snapshots()
         .map((snap) {
           for (final d in snap.docs) {
-            final data = d.data();
-            final assignedDriverId = (data['driverId'] ??
-                (data['driver'] is Map ? data['driver']['driverId'] : null) ??
-                '').toString();
-            if (assignedDriverId == driverId) {
-              final trip = ActiveTrip.fromMap(d.id, data);
-              // Filter out self-booked customer trips (role-based isolation)
-              if (trip.customerId != driverId) return trip;
-            }
+            final trip = ActiveTrip.fromMap(d.id, d.data());
+            // Filter out self-booked customer trips (role-based isolation)
+            if (trip.isLive && trip.customerId != driverId) return trip;
           }
           return null;
         })
