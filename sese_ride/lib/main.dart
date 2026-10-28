@@ -64,14 +64,18 @@ void main() async {
       debugPrint('AppCheck pin error: $e');
     }
   }
-  await FirebaseAppCheck.instance.activate(
-    providerAndroid: kDebugMode
-        ? AndroidDebugProvider()
-        : const AndroidPlayIntegrityProvider(),
-    providerApple: kDebugMode
-        ? AppleDebugProvider()
-        : const AppleDeviceCheckProvider(),
-  );
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? AndroidDebugProvider()
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: kDebugMode
+          ? AppleDebugProvider()
+          : const AppleDeviceCheckProvider(),
+    );
+  } catch (e) {
+    debugPrint('AppCheck activate error: $e');
+  }
 
   // Detect user's country/dial code at startup (primary: locale, fallback: timezone, default: NG).
   // Result is cached synchronously for SesePhoneInputField's initialValue.

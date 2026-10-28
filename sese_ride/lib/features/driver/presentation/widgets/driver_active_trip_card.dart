@@ -1004,167 +1004,152 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           ),
         ],
       ),
-      // Column layout: non-scrolling sticky header (Action + Identity), then
-      // scrollable body with Communication Row, Route details, and Cancellation.
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Non-scrolling sticky header ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Full-width grabbable header touch handle area
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: widget.onToggleCollapse ?? _toggleInternalSheet,
+      // Single scrollable view attached to scrollController starting from the top edge
+      // so dragging/sliding from the top handle, action slider, or identity card expands/collapses the sheet smoothly.
+      child: SingleChildScrollView(
+        controller: scrollController,
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          6,
+          16,
+          16 + MediaQuery.of(context).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Full-width grabbable header touch handle area
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: widget.onToggleCollapse ?? _toggleInternalSheet,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Center(
                   child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Center(
-                      child: Container(
-                        width: 48,
-                        height: 5,
-                        margin: const EdgeInsets.only(top: 2, bottom: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(3),
+                    width: 48,
+                    height: 5,
+                    margin: const EdgeInsets.only(top: 2, bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // a. Action Container (Primary Action Slider)
+            _SlideToActionButton(
+              key: const Key('driver_slide_action_button'),
+              label: _nextLabel,
+              busy: _busy,
+              enabled: next != null,
+              onSlideComplete: () {
+                if (next != null) {
+                  _advanceOrPin(trip, next);
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+
+            // b. Identity Row (Mutual Customer Profile Card)
+            InkWell(
+              key: const Key('driver_customer_profile_card'),
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                MutualProfileModal.show(
+                  context,
+                  userId: trip.customerId,
+                  fallbackName: trip.customerName.isEmpty ? 'Customer' : trip.customerName,
+                  roleLabel: 'Customer',
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFEF3C7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.person,
+                          color: Color(0xFFD97706),
+                          size: 26,
                         ),
                       ),
                     ),
-                  ),
-                ),
-
-                // a. Action Container (Primary Action Slider)
-                _SlideToActionButton(
-                  key: const Key('driver_slide_action_button'),
-                  label: _nextLabel,
-                  busy: _busy,
-                  enabled: next != null,
-                  onSlideComplete: () {
-                    if (next != null) {
-                      _advanceOrPin(trip, next);
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-
-                // b. Identity Row (Mutual Customer Profile Card)
-                InkWell(
-                  key: const Key('driver_customer_profile_card'),
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    MutualProfileModal.show(
-                      context,
-                      userId: trip.customerId,
-                      fallbackName: trip.customerName.isEmpty ? 'Customer' : trip.customerName,
-                      roleLabel: 'Customer',
-                    );
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFEF3C7),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.person,
-                              color: Color(0xFFD97706),
-                              size: 26,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              Row(
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      _firstName(trip.customerName.isEmpty
-                                          ? 'Customer'
-                                          : trip.customerName),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 17,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
+                              Flexible(
+                                child: Text(
+                                  _firstName(trip.customerName.isEmpty
+                                      ? 'Customer'
+                                      : trip.customerName),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 17,
                                   ),
-                                  const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.verified,
-                                    color: Colors.blue,
-                                    size: 17,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  const Icon(
-                                    Icons.star_rounded,
-                                    color: Colors.amber,
-                                    size: 16,
-                                  ),
-                                  const Text(
-                                    ' 5.0',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                trip.fareFormatted.isNotEmpty
-                                    ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
-                                    : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade700,
-                                  fontWeight: FontWeight.w600,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified,
+                                color: Colors.blue,
+                                size: 17,
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(
+                                Icons.star_rounded,
+                                color: Colors.amber,
+                                size: 16,
+                              ),
+                              const Text(
+                                ' 5.0',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
-                      ],
+                          const SizedBox(height: 2),
+                          Text(
+                            trip.fareFormatted.isNotEmpty
+                                ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
+                                : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
+                    const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
+                  ],
                 ),
-              ],
-            ),
-          ),
-
-          // ── Scrollable body: communication actions, route details, banners, cancel ──
-          Expanded(
-            child: SingleChildScrollView(
-              controller: scrollController,
-              physics: const ClampingScrollPhysics(),
-              padding: EdgeInsets.fromLTRB(
-                16,
-                6,
-                16,
-                16 + MediaQuery.of(context).padding.bottom,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
+            ),
+            const SizedBox(height: 8),
+
+            // c. Communication Action Row (Direct Call, In-App Call, Chat on same horizontal line)
                   Row(
                     children: [
                       Expanded(
@@ -1486,11 +1471,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ),
             const SizedBox(height: 8),
-                ],
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

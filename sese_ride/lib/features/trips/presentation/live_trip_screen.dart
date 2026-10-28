@@ -1480,124 +1480,128 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
               ),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Sticky Header (Status & Identity)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Full-width grabbable header touch handle area
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {},
+          // Single scrollable view attached to scrollController starting from the top edge
+          // so dragging/sliding from the top handle, status banner, or driver profile card expands/collapses the sheet smoothly.
+          child: SingleChildScrollView(
+            controller: scrollController,
+            physics: const ClampingScrollPhysics(),
+            padding: EdgeInsets.fromLTRB(
+              16,
+              6,
+              16,
+              16 + MediaQuery.of(context).padding.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Full-width grabbable header touch handle area
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {},
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Center(
                       child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Center(
-                          child: Container(
-                            width: 48,
-                            height: 5,
-                            margin: const EdgeInsets.only(top: 2, bottom: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
+                        width: 48,
+                        height: 5,
+                        margin: const EdgeInsets.only(top: 2, bottom: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(3),
                         ),
                       ),
                     ),
+                  ),
+                ),
 
-                    // a. Status Container
-                    Container(
-                      key: const Key('customer_active_status_container'),
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF3C7),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                // a. Status Container
+                Container(
+                  key: const Key('customer_active_status_container'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.directions_car_filled_rounded,
+                        color: Color(0xFFD97706),
+                        size: 22,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _customerStatusMessage(trip.status, driver.fullName),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF92400E),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.directions_car_filled_rounded,
-                            color: Color(0xFFD97706),
-                            size: 22,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              _customerStatusMessage(trip.status, driver.fullName),
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF92400E),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
 
-                    // b. Identity Row (Mutual Driver Profile Card)
-                    InkWell(
-                      key: const Key('customer_driver_profile_card'),
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: () {
-                        MutualProfileModal.show(
-                          context,
-                          userId: driver.driverId,
-                          fallbackName: driver.fullName,
-                          fallbackPhotoUrl: driver.photoUrl,
-                          fallbackRating: driver.rating > 0 ? driver.rating : 5.0,
-                          roleLabel: 'Driver',
-                          vehicleInfo: driver.vehicleLabel,
-                        );
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-                        child: Row(
-                          children: [
-                            UserAvatar(
-                              displayName: driver.fullName,
-                              photoUrl: driver.photoUrl,
-                              radius: 22,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                // b. Identity Row (Mutual Driver Profile Card)
+                InkWell(
+                  key: const Key('customer_driver_profile_card'),
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    MutualProfileModal.show(
+                      context,
+                      userId: driver.driverId,
+                      fallbackName: driver.fullName,
+                      fallbackPhotoUrl: driver.photoUrl,
+                      fallbackRating: driver.rating > 0 ? driver.rating : 5.0,
+                      roleLabel: 'Driver',
+                      vehicleInfo: driver.vehicleLabel,
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                    child: Row(
+                      children: [
+                        UserAvatar(
+                          displayName: driver.fullName,
+                          photoUrl: driver.photoUrl,
+                          radius: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          driver.fullName.isNotEmpty
-                                              ? driver.fullName
-                                              : 'Driver',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 17,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
+                                  Flexible(
+                                    child: Text(
+                                      driver.fullName.isNotEmpty
+                                          ? driver.fullName
+                                          : 'Driver',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 17,
                                       ),
-                                      const SizedBox(width: 4),
-                                      const Icon(
-                                        Icons.verified,
-                                        color: Colors.blue,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(
+                                    Icons.verified,
+                                    color: Colors.blue,
                                         size: 17,
                                       ),
                                       const SizedBox(width: 6),
@@ -1837,9 +1841,6 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
         );
       },
     );
