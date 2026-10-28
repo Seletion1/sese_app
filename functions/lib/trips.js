@@ -1201,6 +1201,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         tx.update(ref, {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
+            driverId: driverId,
             dispatchTier: (_k = data.dispatchTier) !== null && _k !== void 0 ? _k : null,
             pingDriverId: null,
             pingDriverIds: [],

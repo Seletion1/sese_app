@@ -229,27 +229,39 @@ class DriverStreakService {
         .handleError((Object _) => const <ActiveTrip>[]);
   }
 
-  /// Driver's currently assigned live trip, if any. Single-field query on
-  /// the nested driver id with client-side live filtering (no composite
-  /// index required). A denied listen resolves to null and ends instead
-  /// of retrying forever.
+  /// Driver's currently assigned live trip, if any. Queries live statuses
+  /// with dual-schema driver ID matching so past completed trips never
+  /// block active trip sheet rendering.
   Stream<ActiveTrip?> activeTripStream(String driverId) {
     final db = _db;
     if (db == null || driverId.isEmpty) return Stream.value(null);
     return db
         .collection('trips')
-        .where('driver.driverId', isEqualTo: driverId)
-        .limit(10)
+        .where('status', whereIn: const [
+          'DRIVER_ACCEPTED',
+          'DRIVER_ARRIVING',
+          'DRIVER_ARRIVED',
+          'IN_PROGRESS',
+        ])
         .snapshots()
         .map((snap) {
           for (final d in snap.docs) {
-            final trip = ActiveTrip.fromMap(d.id, d.data());
-            // Filter out self-booked customer trips (role-based isolation)
-            if (trip.isLive && trip.customerId != driverId) return trip;
+            final data = d.data();
+            final assignedDriverId = (data['driverId'] ??
+                (data['driver'] is Map ? data['driver']['driverId'] : null) ??
+                '').toString();
+            if (assignedDriverId == driverId) {
+              final trip = ActiveTrip.fromMap(d.id, data);
+              // Filter out self-booked customer trips (role-based isolation)
+              if (trip.customerId != driverId) return trip;
+            }
           }
           return null;
         })
-        .handleError((Object _) => null);
+        .handleError((Object err) {
+          debugPrint('activeTripStream error: $err');
+          return null;
+        });
   }
 
   /// Platform streak tunables (wait threshold, grand award). Falls back to

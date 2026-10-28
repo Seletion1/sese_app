@@ -1480,6 +1480,7 @@ export const acceptTrip = onCall(async (request) => {
     tx.update(ref, {
       status: "DRIVER_ACCEPTED",
       driver: snapshot,
+      driverId: driverId,
       dispatchTier: data.dispatchTier ?? null,
       pingDriverId: null,
       pingDriverIds: [],
