@@ -1310,9 +1310,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     preferredWidth: 360,
                     child: InputDecorator(
                       decoration: const InputDecoration(
-                        labelText: 'Mapbox Style Theme',
+                        labelText: 'Mapbox Style ID',
                         helperText:
-                            'Select map theme. Switches to dark-v11 automatically in night mode.',
+                            'Select Mapbox map style ID. Automatically switches to Dark mode in night view.',
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(
                           horizontal: 12,
@@ -1331,7 +1331,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           for (final style in MapboxStyles.availableStyles)
                             DropdownMenuItem<String>(
                               value: style,
-                              child: Text(MapboxStyles.styleLabels[style] ?? style),
+                              child: Text('${MapboxStyles.styleLabels[style] ?? style} ($style)'),
                             ),
                           if (!MapboxStyles.availableStyles.contains(_mapboxStyleCtrl.text.trim()) &&
                               _mapboxStyleCtrl.text.trim().isNotEmpty)
