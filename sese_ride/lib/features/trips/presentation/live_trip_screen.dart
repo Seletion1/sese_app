@@ -1841,10 +1841,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                     ],
                   ),
                 ),
-        );
-      },
-    );
-  }
+              );
+            },
+          );
+        }
 }
 
 /// Clean horizontal communication button with icon and label for clear touch targets.
