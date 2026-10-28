@@ -9,6 +9,17 @@ class CancelReason {
   const CancelReason(this.code, this.label);
 }
 
+/// Result returned when user completes cancellation dialog choices.
+class CancelTripResult {
+  final String reason;
+  final bool useCashSettlement;
+
+  const CancelTripResult({
+    required this.reason,
+    this.useCashSettlement = false,
+  });
+}
+
 /// Secure trip-cancellation confirmation.
 ///
 /// Cancelling never dismisses instantly: the caller must present this dialog,
