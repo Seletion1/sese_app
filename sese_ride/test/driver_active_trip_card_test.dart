@@ -15,7 +15,7 @@ class _FakeStreakService implements DriverStreakService {
   }
 
   @override
-  Future<void> cancelTrip(String tripId, {String? reason}) async {}
+  Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {}
 
   @override
   Future<void> verifyDeliveryPin(String tripId, String pin) async {}

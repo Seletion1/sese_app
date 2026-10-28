@@ -45,7 +45,7 @@ abstract class TripRepository {
   /// [reason] is a [CancelTripDialog] reason code, audited server-side into
   /// the immutable `cancellation_audits` collection and counted toward the
   /// hourly spam-cancel rate limit. Null/unknown codes land as `other`.
-  Future<void> cancelTrip(String tripId, {String? reason});
+  Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false});
 
   // ── Bidding API ────────────────────────────────────────────────────────────
 
