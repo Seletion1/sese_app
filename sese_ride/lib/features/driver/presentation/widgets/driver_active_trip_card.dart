@@ -652,10 +652,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   }
 
   Future<void> _cancelTripWithDialog(ActiveTrip trip) async {
-    final reason = await CancelTripDialog.show(context, isDriver: true);
-    if (reason != null && mounted) {
+    final result = await CancelTripDialog.show(context, isDriver: true);
+    if (result != null && mounted) {
       await _run(
-        () => widget.streakService.cancelTrip(trip.tripId, reason: reason),
+        () => widget.streakService.cancelTrip(trip.tripId, reason: result.reason),
         'Could not cancel trip.',
       );
     }

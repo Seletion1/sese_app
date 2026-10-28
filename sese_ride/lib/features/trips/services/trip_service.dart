@@ -240,11 +240,12 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   @override
-  Future<void> cancelTrip(String tripId, {String? reason}) async {
+  Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {
     try {
       await _fn.httpsCallable('cancelTrip').call({
         'tripId': tripId,
         if (reason != null && reason.isNotEmpty) 'reason': reason,
+        if (useCashSettlement) 'useCashSettlement': true,
       });
     } on FirebaseFunctionsException catch (e) {
       throw TripException(e.code, _mapError(e.code, e.message));

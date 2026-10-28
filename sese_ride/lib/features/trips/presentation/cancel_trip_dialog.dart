@@ -45,25 +45,37 @@ abstract final class CancelTripDialog {
     CancelReason('other', 'Other reason'),
   ];
 
-  /// Shows the dialog. Returns the selected reason code, or null when the
+  /// Shows the dialog. Returns the selected reason code or result, or null when the
   /// user backs out (nothing is cancelled in that case).
-  static Future<String?> show(
+  static Future<CancelTripResult?> show(
     BuildContext context, {
     required bool isDriver,
+    double paidWaitingFee = 0.0,
+    bool isTrustedCustomer = false,
   }) {
     final reasons = isDriver ? driverReasons : customerReasons;
-    return showDialog<String>(
+    return showDialog<CancelTripResult>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => _CancelTripDialogBody(reasons: reasons),
+      builder: (ctx) => _CancelTripDialogBody(
+        reasons: reasons,
+        paidWaitingFee: paidWaitingFee,
+        isTrustedCustomer: isTrustedCustomer,
+      ),
     );
   }
 }
 
 class _CancelTripDialogBody extends StatefulWidget {
   final List<CancelReason> reasons;
+  final double paidWaitingFee;
+  final bool isTrustedCustomer;
 
-  const _CancelTripDialogBody({required this.reasons});
+  const _CancelTripDialogBody({
+    required this.reasons,
+    this.paidWaitingFee = 0.0,
+    this.isTrustedCustomer = false,
+  });
 
   @override
   State<_CancelTripDialogBody> createState() => _CancelTripDialogBodyState();
@@ -71,6 +83,7 @@ class _CancelTripDialogBody extends StatefulWidget {
 
 class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
   String? _selected;
+  bool _useCashSettlement = false;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +96,53 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.paidWaitingFee > 0) ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade300),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Color(0xFFD97706), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.isTrustedCustomer
+                            ? 'Cancelling during paid waiting incurs ₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
+                              'As a 5+ trip customer, any wallet shortage will carry as an outstanding balance on your next booking.'
+                            : 'Cancelling during paid waiting incurs ₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
+                              'Check Cash Settlement below if your wallet balance is low.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF92400E),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!widget.isTrustedCustomer) ...[
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Pay via Cash Settlement with Driver',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  subtitle: const Text(
+                      'Pay cash directly to driver upon cancelling',
+                      style: TextStyle(fontSize: 11)),
+                  value: _useCashSettlement,
+                  onChanged: (val) =>
+                      setState(() => _useCashSettlement = val ?? false),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ],
             const Text(
               'Tell us why — it helps us track reliability and keep the '
               'marketplace fair. This cancellation is logged.',
@@ -91,8 +151,6 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
             const SizedBox(height: 8),
             Flexible(
               child: SingleChildScrollView(
-                // RadioGroup (Flutter 3.32+) owns group value + changes —
-                // per-tile groupValue/onChanged are deprecated.
                 child: RadioGroup<String>(
                   groupValue: _selected,
                   onChanged: (v) => setState(() => _selected = v),
@@ -127,7 +185,12 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
           key: const Key('cancel_trip_confirm_button'),
           onPressed: _selected == null
               ? null
-              : () => Navigator.of(context).pop(_selected),
+              : () => Navigator.of(context).pop(
+                    CancelTripResult(
+                      reason: _selected!,
+                      useCashSettlement: _useCashSettlement,
+                    ),
+                  ),
           child: const Text('Confirm'),
         ),
       ],

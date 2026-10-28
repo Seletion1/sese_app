@@ -250,6 +250,16 @@ class ActiveTrip {
   final String? deliveryPin;
   final bool deliveryPinRequired;
 
+  /// Global waiting time billing toggle snapshot from system config.
+  final bool enableWaitingTimeBilling;
+
+  /// Accumulated paid waiting fee billed to customer / credited to driver.
+  final double paidWaitingFee;
+
+  /// Outstanding negative balance from previous unpaid cancellation / paid waiting
+  /// included in this trip's total fare for cumulative cash collection.
+  final double outstandingBalanceIncluded;
+
   const ActiveTrip({
     required this.tripId,
     required this.status,
@@ -303,6 +313,9 @@ class ActiveTrip {
     this.receiverShareAmount,
     this.deliveryPin,
     this.deliveryPinRequired = false,
+    this.enableWaitingTimeBilling = true,
+    this.paidWaitingFee = 0.0,
+    this.outstandingBalanceIncluded = 0.0,
   });
 
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
@@ -469,6 +482,10 @@ class ActiveTrip {
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
           map['forceDeliveryPinSystemWide'] == true,
+      enableWaitingTimeBilling: map['enableWaitingTimeBilling'] != false,
+      paidWaitingFee: (map['paidWaitingFee'] as num?)?.toDouble() ?? 0.0,
+      outstandingBalanceIncluded:
+          (map['outstandingBalanceIncluded'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

@@ -39,6 +39,7 @@ export {
   updateDriverLocation,
   advanceTripStatus,
   cancelTrip,
+  confirmCashCancellation,
   submitBid,
   rejectBid,
   acceptBid,

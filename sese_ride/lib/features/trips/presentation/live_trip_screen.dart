@@ -150,11 +150,15 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
 
   Future<void> _cancel() async {
     // Reason-first: the dialog returns null on dismiss, committing nothing.
-    final reason =
+    final result =
         await CancelTripDialog.show(context, isDriver: false);
-    if (reason == null || !mounted) return;
+    if (result == null || !mounted) return;
     try {
-      await widget.repository.cancelTrip(widget.trip.tripId, reason: reason);
+      await widget.repository.cancelTrip(
+        widget.trip.tripId,
+        reason: result.reason,
+        useCashSettlement: result.useCashSettlement,
+      );
       if (mounted) Navigator.of(context).pop();
     } on TripException catch (e) {
       if (mounted) {
@@ -679,11 +683,15 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
   Future<void> _cancel(BuildContext context) async {
     // Reason-first: the dialog returns null on dismiss, committing nothing.
-    final reason =
+    final result =
         await CancelTripDialog.show(context, isDriver: false);
-    if (reason == null) return;
+    if (result == null) return;
     try {
-      await widget.repository.cancelTrip(widget.trip.tripId, reason: reason);
+      await widget.repository.cancelTrip(
+        widget.trip.tripId,
+        reason: result.reason,
+        useCashSettlement: result.useCashSettlement,
+      );
       if (context.mounted) Navigator.of(context).pop();
     } on TripException catch (e) {
       if (context.mounted) {

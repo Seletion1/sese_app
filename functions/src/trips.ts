@@ -703,14 +703,8 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
   }
 
   let customerName = "Customer";
-  // Booker lifeline: the account holder's own number is minted onto every
-  // trip as `customerPhone` — raw, NEVER masked — so the assigned driver
-  // can always reach the person who ordered and paid, even when no
-  // secondary pickup/drop-off numbers were given or number hiding is on.
-  // Secondary contacts keep the masking above; this one deliberately does
-  // not. The assigned-driver read branch in firestore.rules already covers
-  // the whole trip doc, so no rules change is needed for this field.
   let customerPhone = "";
+  let outstandingNegativeBalance = 0;
   try {
     const custSnap = await db().collection("users").doc(customerId).get();
     if (custSnap.exists) {
@@ -719,8 +713,22 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
       customerPhone = normPhone(
         cData.phoneNumberE164 ?? cData.phoneNumber ?? ""
       );
+      outstandingNegativeBalance = Math.max(0, Number(cData.outstandingNegativeBalance ?? 0));
     }
   } catch (_) {}
+
+  const adjustedProposedFare = proposedFare + outstandingNegativeBalance;
+  const adjustedBaselineFare = baselineFare + outstandingNegativeBalance;
+
+  // Clear outstanding negative balance from user account since it is rolled into the new trip fare
+  if (outstandingNegativeBalance > 0) {
+    try {
+      await db().collection("users").doc(customerId).set(
+        { outstandingNegativeBalance: 0 },
+        { merge: true }
+      );
+    } catch (_) {}
+  }
 
   const ref = await db().collection("trips").add({
     customerId,
@@ -761,9 +769,10 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     vehicleCategory: String(d.vehicleCategory ?? d.category ?? (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(),
     fareToken: d.fareToken,
     fareTiers: verified.tiers,
-    baselineFare,
-    proposedFare,
-    fareAmount: proposedFare,
+    baselineFare: adjustedBaselineFare,
+    proposedFare: adjustedProposedFare,
+    fareAmount: adjustedProposedFare,
+    outstandingBalanceIncluded: outstandingNegativeBalance,
     fareBoosted: false,
     boostPercent: 0,
     paymentMethod,
@@ -1747,17 +1756,140 @@ export const cancelTrip = onCall(async (request) => {
     console.warn(`cancelTrip: audit write failed for ${tripId}: ${e}`);
   }
 
-  // Customer cancellation
+  // Customer cancellation with paid waiting fee & trusted customer / cash settlement logic
   if (isCustomer) {
+    const customerId = String(data.customerId ?? callerId);
+    let paidWaitingFee = 0;
+    const isArrivedOrProgress = data.status === "DRIVER_ARRIVED" || data.status === "IN_PROGRESS";
+    const arrivedAtMs = data.arrivedAt?.toMillis?.() ?? 0;
+    const enableWaitingBilling = data.enableWaitingTimeBilling !== false;
+
+    if (isArrivedOrProgress && arrivedAtMs > 0 && enableWaitingBilling) {
+      const elapsedMs = nowMs() - arrivedAtMs;
+      const freeWaitMs = 10 * 60 * 1000; // 10 minutes free countdown
+      if (elapsedMs > freeWaitMs) {
+        const paidWaitMins = Math.ceil((elapsedMs - freeWaitMs) / (60 * 1000));
+        const timeRatePerMin = Number(data.timeRatePerMinute ?? 20);
+        paidWaitingFee = Math.max(0, paidWaitMins * timeRatePerMin);
+      }
+    }
+
+    const useCashSettlement = request.data?.useCashSettlement === true;
+
+    if (paidWaitingFee > 0 && useCashSettlement) {
+      await ref.update({
+        status: "CANCELLED_WAITING_CASH_SETTLEMENT",
+        cancellationSource: "customer",
+        cancellationReason: reason,
+        paidWaitingFee,
+        pendingCashFee: paidWaitingFee,
+        pingDriverId: null,
+        pingExpiresAt: null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+      if (assignedDriverId) {
+        await notifyCustomer(
+          assignedDriverId,
+          tripId,
+          "Cash Settlement Requested",
+          `Customer cancelled during paid waiting. Collect ₦${paidWaitingFee} cash from customer and tap "Accept Cash & Cancel".`,
+          "cash_settlement_requested",
+          {},
+          `driver_${assignedDriverId}`
+        );
+      }
+      return { ok: true, cancelledBy: "customer", cashSettlement: true, fee: paidWaitingFee };
+    }
+
+    if (paidWaitingFee > 0) {
+      // Wallet settlement
+      const custUserSnap = await db().collection("users").doc(customerId).get();
+      const custUserData = custUserSnap.data() ?? {};
+      const completedTripCount = Number(custUserData.completedTripCount ?? 0);
+      const isTrustedCustomer = completedTripCount >= 5;
+
+      const walletRef = db().collection("wallets").doc(customerId);
+      const walletSnap = await walletRef.get();
+      const walletData = walletSnap.data() ?? {};
+      const currentBalance = typeof walletData.mainWalletBalance === "number"
+        ? walletData.mainWalletBalance
+        : (typeof walletData.balance === "number" ? walletData.balance / 100 : 0);
+
+      if (currentBalance < paidWaitingFee && !isTrustedCustomer) {
+        throw new HttpsError(
+          "failed-precondition",
+          `INSUFFICIENT_FUNDS: Your wallet balance (₦${currentBalance}) is insufficient for the ₦${paidWaitingFee} paid waiting fee. Please top up your wallet or select Cash Settlement.`,
+          { currentBalance, paidWaitingFee, isTrustedCustomer }
+        );
+      }
+
+      // Deduct wallet / record negative balance for trusted customers
+      if (currentBalance >= paidWaitingFee) {
+        // Direct wallet deduction
+        await db().runTransaction(async (wTx) => {
+          wTx.set(
+            walletRef,
+            {
+              mainWalletBalance: admin.firestore.FieldValue.increment(-paidWaitingFee),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+          const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+          if (assignedDriverId) {
+            const driverWalletRef = db().collection("wallets").doc(assignedDriverId);
+            wTx.set(
+              driverWalletRef,
+              {
+                mainWalletBalance: admin.firestore.FieldValue.increment(paidWaitingFee),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+        });
+      } else {
+        // Trusted Customer Exception: record outstanding negative balance
+        const shortage = paidWaitingFee - Math.max(0, currentBalance);
+        await db().collection("users").doc(customerId).set(
+          {
+            outstandingNegativeBalance: admin.firestore.FieldValue.increment(shortage),
+          },
+          { merge: true }
+        );
+        if (currentBalance > 0) {
+          await walletRef.set(
+            {
+              mainWalletBalance: 0,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+        const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+        if (assignedDriverId) {
+          await db().collection("wallets").doc(assignedDriverId).set(
+            {
+              mainWalletBalance: admin.firestore.FieldValue.increment(paidWaitingFee),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+      }
+    }
+
     await ref.update({
       status: "CANCELLED",
       cancellationSource: "customer",
       cancellationReason: reason,
+      paidWaitingFee,
       pingDriverId: null,
       pingExpiresAt: null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    return { ok: true, cancelledBy: "customer" };
+    return { ok: true, cancelledBy: "customer", paidWaitingFee };
   }
 
   // Driver cancellation logic
@@ -2298,6 +2430,35 @@ export const hubForceCompleteTrip = onCall(async (request) => {
   });
 
   return { ok: true, tripId };
+});
+
+/** Driver confirms cash collected from customer for waiting time cancellation */
+export const confirmCashCancellation = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Drivers must sign in.");
+  }
+  const driverId = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "");
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+  const data = snap.data()!;
+
+  const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+  if (assignedDriverId !== driverId) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  await ref.update({
+    status: "CANCELLED",
+    cashSettlementConfirmed: true,
+    cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true };
 });
 
 /** Hub Admin: Cancel trip & refund any held escrow */

@@ -171,6 +171,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _driverBreakOption1Ctrl = TextEditingController(text: '30');
   final _driverBreakOption2Ctrl = TextEditingController(text: '60');
   bool _driverBreakEnabled = true;
+  bool _enableWaitingTimeBilling = true;
 
   @override
   void initState() {
@@ -464,6 +465,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     final daily = existing.dailyStreakConfig;
     _dailyStreakEnabled = daily.streakEnabled;
     _autoArrivalEnabled = daily.autoArrivalEnabled;
+    _enableWaitingTimeBilling = daily.enableWaitingTimeBilling;
     _baseCommissionCtrl.text =
         (daily.baseCommissionRate * 100).toStringAsFixed(1);
     _completionAwardCtrl.text = daily.completionCashAward.toStringAsFixed(0);
@@ -575,6 +577,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         autoArrivalEnabled: _autoArrivalEnabled,
         autoArrivalCountdownSeconds:
             int.tryParse(_autoArrivalCountdownCtrl.text) ?? 5,
+        enableWaitingTimeBilling: _enableWaitingTimeBilling,
         disabledCountries: _disabledCountries.toList()..sort(),
         disabledStates: _disabledStates.toList()..sort(),
       );
@@ -1641,6 +1644,17 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     value: _forceDeliveryPinSystemWide,
                     onChanged: (val) {
                       setState(() => _forceDeliveryPinSystemWide = val);
+                    },
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 280,
+                  child: SwitchListTile(
+                    title: const Text('Enable Paid Waiting Billing'),
+                    subtitle: const Text('Bill waiting time after 10-min arrival countdown'),
+                    value: _enableWaitingTimeBilling,
+                    onChanged: (val) {
+                      setState(() => _enableWaitingTimeBilling = val);
                     },
                   ),
                 ),

@@ -199,6 +199,9 @@ class DailyStreakConfig {
   /// the streak is explicitly disabled at the state level.
   final List<String> disabledStates;
 
+  /// Global switch to enable or disable paid waiting time charges system-wide.
+  final bool enableWaitingTimeBilling;
+
   const DailyStreakConfig({
     this.streakEnabled = true,
     this.baseCommissionRate = 0.20,
@@ -206,6 +209,7 @@ class DailyStreakConfig {
     this.completionCashAward = 10000.0,
     this.autoArrivalEnabled = true,
     this.autoArrivalCountdownSeconds = 5,
+    this.enableWaitingTimeBilling = true,
     this.disabledCountries = const [],
     this.disabledStates = const [],
   });
@@ -231,6 +235,7 @@ class DailyStreakConfig {
         'completionCashAward': completionCashAward,
         'autoArrivalEnabled': autoArrivalEnabled,
         'autoArrivalCountdownSeconds': autoArrivalCountdownSeconds,
+        'enableWaitingTimeBilling': enableWaitingTimeBilling,
         'disabledCountries': disabledCountries,
         'disabledStates': disabledStates,
       };
@@ -247,6 +252,8 @@ class DailyStreakConfig {
       autoArrivalEnabled: (map['autoArrivalEnabled'] as bool?) ?? true,
       autoArrivalCountdownSeconds:
           (map['autoArrivalCountdownSeconds'] as num?)?.toInt() ?? 5,
+      enableWaitingTimeBilling:
+          (map['enableWaitingTimeBilling'] as bool?) ?? true,
       disabledCountries: (map['disabledCountries'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -265,6 +272,7 @@ class DailyStreakConfig {
     double? completionCashAward,
     bool? autoArrivalEnabled,
     int? autoArrivalCountdownSeconds,
+    bool? enableWaitingTimeBilling,
     List<String>? disabledCountries,
     List<String>? disabledStates,
   }) {
@@ -276,6 +284,8 @@ class DailyStreakConfig {
       autoArrivalEnabled: autoArrivalEnabled ?? this.autoArrivalEnabled,
       autoArrivalCountdownSeconds:
           autoArrivalCountdownSeconds ?? this.autoArrivalCountdownSeconds,
+      enableWaitingTimeBilling:
+          enableWaitingTimeBilling ?? this.enableWaitingTimeBilling,
       disabledCountries: disabledCountries ?? this.disabledCountries,
       disabledStates: disabledStates ?? this.disabledStates,
     );
