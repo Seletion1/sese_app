@@ -137,11 +137,11 @@ void main() {
         (tester) async {
       await pumpShell(tester, role: UserRole.superRole, isOwner: true);
 
-      // Owner has 6 tabs total. The first 3 module tabs (fleet, support, payouts)
-      // occupy the bottom bar; config + staff spill into the More sheet.
+      // Owner has module tabs. The first 3 module tabs (Active Rides, Fleet, Onboarding)
+      // occupy the bottom bar; Support, Payouts, Config, Staff spill into the More sheet.
+      expect(find.text('Active Rides'), findsOneWidget);
       expect(find.text('Fleet & Security'), findsOneWidget);
-      expect(find.text('Support Inbox'), findsOneWidget);
-      expect(find.text('Payouts'), findsOneWidget);
+      expect(find.text('Onboarding'), findsOneWidget);
 
       // More button is always present when overflow tabs exist.
       expect(find.text('More'), findsOneWidget);
@@ -150,6 +150,7 @@ void main() {
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
 
+      expect(find.text('Support Inbox'), findsOneWidget);
       expect(find.text('Dynamic Config'), findsOneWidget);
       expect(find.text('Staff'), findsOneWidget);
     });

@@ -70,9 +70,12 @@ void main() {
         visibleTabs(
             role: UserRole.superRole, isOwner: true, permissions: const []),
         [
+          HubTab.activeRides,
           HubTab.fleet,
+          HubTab.onboarding,
           HubTab.support,
           HubTab.payouts,
+          HubTab.broadcast,
           HubTab.config,
           HubTab.staff,
           HubTab.profile,
@@ -84,7 +87,16 @@ void main() {
       expect(
         visibleTabs(
             role: UserRole.superRole, isOwner: false, permissions: const []),
-        [HubTab.fleet, HubTab.support, HubTab.payouts, HubTab.config, HubTab.profile],
+        [
+          HubTab.activeRides,
+          HubTab.fleet,
+          HubTab.onboarding,
+          HubTab.support,
+          HubTab.payouts,
+          HubTab.broadcast,
+          HubTab.config,
+          HubTab.profile,
+        ],
       );
     });
 

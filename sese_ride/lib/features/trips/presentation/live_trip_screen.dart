@@ -1901,47 +1901,6 @@ class _CommunicationButton extends StatelessWidget {
   }
 }
 
-class _RoundActionIcon extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final Color color;
-  final Color bgColor;
-  final VoidCallback onTap;
-
-  const _RoundActionIcon({
-    super.key,
-    required this.icon,
-    required this.tooltip,
-    required this.color,
-    required this.bgColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: bgColor,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            color: color,
-            size: 20,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 // ── Terminal / error placeholder ──────────────────────────────────────────────
 
 /// Terminal / error placeholder with a way back.

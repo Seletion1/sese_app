@@ -72,7 +72,7 @@ class MutualProfileModal extends StatelessWidget {
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future: userId.isNotEmpty
           ? FirebaseFirestore.instance.collection('users').doc(userId).get()
-          : Future.value(null),
+          : null,
       builder: (context, snapshot) {
         final data = snapshot.data?.data();
 

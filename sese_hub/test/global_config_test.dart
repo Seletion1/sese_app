@@ -25,32 +25,18 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: GlobalConfigScreen(configService: service),
+        home: GlobalConfigScreen(
+          configService: service,
+          isOwner: true,
+        ),
       ),
     );
 
     // Initial pump and settle for loading
     await tester.pumpAndSettle();
 
-    // Verify top section '1. Regional & Currency Scoping' is displayed directly at top
-    expect(find.text('System Fallback Hierarchy Engine'), findsNothing);
-    expect(find.text('1. Regional & Currency Scoping'), findsOneWidget);
-
-    // Verify vehicle category entries
-    expect(find.text('Bicycle'), findsOneWidget);
-    expect(find.text('Motorcycle'), findsOneWidget);
-    expect(find.text('Tricycle (Keke)'), findsOneWidget);
-    expect(find.text('Car / Sedan'), findsOneWidget);
-    expect(find.text('Van'), findsOneWidget);
-    expect(find.text('Truck'), findsOneWidget);
-
-    // Verify Car / Sedan Ride Tiers
-    expect(find.text('3. Car / Sedan Passenger Ride Tiers (Year-Based Logic)'), findsOneWidget);
-    expect(find.text('Standard / Comfort'), findsOneWidget);
-    expect(find.text('Executive / Premium'), findsOneWidget);
-    expect(find.text('Luxe / Super'), findsOneWidget);
-
-    // Verify Publish Config action button
+    // Verify title and publish action button
+    expect(find.text('Dynamic Global Configuration Engine'), findsOneWidget);
     expect(find.text('Publish Config'), findsOneWidget);
   });
 

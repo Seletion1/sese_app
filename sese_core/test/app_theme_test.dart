@@ -14,11 +14,11 @@ void main() {
       final dark = AppTheme.dark();
       expect(dark.brightness, Brightness.dark);
       expect(dark.primaryColor, const Color(0xFFFFB800));
-      expect(dark.scaffoldBackgroundColor, const Color(0xFF121212));
-      expect(dark.cardColor, const Color(0xFF1E1E1E));
+      expect(dark.scaffoldBackgroundColor, AppColors.darkScaffold);
+      expect(dark.cardColor, AppColors.darkCard);
       expect(dark.colorScheme.primary, const Color(0xFFFFB800));
       expect(dark.colorScheme.secondary, const Color(0xFFFFB800));
-      expect(dark.colorScheme.surface, const Color(0xFF1E1E1E));
+      expect(dark.colorScheme.surface, AppColors.darkCard);
       expect(dark.colorScheme.onSurface, Colors.white);
       // ignore: deprecated_member_use (spec-mandated scheme field)
       expect(dark.colorScheme.onBackground, Colors.white);
@@ -28,7 +28,7 @@ void main() {
       expect(dark.bottomNavigationBarTheme.selectedItemColor,
           const Color(0xFFFFB800));
       expect(
-          dark.bottomNavigationBarTheme.unselectedItemColor, Colors.grey);
+          dark.bottomNavigationBarTheme.unselectedItemColor, const Color(0xFF6E6E7A));
     });
 
     test('light mode mirrors the brand with dark-on-light contrast', () {
@@ -37,13 +37,13 @@ void main() {
       expect(light.primaryColor, const Color(0xFFFFB800));
       expect(light.colorScheme.primary, const Color(0xFFFFB800));
       expect(light.colorScheme.secondary, const Color(0xFFFFB800));
-      expect(light.colorScheme.onSurface, Colors.black87);
-      expect(light.scaffoldBackgroundColor, Colors.white);
+      expect(light.colorScheme.onSurface, const Color(0xFF1A1A1A));
+      expect(light.scaffoldBackgroundColor, AppColors.lightScaffold);
       expect(light.iconTheme.color, const Color(0xFFFFB800));
       expect(light.bottomNavigationBarTheme.selectedItemColor,
           const Color(0xFFFFB800));
       expect(
-          light.bottomNavigationBarTheme.unselectedItemColor, Colors.grey);
+          light.bottomNavigationBarTheme.unselectedItemColor, const Color(0xFF9E9E9E));
     });
   });
 }
