@@ -43,6 +43,9 @@ void main() async {
   // Prime cached country code for phone and regional config fields.
   await CountryDetectionService.instance.detectCountryCode();
 
+  // Initialize enterprise silent crash logging & error recovery handlers.
+  CrashReporterService.initialize(appName: 'sese_hub');
+
   // Unified high-priority push (escalations, announcements) with chime.
   // Staff topics subscribe after qualification (dashboard shell).
   // ignore: discarded_futures

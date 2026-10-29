@@ -430,6 +430,16 @@ class ActiveTrip {
       }
     }
 
+    if (fareAmount == 0) {
+      fareAmount = (map['fareAmount'] as num?)?.toDouble() ??
+          (map['fare'] as num?)?.toDouble() ??
+          (map['offeredFare'] as num?)?.toDouble() ??
+          (map['agreedFare'] as num?)?.toDouble() ??
+          (map['grossFare'] as num?)?.toDouble() ??
+          (settlement['fareAmount'] as num?)?.toDouble() ??
+          (map['fareMinor'] is num ? (map['fareMinor'] as num).toDouble() / 100.0 : 0.0);
+    }
+
     return ActiveTrip(
       tripId: tripId,
       status: tripStatusFromString(map['status']?.toString()),

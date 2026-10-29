@@ -24,6 +24,7 @@ import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
+import 'features/permissions/permission_onboarding_gate.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
 import 'widgets/map_provider.dart' show GmsAvailability;
@@ -121,51 +122,14 @@ void main() async {
   // ignore: unnecessary_statements
   overlayMain;
 
-  // Widget-build safety net (2026-10-01): if any screen's build fails on
-  // device, show a readable error card instead of a blank/grey void — and
-  // log the full details. A blank home strands an earning driver with zero
-  // information; this converts "white screen, unknown cause" into a named
-  // error the user can report and we can fix exactly. Only renders when a
-  // build has ALREADY failed; it changes nothing on healthy frames.
-  ErrorWidget.builder = (FlutterErrorDetails details) {
-    debugPrint('sese_ride build failure: ${details.exceptionAsString()}');
-    debugPrint(details.stack.toString());
-    return Material(
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.error_outline,
-                    size: 48, color: Colors.red.shade700),
-                const SizedBox(height: 12),
-                const Text(
-                  'Something went wrong',
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Please restart the app. If this keeps happening, contact '
-                  'support with the code below.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                SelectableText(
-                  details.exceptionAsString().split('\n').first,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 12, fontFamily: 'monospace'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  };
+  // Initialize enterprise silent crash logging & error recovery handlers.
+  // Catches framework errors, unhandled isolate errors, and widget build failures.
+  // Captures stack traces & device context in background to Firestore crash_reports
+  // for The Hub developer queue, and presents a clean, reassuring UI to the user.
+  CrashReporterService.initialize(
+    appName: 'sese_ride',
+    appVersion: installedVersion,
+  );
 
   // showSplash: true — the Flutter SeSeSplashScreen is the ONLY branded
   // experience. The native Android window is now a plain solid-colour fill
@@ -381,7 +345,12 @@ class _AuthGateState extends State<_AuthGate> {
                 if (navigator == null) return;
                 navigator.pushAndRemoveUntil(
                   MaterialPageRoute(
-                    builder: (_) => DriverHomeShell(user: user, auth: _auth),
+                    builder: (_) => PermissionOnboardingGate.wrap(
+                      user: user,
+                      role: UserRole.driver,
+                      auth: _auth,
+                      child: DriverHomeShell(user: user, auth: _auth),
+                    ),
                   ),
                   (route) => false,
                 );
@@ -394,15 +363,31 @@ class _AuthGateState extends State<_AuthGate> {
               if (modeSnapshot.connectionState != ConnectionState.done) {
                 return const Scaffold(body: SizedBox.shrink());
               }
-              switch (modeSnapshot.data ?? user.role) {
+              final activeRole = modeSnapshot.data ?? user.role;
+              switch (activeRole) {
                 case UserRole.customer:
-                  return CustomerHomeShell(user: user, auth: _auth);
+                  return PermissionOnboardingGate.wrap(
+                    user: user,
+                    role: UserRole.customer,
+                    auth: _auth,
+                    child: CustomerHomeShell(user: user, auth: _auth),
+                  );
                 case UserRole.driver:
-                  return DriverHomeShell(user: user, auth: _auth);
+                  return PermissionOnboardingGate.wrap(
+                    user: user,
+                    role: UserRole.driver,
+                    auth: _auth,
+                    child: DriverHomeShell(user: user, auth: _auth),
+                  );
                 case UserRole.admin:
                 case UserRole.superRole:
                 case UserRole.agent:
-                  return CustomerHomeShell(user: user, auth: _auth);
+                  return PermissionOnboardingGate.wrap(
+                    user: user,
+                    role: UserRole.customer,
+                    auth: _auth,
+                    child: CustomerHomeShell(user: user, auth: _auth),
+                  );
               }
             },
           );
@@ -410,9 +395,19 @@ class _AuthGateState extends State<_AuthGate> {
 
         switch (user.role) {
           case UserRole.customer:
-            return CustomerHomeShell(user: user, auth: _auth);
+            return PermissionOnboardingGate.wrap(
+              user: user,
+              role: UserRole.customer,
+              auth: _auth,
+              child: CustomerHomeShell(user: user, auth: _auth),
+            );
           case UserRole.driver:
-            return DriverHomeShell(user: user, auth: _auth);
+            return PermissionOnboardingGate.wrap(
+              user: user,
+              role: UserRole.driver,
+              auth: _auth,
+              child: DriverHomeShell(user: user, auth: _auth),
+            );
           case UserRole.admin:
           case UserRole.superRole:
           case UserRole.agent:
@@ -420,7 +415,12 @@ class _AuthGateState extends State<_AuthGate> {
             // features in sese_ride (unified wallet & account access).
             // Route to CustomerHomeShell so the owner can book rides and
             // monitor the platform while staying logged in.
-            return CustomerHomeShell(user: user, auth: _auth);
+            return PermissionOnboardingGate.wrap(
+              user: user,
+              role: UserRole.customer,
+              auth: _auth,
+              child: CustomerHomeShell(user: user, auth: _auth),
+            );
         }
       },
     );

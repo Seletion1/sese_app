@@ -2582,6 +2582,13 @@ void _showBoostFareDialog(
                           loading = false;
                         });
                       }
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        setDlg(() {
+                          error = 'Unable to increase fare. Please try again.';
+                          loading = false;
+                        });
+                      }
                     }
                   },
             child: const Text('Confirm Increase'),

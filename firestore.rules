@@ -885,6 +885,15 @@ service cloud.firestore {
       }
     }
 
+    // ===== CRASH REPORTS & DEVELOPER QUEUE =====
+    // Any app instance (authenticated or guest) may silently record a crash
+    // report in the background. Only hub staff, support admins, and super
+    // admins can inspect, resolve, or manage crash reports in The Hub queue.
+    match /crash_reports/{reportId} {
+      allow create: if true;
+      allow read, update, delete: if adminSupportAccess() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+    }
+
     // ===== SUPPORT CHATS (AI-FIRST & HUMAN AGENT HANDOVER) =====
     function isChatParticipant(chatId) {
       return isAuthenticated() &&

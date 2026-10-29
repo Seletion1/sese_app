@@ -100,6 +100,15 @@ class EarningsService {
     }).handleError((Object _) => const <TripEarning>[]);
   }
 
+  /// Real-time stream of today's earnings totals for [driverId].
+  /// Emits a new [DayEarnings] snapshot immediately whenever any completed trip updates.
+  Stream<DayEarnings> todayEarningsStream(String driverId) {
+    return completedTripEarningsStream(driverId).map((earnings) {
+      final now = DateTime.now();
+      return summarizeDay(earnings, now).day;
+    });
+  }
+
   static int _compareEarningDate(TripEarning a, TripEarning b) {
     final da = a.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
     final db = b.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);

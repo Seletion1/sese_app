@@ -6,6 +6,7 @@ import '../driver/presentation/driver_onboarding_screen.dart';
 import '../driver/services/driver_fleet_service.dart';
 import '../home/customer_home_shell.dart';
 import '../home/driver_home_shell.dart';
+import '../permissions/permission_onboarding_gate.dart';
 import 'role_controller.dart';
 
 /// Dual-role mode switching, launched from Settings ("App Mode").
@@ -61,7 +62,12 @@ abstract final class ModeSwitcher {
               'Active trip protection timer expired: auto-switching to Driver Mode');
           navigator.pushAndRemoveUntil(
             MaterialPageRoute(
-              builder: (_) => DriverHomeShell(user: user, auth: auth),
+              builder: (_) => PermissionOnboardingGate.wrap(
+                user: user,
+                role: UserRole.driver,
+                auth: auth,
+                child: DriverHomeShell(user: user, auth: auth),
+              ),
             ),
             (route) => false,
           );
@@ -73,7 +79,12 @@ abstract final class ModeSwitcher {
 
     navigator.pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (_) => CustomerHomeShell(user: user, auth: auth),
+        builder: (_) => PermissionOnboardingGate.wrap(
+          user: user,
+          role: UserRole.customer,
+          auth: auth,
+          child: CustomerHomeShell(user: user, auth: auth),
+        ),
       ),
       (route) => false,
     );
@@ -133,7 +144,12 @@ abstract final class ModeSwitcher {
         await RoleController.instance.activateMode(user.uid, UserRole.driver);
         navigator.pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (_) => DriverHomeShell(user: user, auth: auth),
+            builder: (_) => PermissionOnboardingGate.wrap(
+              user: user,
+              role: UserRole.driver,
+              auth: auth,
+              child: DriverHomeShell(user: user, auth: auth),
+            ),
           ),
           (route) => false,
         );

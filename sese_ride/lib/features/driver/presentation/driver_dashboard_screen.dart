@@ -30,6 +30,7 @@ import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
 import '../../payments/top_up_sheet.dart';
 import '../../wallet/earnings_screen.dart';
+import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
 
 class DriverDashboardScreen extends StatefulWidget {
@@ -116,6 +117,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// Sheet controller for the full-width draggable active trip bottom sheet.
   final DraggableScrollableController _activeTripSheetController =
       DraggableScrollableController();
+
+  /// Service calculating live completed trip earnings and daily net profit.
+  late final EarningsService _earningsService = EarningsService();
 
   /// State tracking for auto-collapsing the active trip card on movement.
   ActiveTrip? _currentActiveTrip;
@@ -1784,12 +1788,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  /// Small live cash-balance pill; the full earnings view is one tap away.
+  /// Live daily net profit pill; the full earnings view is one tap away.
   Widget _buildBalancePill() {
-    return StreamBuilder<DualWallet>(
-      stream: const SeseCoinService().walletStream(widget.driverId),
+    return StreamBuilder<DayEarnings>(
+      stream: _earningsService.todayEarningsStream(widget.driverId),
       builder: (context, snapshot) {
-        final balance = snapshot.data?.mainWalletBalance ?? 0;
+        final day = snapshot.data;
+        final dailyNetTotal = day?.net ?? 0.0;
+        final formattedTotal = PaymentService.formatNaira(dailyNetTotal);
 
         return Material(
           color: Colors.transparent,
@@ -1835,7 +1841,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   child: Text(
-                    '$_currencySymbol${balance.toStringAsFixed(2)}',
+                    formattedTotal,
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.2,

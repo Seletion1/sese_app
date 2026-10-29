@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/bid_models.dart';
@@ -287,8 +288,26 @@ class FirestoreTripRepository implements TripRepository {
     }
   }
 
+  Future<void> _ensureFreshAuthToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw const TripException(
+          'unauthenticated',
+          'Your session has expired. Please sign in again.',
+        );
+      }
+      await user.getIdToken(true);
+    } on TripException {
+      rethrow;
+    } catch (e) {
+      debugPrint('FirestoreTripRepository token refresh warning: $e');
+    }
+  }
+
   @override
   Future<void> acceptBid(String tripId, String driverId) async {
+    await _ensureFreshAuthToken();
     try {
       await _fn.httpsCallable('acceptBid').call({
         'tripId': tripId,
@@ -301,6 +320,7 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Future<void> increaseTripFare(String tripId, double newFare) async {
+    await _ensureFreshAuthToken();
     try {
       await _fn.httpsCallable('increaseTripFare').call({
         'tripId': tripId,
@@ -313,6 +333,7 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Future<void> keepSearchingTrip(String tripId) async {
+    await _ensureFreshAuthToken();
     try {
       await _fn.httpsCallable('keepSearchingTrip').call({
         'tripId': tripId,

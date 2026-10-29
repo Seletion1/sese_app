@@ -340,5 +340,23 @@ void main() {
         200.0,
       );
     });
+
+    test('todayEarningsStream emits live day earnings totals', () async {
+      final now = DateTime.now();
+      final fakeEarnings = _FakeEarnings([
+        TripEarning(
+          tripId: 'today-trip-1',
+          grossNaira: 4000,
+          commissionNaira: 600,
+          completedAt: now,
+        ),
+      ]);
+
+      final day = await fakeEarnings.todayEarningsStream('driver_1').first;
+      expect(day.gross, 4000.0);
+      expect(day.commission, 600.0);
+      expect(day.net, 3400.0);
+      expect(day.tripCount, 1);
+    });
   });
 }

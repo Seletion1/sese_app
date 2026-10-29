@@ -39,6 +39,8 @@ export 'widgets/document_upload_card.dart';
 export 'package:image_picker/image_picker.dart'
     show ImageSource, XFile, CameraDevice;
 export 'services/app_sound_service.dart';
+export 'services/crash_reporter_service.dart';
+export 'widgets/global_error_widget.dart';
 export 'services/config_resolution_engine.dart';
 export 'services/pricing_calculator.dart';
 export 'services/vehicle_tier_classifier.dart';

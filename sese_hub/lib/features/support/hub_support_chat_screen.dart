@@ -72,7 +72,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     // Force-refresh the ID token BEFORE the support WatchStreams open.
     ensureFreshHubIdToken();
   }
@@ -511,6 +511,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
               ),
             ),
             const Tab(text: 'Active Chats'),
+            const Tab(text: 'Developer Queue'),
           ],
         ),
         Expanded(
@@ -519,6 +520,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
             children: [
               _buildPendingQueueTab(isMobile: isMobile),
               _buildActiveChatsTab(isMobile: isMobile),
+              _buildDeveloperQueueTab(isMobile: isMobile),
             ],
           ),
         ),
@@ -1188,6 +1190,292 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
           ],
         );
       },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Developer Queue Tab (Silent Crash Reports)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildDeveloperQueueTab({required bool isMobile}) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db
+          .collection('crash_reports')
+          .orderBy('timestamp', descending: true)
+          .limit(50)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
+        if (snap.hasError) {
+          return Center(
+            child: Text(
+              'Could not load crash reports: ${snap.error}',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          );
+        }
+
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle_outline_rounded,
+                    size: 48, color: Colors.green),
+                SizedBox(height: 12),
+                Text(
+                  'No Crash Reports',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'All systems running smoothly across SeSe apps.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(12),
+          itemCount: docs.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data();
+            final reportId = doc.id;
+            final appName = (data['appName'] ?? 'sese_app').toString();
+            final appVersion = (data['appVersion'] ?? '1.0.0').toString();
+            final errorMsg = (data['error'] ?? 'Unknown Error').toString();
+            final stackTrace = (data['stackTrace'] ?? '').toString();
+            final platform = (data['platform'] ?? 'unknown').toString();
+            final status = (data['status'] ?? 'QUEUED').toString();
+            final userId = (data['userId'] ?? 'anonymous').toString();
+            final contextTag = (data['context'] ?? 'unhandled').toString();
+            final isResolved = status == 'RESOLVED';
+
+            return Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: isResolved
+                      ? Colors.grey.withValues(alpha: 0.3)
+                      : Colors.amber.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(14.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        // App Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: appName == 'sese_ride'
+                                ? Colors.blue.withValues(alpha: 0.15)
+                                : Colors.purple.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '$appName v$appVersion',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: appName == 'sese_ride'
+                                  ? Colors.blue.shade800
+                                  : Colors.purple.shade800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            platform.toUpperCase(),
+                            style: const TextStyle(
+                                fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const Spacer(),
+                        // Status Badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isResolved
+                                ? Colors.green.withValues(alpha: 0.15)
+                                : Colors.amber.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            isResolved ? 'RESOLVED' : 'QUEUED',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isResolved
+                                  ? Colors.green.shade800
+                                  : Colors.amber.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      errorMsg,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        fontFamily: 'monospace',
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Context: $contextTag • User: $userId',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => _showStackTraceModal(
+                            context,
+                            appName: appName,
+                            errorMsg: errorMsg,
+                            stackTrace: stackTrace,
+                            userId: userId,
+                            platform: platform,
+                            contextTag: contextTag,
+                          ),
+                          icon: const Icon(Icons.code_rounded, size: 16),
+                          label: const Text('Inspect Stack Trace',
+                              style: TextStyle(fontSize: 12)),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            isResolved
+                                ? Icons.undo_rounded
+                                : Icons.check_circle_outline_rounded,
+                            color: isResolved ? Colors.grey : Colors.green,
+                          ),
+                          tooltip: isResolved
+                              ? 'Reopen Report'
+                              : 'Mark as Resolved',
+                          onPressed: () async {
+                            await _db
+                                .collection('crash_reports')
+                                .doc(reportId)
+                                .update({
+                              'status': isResolved ? 'QUEUED' : 'RESOLVED',
+                              'resolvedAt': FieldValue.serverTimestamp(),
+                              'resolvedBy': _currentAdminUid,
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showStackTraceModal(
+    BuildContext context, {
+    required String appName,
+    required String errorMsg,
+    required String stackTrace,
+    required String userId,
+    required String platform,
+    required String contextTag,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.75,
+        maxChildSize: 0.95,
+        minChildSize: 0.4,
+        builder: (_, scrollController) => Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Crash Detail ($appName)',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 8),
+              SelectableText(
+                'Error: $errorMsg\nPlatform: $platform | User: $userId | Context: $contextTag',
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              const Text('Stack Trace:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: SelectableText(
+                      stackTrace.isEmpty ? 'No stack trace available.' : stackTrace,
+                      style: const TextStyle(
+                        color: Colors.greenAccent,
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

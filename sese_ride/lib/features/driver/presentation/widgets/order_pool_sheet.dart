@@ -164,6 +164,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                       child: ListView.separated(
                         key: const Key('order_pool_list'),
                         controller: scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
                         padding: EdgeInsets.fromLTRB(
                           12,
                           4,
@@ -367,24 +368,30 @@ class _PoolRow extends StatelessWidget {
                     Icon(Icons.near_me_outlined,
                         size: 14, color: scheme.onSurfaceVariant),
                     const SizedBox(width: 4),
-                    Text(
-                      'Pickup: ${pickupKm.toStringAsFixed(1)} km (~$pickupEtaMins min)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: scheme.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        'Pickup: ${pickupKm.toStringAsFixed(1)} km (~$pickupEtaMins min)',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     Icon(Icons.route_outlined,
                         size: 14, color: scheme.onSurfaceVariant),
                     const SizedBox(width: 4),
-                    Text(
-                      'Trip: ${trip.distanceKm.toStringAsFixed(1)} km (~$tripDurationMins min)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: scheme.onSurfaceVariant,
+                    Flexible(
+                      child: Text(
+                        'Trip: ${trip.distanceKm.toStringAsFixed(1)} km (~$tripDurationMins min)',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
                   ],
@@ -461,7 +468,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
     _selectedSuggestionPct = null;
     _loadRoutes();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _mapController.fitPoints(_pickup, _dropoff, padding: 64);
+      if (mounted) _mapController.fitPoints(_pickup, _dropoff, padding: 88);
     });
   }
 
@@ -482,7 +489,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
       _driverLegPoints =
           leg.isNotEmpty ? leg : [widget.driverPosition, _pickup];
     });
-    _mapController.fitPoints(_pickup, _dropoff, padding: 64);
+    _mapController.fitPoints(_pickup, _dropoff, padding: 88);
   }
 
   double _roundTo100(double val) {
@@ -875,34 +882,21 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                                       ),
                                       const SizedBox(width: 8),
                                       Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'Pickup Point',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.green,
-                                              ),
-                                            ),
-                                            Text(
-                                              trip.pickupAddress.isEmpty
-                                                  ? 'Pickup location'
-                                                  : trip.pickupAddress,
-                                              style: const TextStyle(
-                                                  fontSize: 13),
-                                            ),
-                                          ],
+                                        child: Text(
+                                          trip.pickupAddress.isEmpty
+                                              ? 'Pickup location'
+                                              : trip.pickupAddress,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500),
                                         ),
                                       ),
                                     ],
                                   ),
                                   const Padding(
-                                    padding: EdgeInsets.only(left: 4),
+                                    padding: EdgeInsets.only(left: 4, top: 2, bottom: 2),
                                     child: SizedBox(
-                                      height: 14,
+                                      height: 12,
                                       child: VerticalDivider(
                                         width: 1,
                                         thickness: 1,
@@ -915,33 +909,20 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       const Padding(
-                                        padding: EdgeInsets.only(top: 3),
+                                        padding: EdgeInsets.only(top: 2),
                                         child: Icon(Icons.location_on,
-                                            size: 12,
+                                            size: 14,
                                             color: Colors.redAccent),
                                       ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 6),
                                       Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            const Text(
-                                              'Drop-off Destination',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.redAccent,
-                                              ),
-                                            ),
-                                            Text(
-                                              trip.dropoffAddress.isEmpty
-                                                  ? 'Drop-off location'
-                                                  : trip.dropoffAddress,
-                                              style: const TextStyle(
-                                                  fontSize: 13),
-                                            ),
-                                          ],
+                                        child: Text(
+                                          trip.dropoffAddress.isEmpty
+                                              ? 'Drop-off location'
+                                              : trip.dropoffAddress,
+                                          style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500),
                                         ),
                                       ),
                                     ],
@@ -1056,17 +1037,18 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                                     child: Row(
                                       children: [
                                         ChoiceChip(
-                                          label: const Text('Original'),
+                                          label: Text(
+                                              '${widget.currencySymbol}${_formatAmount(baseline)}'),
                                           selected: _selectedSuggestionPct ==
                                                   null &&
                                               !_isCustomBidActive,
-                                          selectedColor: scheme.surfaceContainerHighest,
+                                          selectedColor: AppColors.seseGold,
                                           labelStyle: TextStyle(
                                             color: (_selectedSuggestionPct ==
                                                         null &&
                                                     !_isCustomBidActive)
-                                                ? scheme.onSurface
-                                                : scheme.onSurfaceVariant,
+                                                ? Colors.black87
+                                                : scheme.onSurface,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12,
                                           ),
