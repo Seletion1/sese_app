@@ -1518,33 +1518,26 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     return trimmed.split(RegExp(r'\s+')).first;
   }
 
+  /// Returns the single consolidated status string shown in the top status box.
+  ///
+  /// When a live driver ETA fix is available ([ActiveTrip.driverLat]/[driverLng]),
+  /// this message is embedded inside [_DriverEtaCard] which replaces the plain
+  /// status box entirely — so only ONE status banner is ever visible at once.
   String _customerStatusMessage(TripStatus status, String driverName) {
     final firstName = _firstName(driverName);
     switch (status) {
       case TripStatus.driverAccepted:
       case TripStatus.driverArriving:
-        return '$firstName is on the way to pickup';
+        return '$firstName is on the way';
       case TripStatus.driverArrived:
-        return '$firstName has arrived at pickup point';
+        return '$firstName arrived at pickup • Waiting...';
       case TripStatus.inProgress:
-        return 'Trip in progress — sit back and relax';
+        return 'Trip in progress • En route to drop-off';
       default:
         return 'Driver assigned to your trip';
     }
   }
 
-  /// Compact one-line subtitle shown under the driver name on the customer
-  /// active trip sheet.  Payment details are shown in the banner card below,
-  /// so this line is limited to fare + vehicle info to avoid redundancy.
-  String _formatCustomerPaymentSubtitle(ActiveTrip trip, DriverInfo driver) {
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
-    final vehicle =
-        driver.vehicleLabel.isNotEmpty ? ' • ${driver.vehicleLabel}' : '';
-
-    return '$fareStr$vehicle';
-  }
 
   Widget? _buildCustomerPaymentBreakdown(ActiveTrip trip) {
     final mode = trip.paymentMode.toLowerCase();
@@ -1803,64 +1796,63 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                 ),
 
-                // a. Live Driver ETA Card — shown whenever a valid driver
-                // location fix exists.  Distance is computed from the
-                // driver's last-published GPS fix (trip.driverLat/Lng)
-                // to the relevant destination: pickup while en route,
-                // dropoff once the trip is in-progress.  ETA uses the
-                // same 30 km/h urban estimate as the driver cockpit (display
-                // only — not money, client-side computation is acceptable).
-                if (trip.driverLat != null && trip.driverLng != null)
+                // a. Unified status banner:
+                //    • When a live driver GPS fix exists → show the ETA card
+                //      which already embeds a rich status line ("Driver
+                //      arriving in 3 min • 120 m away" or "In progress …").
+                //    • When no fix yet → show the plain amber status box as
+                //      the sole banner so there is never two status lines.
+                if (trip.driverLat != null && trip.driverLng != null) ...[
                   _DriverEtaCard(trip: trip),
-                if (trip.driverLat != null && trip.driverLng != null)
                   const SizedBox(height: 8),
-
-                // b. Status Container
-                Container(
-                  key: const Key('customer_active_status_container'),
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF78350F).withValues(alpha: 0.3)
-                        : const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
+                ] else ...[
+                  // b. Plain status container — only shown when no GPS fix.
+                  Container(
+                    key: const Key('customer_active_status_container'),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    decoration: BoxDecoration(
                       color: isDark
-                          ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
-                          : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                          ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                          : const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                            : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.directions_car_filled_rounded,
+                          color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _customerStatusMessage(trip.status, driver.fullName),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.directions_car_filled_rounded,
-                        color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
-                        size: 22,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _customerStatusMessage(trip.status, driver.fullName),
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 8),
+                ],
 
                 // b. Identity Row (Mutual Driver Profile Card)
                 InkWell(
                   key: const Key('customer_driver_profile_card'),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   onTap: () {
                     MutualProfileModal.show(
                       context,
@@ -1872,20 +1864,63 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                       vehicleInfo: driver.vehicleLabel,
                     );
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                      ),
+                    ),
                     child: Row(
                       children: [
                         UserAvatar(
                           displayName: driver.fullName,
                           photoUrl: driver.photoUrl,
-                          radius: 22,
+                          radius: 24,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Primary line: bold fare amount
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    trip.fareFormatted.isNotEmpty
+                                        ? trip.fareFormatted
+                                        : '₦${trip.fareAmount.toStringAsFixed(0)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 20,
+                                      color: isDark
+                                          ? const Color(0xFFFBBF24)
+                                          : const Color(0xFF92400E),
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      driver.vehicleLabel.isNotEmpty
+                                          ? driver.vehicleLabel
+                                          : 'Vehicle',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 15,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              // Secondary line: driver name + rating + plate
                               Row(
                                 children: [
                                   Flexible(
@@ -1893,55 +1928,42 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                       driver.fullName.isNotEmpty
                                           ? _firstName(driver.fullName)
                                           : 'Driver',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 17,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                        color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                                       ),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
+                                  const Icon(Icons.verified, color: Colors.blue, size: 14),
                                   const SizedBox(width: 4),
-                                  const Icon(
-                                    Icons.verified,
-                                    color: Colors.blue,
-                                        size: 17,
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(
-                                            Icons.star_rounded,
-                                            color: Colors.amber,
-                                            size: 16,
-                                          ),
-                                          Text(
-                                            ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
+                                  const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
                                   Text(
-                                    _formatCustomerPaymentSubtitle(trip, driver),
+                                    ' ${(driver.rating > 0 ? driver.rating : 5.0).toStringAsFixed(1)}',
                                     style: TextStyle(
-                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
                                       color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
-                                      fontWeight: FontWeight.w600,
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
                                   ),
+                                  if (driver.plateNumber.isNotEmpty) ...[
+                                    Text(
+                                      '  ·  ${driver.plateNumber}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
-                            ),
-                            const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.grey, size: 22),
                       ],
                     ),
                   ),
@@ -2144,6 +2166,9 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
 }
 
 /// Clean horizontal communication button with icon and label for clear touch targets.
+///
+/// Sized generously (vertical padding 14, font 14 bold) so the tap area is
+/// comfortable for both customer and driver one-handed use while in-trip.
 class _CommunicationButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -2166,25 +2191,25 @@ class _CommunicationButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 19),
-              const SizedBox(width: 6),
+              Icon(icon, color: color, size: 21),
+              const SizedBox(width: 7),
               Flexible(
                 child: Text(
                   label,
                   style: TextStyle(
                     color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2491,8 +2516,10 @@ class _DriverEtaCard extends StatelessWidget {
         isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E);
 
     final label = isInProgress
-        ? 'In progress  •  $etaMin min to dropoff  •  $distLabel'
-        : 'Driver arriving in $etaMin min  •  $distLabel away';
+        ? 'In progress  •  $etaMin min to drop-off  •  $distLabel'
+        : trip.status == TripStatus.driverArrived
+            ? 'Driver arrived at pickup  •  $distLabel away'
+            : 'Driver arriving in $etaMin min  •  $distLabel away';
 
     return Container(
       key: const Key('customer_driver_eta_card'),

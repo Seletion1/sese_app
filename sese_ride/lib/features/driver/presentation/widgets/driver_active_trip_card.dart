@@ -554,18 +554,20 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
+  /// Label for the slide-to-action button — direct action verbs only,
+  /// no "Slide to" prefix (the animated arrow thumb already conveys the gesture).
   String get _nextLabel {
     switch (_nextStatus) {
       case 'DRIVER_ARRIVING':
-        return 'Slide to Start Trip';
+        return 'On My Way';
       case 'DRIVER_ARRIVED':
-        return "Slide to confirm Arrived";
+        return 'Arrived at Pickup';
       case 'IN_PROGRESS':
-        return 'Slide to Start Ride';
+        return 'Start Ride';
       case 'COMPLETED':
-        return 'Slide to Complete Trip';
+        return 'Complete Trip';
       default:
-        return 'Slide to Confirm';
+        return 'Confirm';
     }
   }
 
@@ -645,6 +647,39 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     final trimmed = fullName.trim();
     if (trimmed.isEmpty) return '';
     return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  /// Returns a concise driver-facing status string for the unified status banner.
+  String _driverStatusMessage(ActiveTrip trip) {
+    final name = _firstName(
+        trip.customerName.isNotEmpty ? trip.customerName : 'Customer');
+    switch (trip.status) {
+      case TripStatus.driverAccepted:
+        return 'En route to $name';
+      case TripStatus.driverArriving:
+        return 'Approaching pickup • Almost there';
+      case TripStatus.driverArrived:
+        return 'Arrived at pickup • Waiting for $name';
+      case TripStatus.inProgress:
+        return 'Trip in progress • En route to drop-off';
+      default:
+        return 'Trip assigned';
+    }
+  }
+
+  /// Returns the icon that best represents the current trip status for the driver.
+  IconData _driverStatusIcon(TripStatus status) {
+    switch (status) {
+      case TripStatus.driverAccepted:
+      case TripStatus.driverArriving:
+        return Icons.navigation_rounded;
+      case TripStatus.driverArrived:
+        return Icons.location_on_rounded;
+      case TripStatus.inProgress:
+        return Icons.directions_car_filled_rounded;
+      default:
+        return Icons.directions_car_outlined;
+    }
   }
 
   Future<void> _cancelTripWithDialog(ActiveTrip trip) async {
@@ -1066,6 +1101,47 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 trip.dropoffLng != 0.0)
               const SizedBox(height: 8),
 
+            // Dynamic single-line trip status banner — mirrors the customer
+            // sheet's unified status box for visual parity between both sides.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF78350F).withValues(alpha: 0.25)
+                    : const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _driverStatusIcon(trip.status),
+                    color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _driverStatusMessage(trip),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(
               key: const Key('driver_slide_action_button'),
@@ -1083,7 +1159,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             // b. Identity Row (Mutual Customer Profile Card)
             InkWell(
               key: const Key('driver_customer_profile_card'),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               onTap: () {
                 MutualProfileModal.show(
                   context,
@@ -1092,13 +1168,20 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   roleLabel: 'Customer',
                 );
               },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                  ),
+                ),
                 child: Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
                         color: isDark
                             ? const Color(0xFF78350F).withValues(alpha: 0.3)
@@ -1109,7 +1192,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                         child: Icon(
                           Icons.person,
                           color: Color(0xFFD97706),
-                          size: 26,
+                          size: 28,
                         ),
                       ),
                     ),
@@ -1118,6 +1201,42 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Primary line: bold fare + vehicle category
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Text(
+                                trip.fareFormatted.isNotEmpty
+                                    ? trip.fareFormatted
+                                    : '₦${trip.fareAmount.toStringAsFixed(0)}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 20,
+                                  color: isDark
+                                      ? const Color(0xFFFBBF24)
+                                      : const Color(0xFF92400E),
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  trip.vehicleCategory.isNotEmpty
+                                      ? trip.vehicleCategory
+                                      : 'Ride',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          // Secondary line: customer name + rating + payment mode
                           Row(
                             children: [
                               Flexible(
@@ -1125,42 +1244,35 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                   _firstName(trip.customerName.isEmpty
                                       ? 'Customer'
                                       : trip.customerName),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 17,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              const Icon(Icons.verified, color: Colors.blue, size: 14),
                               const SizedBox(width: 4),
-                              const Icon(
-                                Icons.verified,
-                                color: Colors.blue,
-                                size: 17,
-                              ),
-                              const SizedBox(width: 6),
-                              const Icon(
-                                Icons.star_rounded,
-                                color: Colors.amber,
-                                size: 16,
-                              ),
+                              const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
                               const Text(
                                 ' 5.0',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 2),
+                          // Tertiary: payment subtitle
                           Text(
                             _formatTripPaymentSubtitle(trip),
                             style: TextStyle(
-                              fontSize: 13,
-                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1657,25 +1769,25 @@ class _CommunicationButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 19),
-              const SizedBox(width: 6),
+              Icon(icon, color: color, size: 21),
+              const SizedBox(width: 7),
               Flexible(
                 child: Text(
                   label,
                   style: TextStyle(
                     color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
