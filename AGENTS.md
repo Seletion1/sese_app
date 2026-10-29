@@ -156,6 +156,29 @@ there is no Firebase deploy path for those.
 - **Verification**:
   - MCP `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
 
+## 2026-10-29 — Payment Display, First-Name Privacy, Comm Buttons & Avatar Fixes
+
+- **Payment Instruction Cleanup (Driver Active Trip)**:
+  - `driver_active_trip_card.dart: _formatTripPaymentSubtitle()` now returns only `fare • short mode label` (e.g. `"₦4,000 • Cash Payment"`). The verbose cash collection detail (e.g. "Collect ₦2000 Cash at Pickup") was removed from the subtitle because `_PaymentCollectionCard` already renders the authoritative instruction below — the two co-existing amounts were directly contradicting each other.
+  - `_PaymentCollectionCard` `else` branch (pure-cash fallback): fixed to use `trip.cashToCollect` when `> 0`, falling back to `trip.fareAmount` only when no `cashToCollect` is set. This eliminates the root cause: a split trip where `walletCoverageAmount` was `0` in Firestore caused the card to display the full fare instead of the partial cash amount.
+
+- **Duplicate Pricing Removed (Customer Active Trip)**:
+  - `live_trip_screen.dart: _formatCustomerPaymentSubtitle()` now returns only `fare • vehicleLabel`. All payment detail text ("Pay ₦X Cash at Pickup", "100% Wallet", etc.) removed from this subtitle — the `_buildCustomerPaymentBreakdown` banner card below is the single source of truth.
+  - Removed the now-orphaned `_paymentLabel()` private helper (no remaining callers).
+
+- **First-Name Privacy on Customer Live Trip Screen**:
+  - `live_trip_screen.dart: _AcceptedDriverSheet` identity row: `driver.fullName` replaced with `_firstName(driver.fullName)`. Full name (`"Bamiduro Micheal"`) was visible on the main trip sheet; now only `"Bamiduro"` shows. Full name is still displayed inside `MutualProfileModal` when the user taps the profile card.
+
+- **Communication Button Sizing Unified**:
+  - `live_trip_screen.dart: _CommunicationButton`: `padding vertical 8→10`, `borderRadius 10→12`, `icon size 18→19`, `fontSize 12→13`. Now matches the driver-view `_CommunicationButton` exactly — both app sides render identical pill-shaped buttons with full label text visible.
+
+- **Incoming Offer Sheet Avatar Fixed**:
+  - `incoming_offer_sheet.dart`: customer avatar `displayName` changed from hardcoded `'Rider'` (producing "RI" initials for every customer) to `trip.customerName.trim().split(RegExp(r'\s+')).first` with `'Customer'` fallback. Avatar initials now reflect the real booker's first name.
+
+- **Verification**:
+  - `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
+  - Committed as `f0b8e1f`, pushed to `origin main`.
+
 ## 2026-10-29 — Universal Theme Mode Adherence & Dark/Light Background Harmonization
 
 - **Root Cause of Dark Mode Contrast Bug**:
