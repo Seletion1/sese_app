@@ -179,6 +179,40 @@ there is no Firebase deploy path for those.
   - `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
   - Committed as `f0b8e1f`, pushed to `origin main`.
 
+## 2026-10-29 — Driver Navigation Telemetry & Customer Live ETA Card
+
+- **Speed Limit Badge (`_SpeedLimitBadge`) — `driver_in_app_navigation_screen.dart`**:
+  - New circular badge widget (60×60, white/red, thick black border) positioned at `Positioned(left: 16, bottom: 140)` over the OSM map canvas.
+  - Turns red when `currentSpeedKmh > limitKmh` (speeding alert).
+  - Limit hardcoded to 50 km/h urban placeholder — the widget is API-agnostic so a live source (HERE, TomTom) can replace `limitKmh` in one place without touching layout.
+  - The old `_NavMetric` widget was removed (no longer needed after bottom bar redesign).
+
+- **ETA Pill Bottom Bar (redesigned) — `driver_in_app_navigation_screen.dart`**:
+  - Replaced the three-column `_NavMetric` stats row with a full-width amber pill showing `"X min • Y km/m"` at 18 sp bold, matching Uber/Bolt cockpit conventions.
+  - A secondary `Row` below the pill shows a small `speed_rounded` icon + `"N km/h"` readout.
+  - FAB cluster (`right: 16`) bottom offset bumped from `120 → 170` to clear the taller bar.
+  - Both pill and speed row are wrapped in `SafeArea(top: false)` so home-indicator notch is respected on all devices.
+
+- **Active Trip ETA Pill (collapsed sheet) — `driver_active_trip_card.dart`**:
+  - Added `_ActiveTripEtaPill` widget: `LatLng` distance computed from `widget.driverPosition` to `LatLng(trip.dropoffLat, trip.dropoffLng)` via `latlong2 Distance().as(LengthUnit.Meter, ...)`.
+  - ETA formula: `(distKm / 30.0 * 60).ceil().clamp(1, 999)` minutes (same as nav cockpit — display-only, not money, client-side OK).
+  - Rendered above the `_SlideToActionButton` only when `trip.status == TripStatus.inProgress && widget.driverPosition != null && dropoffLat/Lng != 0.0`.
+  - Styled as a full-width `seseGold` pill with `timer_outlined` icon + `"X min • Y m/km to dropoff"` label.
+
+- **Customer Live Driver ETA Card (`_DriverEtaCard`) — `live_trip_screen.dart`**:
+  - New amber-tinted card widget inserted above the status container in `_AcceptedDriverSheetState.build()`.
+  - Reads `trip.driverLat` / `trip.driverLng` (published by the driver's `ProximityTriggerService` heartbeat every 10 s via `updateDriverLocation` callable, which writes `driverLocation: {lat, lng}` to `trips/{tripId}`).
+  - Destination selection: **pickup** when status is `driverAccepted/driverArriving/driverArrived`; **dropoff** when `inProgress`.
+  - Label format: `"Driver arriving in X min • Y m away"` (pre-trip) or `"In progress • X min to dropoff • Y km"` (in-progress).
+  - Guarded: if `trip.driverLat == null` or dest coords are `0.0`, widget renders `SizedBox.shrink()` — no empty card shown.
+  - The outer `StreamBuilder<ActiveTrip?>` (the whole live trip screen) rebuilds on every Firestore update, so the ETA card refreshes automatically with every driver heartbeat (≈10 s) without its own timer.
+
+- **No backend changes required**: the `updateDriverLocation` callable already exists and publishes `driverLocation.{lat, lng}` to the trip document on every heartbeat; `ActiveTrip.driverLat` and `ActiveTrip.driverLng` already parse these fields.
+
+- **Verification**:
+  - MCP `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+  - Committed as `e219ac1`, pushed to `origin main`.
+
 ## 2026-10-29 — Universal Theme Mode Adherence & Dark/Light Background Harmonization
 
 - **Root Cause of Dark Mode Contrast Bug**:
