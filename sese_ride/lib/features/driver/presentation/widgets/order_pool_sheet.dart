@@ -12,6 +12,26 @@ import '../../services/driver_streak_service.dart';
 import '../../../../widgets/map_provider.dart';
 import 'order_feed.dart';
 
+/// Persistent session cache for Order Pool dismissals.
+/// Once a driver swipes away or hides an order, it stays permanently filtered out
+/// for the remainder of the app session, preventing stream refreshes from ghosting it back.
+abstract final class OrderPoolSession {
+  static final Set<String> _dismissedOrderIds = <String>{};
+
+  static bool isDismissed(String tripId) => _dismissedOrderIds.contains(tripId);
+
+  static void dismiss(String tripId) {
+    _dismissedOrderIds.add(tripId);
+  }
+
+  static void restore(String tripId) {
+    _dismissedOrderIds.remove(tripId);
+  }
+
+  static void clear() {
+    _dismissedOrderIds.clear();
+  }
+}
 
 /// Bottom sheet listing every Tier-3 pool order near the driver.
 ///
@@ -108,6 +128,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
             final trips = (snap.data ?? const <ActiveTrip>[])
                 .where((t) => OrderFeedState.withinPoolRadius(
                     t, widget.driverPosition))
+                .where((t) => !OrderPoolSession.isDismissed(t.tripId))
                 .toList();
             // Opaque sheet surface: the modal opens with a transparent
             // barrier background, so the content must carry its own
@@ -174,15 +195,65 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                         itemCount: trips.length,
                         separatorBuilder: (_, _) =>
                             const SizedBox(height: 8),
-                        itemBuilder: (context, i) =>
-                            _PoolRow(
-                          trip: trips[i],
-                          fareLabel: _fareLabel(trips[i]),
-                          typeLabel: _typeLabel(trips[i]),
-                          ageText: _ageText(trips[i]),
-                          driverPosition: widget.driverPosition,
-                          onTap: () => _openDetails(trips[i]),
-                        ),
+                        itemBuilder: (context, i) {
+                          final trip = trips[i];
+                          return Dismissible(
+                            key: Key('dismissible_pool_${trip.tripId}'),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.red.shade700,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.delete_outline_rounded,
+                                      color: Colors.white, size: 20),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Hide',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            onDismissed: (_) {
+                              OrderPoolSession.dismiss(trip.tripId);
+                              ScaffoldMessenger.of(context)
+                                  .removeCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: const Text(
+                                      'Order hidden for this session.'),
+                                  duration: const Duration(seconds: 3),
+                                  action: SnackBarAction(
+                                    label: 'Undo',
+                                    textColor: AppColors.seseGold,
+                                    onPressed: () {
+                                      OrderPoolSession.restore(trip.tripId);
+                                      setState(() {});
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                            child: _PoolRow(
+                              trip: trip,
+                              fareLabel: _fareLabel(trip),
+                              typeLabel: _typeLabel(trip),
+                              ageText: _ageText(trip),
+                              driverPosition: widget.driverPosition,
+                              onTap: () => _openDetails(trip),
+                            ),
+                          );
+                        },
                       ),
                     ),
                 ],

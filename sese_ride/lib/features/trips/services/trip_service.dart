@@ -264,6 +264,7 @@ class FirestoreTripRepository implements TripRepository {
     double offeredFare, {
     int? etaMinutes,
   }) async {
+    await _ensureFreshAuthToken();
     try {
       final payload = <String, dynamic>{
         'tripId': tripId,

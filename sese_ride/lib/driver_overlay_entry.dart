@@ -120,21 +120,35 @@ class _OverlayBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: Center(
-        child: GestureDetector(
-          onTap: _requestForeground,
-          child: Container(
-            height: 88,
-            width: 88,
-            decoration: const BoxDecoration(
-              color: Color(0xFF1E1E1E),
-              shape: BoxShape.circle,
-            ),
-            child: const Center(
-              // Vector SeSe mark (gold arc + "SeSe") — renders the round logo
-              // face directly; no raster asset lookup so the bubble can never
-              // render empty in the overlay isolate.
-              child: SeSeLogo(size: 56),
+      body: SafeArea(
+        child: Center(
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(44),
+              onTap: _requestForeground,
+              child: Container(
+                height: 88,
+                width: 88,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFF2A900),
+                    width: 2,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Colors.black54,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: SeSeLogo(size: 56),
+                ),
+              ),
             ),
           ),
         ),
