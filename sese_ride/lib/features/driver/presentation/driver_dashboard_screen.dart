@@ -309,6 +309,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = activeSessionId;
       _sessionOverriddenOnOtherDevice = false;
     });
+    DriverOverlayService.instance.isOnline = true;
     // Re-establish the visible online signal after process recreation. The
     // dashboard GPS stream is already started in initState and remains alive
     // while the Android foreground overlay service keeps the app process up.
@@ -344,6 +345,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = null;
       _sessionOverriddenOnOtherDevice = true;
     });
+    DriverOverlayService.instance.isOnline = false;
 
     // Cleanup background and foreground services on this device
     // ignore: discarded_futures
@@ -378,14 +380,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     // background event — doing so would incorrectly toggle the bubble and
     // could mislead the online/offline state.
     //
-    // Only `paused` (app fully hidden) and `detached` (Flutter engine torn down)
-    // count as genuinely backgrounded for the purposes of the bubble.
+    // `paused`, `detached`, and `hidden` count as genuinely backgrounded
+    // for the purposes of the floating bubble.
     final backgrounded =
         state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached;
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden;
     final foreground = state == AppLifecycleState.resumed;
 
-    if (!foreground && !backgrounded) return; // inactive / hidden — ignore
+    if (!foreground && !backgrounded) return; // inactive — ignore
 
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
@@ -415,17 +418,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       case 'foreground':
         // Bubble tapped while minimized: dismiss the bubble and bring
         // sese_ride directly to the foreground via
-        // Intent.FLAG_ACTIVITY_REORDER_TO_FRONT.
+        // Intent.FLAG_ACTIVITY_REORDER_TO_FRONT without data loss.
         await DriverOverlayService.instance.closeOverlayWidget();
         if (!mounted) return;
         await DriverOverlayService.instance.bringToForeground();
         break;
       case 'accepted':
       case 'rejected':
-      case 'expired':
-        // Overlay already executed/closed the popup; refresh local state so
-        // the feed reflects the outcome when the driver returns.
+        // Overlay order was accepted or rejected: dismiss the overlay popup and
+        // immediately restore the full app to the foreground per Rule 3.
         await DriverOverlayService.instance.closeOverlayWidget();
+        if (!mounted) return;
+        await DriverOverlayService.instance.bringToForeground();
+        setState(() {});
+        break;
+      case 'expired':
+        // Offer expired in the background overlay: restore floating bubble if still paused.
+        if (_appPaused && _isOnline) {
+          await DriverOverlayService.instance.showOverlayWidget();
+        } else {
+          await DriverOverlayService.instance.closeOverlayWidget();
+        }
         if (!mounted) return;
         setState(() {});
         break;
@@ -662,6 +675,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _streaks.activeSessionId = null;
           _sessionOverriddenOnOtherDevice = false;
         });
+        DriverOverlayService.instance.isOnline = false;
         // Audio feedback: offline double-tone.
         // ignore: discarded_futures
         AppSoundService.instance.playOfflineSound();
@@ -1227,6 +1241,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _currentSessionId = decision.sessionId;
           _streaks.activeSessionId = decision.sessionId;
         });
+        DriverOverlayService.instance.isOnline = true;
         unawaited(_persistOnlineSession(decision.sessionId));
         // Audio feedback: online chime.
         // ignore: discarded_futures
@@ -2027,14 +2042,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// cockpit or toggle voice guidance.
   Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
     final isPickup = active.status != TripStatus.inProgress;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? const Color(0xFF252530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: isDark ? Border.all(color: const Color(0xFF3A3A46)) : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.12),
+            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.12),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -2066,12 +2083,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               children: [
                 Row(
                   children: [
-                    const Text(
+                    Text(
                       'Now',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
-                        color: Colors.black87,
+                        color: isDark ? Colors.white : Colors.black87,
                       ),
                     ),
                     const SizedBox(width: 6),
@@ -2079,15 +2096,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD1FAE5),
+                        color: isDark
+                            ? const Color(0xFF064E3B).withValues(alpha: 0.3)
+                            : const Color(0xFFD1FAE5),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         isPickup ? 'PICKUP' : 'DROPOFF',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFF047857),
+                          color: isDark
+                              ? const Color(0xFFA7F3D0)
+                              : const Color(0xFF047857),
                           letterSpacing: 0.5,
                         ),
                       ),
@@ -2101,7 +2122,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       : 'Head towards destination',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.grey.shade700,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                     fontWeight: FontWeight.w500,
                   ),
                   maxLines: 1,
@@ -2116,7 +2137,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               _audioGuidanceMuted
                   ? Icons.volume_off_outlined
                   : Icons.volume_up_outlined,
-              color: _audioGuidanceMuted ? Colors.grey : Colors.black87,
+              color: _audioGuidanceMuted
+                  ? Colors.grey
+                  : (isDark ? Colors.white : Colors.black87),
             ),
             visualDensity: VisualDensity.compact,
             onPressed: () {
@@ -2358,8 +2381,8 @@ class _PingListenerState extends State<_PingListener> {
         ? ping.fareFormatted
         : '₦${ping.fareAmount.toStringAsFixed(0)}';
     if (widget.isAppPaused()) {
-      // Bring app to full foreground immediately for seamless incoming order review
-      await DriverOverlayService.instance.bringToForeground();
+      // Do NOT force app to full screen upon arrival: let driver interact with or view
+      // the prompt via the active floating overlay system per Rule 3.
       setState(() => _sheetOpen = true);
       // ignore: discarded_futures
       AppSoundService.instance.playIncomingOrderAlert(

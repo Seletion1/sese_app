@@ -31,6 +31,9 @@ class DriverOverlayService {
   static const String unifiedNotificationBody =
       'You are ONLINE — Receiving trip offers. Tap to open app.';
 
+  /// Tracks whether the driver is actively ONLINE.
+  bool isOnline = false;
+
   /// For tests: bypass platform channels entirely.
   @visibleForTesting
   bool forceUnsupported = false;
@@ -133,18 +136,27 @@ class DriverOverlayService {
   Future<void> showBubble() async {
     if (!supported) return;
     try {
-      if (await FlutterOverlayWindow.isActive()) return;
-      await FlutterOverlayWindow.showOverlay(
-        height: 140,
-        width: 140,
-        alignment: OverlayAlignment.centerRight,
-        enableDrag: true,
-        positionGravity: PositionGravity.auto,
-        flag: OverlayFlag.defaultFlag,
-        visibility: NotificationVisibility.visibilitySecret,
-        overlayTitle: unifiedNotificationTitle,
-        overlayContent: unifiedNotificationBody,
-      );
+      final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
+      if (!hasPermission) return;
+
+      final active = await FlutterOverlayWindow.isActive();
+      if (!active) {
+        await FlutterOverlayWindow.showOverlay(
+          height: 140,
+          width: 140,
+          alignment: OverlayAlignment.centerRight,
+          enableDrag: true,
+          positionGravity: PositionGravity.auto,
+          flag: OverlayFlag.defaultFlag,
+          visibility: NotificationVisibility.visibilitySecret,
+          overlayTitle: unifiedNotificationTitle,
+          overlayContent: unifiedNotificationBody,
+        );
+      } else {
+        // If already active (e.g. returning from fullCover order popup or previous state),
+        // resize back to lightweight 140x140 bubble and re-enable dragging.
+        await FlutterOverlayWindow.resizeOverlay(140, 140, true);
+      }
       await FlutterOverlayWindow.shareData({'mode': 'bubble'});
     } catch (e) {
       debugPrint('DriverOverlayService.showBubble failed: $e');
@@ -179,7 +191,11 @@ class DriverOverlayService {
   }) async {
     if (!supported) return;
     try {
-      if (!await FlutterOverlayWindow.isActive()) {
+      final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
+      if (!hasPermission) return;
+
+      final active = await FlutterOverlayWindow.isActive();
+      if (!active) {
         await FlutterOverlayWindow.showOverlay(
           height: WindowSize.fullCover,
           width: WindowSize.fullCover,
@@ -188,6 +204,13 @@ class DriverOverlayService {
           visibility: NotificationVisibility.visibilitySecret,
           overlayTitle: unifiedNotificationTitle,
           overlayContent: unifiedNotificationBody,
+        );
+      } else {
+        // Expand the active bubble overlay to full cover for the order card.
+        await FlutterOverlayWindow.resizeOverlay(
+          WindowSize.fullCover,
+          WindowSize.fullCover,
+          false,
         );
       }
       await FlutterOverlayWindow.shareData({

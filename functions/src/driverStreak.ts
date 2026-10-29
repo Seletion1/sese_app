@@ -543,6 +543,65 @@ export const onTripCompleted = onDocumentUpdated(
 
     await batch.commit();
 
+    // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
+    try {
+      const walletCoverage = Number(
+        after["walletCoverageAmount"] ??
+        after["paymentBreakdown"]?.["walletCoverageAmount"] ??
+        0
+      );
+      if (walletCoverage > 0 && !after["walletSettledAt"]) {
+        const customerId = String(after["customerId"] ?? after["userId"] ?? "");
+        const coverageKobo = nairaToKobo(walletCoverage);
+
+        // 1. Finalize debit on customer's wallet (deduct from main balance, clear escrow)
+        if (customerId) {
+          const custWalletRef = db().collection("wallets").doc(customerId);
+          await custWalletRef.set({
+            mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+            balance: admin.firestore.FieldValue.increment(-coverageKobo),
+            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+          }, { merge: true });
+
+          await custWalletRef.collection("transactions").add({
+            type: "trip_payment",
+            amountNaira: -walletCoverage,
+            amountKobo: -coverageKobo,
+            amount: -coverageKobo,
+            tripId,
+            currency: "NGN",
+            note: `Payment for trip ${tripId}`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+
+        // 2. Credit the wallet portion to the driver's virtual wallet upon trip completion
+        const driverWalletRef = db().collection("wallets").doc(driverId);
+        await driverWalletRef.set({
+          mainWalletBalance: admin.firestore.FieldValue.increment(walletCoverage),
+          balance: admin.firestore.FieldValue.increment(coverageKobo),
+        }, { merge: true });
+
+        await driverWalletRef.collection("transactions").add({
+          type: "trip_wallet_settlement",
+          amountNaira: walletCoverage,
+          amountKobo: coverageKobo,
+          amount: coverageKobo,
+          tripId,
+          currency: "NGN",
+          note: `Wallet fare portion credited for trip ${tripId}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await tripRef.update({
+          walletSettledAt: admin.firestore.FieldValue.serverTimestamp(),
+          "paymentBreakdown.walletSettled": true,
+        });
+      }
+    } catch (e) {
+      console.warn(`onTripCompleted[${tripId}]: wallet escrow settlement warning: ${e}`);
+    }
+
     // 5. Automated Residual Referral Commission Split Engine
     try {
       const customerId = String(after["customerId"] ?? after["userId"] ?? "");
@@ -915,6 +974,45 @@ export const onTripCancelled = onDocumentUpdated(
     // Only react to CANCELLED transition
     if (before["status"] === "CANCELLED" || after["status"] !== "CANCELLED") {
       return;
+    }
+
+    // Release active escrow if not already released
+    const walletCoverage = Number(
+      after["walletCoverageAmount"] ??
+      after["paymentBreakdown"]?.["walletCoverageAmount"] ??
+      0
+    );
+    if (walletCoverage > 0 && after["escrowLocked"] === true && !after["escrowRefundedAt"]) {
+      const customerId = String(after["customerId"] ?? "");
+      if (customerId) {
+        try {
+          const custWalletRef = db().collection("wallets").doc(customerId);
+          const coverageKobo = nairaToKobo(walletCoverage);
+          await custWalletRef.set({
+            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+          }, { merge: true });
+
+          await custWalletRef.collection("transactions").add({
+            type: "trip_escrow_refund",
+            amountNaira: walletCoverage,
+            amountKobo: coverageKobo,
+            amount: coverageKobo,
+            tripId: event.params.tripId,
+            currency: "NGN",
+            note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          await event.data?.after?.ref.update({
+            escrowLocked: false,
+            escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+            "paymentBreakdown.escrowLocked": false,
+            "paymentBreakdown.escrowRefunded": true,
+          });
+        } catch (e) {
+          console.warn(`onTripCancelled[${event.params.tripId}]: escrow release warning: ${e}`);
+        }
+      }
     }
 
     const cancellationSource: string =

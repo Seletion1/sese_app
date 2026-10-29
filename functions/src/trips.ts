@@ -7,7 +7,7 @@ import {
 } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { verifyFareToken } from "./fareToken";
-import { breakDriverStreak } from "./driverStreak";
+import { breakDriverStreak, nairaToKobo } from "./driverStreak";
 import { roundToNearest100 } from "./pricing";
 
 /**
@@ -627,14 +627,23 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     (d as any).customTierFares && typeof (d as any).customTierFares === "object"
       ? (d as any).customTierFares
       : {};
-  // Payment rail for departure protection. Allow-listed values only;
-  // anything else falls back to 'cash' (never auto-starts).
-  const rawPayment = String((d as any).paymentMethod ?? "cash").toLowerCase();
-  const paymentMethod = [
-    "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
+  // Payment rail & Payment Mode resolution
+  const rawPaymentMode = String((d as any).paymentMode ?? "sender_pays").toLowerCase();
+  const paymentMode = ["sender_pays", "receiver_pays", "split"].includes(rawPaymentMode)
+    ? rawPaymentMode
+    : "sender_pays";
+
+  const rawPayment = String((d as any).paymentMethod ?? "auto").toLowerCase();
+  let paymentMethod = [
+    "auto", "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
   ].includes(rawPayment)
     ? rawPayment
-    : "cash";
+    : "auto";
+
+  // Receiver Pays: Automatically enforce Cash Only
+  if (paymentMode === "receiver_pays") {
+    paymentMethod = "cash";
+  }
 
   // Check system-wide force PIN setting
   let forceDeliveryPinSystemWide = false;
@@ -730,6 +739,103 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     } catch (_) {}
   }
 
+  // ── Wallet Escrow & Cash Collection Breakdown Engine ───────────────────
+  let availableWalletBalance = 0;
+  const custWalletRef = db().collection("wallets").doc(customerId);
+  try {
+    const custWalletSnap = await custWalletRef.get();
+    if (custWalletSnap.exists) {
+      const wData = custWalletSnap.data()!;
+      const mainBal = typeof wData.mainWalletBalance === "number"
+        ? wData.mainWalletBalance
+        : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+      const escrowBal = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+      availableWalletBalance = Math.max(0, mainBal - escrowBal);
+    }
+  } catch (e) {
+    console.warn(`createTrip: wallet lookup warning: ${e}`);
+  }
+
+  let walletCoverageAmount = 0;
+  let cashToCollect = adjustedProposedFare;
+  let collectAt: "pickup" | "dropoff" | "both" = "pickup";
+  let payerRole: "sender" | "receiver" | "split" = "sender";
+  let escrowLocked = false;
+  let senderCashToCollect = 0;
+  let receiverCashToCollect = 0;
+
+  if (paymentMode === "receiver_pays") {
+    // Receiver Pays: Cash Only, driver collects full fare from receiver at drop-off
+    walletCoverageAmount = 0;
+    cashToCollect = adjustedProposedFare;
+    receiverCashToCollect = adjustedProposedFare;
+    collectAt = "dropoff";
+    payerRole = "receiver";
+    escrowLocked = false;
+  } else if (paymentMode === "split") {
+    payerRole = "split";
+    const senderShare = Number((d as any).senderShareAmount ?? adjustedProposedFare / 2);
+    const receiverShare = Number((d as any).receiverShareAmount ?? (adjustedProposedFare - senderShare));
+    receiverCashToCollect = receiverShare;
+
+    if (paymentMethod === "cash") {
+      walletCoverageAmount = 0;
+      senderCashToCollect = senderShare;
+      escrowLocked = false;
+    } else {
+      // Auto (smart default) or Wallet / Card
+      walletCoverageAmount = roundToNearest100(Math.min(senderShare, availableWalletBalance));
+      if (walletCoverageAmount > senderShare) {
+        walletCoverageAmount = senderShare;
+      }
+      senderCashToCollect = Math.max(0, senderShare - walletCoverageAmount);
+      escrowLocked = walletCoverageAmount > 0;
+    }
+    cashToCollect = senderCashToCollect + receiverCashToCollect;
+    collectAt = senderCashToCollect > 0 ? "both" : "dropoff";
+  } else {
+    // "sender_pays"
+    payerRole = "sender";
+    collectAt = "pickup";
+    if (paymentMethod === "cash") {
+      walletCoverageAmount = 0;
+      cashToCollect = adjustedProposedFare;
+      senderCashToCollect = adjustedProposedFare;
+      escrowLocked = false;
+    } else {
+      // Auto (smart default) or Wallet / Card
+      walletCoverageAmount = roundToNearest100(Math.min(adjustedProposedFare, availableWalletBalance));
+      if (walletCoverageAmount > adjustedProposedFare) {
+        walletCoverageAmount = adjustedProposedFare;
+      }
+      cashToCollect = Math.max(0, adjustedProposedFare - walletCoverageAmount);
+      senderCashToCollect = cashToCollect;
+      escrowLocked = walletCoverageAmount > 0;
+    }
+  }
+
+  // Lock available wallet balance into active escrow hold
+  if (escrowLocked && walletCoverageAmount > 0) {
+    try {
+      const coverageKobo = nairaToKobo(walletCoverageAmount);
+      await custWalletRef.set({
+        escrowBalance: admin.firestore.FieldValue.increment(walletCoverageAmount),
+      }, { merge: true });
+
+      await custWalletRef.collection("transactions").add({
+        type: "trip_escrow_hold",
+        amountNaira: -walletCoverageAmount,
+        amountKobo: -coverageKobo,
+        amount: -coverageKobo,
+        currency: "NGN",
+        note: "Locked in escrow for active trip",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn(`createTrip: escrow lock warning: ${e}`);
+    }
+  }
+
   const ref = await db().collection("trips").add({
     customerId,
     customerName,
@@ -776,7 +882,24 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     fareBoosted: false,
     boostPercent: 0,
     paymentMethod,
-    paymentMode: String((d as any).paymentMode ?? (paymentMethod === "split" ? "split" : "sender_pays")),
+    paymentMode,
+    walletCoverageAmount,
+    cashToCollect,
+    collectAt,
+    payerRole,
+    escrowLocked,
+    senderCashToCollect,
+    receiverCashToCollect,
+    paymentBreakdown: {
+      totalFare: adjustedProposedFare,
+      walletCoverageAmount,
+      cashToCollect,
+      senderCashToCollect,
+      receiverCashToCollect,
+      collectAt,
+      payerRole,
+      escrowLocked,
+    },
     senderShareAmount: (d as any).senderShareAmount != null
       ? Number((d as any).senderShareAmount)
       : (splitPaymentData ? Number(splitPaymentData.senderShare) : null),
@@ -1674,6 +1797,48 @@ export const advanceTripStatus = onCall(async (request) => {
 
 // ── Customer actions ───────────────────────────────────────────────────────
 
+/** Release active trip wallet escrow hold back to customer's available balance upon cancellation */
+export async function releaseTripEscrow(tripId: string, tripData: Record<string, any>): Promise<void> {
+  const walletCoverage = Number(
+    tripData["walletCoverageAmount"] ??
+    tripData["paymentBreakdown"]?.["walletCoverageAmount"] ??
+    0
+  );
+  if (walletCoverage > 0 && tripData["escrowLocked"] === true && !tripData["escrowRefundedAt"]) {
+    const customerId = String(tripData["customerId"] ?? "");
+    if (customerId) {
+      try {
+        const custWalletRef = db().collection("wallets").doc(customerId);
+        const coverageKobo = nairaToKobo(walletCoverage);
+        await custWalletRef.set({
+          escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+        }, { merge: true });
+
+        await custWalletRef.collection("transactions").add({
+          type: "trip_escrow_refund",
+          amountNaira: walletCoverage,
+          amountKobo: coverageKobo,
+          amount: coverageKobo,
+          tripId,
+          currency: "NGN",
+          note: `Escrow hold released for cancelled trip ${tripId}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        console.warn(`releaseTripEscrow[${tripId}] warning: ${e}`);
+      }
+    }
+    try {
+      await db().collection("trips").doc(tripId).update({
+        escrowLocked: false,
+        escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+        "paymentBreakdown.escrowLocked": false,
+        "paymentBreakdown.escrowRefunded": true,
+      });
+    } catch (_) {}
+  }
+}
+
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
 export const cancelTrip = onCall(async (request) => {
   if (!request.auth) {
@@ -1880,6 +2045,7 @@ export const cancelTrip = onCall(async (request) => {
       }
     }
 
+    await releaseTripEscrow(tripId, data);
     await ref.update({
       status: "CANCELLED",
       cancellationSource: "customer",
@@ -1982,6 +2148,7 @@ export const cancelTrip = onCall(async (request) => {
   }
 
   // Fallback cancellation (e.g. driver no-show after waiting)
+  await releaseTripEscrow(tripId, data);
   await ref.update({
     status: "CANCELLED",
     cancellationSource,
@@ -2475,6 +2642,7 @@ export const hubCancelRefundTrip = onCall(async (request) => {
   const snap = await ref.get();
   if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
 
+  await releaseTripEscrow(tripId, snap.data()!);
   await ref.update({
     status: "CANCELLED",
     cancellationSource: "admin_hub",

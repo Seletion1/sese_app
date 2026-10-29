@@ -68,6 +68,7 @@ class MutualProfileModal extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future: userId.isNotEmpty
@@ -124,7 +125,7 @@ class MutualProfileModal extends StatelessWidget {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -252,9 +253,11 @@ class MutualProfileModal extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
+                  color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.grey.shade200),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                  ),
                 ),
                 child: Column(
                   children: [
@@ -263,14 +266,20 @@ class MutualProfileModal extends StatelessWidget {
                       title: 'Identity Verified',
                       subtitle: 'Government ID & facial verification complete',
                     ),
-                    const Divider(height: 16),
+                    Divider(
+                      height: 16,
+                      color: isDark ? const Color(0xFF3A3A46) : null,
+                    ),
                     _TrustBadgeTile(
                       icon: Icons.phone_android_outlined,
                       title: 'Phone Number Verified',
                       subtitle: 'Cryptographically secured account line',
                     ),
                     if (isDriver) ...[
-                      const Divider(height: 16),
+                      Divider(
+                        height: 16,
+                        color: isDark ? const Color(0xFF3A3A46) : null,
+                      ),
                       _TrustBadgeTile(
                         icon: Icons.verified_user_outlined,
                         title: 'Background & Vehicle Checked',
@@ -326,12 +335,15 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+        ),
       ),
       child: Column(
         children: [
@@ -351,7 +363,7 @@ class _MetricCard extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 10,
-              color: Colors.grey.shade600,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
               fontWeight: FontWeight.w500,
             ),
             maxLines: 1,
@@ -376,6 +388,7 @@ class _TrustBadgeTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       children: [
         Container(
@@ -403,7 +416,7 @@ class _TrustBadgeTile extends StatelessWidget {
                 subtitle,
                 style: TextStyle(
                   fontSize: 11,
-                  color: Colors.grey.shade600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                 ),
               ),
             ],

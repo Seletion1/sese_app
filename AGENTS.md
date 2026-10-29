@@ -60,6 +60,85 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-29 — Driver Floating Logo Overlay, PiP Activation & Minimized Order Foreground Lifecycle
+
+- **Reliable Floating Logo Overlay Activation (Online Status)**:
+  - In `driver_home_shell.dart: _handlePopInvoked`: Added online state check `DriverOverlayService.instance.isOnline`. When the driver is Online, system back presses (or gestures) from any shell tab minimize the app task to background via `moveTaskToBack()` and immediately spawn the lightweight floating SeSe logo overlay without destroying the process or dropping offline. Offline drivers retain standard double-back exit behavior.
+  - In `driver_dashboard_screen.dart: didChangeAppLifecycleState`: Added `AppLifecycleState.hidden` to background state evaluation (`paused`, `detached`, `hidden`) to ensure modern Android devices transition seamlessly to the floating bubble when minimized via system gestures.
+  - In `driver_overlay_service.dart: showBubble()`: Dynamically verifies `isPermissionGranted()`. If the overlay is already active, invokes `FlutterOverlayWindow.resizeOverlay(140, 140, true)` and broadcasts `{'mode': 'bubble'}` rather than returning early, ensuring reliable recovery from full-screen popup states.
+- **Immediate Full Foreground Restoration on Floating Icon Tap**:
+  - In `driver_overlay_entry.dart: _OverlayBubble`: Tapping the floating logo sends `{'action': 'foreground'}` and triggers `bringToForeground()`.
+  - In `MainActivity.kt: bringAppToForeground()`: Enhanced intent flags with `FLAG_ACTIVITY_REORDER_TO_FRONT or FLAG_ACTIVITY_SINGLE_TOP or FLAG_ACTIVITY_NEW_TASK` and standard launcher action/category, accompanied by a resilient fallback to `packageManager.getLaunchIntentForPackage(packageName)`.
+  - In `driver_dashboard_screen.dart: _handleOverlayAction`: Handles `'foreground'` and `'open_app'` by dismissing the bubble and bringing `MainActivity` directly to front without data loss or re-initialization.
+- **Minimized Incoming Order Workflow & Selective Foreground Maximization**:
+  - In `driver_dashboard_screen.dart: _showPing`: Removed premature `bringToForeground()` upon order arrival. Incoming order requests while minimized are presented directly through the active floating overlay system (`showOrderOffer`), allowing drivers to inspect pickup, drop-off, fare, and countdown non-intrusively.
+  - In `driver_overlay_service.dart: showOrderOffer`: When the overlay is already running as a bubble, dynamically resizes the overlay window to `WindowSize.fullCover` via `FlutterOverlayWindow.resizeOverlay(WindowSize.fullCover, WindowSize.fullCover, false)` before broadcasting the order payload.
+  - In `driver_overlay_entry.dart: _OverlayOrderCardState._act`: Driver tapping **Accept** OR **Reject / Decline** executes the respective atomic callable (`acceptTrip` / `declineTrip`) and immediately triggers `bringToForeground()`, seamlessly transitioning the driver into the maximized full-screen app.
+  - In `driver_dashboard_screen.dart: _handleOverlayAction`: If an offer expires without driver interaction (`'expired'`), the full-screen order overlay dismisses and restores the compact floating logo bubble.
+- **Verification**:
+  - MCP `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+
+## 2026-10-29 — Universal Theme Mode Adherence & Dark/Light Background Harmonization
+
+- **Root Cause of Dark Mode Contrast Bug**:
+  - Payment Mode segmented selector bar, sub-option pills, and payment summary card in `CustomerDispatchScreen` used hardcoded light colors (`#F3F4F6`, `Colors.white`, `Colors.grey.shade50`) that created glaring white blocks on dark scaffolds.
+  - Similar issues existed in `DriverActiveTripCard`, `IncomingOfferSheet`, `LiveTripScreen`, `MutualProfileModal`, `DriverDashboardScreen`, and `CustomerHomeMapScreen`.
+- **Systematic Dark/Light Mode Theme Architecture**:
+  - **`customer_dispatch_screen.dart`**:
+    - Outer segmented row background: `isDark ? const Color(0xFF252530) : const Color(0xFFF3F4F6)`.
+    - Payment mode unselected tabs: `isDark ? const Color(0xFFE5E7EB) : const Color(0xFF374151)`.
+    - Payment method pills (`_buildPaymentMethodPill`): `isDark ? const Color(0xFF252530) : Colors.white`, border `isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300`, label `isDark ? Colors.white : Colors.black87`, subtitle `isDark ? Colors.grey.shade400 : Colors.grey.shade600`.
+    - Receiver pays cash notice: `isDark ? const Color(0xFF78350F).withValues(alpha: 0.25) : const Color(0xFFFEF3C7)`, border `isDark ? const Color(0xFFF59E0B).withValues(alpha: 0.4) : const Color(0xFFFDE68A)`.
+    - Payment summary card: `isDark ? const Color(0xFF252530) : Colors.grey.shade50`, border `isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200`, text colors dynamic.
+    - Vehicle category cards (`_VehicleCategoryCard`): `isDark ? const Color(0xFF252530) : Colors.grey.shade50`, border `isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200`.
+  - **`driver_active_trip_card.dart`**:
+    - Dialog escrow notice, header drag bar, avatar container, action buttons, route details container, and all 4 `_PaymentCollectionCard` variants (`receiver_pays`, `split`, `wallet`, `cash`) now dynamically adapt to `isDark` with dark surfaces (`#252530`), high-contrast text (`#FFFFFF`, `#E5E7EB`), and theme outline borders (`#3A3A46`).
+  - **`incoming_offer_sheet.dart`**:
+    - Streak badge, `_ZoomButton`, and `_buildPaymentBreakdownBanner` across all 4 conditions (split payment, 100% wallet, receiver pays, sender pays) adapted to theme with alpha-blended dark backgrounds and high-contrast text.
+  - **`live_trip_screen.dart`**:
+    - Payment breakdown banner, customer status container, communication row (Direct Call, In-App Call, Chat), and route details container updated with theme-aware backgrounds and text.
+  - **`mutual_profile_modal.dart`**:
+    - Drag bar, Trust Badges container, Dividers, `_MetricCard`, and `_TrustBadgeTile` updated to theme-aware backgrounds and text.
+  - **`driver_dashboard_screen.dart`**:
+    - `_buildActiveTripTopNavBanner` updated to theme background `isDark ? const Color(0xFF252530) : Colors.white` with theme border and text colors.
+  - **`customer_home_map_screen.dart`**:
+    - `NotificationBellButton` circular material container updated to `isDark ? const Color(0xFF252530) : Colors.white`.
+- **Verification**:
+  - MCP `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **No errors (0 errors, 0 warnings)**.
+
+## 2026-10-28 — Advanced Payment Modes, Partial Wallet Escrow Locking & Driver Cash Collection Breakdown
+
+- **Customer Payment Hierarchy & Amber/Gold Booking UI**:
+  - Implemented the primary payment selector row `[ Sender Pays ] [ Receiver Pays ] [ Split Payment ]` matching design specifications with warm Amber/Gold (`#F59E0B`) active highlights.
+  - Positioned sub-payment options `[ Auto ] [ Cash ] [ Wallet / Card ]` directly beneath the primary selector.
+  - `Auto` acts as smart default. When `Receiver Pays` is chosen, payment method is locked to Cash Only, dynamically notifying the booker that the receiver will settle upon delivery.
+  - Integrated real-time dual-wallet listener to display live wallet balance (`dualWallet.availableBalance`), computed locked escrow, and cash shortfall before trip dispatch.
+- **Server-Authoritative Wallet Escrow & Concurrent Trip Lock**:
+  - In `functions/src/trips.ts:createTrip`:
+    - Checks `wallets/{customerId}`: `availableWallet = mainWalletBalance - escrowBalance`.
+    - Computes `walletCoverageAmount = min(fare, availableWallet)` and `cashToCollect = fare - walletCoverageAmount`.
+    - Atomically increments customer's `escrowBalance` and logs `trip_escrow_hold` transaction in `wallets/{customerId}/transactions`.
+    - Prevents the locked funds from being used on concurrent rides or withdrawn while the trip is active.
+  - In `functions/src/trips.ts:cancelTrip` and `hubCancelRefundTrip`:
+    - Releases escrow atomically (`escrowBalance` decremented, logs `trip_escrow_refund`).
+  - In `functions/src/driverStreak.ts:onTripCompleted`:
+    - Settles escrow atomically: customer `escrowBalance` decremented and debited, while driver's `wallets/{driverId}` is credited `walletCoverageAmount` (`trip_wallet_settlement`).
+  - In `functions/src/driverStreak.ts:onTripCancelled`:
+    - Releases customer wallet escrow safely.
+- **Driver Cash Collection Guidance & Dialog Enforcement**:
+  - Overhauled `incoming_offer_sheet.dart`, `order_card.dart`, and `driver_active_trip_card.dart`:
+    - Clear visual breakdown banner: full fare, wallet portion credited on completion, and exact cash to collect from customer.
+    - Added dedicated `_PaymentCollectionCard` in driver active view detailing who pays (Sender at pickup vs. Receiver at drop-off).
+    - `_advanceOrPin` cash-check enforcement:
+      - `Sender Pays`: Cash check prompted at pickup (`Slide to Start Ride`); 0 cash dialog at drop-off.
+      - `Receiver Pays`: 0 cash dialog at pickup; Cash check prompted at drop-off (`Slide to Complete Trip`).
+      - `100% Wallet Prepaid`: Cash dialog skipped entirely.
+- **Customer Live Trip View Synchronization**:
+  - Overhauled `live_trip_screen.dart: _AcceptedDriverSheet` to display subtitle breakdown and dedicated status banner indicating escrow locked amount and cash balance to hand driver at pickup.
+- **Verification**:
+  - `analyze_files` across `sese_core`, `sese_ride`, and `sese_hub`: **0 errors, 0 warnings**.
+  - Backend `functions`: `npm run build` compiled cleanly (exit code 0).
+
 ## 2026-10-27 — Universal Country Detection, Edge-to-Edge Country Picker & Phone Input Freedom
 
 - **Root Cause of US/+1 Default Selection Bug**:

@@ -113,6 +113,128 @@ class _OrderCardState extends State<OrderCard> {
     return out.reversed.join();
   }
 
+  Widget? _buildPaymentBadge(ActiveTrip trip) {
+    final mode = trip.paymentMode.toLowerCase();
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (mode == 'receiver_pays') {
+      return Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF1E3A8A).withValues(alpha: 0.3)
+              : Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isDark
+                ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
+                : Colors.blue.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.call_received_rounded,
+              size: 13,
+              color: isDark ? const Color(0xFF93C5FD) : Colors.blue.shade800,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                'Receiver Pays Cash at Drop-off (Collect ₦${trip.fareAmount.toStringAsFixed(0)})',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade800,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (hasWallet && hasCash) {
+      return Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF78350F).withValues(alpha: 0.3)
+              : const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 13,
+              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                'Collect ₦${trip.cashToCollect.toStringAsFixed(0)} cash | ₦${trip.walletCoverageAmount.toStringAsFixed(0)} wallet',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (hasWallet && !hasCash) {
+      return Container(
+        margin: const EdgeInsets.only(top: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF065F46).withValues(alpha: 0.3)
+              : Colors.green.shade50,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: isDark
+                ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                : Colors.green.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 13,
+              color: isDark ? const Color(0xFF6EE7B7) : Colors.green.shade800,
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                '100% Wallet Prepaid • ₦0 cash to collect',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFA7F3D0) : Colors.green.shade800,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return null;
+  }
+
   String _distanceLabel(double? km, String fallback) {
     if (km == null) return fallback;
     return '~${km.toStringAsFixed(1)} km';
@@ -381,6 +503,9 @@ class _OrderCardState extends State<OrderCard> {
                 ),
               ],
             ),
+            if (_buildPaymentBadge(trip) != null) ...[
+              _buildPaymentBadge(trip)!,
+            ],
             const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,

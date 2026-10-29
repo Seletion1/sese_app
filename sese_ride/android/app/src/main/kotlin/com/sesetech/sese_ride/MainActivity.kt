@@ -64,10 +64,21 @@ class MainActivity : FlutterActivity() {
     // tray notification's content PendingIntent is built with
     // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE per Android 12+ requirements.
     private fun bringAppToForeground() {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        try {
+            val intent = Intent(this, MainActivity::class.java).apply {
+                action = Intent.ACTION_MAIN
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            if (fallback != null) {
+                startActivity(fallback)
+            }
         }
-        startActivity(intent)
     }
 
     // Reports whether Google Play Services is installed and operational on this device.

@@ -11,11 +11,17 @@ import 'package:flutter/foundation.dart';
 class DualWallet {
   final double mainWalletBalance;
   final double seseCoinBalance;
+  final double escrowBalance;
 
   const DualWallet({
     this.mainWalletBalance = 0,
     this.seseCoinBalance = 0,
+    this.escrowBalance = 0,
   });
+
+  /// Available withdrawable/spendable cash excluding active trip escrow holds.
+  double get availableBalance =>
+      (mainWalletBalance - escrowBalance).clamp(0.0, double.infinity);
 
   double get total => mainWalletBalance + seseCoinBalance;
 }
@@ -60,14 +66,20 @@ class SeseCoinService {
       if (data == null) return const DualWallet();
       final main = _num(data['mainWalletBalance']);
       final coin = _num(data['seseCoinBalance']);
+      final escrow = _num(data['escrowBalance']);
       // Legacy docs only carry `balance` in kobo.
       if (main == 0 && coin == 0 && data['balance'] is num) {
         return DualWallet(
-            mainWalletBalance:
-                ((data['balance'] as num).toDouble()) / 100.0);
+          mainWalletBalance:
+              ((data['balance'] as num).toDouble()) / 100.0,
+          escrowBalance: escrow,
+        );
       }
       return DualWallet(
-          mainWalletBalance: main, seseCoinBalance: coin);
+        mainWalletBalance: main,
+        seseCoinBalance: coin,
+        escrowBalance: escrow,
+      );
     }).handleError((Object _) => const DualWallet());
   }
 
@@ -80,13 +92,19 @@ class SeseCoinService {
       if (data == null) return const DualWallet();
       final main = _num(data['mainWalletBalance']);
       final coin = _num(data['seseCoinBalance']);
+      final escrow = _num(data['escrowBalance']);
       if (main == 0 && coin == 0 && data['balance'] is num) {
         return DualWallet(
-            mainWalletBalance:
-                ((data['balance'] as num).toDouble()) / 100.0);
+          mainWalletBalance:
+              ((data['balance'] as num).toDouble()) / 100.0,
+          escrowBalance: escrow,
+        );
       }
       return DualWallet(
-          mainWalletBalance: main, seseCoinBalance: coin);
+        mainWalletBalance: main,
+        seseCoinBalance: coin,
+        escrowBalance: escrow,
+      );
     } catch (e) {
       debugPrint('SeseCoinService.fetchWallet: $e');
       return const DualWallet();

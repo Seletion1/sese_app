@@ -260,6 +260,21 @@ class ActiveTrip {
   /// included in this trip's total fare for cumulative cash collection.
   final double outstandingBalanceIncluded;
 
+  /// Amount of the fare covered by customer's wallet / escrow.
+  final double walletCoverageAmount;
+
+  /// Remaining cash balance to be collected by the driver (from sender or receiver).
+  final double cashToCollect;
+
+  /// Where the cash must be collected: 'pickup' (Sender) or 'dropoff' (Receiver) or 'both'.
+  final String collectAt;
+
+  /// Who pays the cash: 'sender', 'receiver', or 'split'.
+  final String payerRole;
+
+  /// Whether the customer's wallet balance is locked into active trip escrow.
+  final bool escrowLocked;
+
   const ActiveTrip({
     required this.tripId,
     required this.status,
@@ -316,6 +331,11 @@ class ActiveTrip {
     this.enableWaitingTimeBilling = true,
     this.paidWaitingFee = 0.0,
     this.outstandingBalanceIncluded = 0.0,
+    this.walletCoverageAmount = 0.0,
+    this.cashToCollect = 0.0,
+    this.collectAt = 'pickup',
+    this.payerRole = 'sender',
+    this.escrowLocked = false,
   });
 
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
@@ -486,6 +506,26 @@ class ActiveTrip {
       paidWaitingFee: (map['paidWaitingFee'] as num?)?.toDouble() ?? 0.0,
       outstandingBalanceIncluded:
           (map['outstandingBalanceIncluded'] as num?)?.toDouble() ?? 0.0,
+      walletCoverageAmount: (map['walletCoverageAmount'] as num?)?.toDouble() ??
+          (map['paymentBreakdown']?['walletCoverageAmount'] as num?)?.toDouble() ??
+          0.0,
+      cashToCollect: (map['cashToCollect'] as num?)?.toDouble() ??
+          (map['paymentBreakdown']?['cashToCollect'] as num?)?.toDouble() ??
+          ((map['paymentMethod'] == 'wallet' || map['paymentMethod'] == 'prepaid')
+              ? 0.0
+              : fareAmount),
+      collectAt: (map['collectAt'] ??
+              map['paymentBreakdown']?['collectAt'] ??
+              (map['paymentMode'] == 'receiver_pays' ? 'dropoff' : 'pickup'))
+          .toString(),
+      payerRole: (map['payerRole'] ??
+              map['paymentBreakdown']?['payerRole'] ??
+              (map['paymentMode'] == 'receiver_pays'
+                  ? 'receiver'
+                  : (map['paymentMode'] == 'split' ? 'split' : 'sender')))
+          .toString(),
+      escrowLocked: map['escrowLocked'] == true ||
+          map['paymentBreakdown']?['escrowLocked'] == true,
     );
   }
 }
@@ -552,6 +592,18 @@ class TripDraft {
   /// Optional Receiver Phone for split payments
   final String? receiverPhone;
 
+  /// Amount of the fare covered by customer's wallet / escrow.
+  final double walletCoverageAmount;
+
+  /// Remaining cash balance to be collected by the driver.
+  final double cashToCollect;
+
+  /// Where the cash must be collected: 'pickup' or 'dropoff' or 'both'.
+  final String collectAt;
+
+  /// Who pays the cash: 'sender', 'receiver', or 'split'.
+  final String payerRole;
+
   const TripDraft({
     required this.customerId,
     required this.pickupLat,
@@ -578,6 +630,10 @@ class TripDraft {
     this.receiverShareAmount,
     this.requireDeliveryPin = false,
     this.receiverPhone,
+    this.walletCoverageAmount = 0.0,
+    this.cashToCollect = 0.0,
+    this.collectAt = 'pickup',
+    this.payerRole = 'sender',
   });
 
   Map<String, dynamic> toMap() {
@@ -614,6 +670,10 @@ class TripDraft {
       if (senderShareAmount != null) 'senderShareAmount': senderShareAmount,
       if (receiverShareAmount != null)
         'receiverShareAmount': receiverShareAmount,
+      if (walletCoverageAmount > 0) 'walletCoverageAmount': walletCoverageAmount,
+      if (cashToCollect > 0) 'cashToCollect': cashToCollect,
+      'collectAt': collectAt,
+      'payerRole': payerRole,
       'requireDeliveryPin': requireDeliveryPin,
     };
     if (receiverPhone != null && receiverPhone!.isNotEmpty) {

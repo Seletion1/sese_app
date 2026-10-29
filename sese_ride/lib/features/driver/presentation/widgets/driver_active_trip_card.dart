@@ -242,37 +242,28 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   /// and drop-off, and requiring the delivery PIN for completion.
   Future<void> _advanceOrPin(ActiveTrip trip, String next) async {
     final mode = trip.paymentMode.toLowerCase();
-    final isSplit = mode == 'split' ||
-        trip.splitEnabled ||
-        trip.paymentMethod.toLowerCase() == 'split';
     final isReceiverPays = mode == 'receiver_pays';
-    final isSenderPays = mode == 'sender_pays' || (!isSplit && !isReceiverPays);
-    final isPrepaid = trip.isPrepaidTrip && !isSplit;
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+    final is100Prepaid = trip.isPrepaidTrip || (hasWallet && !hasCash);
 
-    if (next == 'IN_PROGRESS' && !isPrepaid) {
+    if (next == 'IN_PROGRESS' && !is100Prepaid) {
       // Step 1: Pickup Stage Collection Check
-      // - Sender Pays: Prompt full fare collection from sender
-      // - Split Payment: Prompt collection of only the sender's pre-agreed portion
-      // - Receiver Pays: 0 collection prompt at pickup
-      if (isSplit) {
-        final confirmed = await _showPickupSplitCheckDialog(trip);
-        if (confirmed != true) return;
-      } else if (isSenderPays) {
+      // - Sender Pays (Cash or Split): Prompt cash collection at pickup
+      // - Receiver Pays: 0 collection prompt at pickup (strictly at drop-off)
+      if (!isReceiverPays && (hasCash || (!hasWallet && !trip.isPrepaidTrip))) {
         final confirmed = await _showPickupCashCheckDialog(trip);
         if (confirmed != true) return;
       }
     }
 
     if (next == 'COMPLETED') {
-      if (!isPrepaid) {
+      if (!is100Prepaid) {
         // Step 2: Drop-Off Stage Collection Check
-        // - Receiver Pays: Prompt full fare collection from receiver
-        // - Split Payment: Prompt collection of the remaining balance from receiver
+        // - Receiver Pays: Prompt full fare collection in cash from receiver
+        // - Split Payment where collectAt == 'dropoff': Prompt cash collection from receiver
         // - Sender Pays: 0 collection prompt at drop-off (already collected at pickup)
-        if (isSplit) {
-          final confirmed = await _showDropoffSplitCheckDialog(trip);
-          if (confirmed != true) return;
-        } else if (isReceiverPays) {
+        if (isReceiverPays || (trip.collectAt == 'dropoff' && hasCash)) {
           final confirmed = await _showDropoffCashCheckDialog(trip);
           if (confirmed != true) return;
         }
@@ -291,9 +282,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   }
 
   Future<bool?> _showPickupCashCheckDialog(ActiveTrip trip) {
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cashAmount =
+        trip.cashToCollect > 0 ? trip.cashToCollect : trip.fareAmount;
+    final cashStr = '₦${cashAmount.toStringAsFixed(0)}';
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final walletStr = '₦${trip.walletCoverageAmount.toStringAsFixed(0)}';
+
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -305,10 +300,41 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             Text('Pickup Cash Check'),
           ],
         ),
-        content: Text(
-          trip.serviceType == 'ride'
-              ? 'Collect $fareStr CASH from Booker/Sender before starting ride.'
-              : 'Collect $fareStr CASH from Sender before taking package.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              trip.serviceType == 'ride'
+                  ? 'Collect $cashStr CASH from Booker/Sender before starting ride.'
+                  : 'Collect $cashStr CASH from Sender before taking package.',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            if (hasWallet) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                      : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                        : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  'Wallet portion of $walletStr is locked in escrow and will be credited to your driver wallet upon completion.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -316,6 +342,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirm Cash Collected'),
           ),
@@ -325,9 +354,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   }
 
   Future<bool?> _showDropoffCashCheckDialog(ActiveTrip trip) {
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cashAmount =
+        trip.cashToCollect > 0 ? trip.cashToCollect : trip.fareAmount;
+    final cashStr = '₦${cashAmount.toStringAsFixed(0)}';
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final walletStr = '₦${trip.walletCoverageAmount.toStringAsFixed(0)}';
+
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -339,114 +372,40 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             Text('Drop-off Cash Check'),
           ],
         ),
-        content: Text(
-          trip.serviceType == 'ride'
-              ? 'Collect $fareStr CASH from Rider/Receiver before ending ride.'
-              : 'Collect $fareStr CASH from Receiver before releasing package.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm Cash Collected'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _showPickupSplitCheckDialog(ActiveTrip trip) {
-    final senderShare = trip.senderShareAmount ?? (trip.fareAmount / 2);
-    final receiverShare =
-        trip.receiverShareAmount ?? (trip.fareAmount - senderShare);
-    final senderStr = '₦${senderShare.toStringAsFixed(0)}';
-    final receiverStr = '₦${receiverShare.toStringAsFixed(0)}';
-
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.call_split_rounded, color: Colors.green),
-            SizedBox(width: 8),
-            Text('Pickup Split Check'),
-          ],
-        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Split Payment Order:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Collect only the Sender\'s pre-agreed portion of $senderStr CASH at pickup.',
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                'Note: The remaining balance of $receiverStr will be collected from the Receiver at drop-off.',
-                style: const TextStyle(fontSize: 12, color: Colors.black87),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm Sender Paid'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<bool?> _showDropoffSplitCheckDialog(ActiveTrip trip) {
-    final senderShare = trip.senderShareAmount ?? (trip.fareAmount / 2);
-    final receiverShare =
-        trip.receiverShareAmount ?? (trip.fareAmount - senderShare);
-    final receiverStr = '₦${receiverShare.toStringAsFixed(0)}';
-
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.call_split_rounded, color: Colors.amber),
-            SizedBox(width: 8),
-            Text('Drop-off Split Check'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Split Payment Balance:',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
             Text(
               trip.serviceType == 'ride'
-                  ? 'Collect the remaining balance of $receiverStr CASH from the Rider before ending ride.'
-                  : 'Collect the remaining balance of $receiverStr CASH from the Receiver before releasing package.',
+                  ? 'Collect $cashStr CASH from Rider/Receiver before ending ride.'
+                  : 'Collect $cashStr CASH from Receiver before releasing package.',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
+            if (hasWallet) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                      : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                        : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Text(
+                  'Wallet portion of $walletStr is locked in escrow and will be credited to your driver wallet upon completion.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -455,8 +414,11 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm Receiver Paid'),
+            child: const Text('Confirm Cash Collected'),
           ),
         ],
       ),
@@ -609,18 +571,47 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
   String _paymentLabel(ActiveTrip trip) {
     final mode = trip.paymentMode.toLowerCase();
-    if (mode == 'split' ||
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+
+    if (mode == 'receiver_pays') {
+      return 'RECEIVER PAYS (CASH)';
+    } else if (mode == 'split' ||
         trip.splitEnabled ||
         trip.paymentMethod.toLowerCase() == 'split') {
+      if (hasWallet && hasCash) {
+        return 'SPLIT (WALLET + CASH)';
+      }
       return 'SPLIT PAYMENT';
-    } else if (mode == 'receiver_pays') {
-      return 'RECEIVER PAYS';
+    } else if (hasWallet && hasCash) {
+      return 'SPLIT (WALLET + CASH)';
+    } else if (trip.paymentMethod.toLowerCase() == 'wallet' ||
+        (hasWallet && !hasCash)) {
+      return '100% WALLET PREPAID';
     } else if (mode == 'sender_pays') {
-      return 'SENDER PAYS';
-    } else if (trip.paymentMethod.toLowerCase() == 'wallet') {
-      return 'WALLET PREPAID';
+      return 'SENDER PAYS (CASH)';
     }
     return trip.paymentMethod.toUpperCase();
+  }
+
+  String _formatTripPaymentSubtitle(ActiveTrip trip) {
+    final fareStr = trip.fareFormatted.isNotEmpty
+        ? trip.fareFormatted
+        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+
+    if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
+      return '$fareStr • Collect $fareStr Cash at Drop-off';
+    }
+
+    if (trip.walletCoverageAmount > 0 && trip.cashToCollect > 0) {
+      return '$fareStr • Collect ₦${trip.cashToCollect.toStringAsFixed(0)} Cash (₦${trip.walletCoverageAmount.toStringAsFixed(0)} Wallet)';
+    } else if (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0) {
+      return '$fareStr • 100% Wallet Prepaid (₦0 Cash)';
+    } else if (trip.cashToCollect > 0) {
+      return '$fareStr • Collect ₦${trip.cashToCollect.toStringAsFixed(0)} Cash at Pickup';
+    }
+
+    return '$fareStr • ${_paymentLabel(trip)}';
   }
 
   /// Booker lifeline: the account holder who ordered and paid.
@@ -980,6 +971,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       BuildContext context, ScrollController scrollController) {
     final trip = widget.trip;
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isAtPickupWait = trip.status == TripStatus.driverArrived;
     final next = _nextStatus;
     final mockDetected = _prox?.isMocked == true;
@@ -1032,7 +1024,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     height: 5,
                     margin: const EdgeInsets.only(top: 2, bottom: 8),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
+                      color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(3),
                     ),
                   ),
@@ -1073,8 +1065,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     Container(
                       width: 44,
                       height: 44,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFEF3C7),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                            : const Color(0xFFFEF3C7),
                         shape: BoxShape.circle,
                       ),
                       child: const Center(
@@ -1128,12 +1122,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            trip.fareFormatted.isNotEmpty
-                                ? '${trip.fareFormatted} • ${_paymentLabel(trip)}'
-                                : '₦${trip.fareAmount.toStringAsFixed(0)} • ${_paymentLabel(trip)}',
+                            _formatTripPaymentSubtitle(trip),
                             style: TextStyle(
                               fontSize: 13,
-                              color: Colors.grey.shade700,
+                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
                               fontWeight: FontWeight.w600,
                             ),
                             maxLines: 1,
@@ -1169,7 +1161,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                           icon: Icons.phone_in_talk_outlined,
                           label: 'In-App Call',
                           color: const Color(0xFFD97706),
-                          bgColor: const Color(0xFFFEF3C7),
+                          bgColor: isDark
+                              ? const Color(0xFF78350F).withValues(alpha: 0.25)
+                              : const Color(0xFFFEF3C7),
                           onTap: () => _showCallContactSheet(context, trip),
                         ),
                       ),
@@ -1179,21 +1173,27 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                           key: const Key('driver_chat_icon'),
                           icon: Icons.chat_bubble_outline,
                           label: 'Chat',
-                          color: Colors.black87,
-                          bgColor: Colors.grey.shade100,
+                          color: isDark ? Colors.white : Colors.black87,
+                          bgColor: isDark ? const Color(0xFF252530) : Colors.grey.shade100,
                           onTap: () => _openChat(context, trip),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // 4. Route Details Box (PICKUP & DROPOFF)
+
+            // Payment Breakdown & Collection Instructions
+            _PaymentCollectionCard(trip: trip),
+
+            // 4. Route Details Box (PICKUP & DROPOFF)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1232,10 +1232,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                               trip.pickupAddress.isEmpty
                                   ? 'Pickup location on map'
                                   : trip.pickupAddress,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.black87,
+                                color: isDark ? Colors.white : Colors.black87,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -1245,9 +1245,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       ),
                     ],
                   ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 6),
-                    child: Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Divider(
+                      height: 1,
+                      color: isDark ? const Color(0xFF3A3A46) : null,
+                    ),
                   ),
                   // Dropoff row
                   Row(
@@ -1290,10 +1293,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                     trip.dropoffAddress.isEmpty
                                         ? 'Drop-off location on map'
                                         : trip.dropoffAddress,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
+                                      color: isDark ? Colors.white : Colors.black87,
                                     ),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
@@ -1304,7 +1307,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                 'Drop-off revealed once ride starts',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey.shade600,
+                                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                                   fontStyle: FontStyle.italic,
                                 ),
                               ),
@@ -1844,6 +1847,142 @@ class _DeliveryPinDialogState extends State<_DeliveryPinDialog> {
           child: const Text('Complete Delivery'),
         ),
       ],
+    );
+  }
+}
+
+class _PaymentCollectionCard extends StatelessWidget {
+  final ActiveTrip trip;
+
+  const _PaymentCollectionCard({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mode = trip.paymentMode.toLowerCase();
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+    final cashAmount =
+        hasCash ? trip.cashToCollect : (hasWallet ? 0.0 : trip.fareAmount);
+    final walletAmount = trip.walletCoverageAmount;
+    final isReceiverPays = mode == 'receiver_pays';
+
+    Color cardBg;
+    Color borderColor;
+    Color accentColor;
+    Color textColor;
+    IconData icon;
+    String title;
+    String collectionText;
+    String settlementText;
+
+    if (isReceiverPays) {
+      cardBg = isDark
+          ? const Color(0xFF1E3A8A).withValues(alpha: 0.25)
+          : const Color(0xFFEFF6FF);
+      borderColor = isDark
+          ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
+          : const Color(0xFF93C5FD);
+      accentColor = isDark ? const Color(0xFF93C5FD) : const Color(0xFF1D4ED8);
+      textColor = isDark ? Colors.white : const Color(0xFF1E40AF);
+      icon = Icons.call_received_rounded;
+      title = 'RECEIVER PAYS (CASH ONLY)';
+      collectionText =
+          'Collect ₦${trip.fareAmount.toStringAsFixed(0)} cash from Receiver at drop-off.';
+      settlementText = 'Do not collect any payment at pickup.';
+    } else if (hasWallet && hasCash) {
+      cardBg = isDark
+          ? const Color(0xFF78350F).withValues(alpha: 0.25)
+          : const Color(0xFFFEF3C7);
+      borderColor = isDark
+          ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+          : const Color(0xFFF59E0B).withValues(alpha: 0.4);
+      accentColor = isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E);
+      textColor = isDark ? Colors.white : const Color(0xFF92400E);
+      icon = Icons.payments_outlined;
+      title = 'SPLIT PAYMENT (WALLET + CASH)';
+      collectionText =
+          'Collect ₦${cashAmount.toStringAsFixed(0)} cash at pickup from sender.';
+      settlementText =
+          '₦${walletAmount.toStringAsFixed(0)} credited to your wallet upon completion.';
+    } else if (hasWallet && !hasCash) {
+      cardBg = isDark
+          ? const Color(0xFF065F46).withValues(alpha: 0.25)
+          : const Color(0xFFECFDF5);
+      borderColor = isDark
+          ? const Color(0xFF10B981).withValues(alpha: 0.4)
+          : const Color(0xFFA7F3D0);
+      accentColor = isDark ? const Color(0xFF6EE7B7) : const Color(0xFF065F46);
+      textColor = isDark ? Colors.white : const Color(0xFF065F46);
+      icon = Icons.account_balance_wallet_outlined;
+      title = '100% WALLET PREPAID';
+      collectionText = '₦0 cash to collect — do not ask customer for cash.';
+      settlementText =
+          '₦${walletAmount.toStringAsFixed(0)} credited to your wallet upon completion.';
+    } else {
+      cardBg = isDark ? const Color(0xFF252530) : const Color(0xFFF9FAFB);
+      borderColor = isDark ? const Color(0xFF3A3A46) : const Color(0xFFE5E7EB);
+      accentColor = isDark ? AppColors.seseGold : Colors.black87;
+      textColor = isDark ? Colors.white : Colors.black87;
+      icon = Icons.money_rounded;
+      title = 'CASH PAYMENT';
+      collectionText =
+          'Collect ₦${trip.fareAmount.toStringAsFixed(0)} cash at pickup from sender.';
+      settlementText = 'Keep 100% of collected cash.';
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: borderColor, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: accentColor),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                  color: accentColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  collectionText,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(
+            settlementText,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.grey.shade400 : accentColor.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

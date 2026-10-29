@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
+exports.releaseTripEscrow = releaseTripEscrow;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -455,7 +456,7 @@ async function maskedPhones(customerId, pickupPhone, dropoffPhone, d) {
  * the live trip document. Returns `{ tripId }`.
  */
 exports.createTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to book.");
     }
@@ -506,19 +507,26 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     const customTierFares = d.customTierFares && typeof d.customTierFares === "object"
         ? d.customTierFares
         : {};
-    // Payment rail for departure protection. Allow-listed values only;
-    // anything else falls back to 'cash' (never auto-starts).
-    const rawPayment = String((_j = d.paymentMethod) !== null && _j !== void 0 ? _j : "cash").toLowerCase();
-    const paymentMethod = [
-        "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
+    // Payment rail & Payment Mode resolution
+    const rawPaymentMode = String((_j = d.paymentMode) !== null && _j !== void 0 ? _j : "sender_pays").toLowerCase();
+    const paymentMode = ["sender_pays", "receiver_pays", "split"].includes(rawPaymentMode)
+        ? rawPaymentMode
+        : "sender_pays";
+    const rawPayment = String((_k = d.paymentMethod) !== null && _k !== void 0 ? _k : "auto").toLowerCase();
+    let paymentMethod = [
+        "auto", "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
     ].includes(rawPayment)
         ? rawPayment
-        : "cash";
+        : "auto";
+    // Receiver Pays: Automatically enforce Cash Only
+    if (paymentMode === "receiver_pays") {
+        paymentMethod = "cash";
+    }
     // Check system-wide force PIN setting
     let forceDeliveryPinSystemWide = false;
     try {
         const remoteKeysSnap = await db().collection("system_config").doc("remote_keys").get();
-        if (remoteKeysSnap.exists && ((_k = remoteKeysSnap.data()) === null || _k === void 0 ? void 0 : _k.forceDeliveryPinSystemWide) === true) {
+        if (remoteKeysSnap.exists && ((_l = remoteKeysSnap.data()) === null || _l === void 0 ? void 0 : _l.forceDeliveryPinSystemWide) === true) {
             forceDeliveryPinSystemWide = true;
         }
     }
@@ -535,7 +543,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     // Split payment validation if split selected
     let splitPaymentData = null;
     if (paymentMethod === "split" || d.paymentMode === "split") {
-        const recPhone = (0, exports.normPhone)((_l = d.receiverPhone) !== null && _l !== void 0 ? _l : dropoffPhone);
+        const recPhone = (0, exports.normPhone)((_m = d.receiverPhone) !== null && _m !== void 0 ? _m : dropoffPhone);
         if (recPhone === "") {
             throw new https_1.HttpsError("invalid-argument", "Split payment needs the receiver's phone number so their share " +
                 "can be settled. Add it, or use Sender/Receiver Pays.");
@@ -557,14 +565,14 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         if (!recSnap) {
             throw new https_1.HttpsError("invalid-argument", "Split payment requires both parties to be registered users. Ask the receiver to sign up, or select 'Sender Pays' / 'Receiver Pays'.");
         }
-        const senderShare = Number((_m = d.senderShareAmount) !== null && _m !== void 0 ? _m : baselineFare / 2);
-        const receiverShare = Number((_o = d.receiverShareAmount) !== null && _o !== void 0 ? _o : baselineFare / 2);
+        const senderShare = Number((_o = d.senderShareAmount) !== null && _o !== void 0 ? _o : baselineFare / 2);
+        const receiverShare = Number((_p = d.receiverShareAmount) !== null && _p !== void 0 ? _p : baselineFare / 2);
         splitPaymentData = {
             status: "pending_receiver_consent",
             senderShare,
             receiverShare,
-            senderPaymentMethod: String((_p = d.senderPaymentMethod) !== null && _p !== void 0 ? _p : "cash"),
-            receiverPaymentMethod: String((_q = d.receiverPaymentMethod) !== null && _q !== void 0 ? _q : "cash"),
+            senderPaymentMethod: String((_q = d.senderPaymentMethod) !== null && _q !== void 0 ? _q : "cash"),
+            receiverPaymentMethod: String((_r = d.receiverPaymentMethod) !== null && _r !== void 0 ? _r : "cash"),
             senderPhone: pickupPhone,
             receiverPhone: recPhone,
             receiverUid: recSnap.id,
@@ -579,9 +587,9 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         const custSnap = await db().collection("users").doc(customerId).get();
         if (custSnap.exists) {
             const cData = custSnap.data();
-            customerName = String((_s = (_r = cData.fullName) !== null && _r !== void 0 ? _r : cData.name) !== null && _s !== void 0 ? _s : "Customer");
-            customerPhone = (0, exports.normPhone)((_u = (_t = cData.phoneNumberE164) !== null && _t !== void 0 ? _t : cData.phoneNumber) !== null && _u !== void 0 ? _u : "");
-            outstandingNegativeBalance = Math.max(0, Number((_v = cData.outstandingNegativeBalance) !== null && _v !== void 0 ? _v : 0));
+            customerName = String((_t = (_s = cData.fullName) !== null && _s !== void 0 ? _s : cData.name) !== null && _t !== void 0 ? _t : "Customer");
+            customerPhone = (0, exports.normPhone)((_v = (_u = cData.phoneNumberE164) !== null && _u !== void 0 ? _u : cData.phoneNumber) !== null && _v !== void 0 ? _v : "");
+            outstandingNegativeBalance = Math.max(0, Number((_w = cData.outstandingNegativeBalance) !== null && _w !== void 0 ? _w : 0));
         }
     }
     catch (_) { }
@@ -593,6 +601,103 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             await db().collection("users").doc(customerId).set({ outstandingNegativeBalance: 0 }, { merge: true });
         }
         catch (_) { }
+    }
+    // ── Wallet Escrow & Cash Collection Breakdown Engine ───────────────────
+    let availableWalletBalance = 0;
+    const custWalletRef = db().collection("wallets").doc(customerId);
+    try {
+        const custWalletSnap = await custWalletRef.get();
+        if (custWalletSnap.exists) {
+            const wData = custWalletSnap.data();
+            const mainBal = typeof wData.mainWalletBalance === "number"
+                ? wData.mainWalletBalance
+                : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+            const escrowBal = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+            availableWalletBalance = Math.max(0, mainBal - escrowBal);
+        }
+    }
+    catch (e) {
+        console.warn(`createTrip: wallet lookup warning: ${e}`);
+    }
+    let walletCoverageAmount = 0;
+    let cashToCollect = adjustedProposedFare;
+    let collectAt = "pickup";
+    let payerRole = "sender";
+    let escrowLocked = false;
+    let senderCashToCollect = 0;
+    let receiverCashToCollect = 0;
+    if (paymentMode === "receiver_pays") {
+        // Receiver Pays: Cash Only, driver collects full fare from receiver at drop-off
+        walletCoverageAmount = 0;
+        cashToCollect = adjustedProposedFare;
+        receiverCashToCollect = adjustedProposedFare;
+        collectAt = "dropoff";
+        payerRole = "receiver";
+        escrowLocked = false;
+    }
+    else if (paymentMode === "split") {
+        payerRole = "split";
+        const senderShare = Number((_x = d.senderShareAmount) !== null && _x !== void 0 ? _x : adjustedProposedFare / 2);
+        const receiverShare = Number((_y = d.receiverShareAmount) !== null && _y !== void 0 ? _y : (adjustedProposedFare - senderShare));
+        receiverCashToCollect = receiverShare;
+        if (paymentMethod === "cash") {
+            walletCoverageAmount = 0;
+            senderCashToCollect = senderShare;
+            escrowLocked = false;
+        }
+        else {
+            // Auto (smart default) or Wallet / Card
+            walletCoverageAmount = (0, pricing_1.roundToNearest100)(Math.min(senderShare, availableWalletBalance));
+            if (walletCoverageAmount > senderShare) {
+                walletCoverageAmount = senderShare;
+            }
+            senderCashToCollect = Math.max(0, senderShare - walletCoverageAmount);
+            escrowLocked = walletCoverageAmount > 0;
+        }
+        cashToCollect = senderCashToCollect + receiverCashToCollect;
+        collectAt = senderCashToCollect > 0 ? "both" : "dropoff";
+    }
+    else {
+        // "sender_pays"
+        payerRole = "sender";
+        collectAt = "pickup";
+        if (paymentMethod === "cash") {
+            walletCoverageAmount = 0;
+            cashToCollect = adjustedProposedFare;
+            senderCashToCollect = adjustedProposedFare;
+            escrowLocked = false;
+        }
+        else {
+            // Auto (smart default) or Wallet / Card
+            walletCoverageAmount = (0, pricing_1.roundToNearest100)(Math.min(adjustedProposedFare, availableWalletBalance));
+            if (walletCoverageAmount > adjustedProposedFare) {
+                walletCoverageAmount = adjustedProposedFare;
+            }
+            cashToCollect = Math.max(0, adjustedProposedFare - walletCoverageAmount);
+            senderCashToCollect = cashToCollect;
+            escrowLocked = walletCoverageAmount > 0;
+        }
+    }
+    // Lock available wallet balance into active escrow hold
+    if (escrowLocked && walletCoverageAmount > 0) {
+        try {
+            const coverageKobo = (0, driverStreak_1.nairaToKobo)(walletCoverageAmount);
+            await custWalletRef.set({
+                escrowBalance: admin.firestore.FieldValue.increment(walletCoverageAmount),
+            }, { merge: true });
+            await custWalletRef.collection("transactions").add({
+                type: "trip_escrow_hold",
+                amountNaira: -walletCoverageAmount,
+                amountKobo: -coverageKobo,
+                amount: -coverageKobo,
+                currency: "NGN",
+                note: "Locked in escrow for active trip",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+        catch (e) {
+            console.warn(`createTrip: escrow lock warning: ${e}`);
+        }
     }
     const ref = await db().collection("trips").add(Object.assign(Object.assign(Object.assign(Object.assign({ customerId,
         customerName,
@@ -617,7 +722,24 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         isVerifiedCustomer: await isVerifiedCustomer(customerId) }, (await maskedPhones(customerId, pickupPhone, dropoffPhone, d))), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, deliveryPin: pinCode, order: {
             deliveryPin: pinCode,
             requireDeliveryPin: isPinRequired,
-        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_x = (_w = d.vehicleCategory) !== null && _w !== void 0 ? _w : d.category) !== null && _x !== void 0 ? _x : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: verified.tiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod, paymentMode: String((_y = d.paymentMode) !== null && _y !== void 0 ? _y : (paymentMethod === "split" ? "split" : "sender_pays")), senderShareAmount: d.senderShareAmount != null
+        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_0 = (_z = d.vehicleCategory) !== null && _z !== void 0 ? _z : d.category) !== null && _0 !== void 0 ? _0 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: verified.tiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
+        paymentMode,
+        walletCoverageAmount,
+        cashToCollect,
+        collectAt,
+        payerRole,
+        escrowLocked,
+        senderCashToCollect,
+        receiverCashToCollect, paymentBreakdown: {
+            totalFare: adjustedProposedFare,
+            walletCoverageAmount,
+            cashToCollect,
+            senderCashToCollect,
+            receiverCashToCollect,
+            collectAt,
+            payerRole,
+            escrowLocked,
+        }, senderShareAmount: d.senderShareAmount != null
             ? Number(d.senderShareAmount)
             : (splitPaymentData ? Number(splitPaymentData.senderShare) : null), receiverShareAmount: d.receiverShareAmount != null
             ? Number(d.receiverShareAmount)
@@ -1372,6 +1494,45 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     return { ok: true };
 });
 // ── Customer actions ───────────────────────────────────────────────────────
+/** Release active trip wallet escrow hold back to customer's available balance upon cancellation */
+async function releaseTripEscrow(tripId, tripData) {
+    var _a, _b, _c, _d;
+    const walletCoverage = Number((_c = (_a = tripData["walletCoverageAmount"]) !== null && _a !== void 0 ? _a : (_b = tripData["paymentBreakdown"]) === null || _b === void 0 ? void 0 : _b["walletCoverageAmount"]) !== null && _c !== void 0 ? _c : 0);
+    if (walletCoverage > 0 && tripData["escrowLocked"] === true && !tripData["escrowRefundedAt"]) {
+        const customerId = String((_d = tripData["customerId"]) !== null && _d !== void 0 ? _d : "");
+        if (customerId) {
+            try {
+                const custWalletRef = db().collection("wallets").doc(customerId);
+                const coverageKobo = (0, driverStreak_1.nairaToKobo)(walletCoverage);
+                await custWalletRef.set({
+                    escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+                }, { merge: true });
+                await custWalletRef.collection("transactions").add({
+                    type: "trip_escrow_refund",
+                    amountNaira: walletCoverage,
+                    amountKobo: coverageKobo,
+                    amount: coverageKobo,
+                    tripId,
+                    currency: "NGN",
+                    note: `Escrow hold released for cancelled trip ${tripId}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+            catch (e) {
+                console.warn(`releaseTripEscrow[${tripId}] warning: ${e}`);
+            }
+        }
+        try {
+            await db().collection("trips").doc(tripId).update({
+                escrowLocked: false,
+                escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+                "paymentBreakdown.escrowLocked": false,
+                "paymentBreakdown.escrowRefunded": true,
+            });
+        }
+        catch (_) { }
+    }
+}
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
 exports.cancelTrip = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
@@ -1533,6 +1694,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 }
             }
         }
+        await releaseTripEscrow(tripId, data);
         await ref.update({
             status: "CANCELLED",
             cancellationSource: "customer",
@@ -1626,6 +1788,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         }
     }
     // Fallback cancellation (e.g. driver no-show after waiting)
+    await releaseTripEscrow(tripId, data);
     await ref.update({
         status: "CANCELLED",
         cancellationSource,
@@ -2012,6 +2175,7 @@ exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {
     const snap = await ref.get();
     if (!snap.exists)
         throw new https_1.HttpsError("not-found", "Trip not found.");
+    await releaseTripEscrow(tripId, snap.data());
     await ref.update({
         status: "CANCELLED",
         cancellationSource: "admin_hub",

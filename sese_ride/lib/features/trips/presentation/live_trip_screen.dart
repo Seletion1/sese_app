@@ -1386,18 +1386,181 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
 
   String _paymentLabel(ActiveTrip trip) {
     final mode = trip.paymentMode.toLowerCase();
-    if (mode == 'split' ||
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+
+    if (mode == 'receiver_pays') {
+      return 'RECEIVER PAYS (CASH)';
+    } else if (mode == 'split' ||
         trip.splitEnabled ||
         trip.paymentMethod.toLowerCase() == 'split') {
+      if (hasWallet && hasCash) {
+        return 'SPLIT (WALLET + CASH)';
+      }
       return 'SPLIT PAYMENT';
-    } else if (mode == 'receiver_pays') {
-      return 'RECEIVER PAYS';
+    } else if (hasWallet && hasCash) {
+      return 'SPLIT (WALLET + CASH)';
+    } else if (trip.paymentMethod.toLowerCase() == 'wallet' ||
+        (hasWallet && !hasCash)) {
+      return '100% WALLET PREPAID';
     } else if (mode == 'sender_pays') {
       return 'SENDER PAYS';
-    } else if (trip.paymentMethod.toLowerCase() == 'wallet') {
-      return 'WALLET PREPAID';
     }
     return trip.paymentMethod.toUpperCase();
+  }
+
+  String _formatCustomerPaymentSubtitle(ActiveTrip trip, DriverInfo driver) {
+    final fareStr = trip.fareFormatted.isNotEmpty
+        ? trip.fareFormatted
+        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+    final vehicle =
+        driver.vehicleLabel.isNotEmpty ? ' • ${driver.vehicleLabel}' : '';
+
+    if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
+      return '$fareStr$vehicle • Receiver Pays Cash at Drop-off';
+    }
+
+    if (trip.walletCoverageAmount > 0 && trip.cashToCollect > 0) {
+      return '$fareStr$vehicle • Pay ₦${trip.cashToCollect.toStringAsFixed(0)} Cash (₦${trip.walletCoverageAmount.toStringAsFixed(0)} Wallet Locked)';
+    } else if (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0) {
+      return '$fareStr$vehicle • 100% Wallet (₦0 Cash)';
+    } else if (trip.cashToCollect > 0) {
+      return '$fareStr$vehicle • Pay ₦${trip.cashToCollect.toStringAsFixed(0)} Cash at Pickup';
+    }
+
+    return '$fareStr$vehicle • ${_paymentLabel(trip)}';
+  }
+
+  Widget? _buildCustomerPaymentBreakdown(ActiveTrip trip) {
+    final mode = trip.paymentMode.toLowerCase();
+    final hasWallet = trip.walletCoverageAmount > 0;
+    final hasCash = trip.cashToCollect > 0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (mode == 'receiver_pays') {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF1E3A8A).withValues(alpha: 0.3)
+              : Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark
+                ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
+                : Colors.blue.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.call_received_rounded,
+              size: 16,
+              color: isDark ? const Color(0xFF93C5FD) : Colors.blue.shade800,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Receiver Pays Cash: The receiver will pay ₦${trip.fareAmount.toStringAsFixed(0)} cash at drop-off.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (hasWallet && hasCash) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF78350F).withValues(alpha: 0.3)
+              : const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 16,
+              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '₦${trip.walletCoverageAmount.toStringAsFixed(0)} locked from wallet in escrow.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Please give ₦${trip.cashToCollect.toStringAsFixed(0)} cash to the driver at pickup.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? const Color(0xFFFDE68A).withValues(alpha: 0.85)
+                          : const Color(0xFF92400E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (hasWallet && !hasCash) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF065F46).withValues(alpha: 0.3)
+              : Colors.green.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark
+                ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                : Colors.green.shade200,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.check_circle_outline,
+              size: 16,
+              color: isDark ? const Color(0xFF6EE7B7) : Colors.green.shade800,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '100% Wallet Prepaid — No cash required. Do not pay any cash.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? const Color(0xFFA7F3D0) : Colors.green.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return null;
   }
 
   bool _isCallableNumber(String raw) {
@@ -1465,6 +1628,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final driver = widget.driver;
     final trip = widget.trip;
     final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.38,
@@ -1516,7 +1680,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                         height: 5,
                         margin: const EdgeInsets.only(top: 2, bottom: 8),
                         decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
+                          color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300,
                           borderRadius: BorderRadius.circular(3),
                         ),
                       ),
@@ -1530,28 +1694,32 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
+                    color: isDark
+                        ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                        : const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                      color: isDark
+                          ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                          : const Color(0xFFF59E0B).withValues(alpha: 0.3),
                     ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.directions_car_filled_rounded,
-                        color: Color(0xFFD97706),
+                        color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
                         size: 22,
                       ),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           _customerStatusMessage(trip.status, driver.fullName),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFF92400E),
+                            color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1634,12 +1802,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    trip.fareFormatted.isNotEmpty
-                                        ? '${trip.fareFormatted} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}'
-                                        : '₦${trip.fareAmount.toStringAsFixed(0)} • ${driver.vehicleLabel.isNotEmpty ? driver.vehicleLabel : _paymentLabel(trip)}',
+                                    _formatCustomerPaymentSubtitle(trip, driver),
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: Colors.grey.shade700,
+                                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                                       fontWeight: FontWeight.w600,
                                     ),
                                     maxLines: 1,
@@ -1674,8 +1840,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                         key: const Key('customer_inapp_call_icon'),
                         icon: Icons.phone_in_talk_outlined,
                         label: 'In-App Call',
-                        color: const Color(0xFFD97706),
-                        bgColor: const Color(0xFFFEF3C7),
+                        color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                        bgColor: isDark
+                            ? const Color(0xFF78350F).withValues(alpha: 0.25)
+                            : const Color(0xFFFEF3C7),
                         onTap: () => _startInAppCall(context),
                       ),
                     ),
@@ -1685,8 +1853,8 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                         key: const Key('customer_chat_icon'),
                         icon: Icons.chat_bubble_outline,
                         label: 'Chat',
-                        color: Colors.black87,
-                        bgColor: Colors.grey.shade100,
+                        color: isDark ? Colors.white : Colors.black87,
+                        bgColor: isDark ? const Color(0xFF252530) : Colors.grey.shade100,
                         onTap: () => _openTripChat(context),
                       ),
                     ),
@@ -1694,13 +1862,20 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 ),
                 const SizedBox(height: 12),
 
+                // Payment Breakdown Banner
+                if (_buildCustomerPaymentBreakdown(trip) != null) ...[
+                  _buildCustomerPaymentBreakdown(trip)!,
+                ],
+
                 // d. Route Details
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade50,
+                    color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
+                    border: Border.all(
+                      color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1738,10 +1913,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                   trip.pickupAddress.isEmpty
                                       ? 'Pickup location on map'
                                       : trip.pickupAddress,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
+                                    color: isDark ? Colors.white : Colors.black87,
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
@@ -1751,9 +1926,12 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                           ),
                         ],
                       ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 6),
-                        child: Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Divider(
+                          height: 1,
+                          color: isDark ? const Color(0xFF3A3A46) : null,
+                        ),
                       ),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1788,10 +1966,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                   trip.dropoffAddress.isEmpty
                                       ? 'Drop-off location on map'
                                       : trip.dropoffAddress,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
+                                    color: isDark ? Colors.white : Colors.black87,
                                   ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,

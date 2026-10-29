@@ -359,7 +359,7 @@ function applyStreakBreak(streak) {
  * Computes streak-aware commission, credits refunds/bonuses, persists state.
  */
 exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
     if (!before || !after)
@@ -472,10 +472,60 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         });
     }
     await batch.commit();
+    // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
+    try {
+        const walletCoverage = Number((_l = (_j = after["walletCoverageAmount"]) !== null && _j !== void 0 ? _j : (_k = after["paymentBreakdown"]) === null || _k === void 0 ? void 0 : _k["walletCoverageAmount"]) !== null && _l !== void 0 ? _l : 0);
+        if (walletCoverage > 0 && !after["walletSettledAt"]) {
+            const customerId = String((_o = (_m = after["customerId"]) !== null && _m !== void 0 ? _m : after["userId"]) !== null && _o !== void 0 ? _o : "");
+            const coverageKobo = nairaToKobo(walletCoverage);
+            // 1. Finalize debit on customer's wallet (deduct from main balance, clear escrow)
+            if (customerId) {
+                const custWalletRef = db().collection("wallets").doc(customerId);
+                await custWalletRef.set({
+                    mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+                    balance: admin.firestore.FieldValue.increment(-coverageKobo),
+                    escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+                }, { merge: true });
+                await custWalletRef.collection("transactions").add({
+                    type: "trip_payment",
+                    amountNaira: -walletCoverage,
+                    amountKobo: -coverageKobo,
+                    amount: -coverageKobo,
+                    tripId,
+                    currency: "NGN",
+                    note: `Payment for trip ${tripId}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+            // 2. Credit the wallet portion to the driver's virtual wallet upon trip completion
+            const driverWalletRef = db().collection("wallets").doc(driverId);
+            await driverWalletRef.set({
+                mainWalletBalance: admin.firestore.FieldValue.increment(walletCoverage),
+                balance: admin.firestore.FieldValue.increment(coverageKobo),
+            }, { merge: true });
+            await driverWalletRef.collection("transactions").add({
+                type: "trip_wallet_settlement",
+                amountNaira: walletCoverage,
+                amountKobo: coverageKobo,
+                amount: coverageKobo,
+                tripId,
+                currency: "NGN",
+                note: `Wallet fare portion credited for trip ${tripId}`,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            await tripRef.update({
+                walletSettledAt: admin.firestore.FieldValue.serverTimestamp(),
+                "paymentBreakdown.walletSettled": true,
+            });
+        }
+    }
+    catch (e) {
+        console.warn(`onTripCompleted[${tripId}]: wallet escrow settlement warning: ${e}`);
+    }
     // 5. Automated Residual Referral Commission Split Engine
     try {
-        const customerId = String((_k = (_j = after["customerId"]) !== null && _j !== void 0 ? _j : after["userId"]) !== null && _k !== void 0 ? _k : "");
-        const driverName = String((_m = (_l = driverData["fullName"]) !== null && _l !== void 0 ? _l : driverData["displayName"]) !== null && _m !== void 0 ? _m : "Driver");
+        const customerId = String((_q = (_p = after["customerId"]) !== null && _p !== void 0 ? _p : after["userId"]) !== null && _q !== void 0 ? _q : "");
+        const driverName = String((_s = (_r = driverData["fullName"]) !== null && _r !== void 0 ? _r : driverData["displayName"]) !== null && _s !== void 0 ? _s : "Driver");
         const refSplits = await processReferralCommissions(tripId, customerId, driverId, driverName, fareAmount);
         await db().collection("trips").doc(tripId).update({
             "settlement.platformFeeNaira": refSplits.platformFeeNaira,
@@ -496,12 +546,12 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         console.warn(`onTripCompleted[${tripId}]: driver streak reward evaluation warning: ${e}`);
     }
     try {
-        const customerId = String((_p = (_o = after["customerId"]) !== null && _o !== void 0 ? _o : after["userId"]) !== null && _p !== void 0 ? _p : "");
+        const customerId = String((_u = (_t = after["customerId"]) !== null && _t !== void 0 ? _t : after["userId"]) !== null && _u !== void 0 ? _u : "");
         if (customerId) {
             const custSnap = await db().collection("users").doc(customerId).get();
             const custData = custSnap.exists ? custSnap.data() : {};
-            const custCountry = String((_r = (_q = custData["countryCode"]) !== null && _q !== void 0 ? _q : countryCode) !== null && _r !== void 0 ? _r : "NG");
-            const custState = String((_t = (_s = custData["stateOrRegion"]) !== null && _s !== void 0 ? _s : stateOrRegion) !== null && _t !== void 0 ? _t : "");
+            const custCountry = String((_w = (_v = custData["countryCode"]) !== null && _v !== void 0 ? _v : countryCode) !== null && _w !== void 0 ? _w : "NG");
+            const custState = String((_y = (_x = custData["stateOrRegion"]) !== null && _x !== void 0 ? _x : stateOrRegion) !== null && _y !== void 0 ? _y : "");
             await (0, streakRewards_1.evaluateAndGrantStreakRewards)(customerId, "customer", tripId, custCountry, custState);
         }
     }
@@ -765,7 +815,7 @@ async function breakDriverStreak(driverId, reason) {
  * directly via breakDriverStreak() in declineTrip / sweepTripPings.
  */
 exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
     if (!before || !after)
@@ -774,6 +824,39 @@ exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     if (before["status"] === "CANCELLED" || after["status"] !== "CANCELLED") {
         return;
     }
+    // Release active escrow if not already released
+    const walletCoverage = Number((_g = (_e = after["walletCoverageAmount"]) !== null && _e !== void 0 ? _e : (_f = after["paymentBreakdown"]) === null || _f === void 0 ? void 0 : _f["walletCoverageAmount"]) !== null && _g !== void 0 ? _g : 0);
+    if (walletCoverage > 0 && after["escrowLocked"] === true && !after["escrowRefundedAt"]) {
+        const customerId = String((_h = after["customerId"]) !== null && _h !== void 0 ? _h : "");
+        if (customerId) {
+            try {
+                const custWalletRef = db().collection("wallets").doc(customerId);
+                const coverageKobo = nairaToKobo(walletCoverage);
+                await custWalletRef.set({
+                    escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+                }, { merge: true });
+                await custWalletRef.collection("transactions").add({
+                    type: "trip_escrow_refund",
+                    amountNaira: walletCoverage,
+                    amountKobo: coverageKobo,
+                    amount: coverageKobo,
+                    tripId: event.params.tripId,
+                    currency: "NGN",
+                    note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                await ((_k = (_j = event.data) === null || _j === void 0 ? void 0 : _j.after) === null || _k === void 0 ? void 0 : _k.ref.update({
+                    escrowLocked: false,
+                    escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    "paymentBreakdown.escrowLocked": false,
+                    "paymentBreakdown.escrowRefunded": true,
+                }));
+            }
+            catch (e) {
+                console.warn(`onTripCancelled[${event.params.tripId}]: escrow release warning: ${e}`);
+            }
+        }
+    }
     const cancellationSource = after["cancellationSource"] || "unknown";
     // Customer cancel and driver no-show are streak-protected
     if (cancellationSource === "customer" ||
@@ -781,7 +864,7 @@ exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         return;
     }
     // All other cases (driver_before_arrival, ping_expired, etc.) break the streak
-    const driverId = (_f = (_e = after["driver"]) === null || _e === void 0 ? void 0 : _e["driverId"]) !== null && _f !== void 0 ? _f : after["pingDriverId"];
+    const driverId = (_m = (_l = after["driver"]) === null || _l === void 0 ? void 0 : _l["driverId"]) !== null && _m !== void 0 ? _m : after["pingDriverId"];
     if (!driverId)
         return;
     const driverSnap = await db().collection("drivers").doc(driverId).get();

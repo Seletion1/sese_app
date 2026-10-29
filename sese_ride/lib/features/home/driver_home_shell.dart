@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 import '../driver/presentation/driver_dashboard_screen.dart';
 import '../driver/presentation/driver_profile_screen.dart';
 import '../driver/services/driver_fleet_service.dart';
+import '../driver/services/driver_overlay_service.dart';
 import '../settings/screens/settings_screen.dart';
 import '../referral/referral_hub_screen.dart';
 import '../support/support_chat_screen.dart';
@@ -92,7 +95,14 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
       return;
     }
 
-    // 2. From Home tab: Require double-tap within 2 seconds to exit
+    // 2. If Driver is Online: minimize app to background and spawn floating SeSe logo overlay
+    if (DriverOverlayService.instance.isOnline) {
+      unawaited(DriverOverlayService.instance.moveTaskToBack());
+      unawaited(DriverOverlayService.instance.showOverlayWidget());
+      return;
+    }
+
+    // 3. From Home tab while Offline: Require double-tap within 2 seconds to exit
     final now = DateTime.now();
     if (_lastBackPressTime == null ||
         now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {

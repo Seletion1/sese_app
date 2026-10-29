@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -294,8 +295,30 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   bool _isReceivePackageMode = false;
   bool _requireDeliveryPin = false;
   String _paymentMode = 'sender_pays'; // 'sender_pays', 'receiver_pays', 'split'
+  String _paymentMethod = 'auto'; // 'auto' (default), 'cash', 'wallet'
   double? _splitSenderAmount;
   double? _splitReceiverAmount;
+  double _customerWalletBalance = 0.0;
+  StreamSubscription<DualWallet>? _walletSub;
+
+  double get _currentEstimatedFare {
+    final resp = _fareResponse;
+    if (resp == null || resp.tiers.isEmpty) return 0.0;
+    if (_selectedModeIndex == 0) {
+      if (_selectedDeliveryCategories.isNotEmpty) {
+        final cat = _selectedDeliveryCategories.first;
+        final tierId = _deliveryTierIds[cat] ?? cat.name;
+        final t = resp.tierById(tierId);
+        if (t != null) return t.fareAmount;
+      }
+    } else {
+      if (_orderedRideTierIds.isNotEmpty) {
+        final t = resp.tierById(_orderedRideTierIds.first);
+        if (t != null) return t.fareAmount;
+      }
+    }
+    return resp.tiers.first.fareAmount;
+  }
 
   // ── Remote config (HUB overrides: splitPaymentMasterEnabled, forceDeliveryPinSystemWide)
   // Loaded once in initState from Firestore; falls back to safe defaults when
@@ -342,6 +365,16 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     super.initState();
     _fareService = widget.fareService ?? FareService();
     _selectedModeIndex = widget.initialModeIndex;
+    final uid = widget.user?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      _walletSub = const SeseCoinService().walletStream(uid).listen((w) {
+        if (mounted) {
+          setState(() {
+            _customerWalletBalance = w.availableBalance;
+          });
+        }
+      });
+    }
     // Seed the Sending/Receiving toggle from the entry route (`isReceiving`
     // from the Home "Receive Item" card). The `focusedTitle` text match is a
     // fallback so older call sites without the flag keep working.
@@ -599,6 +632,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _dropoffNameController.dispose();
     _debounceTimer?.cancel();
     _pickupDebounceTimer?.cancel();
+    _walletSub?.cancel();
     _hideSuggestionsOverlay();
     super.dispose();
   }
@@ -1735,6 +1769,43 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } catch (_) {}
     final pickupName = _pickupNameController.text.trim();
     final dropoffName = _dropoffNameController.text.trim();
+    final totalFare = _currentEstimatedFare;
+    double walletCoverage = 0.0;
+    double cashToCollect = totalFare;
+    String collectAt = 'pickup';
+    String payerRole = 'sender';
+
+    if (_paymentMode == 'receiver_pays') {
+      walletCoverage = 0.0;
+      cashToCollect = totalFare;
+      collectAt = 'dropoff';
+      payerRole = 'receiver';
+    } else if (_paymentMode == 'split') {
+      payerRole = 'split';
+      final senderShare = _splitSenderAmount ?? (totalFare / 2);
+      final receiverShare = _splitReceiverAmount ?? (totalFare - senderShare);
+      if (_paymentMethod == 'cash') {
+        walletCoverage = 0.0;
+        cashToCollect = totalFare;
+        collectAt = 'both';
+      } else {
+        walletCoverage = math.min(senderShare, _customerWalletBalance);
+        final senderCash = math.max(0.0, senderShare - walletCoverage);
+        cashToCollect = senderCash + receiverShare;
+        collectAt = senderCash > 0 ? 'both' : 'dropoff';
+      }
+    } else {
+      payerRole = 'sender';
+      collectAt = 'pickup';
+      if (_paymentMethod == 'cash') {
+        walletCoverage = 0.0;
+        cashToCollect = totalFare;
+      } else {
+        walletCoverage = math.min(totalFare, _customerWalletBalance);
+        cashToCollect = math.max(0.0, totalFare - walletCoverage);
+      }
+    }
+
     setState(() => _creatingTrip = true);
     late final String tripId;
     try {
@@ -1759,10 +1830,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           distanceKm: fareResp.distanceKm,
           durationMins: fareResp.durationMins,
           isVerifiedCustomer: verifiedCustomer,
-          paymentMethod: _paymentMode == 'split' ? 'split' : 'cash',
+          paymentMethod: _paymentMode == 'receiver_pays' ? 'cash' : _paymentMethod,
           paymentMode: _paymentMode,
           senderShareAmount: _paymentMode == 'split' ? _splitSenderAmount : null,
           receiverShareAmount: _paymentMode == 'split' ? _splitReceiverAmount : null,
+          walletCoverageAmount: walletCoverage,
+          cashToCollect: cashToCollect,
+          collectAt: collectAt,
+          payerRole: payerRole,
           // Rides never request a PIN (no toggle exists in the ride review;
           // gating here also covers Delivery→Ride toggles carrying a stale
           // `_requireDeliveryPin`). The server mints rides PIN-free anyway —
@@ -1835,11 +1910,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       'fareToken': fareResp.fareToken,
       'distanceKm': fareResp.distanceKm,
       'durationMins': fareResp.durationMins,
-      'paymentMethod': _paymentMode == 'split' ? 'split' : 'cash',
+      'paymentMethod': _paymentMode == 'receiver_pays' ? 'cash' : _paymentMethod,
       'paymentMode': _paymentMode,
       if (_splitSenderAmount != null) 'senderShareAmount': _splitSenderAmount,
       if (_splitReceiverAmount != null)
         'receiverShareAmount': _splitReceiverAmount,
+      'walletCoverageAmount': walletCoverage,
+      'cashToCollect': cashToCollect,
+      'collectAt': collectAt,
+      'payerRole': payerRole,
     };
     debugPrint('Dispatch payload: $dispatchPayload');
 
@@ -3175,16 +3254,52 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Booker/Rider (a person is moving). Split is identical in both.
   Widget _buildPaymentOptionSelector({required bool isDelivery}) {
     final splitMasterEnabled = _remoteKeys.splitPaymentMasterEnabled;
+    final totalFare = _currentEstimatedFare;
+    final availableWallet = _customerWalletBalance;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Calculate smart breakdown
+    double walletCoverage = 0.0;
+    double cashToCollect = totalFare;
+    if (_paymentMode == 'receiver_pays') {
+      walletCoverage = 0.0;
+      cashToCollect = totalFare;
+    } else if (_paymentMode == 'split') {
+      final senderShare = _splitSenderAmount ?? (totalFare / 2);
+      final receiverShare = _splitReceiverAmount ?? (totalFare - senderShare);
+      if (_paymentMethod == 'cash') {
+        walletCoverage = 0.0;
+        cashToCollect = totalFare;
+      } else {
+        walletCoverage = math.min(senderShare, availableWallet);
+        final senderCash = math.max(0.0, senderShare - walletCoverage);
+        cashToCollect = senderCash + receiverShare;
+      }
+    } else {
+      // sender_pays
+      if (_paymentMethod == 'cash') {
+        walletCoverage = 0.0;
+        cashToCollect = totalFare;
+      } else {
+        walletCoverage = math.min(totalFare, availableWallet);
+        cashToCollect = math.max(0.0, totalFare - walletCoverage);
+      }
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Text('Payment Mode', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const Text(
+                  'Payment Mode',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
                 const Spacer(),
                 SettingsInfoButton(
                   tooltipId: 'payment_mode',
@@ -3195,124 +3310,307 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            SegmentedButton<String>(
-              showSelectedIcon: false,
-              style: SegmentedButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(height: 10),
+
+            // 1. PRIMARY ROW: [ Sender Pays ] [ Receiver Pays ] [ Split Payment ]
+            // Matching the exact styling from the design specification, theme-aware:
+            Container(
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF252530) : const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(12),
               ),
-              segments: [
-                ButtonSegment(
-                  value: 'sender_pays',
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                        isDelivery ? 'Sender Pays' : 'Booker Pays',
-                        maxLines: 1),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildPaymentModeTab(
+                      label: isDelivery ? 'Sender Pays' : 'Booker Pays',
+                      isSelected: _paymentMode == 'sender_pays',
+                      isDark: isDark,
+                      onTap: () {
+                        setState(() {
+                          _paymentMode = 'sender_pays';
+                          _splitSenderAmount = null;
+                          _splitReceiverAmount = null;
+                        });
+                      },
+                    ),
                   ),
-                ),
-                ButtonSegment(
-                  value: 'receiver_pays',
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                        isDelivery ? 'Receiver Pays' : 'Rider Pays',
-                        maxLines: 1),
+                  Expanded(
+                    child: _buildPaymentModeTab(
+                      label: isDelivery ? 'Receiver Pays' : 'Rider Pays',
+                      isSelected: _paymentMode == 'receiver_pays',
+                      isDark: isDark,
+                      onTap: () {
+                        setState(() {
+                          _paymentMode = 'receiver_pays';
+                          _paymentMethod = 'cash'; // Enforce Cash Only for receiver pays
+                          _splitSenderAmount = null;
+                          _splitReceiverAmount = null;
+                        });
+                      },
+                    ),
                   ),
-                ),
-                ButtonSegment(
-                  value: 'split',
-                  label: const FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text('Split Payment', maxLines: 1),
+                  Expanded(
+                    child: _buildPaymentModeTab(
+                      label: 'Split Payment',
+                      isSelected: _paymentMode == 'split',
+                      isEnabled: splitMasterEnabled,
+                      isDark: isDark,
+                      onTap: () async {
+                        await _openSplitPaymentSheet();
+                      },
+                    ),
                   ),
-                  enabled: splitMasterEnabled,
-                ),
-              ],
-              selected: {_paymentMode},
-              onSelectionChanged: (set) async {
-                final selected = set.first;
-                if (selected == 'split') {
-                  await _openSplitPaymentSheet();
-                } else {
-                  setState(() {
-                    _paymentMode = selected;
-                    _splitSenderAmount = null;
-                    _splitReceiverAmount = null;
-                  });
-                }
-              },
+                ],
+              ),
             ),
-            if (_paymentMode == 'split' && _splitSenderAmount != null) ...[
-              const SizedBox(height: 10),
+            const SizedBox(height: 12),
+
+            // 2. PAYMENT METHOD SUB-OPTIONS: [ Auto ] [ Cash ] [ Wallet / Card ]
+            if (_paymentMode == 'receiver_pays') ...[
+              // Enforce Cash Only
               Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF78350F).withValues(alpha: 0.25)
+                      : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                        : const Color(0xFFFDE68A),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.money_rounded,
+                      size: 20,
+                      color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Receiver Pays • Cash Only',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Driver will collect ₦${totalFare.toStringAsFixed(0)} cash from Receiver at drop-off. No payment at pickup.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDark ? const Color(0xFFFDE68A) : const Color(0xFFB45309),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              Text(
+                'Payment Method',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPaymentMethodPill(
+                      label: 'Auto',
+                      subtitle: availableWallet > 0 ? 'Smart Split' : 'Cash',
+                      icon: Icons.auto_awesome,
+                      isSelected: _paymentMethod == 'auto',
+                      isDark: isDark,
+                      onTap: () => setState(() => _paymentMethod = 'auto'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildPaymentMethodPill(
+                      label: 'Cash',
+                      subtitle: 'Pay Driver',
+                      icon: Icons.payments_outlined,
+                      isSelected: _paymentMethod == 'cash',
+                      isDark: isDark,
+                      onTap: () => setState(() => _paymentMethod = 'cash'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildPaymentMethodPill(
+                      label: 'Wallet / Card',
+                      subtitle: '₦${availableWallet.toStringAsFixed(0)}',
+                      icon: Icons.account_balance_wallet_outlined,
+                      isSelected: _paymentMethod == 'wallet',
+                      isDark: isDark,
+                      onTap: () => setState(() => _paymentMethod = 'wallet'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+
+              // Breakdown Container
+              Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .primaryContainer
-                      .withValues(alpha: 0.35),
+                  color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.3),
+                    color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
                   ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            Icon(Icons.call_split_rounded,
-                                size: 16,
-                                color: Theme.of(context).colorScheme.primary),
-                            const SizedBox(width: 6),
-                            const Text(
-                              'Split Payment Breakdown',
+                        Icon(
+                          walletCoverage > 0
+                              ? Icons.lock_clock_rounded
+                              : Icons.info_outline_rounded,
+                          size: 16,
+                          color: walletCoverage > 0
+                              ? (isDark ? const Color(0xFF34D399) : const Color(0xFF10B981))
+                              : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          walletCoverage > 0
+                              ? 'Wallet Escrow & Collection Breakdown'
+                              : 'Payment Summary',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: walletCoverage > 0
+                                ? (isDark ? const Color(0xFF34D399) : const Color(0xFF047857))
+                                : (isDark ? Colors.white : Colors.black87),
+                          ),
+                        ),
+                        if (_paymentMode == 'split') ...[
+                          const Spacer(),
+                          InkWell(
+                            onTap: _openSplitPaymentSheet,
+                            child: Text(
+                              'Edit Split',
                               style: TextStyle(
+                                fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.primary,
+                                decoration: TextDecoration.underline,
                               ),
                             ),
-                          ],
-                        ),
-                        InkWell(
-                          onTap: _openSplitPaymentSheet,
-                          child: Text(
-                            'Edit Split',
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (walletCoverage > 0 && cashToCollect > 0) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Wallet Escrow Lock: ₦${walletCoverage.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+                            ),
+                          ),
+                          Text(
+                            'Cash to Driver: ₦${cashToCollect.toStringAsFixed(0)}',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary,
-                              decoration: TextDecoration.underline,
+                              color: isDark ? Colors.white : Colors.black87,
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _paymentMode == 'split'
+                            ? 'Sender pays ₦${walletCoverage.toStringAsFixed(0)} from wallet (+ cash if any) at pickup. Receiver pays remaining in cash at drop-off.'
+                            : '₦${walletCoverage.toStringAsFixed(0)} locked from your wallet. Pay remaining ₦${cashToCollect.toStringAsFixed(0)} cash at pickup. No payment at drop-off.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Sender (You): ₦${_splitSenderAmount!.toStringAsFixed(0)}',
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        Text(
-                          'Receiver: ₦${_splitReceiverAmount!.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                      ),
+                    ] else if (walletCoverage >= totalFare && totalFare > 0) ...[
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            size: 14,
+                            color: Color(0xFF10B981),
                           ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '100% Wallet Prepaid (₦${totalFare.toStringAsFixed(0)})',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Total fare locked in wallet escrow. No cash needed during or after the ride.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                         ),
-                      ],
-                    ),
+                      ),
+                    ] else ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Total Cash to Collect:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                            ),
+                          ),
+                          Text(
+                            '₦${totalFare.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Paid in cash to the driver at pickup.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -3325,6 +3623,108 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   style: TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentModeTab({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+    bool isEnabled = true,
+    required bool isDark,
+  }) {
+    return InkWell(
+      onTap: isEnabled ? onTap : null,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFF59E0B) : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+        ),
+        alignment: Alignment.center,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+              color: isSelected
+                  ? Colors.black
+                  : (isEnabled
+                      ? (isDark ? const Color(0xFFE5E7EB) : const Color(0xFF374151))
+                      : (isDark ? Colors.grey.shade600 : Colors.grey.shade400)),
+            ),
+            maxLines: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentMethodPill({
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    final primary = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? primary.withValues(alpha: isDark ? 0.22 : 0.1)
+              : (isDark ? const Color(0xFF252530) : Colors.white),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? primary
+                : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isSelected
+                  ? primary
+                  : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                color: isSelected
+                    ? primary
+                    : (isDark ? Colors.white : Colors.black87),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 10,
+                color: isSelected
+                    ? primary
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),
@@ -4028,12 +4428,12 @@ class _VehicleTierTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: selected
             ? AppColors.seseGold.withValues(alpha: 0.08)
-            : (isDark ? Colors.grey.shade900 : Colors.grey.shade50),
+            : (isDark ? const Color(0xFF252530) : Colors.grey.shade50),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: selected
               ? AppColors.seseGold
-              : (isDark ? Colors.grey.shade800 : Colors.grey.shade200),
+              : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200),
           width: selected ? 2.0 : 1.0,
         ),
         boxShadow: selected
@@ -4099,28 +4499,31 @@ class _VehicleTierTile extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFEF3C7),
+                            color: isDark
+                                ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                                : const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                              color: const Color(0xFFF59E0B)
-                                  .withValues(alpha: 0.3),
+                              color: isDark
+                                  ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+                                  : const Color(0xFFF59E0B).withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: const [
+                            children: [
                               Icon(
                                 Icons.star_rounded,
                                 size: 12,
-                                color: Color(0xFFD97706),
+                                color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
                               ),
-                              SizedBox(width: 3),
+                              const SizedBox(width: 3),
                               Text(
                                 'Recommended',
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF92400E),
+                                  color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
                                 ),
                               ),
                             ],

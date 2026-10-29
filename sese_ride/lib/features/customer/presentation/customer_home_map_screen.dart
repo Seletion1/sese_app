@@ -151,6 +151,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     // No drawer / hamburger menu: Trips, Home, and Profile live in the
     // shell's bottom navigation bar; account actions moved to Profile.
     return Scaffold(
@@ -218,7 +219,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
                       child: Material(
                         shape: const CircleBorder(),
                         elevation: 4,
-                        color: Colors.white,
+                        color: isDark ? const Color(0xFF252530) : Colors.white,
                         child: NotificationBellButton(
                             uid: widget.user?.uid ?? ''),
                       ),
