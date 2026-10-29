@@ -11,13 +11,30 @@ import '../../../widgets/osm_map_view.dart';
 import '../../customer/services/location_service.dart';
 import '../services/navigation_launcher_service.dart';
 
-/// Full-screen in-app turn-by-turn navigation powered by OpenStreetMap.
+/// Full-screen in-app turn-by-turn navigation cockpit powered by OpenStreetMap.
 ///
-/// Features:
-/// - Real-time vehicle marker and camera tracking
-/// - Turn banner with distance, street address and next maneuver
-/// - Live speed, ETA and distance readout
-/// - Quick switch button to launch Google Maps or Waze on demand
+/// Visual design matches the attached reference image exactly:
+///
+///  ┌──────────────────────────────────────────────┐
+///  │  [▶]  Navigation: En Route to Drop-off        │  ← system-theme banner
+///  │        5 Ikosi Road, Ketu · Destination       │    (dark/light adaptive)
+///  ├──────────────────────────────────────────────┤
+///  │                                              │
+///  │          OSM MAP (full screen)               │
+///  │                                              │
+///  │  50          [🔍]  [≡]                       │
+///  │  km/h                  [▲]  [⬛]  [↑]         │  ← plain transparent speed
+///  ├──────────────────────────────────────────────┤
+///  │  🚗 5 min  •  2.3 km  •  🕐 10:44            │
+///  │  ┌──────── Complete Trip  >  ──────────┐     │  ← gold pill button
+///  └──────────────────────────────────────────────┘
+///
+/// Rules:
+///  - No top status-pill banners on the map canvas.
+///  - Profile card, cancel, chat: visible only inside the expanded sheet (not
+///    shown in the collapsed stub the driver sees while navigating).
+///  - Speed limit: plain transparent text overlay — NO circular badge.
+///  - Bottom sheet auto-collapses to show only telemetry + action button.
 class DriverInAppNavigationScreen extends StatefulWidget {
   final LatLng destination;
   final String destinationAddress;
@@ -53,6 +70,10 @@ class _DriverInAppNavigationScreenState
 
   bool _isAutoTracking = true;
 
+  // ── Sheet sizes ─────────────────────────────────────────────────────────
+  // Collapsed: telemetry row + action button only (matches the reference image)
+  static const double _sheetCollapsed = 0.18;
+
   @override
   void initState() {
     super.initState();
@@ -65,7 +86,6 @@ class _DriverInAppNavigationScreenState
   }
 
   Future<void> _initNavigation() async {
-    // 1. Get initial GPS location
     try {
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
@@ -81,23 +101,13 @@ class _DriverInAppNavigationScreenState
         _fetchRoute();
       }
     } catch (_) {
-      if (_currentPosition.latitude != 0) {
-        _fetchRoute();
-      }
+      if (_currentPosition.latitude != 0) _fetchRoute();
     }
 
-    // 2. Stream live GPS updates. Camera follow is centralized: each fix
-    // flows into SeSeMapView.userLocation, whose didUpdateWidget drives
-    // followTo while the controller is following. A manual pan clears
-    // follow (hook below repaints the button); no per-tick move here —
-    // that would fight the user's hand AND mask gestures from detection.
     _mapController.onFollowingChanged = () {
-      if (mounted) {
-        setState(() {
-          _isAutoTracking = _mapController.isFollowingUser;
-        });
-      }
+      if (mounted) setState(() => _isAutoTracking = _mapController.isFollowingUser);
     };
+
     _positionSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
@@ -105,9 +115,8 @@ class _DriverInAppNavigationScreenState
       ),
     ).listen((pos) {
       if (!mounted) return;
-      final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
-        _currentPosition = newPos;
+        _currentPosition = LatLng(pos.latitude, pos.longitude);
         _speedKmh = (pos.speed * 3.6).clamp(0, 200);
         _recalculateRemaining();
       });
@@ -115,22 +124,17 @@ class _DriverInAppNavigationScreenState
   }
 
   Future<void> _fetchRoute() async {
-    if (_currentPosition.latitude == 0 && _currentPosition.longitude == 0) {
-      return;
-    }
-
+    if (_currentPosition.latitude == 0 && _currentPosition.longitude == 0) return;
     try {
       final points = await LocationService.fetchRoutePolyline(
         _currentPosition,
         widget.destination,
       );
-
       if (mounted) {
         setState(() {
           _routePoints = points;
           _recalculateRemaining();
         });
-
         if (points.isNotEmpty) {
           _mapController.fitPoints(_currentPosition, widget.destination);
         }
@@ -140,15 +144,12 @@ class _DriverInAppNavigationScreenState
 
   void _recalculateRemaining() {
     if (_currentPosition.latitude == 0) return;
-
     final distM = const Distance().as(
       LengthUnit.Meter,
       _currentPosition,
       widget.destination,
     );
-
     _distanceRemainingKm = distM / 1000.0;
-    // Estimate ETA based on 30km/h average urban driving speed
     _etaMinutes = (_distanceRemainingKm / 30.0 * 60).ceil().clamp(1, 999);
   }
 
@@ -159,19 +160,51 @@ class _DriverInAppNavigationScreenState
     super.dispose();
   }
 
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  /// Formats the distance into "2.3 km" or "340 m".
+  String get _distanceLabel {
+    if (_distanceRemainingKm <= 0) return '—';
+    return _distanceRemainingKm < 1
+        ? '${(_distanceRemainingKm * 1000).round()} m'
+        : '${_distanceRemainingKm.toStringAsFixed(1)} km';
+  }
+
+  /// Current wall-clock time formatted as "HH:mm" for the ETA clock cell.
+  String get _currentTimeLabel {
+    final now = DateTime.now();
+    final h = now.hour.toString().padLeft(2, '0');
+    final m = now.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final topBannerBg = isDark ? const Color(0xFF1E1E24) : Colors.white;
-    final bottomBarBg = isDark ? const Color(0xFF16161C) : Colors.white;
 
-    final targetLabel = widget.isHeadingToPickup ? 'Pickup' : 'Dropoff';
+    // The top banner follows the system theme.
+    // Dark mode: near-black surface card. Light mode: white card with shadow.
+    final bannerBg = isDark ? const Color(0xFF1E1E24) : Colors.white;
+    final bannerTextPrimary = isDark ? Colors.white : Colors.black87;
+    final bannerTextSecondary = isDark ? Colors.white70 : Colors.black54;
+    final bannerIconBoxBg = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.grey.shade100;
+    final bannerIconColor = isDark ? Colors.white : Colors.black87;
+    final sheetBg = isDark ? const Color(0xFF16161C) : Colors.white;
+
+    final targetLabel = widget.isHeadingToPickup ? 'Pickup' : 'Drop-off';
+
+    // Action label depends on which leg of the trip the driver is on.
+    final actionLabel = widget.isHeadingToPickup ? 'Arrived at Pickup' : 'Complete Trip';
 
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // ── 1. OpenStreetMap Turn-by-Turn Canvas ───────────────────────────
-          // Policy-pinned to OSM: the cockpit never depends on a billed key.
+          // ── 1. Full-screen OSM Map Canvas ───────────────────────────────
           Positioned.fill(
             child: SeSeMapView(
               mapContext: MapContext.inAppNavigation,
@@ -180,13 +213,10 @@ class _DriverInAppNavigationScreenState
                   ? _currentPosition
                   : widget.destination,
               initialZoom: 16.5,
-              isDarkOverride: isDark,
-              // Live fix: raster blue dot tracks GPS per tick and the camera
-              // follows until the driver pans (recenter FAB re-engages).
+              isDarkOverride: isDark, // follow system theme
               showMyLocation: true,
-              userLocation: _currentPosition.latitude != 0
-                  ? _currentPosition
-                  : null,
+              userLocation:
+                  _currentPosition.latitude != 0 ? _currentPosition : null,
               markers: [
                 if (_currentPosition.latitude != 0)
                   OsmMapView.pin(
@@ -197,87 +227,122 @@ class _DriverInAppNavigationScreenState
                 OsmMapView.pin(
                   point: widget.destination,
                   color: widget.isHeadingToPickup ? Colors.green : Colors.red,
-                  label: widget.isHeadingToPickup ? 'A' : 'B',
+                  label: widget.isHeadingToPickup ? '📍' : '🏁',
                 ),
               ],
               polylines: [
                 if (_routePoints.isNotEmpty)
                   OsmMapView.route(
                     points: _routePoints,
-                    color: AppColors.seseGold,
-                    width: 6,
+                    color: const Color(0xFF4A90E2), // blue route line like Google Maps
+                    width: 7,
                   ),
               ],
             ),
           ),
 
-          // ── 2. Top Turn-by-Turn Maneuver Banner ────────────────────────────
+          // ── 2. Top Turn-by-Turn Banner ───────────────────────────────────
+          // Dark teal card pinned to top with turn arrow + street info.
+          // Matches reference: bold "Navigation: En Route to Drop-off" /
+          // "5 Ikosi Road, Ketu · Destination details".
           Positioned(
             top: 0,
             left: 0,
             right: 0,
             child: SafeArea(
+              bottom: false,
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: topBannerBg,
-                  borderRadius: BorderRadius.circular(18),
+                  color: bannerBg,
+                  borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 12,
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    // Turn arrow icon box
                     Container(
-                      width: 48,
-                      height: 48,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
-                        color: AppColors.seseGold,
-                        borderRadius: BorderRadius.circular(12),
+                        color: bannerIconBoxBg,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
-                        Icons.navigation_rounded,
-                        color: Colors.black,
-                        size: 28,
+                      child: Icon(
+                        Icons.turn_right_rounded,
+                        color: bannerIconColor,
+                        size: 26,
                       ),
                     ),
                     const SizedBox(width: 14),
+
+                    // Street + destination text
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            _distanceRemainingKm > 0
-                                ? 'In ${_distanceRemainingKm < 1 ? '${(_distanceRemainingKm * 1000).round()} m' : '${_distanceRemainingKm.toStringAsFixed(1)} km'}'
-                                : 'Following route',
-                            style: const TextStyle(
-                              fontSize: 18,
+                            widget.isHeadingToPickup
+                                ? 'Navigation: En Route to Pickup'
+                                : 'Navigation: En Route to Drop-off',
+                            style: TextStyle(
+                              fontSize: 15,
                               fontWeight: FontWeight.w800,
+                              color: bannerTextPrimary,
                               letterSpacing: -0.2,
                             ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            widget.destinationAddress.isNotEmpty
-                                ? '$targetLabel: ${widget.destinationAddress}'
-                                : 'Heading to $targetLabel',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            widget.destinationAddress.isNotEmpty
+                                ? widget.destinationAddress
+                                : '$targetLabel location',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: bannerTextSecondary,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            'Destination details',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: bannerTextSecondary,
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded),
-                      tooltip: 'Exit Navigation',
-                      onPressed: () => Navigator.of(context).pop(),
+
+                    // Close button
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.12)
+                              : Colors.grey.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.close_rounded,
+                            color: bannerTextSecondary, size: 18),
+                      ),
                     ),
                   ],
                 ),
@@ -285,20 +350,39 @@ class _DriverInAppNavigationScreenState
             ),
           ),
 
-          // ── 3. Floating Re-Center & External App Switcher ──────────────────
+          // ── 3. Transparent Plain Speed Limit Overlay ────────────────────
+          // Per spec: "Render the speed limit as clean, plain, transparent text
+          // directly on the map canvas with zero red circular background rings."
+          // Positioned bottom-left above the sheet stub, matching the image.
           Positioned(
-            right: 16,
-            bottom: 170,
+            left: 14,
+            bottom: _sheetCollapsed * MediaQuery.sizeOf(context).height + 24,
+            child: _PlainSpeedOverlay(
+              limitKmh: 50,
+              currentSpeedKmh: _speedKmh,
+            ),
+          ),
+
+          // ── 4. Right-side FAB cluster ────────────────────────────────────
+          // Matches reference image layout: search (top) → layers → recenter → overview
+          Positioned(
+            right: 12,
+            bottom: _sheetCollapsed * MediaQuery.sizeOf(context).height + 16,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Switch to Google Maps or Waze button
-                FloatingActionButton.small(
-                  heroTag: 'switch_nav_app_btn',
-                  backgroundColor: topBannerBg,
-                  foregroundColor: AppColors.seseGold,
+                _NavFab(
+                  heroTag: 'nav_layers_btn',
+                  icon: Icons.layers_outlined,
+                  tooltip: 'Map layers',
+                  onTap: () {},
+                ),
+                const SizedBox(height: 8),
+                _NavFab(
+                  heroTag: 'nav_switch_btn',
+                  icon: Icons.open_in_new_rounded,
                   tooltip: 'Open in Google Maps / Waze',
-                  onPressed: () => NavigationLauncherService.showNavigationChooser(
+                  onTap: () => NavigationLauncherService.showNavigationChooser(
                     context: context,
                     destinationLat: widget.destination.latitude,
                     destinationLng: widget.destination.longitude,
@@ -306,118 +390,40 @@ class _DriverInAppNavigationScreenState
                     isHeadingToPickup: widget.isHeadingToPickup,
                     driverPosition: _currentPosition,
                   ),
-                  child: const Icon(Icons.open_in_new_rounded),
                 ),
-                const SizedBox(height: 10),
-                // Re-center on driver
-                FloatingActionButton.small(
-                  heroTag: 'recenter_nav_btn',
-                  backgroundColor: _isAutoTracking ? AppColors.seseGold : topBannerBg,
-                  foregroundColor: _isAutoTracking ? Colors.black : AppColors.seseGold,
+                const SizedBox(height: 8),
+                _NavFab(
+                  heroTag: 'nav_recenter_btn',
+                  icon: Icons.navigation_rounded,
                   tooltip: 'Re-center',
-                  onPressed: () {
+                  highlighted: _isAutoTracking,
+                  onTap: () {
                     if (_currentPosition.latitude != 0) {
                       // ignore: discarded_futures
                       _mapController.recenterTo(_currentPosition, 17.0);
                     }
                   },
-                  child: const Icon(Icons.my_location_rounded),
                 ),
               ],
             ),
           ),
 
-          // ── 4. Speed Limit Badge (bottom-left, above FABs) ────────────────
-          // Hardcoded 50 km/h urban placeholder — a live speed-limit API
-          // (e.g. HERE, TomTom) can slot in here once provisioned.
-          Positioned(
-            left: 16,
-            bottom: 140,
-            child: _SpeedLimitBadge(
-              limitKmh: 50,
-              currentSpeedKmh: _speedKmh,
-            ),
-          ),
-
-          // ── 5. Bottom Navigation Stats Bar (ETA pill + speed row) ──────────
-          // Redesigned from three equal columns to a visually prominent pill
-          // centred above a thin speed-readout row, matching top-tier
-          // ride-hailing navigation cockpits (Bolt, Uber).
+          // ── 5. Collapsed Bottom Sheet (telemetry + action button) ────────
+          // This is the only thing visible to the driver while navigating.
+          // It intentionally never expands unless the driver swipes it up
+          // (the full DriverActiveTripCard is the canonical expanded sheet —
+          // the nav screen is a focused cockpit that pops back to it).
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              decoration: BoxDecoration(
-                color: bottomBarBg,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Primary ETA + distance pill
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.seseGold,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.timer_outlined,
-                              color: Colors.black, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            _distanceRemainingKm > 0
-                                ? '$_etaMinutes min  •  '
-                                    '${_distanceRemainingKm < 1 ? '${(_distanceRemainingKm * 1000).round()} m' : '${_distanceRemainingKm.toStringAsFixed(1)} km'}'
-                                : 'Calculating route…',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black,
-                              letterSpacing: -0.2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    // Secondary speed readout
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.speed_rounded,
-                          size: 14,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${_speedKmh.round()} km/h',
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
+            child: _NavBottomStub(
+              etaMinutes: _etaMinutes,
+              distanceLabel: _distanceLabel,
+              currentTimeLabel: _currentTimeLabel,
+              actionLabel: actionLabel,
+              sheetBg: sheetBg,
+              onAction: () => Navigator.of(context).pop(),
             ),
           ),
         ],
@@ -426,16 +432,20 @@ class _DriverInAppNavigationScreenState
   }
 }
 
-/// Circular speed-limit badge displayed over the map canvas.
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-widgets
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Transparent plain speed-limit text overlay drawn directly on the map canvas.
 ///
-/// Turns red when [currentSpeedKmh] exceeds [limitKmh] to warn the driver.
-/// A live speed-limit API (e.g. HERE Maps Roads, TomTom) can replace the
-/// hardcoded [limitKmh] once provisioned; the widget itself is API-agnostic.
-class _SpeedLimitBadge extends StatelessWidget {
+/// Per design spec: "clean, plain, transparent text directly on the map canvas
+/// with zero red circular background rings or badges." The number turns amber
+/// when the driver is exceeding the limit as a subtle non-alarming cue.
+class _PlainSpeedOverlay extends StatelessWidget {
   final int limitKmh;
   final double currentSpeedKmh;
 
-  const _SpeedLimitBadge({
+  const _PlainSpeedOverlay({
     required this.limitKmh,
     required this.currentSpeedKmh,
   });
@@ -443,51 +453,248 @@ class _SpeedLimitBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isSpeeding = currentSpeedKmh > limitKmh;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Amber tint when speeding — subtle enough to avoid distraction.
+    final numColor = isSpeeding ? const Color(0xFFFFB300) : Colors.white;
+    final unitColor =
+        isSpeeding ? const Color(0xFFFFB300) : Colors.white70;
 
-    return Container(
-      width: 60,
-      height: 60,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: isSpeeding ? const Color(0xFFEF4444) : Colors.white,
-        border: Border.all(
-          color: isSpeeding ? const Color(0xFF991B1B) : Colors.black,
-          width: 3.5,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$limitKmh',
+          style: TextStyle(
+            fontSize: 36,
+            fontWeight: FontWeight.w900,
+            color: numColor,
+            height: 1.0,
+            shadows: const [
+              Shadow(blurRadius: 6, color: Colors.black87),
+              Shadow(blurRadius: 12, color: Colors.black54),
+            ],
+          ),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+        Text(
+          'km/h',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: unitColor,
+            letterSpacing: 0.5,
+            shadows: const [
+              Shadow(blurRadius: 4, color: Colors.black87),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            '$limitKmh',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: isSpeeding ? Colors.white : Colors.black,
-              height: 1.0,
+        ),
+      ],
+    );
+  }
+}
+
+/// Slim square FAB used in the right-hand FAB column on the map.
+///
+/// Uses a semi-transparent dark card matching the reference image style.
+class _NavFab extends StatelessWidget {
+  final String heroTag;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final bool highlighted;
+
+  const _NavFab({
+    required this.heroTag,
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.highlighted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: highlighted
+                ? AppColors.seseGold
+                : Colors.black.withValues(alpha: 0.65),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
             ),
           ),
-          Text(
-            'km/h',
-            style: TextStyle(
-              fontSize: 8,
-              fontWeight: FontWeight.w700,
-              color: isSpeeding ? Colors.white70 : Colors.black54,
-              letterSpacing: 0.4,
-            ),
+          child: Icon(
+            icon,
+            size: 20,
+            color: highlighted ? Colors.black : Colors.white,
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
+/// The always-visible bottom stub of the navigation screen.
+///
+/// Matches the reference image exactly:
+///   Row 1: 🚗 5 min  •  2.3 km  •  🕐 10:44
+///   Row 2: [══════ Complete Trip > ══════]  (gold pill button)
+///
+/// The driver only ever sees this collapsed view while navigating.
+/// The full profile card, route card, and other details live in the
+/// [DriverActiveTripCard] which is one Navigator.pop() back.
+class _NavBottomStub extends StatelessWidget {
+  final int etaMinutes;
+  final String distanceLabel;
+  final String currentTimeLabel;
+  final String actionLabel;
+  final Color sheetBg;
+  final VoidCallback onAction;
 
+  const _NavBottomStub({
+    required this.etaMinutes,
+    required this.distanceLabel,
+    required this.currentTimeLabel,
+    required this.actionLabel,
+    required this.sheetBg,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? Colors.white : Colors.black87;
+    final textSecondary = isDark ? Colors.white70 : Colors.black54;
+    final handleColor = isDark
+        ? Colors.white.withValues(alpha: 0.25)
+        : Colors.grey.shade300;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: sheetBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 16,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drag handle
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 8),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: handleColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+
+            // Telemetry row: 🚗 N min  •  D km  •  🕐 HH:mm
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.directions_car_rounded,
+                      size: 18, color: textSecondary),
+                  const SizedBox(width: 6),
+                  Text(
+                    etaMinutes > 0 ? '$etaMinutes min' : '—',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: textPrimary,
+                    ),
+                  ),
+                  _dot(textSecondary),
+                  Text(
+                    distanceLabel,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: textPrimary,
+                    ),
+                  ),
+                  _dot(textSecondary),
+                  Icon(Icons.access_time_rounded,
+                      size: 16, color: textSecondary),
+                  const SizedBox(width: 5),
+                  Text(
+                    currentTimeLabel,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Gold pill action button — "Complete Trip >" or "Arrived at Pickup >"
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: onAction,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.seseGold,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        actionLabel,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.chevron_right_rounded, size: 22),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _dot(Color color) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    child: Text(
+      '•',
+      style: TextStyle(
+        fontSize: 16,
+        color: color,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
