@@ -162,7 +162,9 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
         }
       });
     } catch (e) {
-      setState(() => _errorMessage = e.toString());
+      debugPrint('OnboardingWizard sendOtp error: $e');
+      setState(() => _errorMessage =
+          'Unable to send verification code. Please check connection and try again.');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -193,7 +195,9 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
         setState(() => _errorMessage = 'OTP verification failed.');
       }
     } catch (e) {
-      setState(() => _errorMessage = e.toString());
+      debugPrint('OnboardingWizard verifyOtp error: $e');
+      setState(() => _errorMessage =
+          'Verification failed. Please check the code and try again.');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -287,7 +291,9 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      setState(() => _errorMessage = e.toString());
+      debugPrint('OnboardingWizard register error: $e');
+      setState(() => _errorMessage =
+          'Unable to complete registration. Please verify details and try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

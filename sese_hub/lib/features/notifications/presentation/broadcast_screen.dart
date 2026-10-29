@@ -94,10 +94,14 @@ class _BroadcastScreenState extends State<BroadcastScreen> {
       });
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
-      setState(() => _result = 'Send failed (${e.code}): ${e.message}');
+      debugPrint('BroadcastScreen send error (${e.code}): ${e.message}');
+      setState(() => _result =
+          'Unable to queue broadcast. Please check inputs and try again.');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _result = 'Send failed: $e');
+      debugPrint('BroadcastScreen send unexpected error: $e');
+      setState(() => _result =
+          'Unable to send broadcast right now. Please try again.');
     } finally {
       if (mounted) setState(() => _sending = false);
     }

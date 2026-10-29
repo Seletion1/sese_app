@@ -135,8 +135,11 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('DriverManagementScreen updateDriverStatus error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update driver status: $e')),
+        const SnackBar(
+          content: Text('Unable to update driver status. Please try again.'),
+        ),
       );
     }
   }

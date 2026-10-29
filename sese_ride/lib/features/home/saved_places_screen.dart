@@ -178,9 +178,13 @@ class _SavedPlacesScreenState extends State<SavedPlacesScreen> {
         );
       }
     } catch (e) {
+      debugPrint('SavedPlacesScreen save error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')),
+          const SnackBar(
+            content:
+                Text('Unable to save places right now. Please try again.'),
+          ),
         );
       }
     } finally {

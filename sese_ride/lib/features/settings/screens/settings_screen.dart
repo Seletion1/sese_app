@@ -618,7 +618,7 @@ class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) {
-        String msg = e.message ?? 'Operation failed (${e.code}).';
+        String msg = 'Unable to update password. Please try again.';
         if (e.code == 'wrong-password' ||
             e.code == 'invalid-credential' ||
             e.code == 'reauth-required') {
@@ -630,12 +630,16 @@ class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
         } else if (e.code == 'email-already-in-use' ||
             e.code == 'credential-already-in-use') {
           msg = 'This email is already linked to another sign-in method. Sign in with it first, then retry.';
+        } else if (e.code == 'network-request-failed') {
+          msg = 'Connection unstable. Please check your network and try again.';
         }
         setState(() => _error = msg);
       }
     } catch (e) {
+      debugPrint('SettingsScreen updatePassword error: $e');
       if (mounted) {
-        setState(() => _error = 'An unexpected error occurred: $e');
+        setState(() => _error =
+            'Unable to update password right now. Please try again.');
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

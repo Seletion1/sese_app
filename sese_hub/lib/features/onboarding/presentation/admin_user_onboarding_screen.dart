@@ -41,8 +41,10 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
         _searchResult = res;
       });
     } catch (e) {
+      debugPrint('AdminUserOnboarding lookup error: $e');
       setState(() {
-        _searchError = e.toString();
+        _searchError =
+            'Unable to lookup account. Please check the identifier and try again.';
       });
     } finally {
       setState(() {

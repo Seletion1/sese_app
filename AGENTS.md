@@ -60,6 +60,29 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-29 — Production Standards: Zero Mock Data, Clean Error UX & Credential Hygiene
+
+- **Zero Mock Data in Production Paths**:
+  - Removed `_generateMockNearbyDrivers()` from `live_trip_screen.dart` entirely (method + all 3 call-sites). The fallback for zero live drivers is now `setState(() => _nearbyDrivers = const [])` — a clean empty list, never fake data. `onError` and `catch` paths both `debugPrint` the technical error and set the empty list.
+  - **Rule**: Never introduce mock/stub data on production code paths (outside `test/`). Empty states must show loading spinners or empty-list UI only. `StubAuthRepository` (in `sese_core/lib/auth/`) is acceptable solely for widget tests and must never be constructed in app code.
+
+- **Zero Raw Technical Errors Exposed to Users**:
+  - Audited and fixed all `e.toString()`, `$e`, `e.message ?? e.code`, and `replaceAll('Exception: ', '')` patterns that were wired directly to `ScaffoldMessenger` snackbars, `setState` error strings, or dialog text across `sese_ride/`, `sese_hub/`, and `sese_core/`.
+  - **Fixed files**: `live_trip_screen.dart`, `saved_places_screen.dart`, `order_pool_sheet.dart`, `bank_details_screen.dart`, `auth_controller.dart`, `settings_screen.dart`, `delete_account_dialog.dart`, `customer_management_screen.dart`, `driver_management_screen.dart`, `global_config_screen.dart`, `hub_support_chat_screen.dart`, `hub_payout_desk_screen.dart`, `staff_management_screen.dart`, `admin_user_onboarding_screen.dart`, `onboarding_wizard_dialog.dart`, `broadcast_screen.dart`, `in_app_call_screen.dart`.
+  - **Pattern enforced**: Any `catch (e)` block must `debugPrint('ClassName.methodName error: $e')` for internal logging and then show a polite, user-facing message (e.g., `'Unable to … right now. Please try again.'`). Never pass `$e`, `e.toString()`, Firebase error codes, or stack traces to UI widgets.
+  - **Rule**: Use `debugPrint` (not `print`) for all error/diagnostic logging. It is automatically suppressed in profile and release builds. Guard only unusually noisy traces with `if (kDebugMode)`.
+
+- **Sensitive Credential Hygiene**:
+  - Removed sample Exchange Rate API key `ex_live_79a2b8c3d4e5f6g7h8i9_sample` from three locations: `global_config_screen.dart` controller initializer, `global_config_screen.dart` `_loadConfig` fallback, and `remote_keys_service.dart` parse fallback. All now default to empty string `''` — Hub admins must configure real keys through the UI.
+  - Removed `debugPrint('Dispatch payload: $dispatchPayload')` from `customer_dispatch_screen.dart` which was logging the full payment breakdown (wallet coverage, cash to collect, payment mode, contact numbers) to console. Also removed the now-unused `dispatchPayload` map variable (a dead code artifact).
+  - **Rule**: Never hardcode, log, or expose API keys, sample credentials, payment breakdowns containing user wallet values, or internal routing structures in client code. All sensitive config must come from server-fetched `RemoteKeys` / Firestore admin config. No key ever appears as a string literal in source files.
+
+- **`auth_controller.dart` Fix**:
+  - `AuthException` does not exist in `sese_core`. Changed the `catch` branch to `e is fb.FirebaseAuthException` and added `import 'package:firebase_auth/firebase_auth.dart' as fb;`. Fallback message: `'Unable to complete Google sign-in. Please try again.'`.
+
+- **Verification**:
+  - `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **No errors (0 errors, 0 warnings)**.
+
 ## 2026-10-29 — Route Retention, Server-Side Driver Cancellation Re-Matching & 3-Strike Threshold Flow
 
 - **Navigation State Preservation & Route Retention**:

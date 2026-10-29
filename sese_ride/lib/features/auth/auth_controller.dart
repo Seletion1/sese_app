@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -59,7 +60,12 @@ class AuthController extends ChangeNotifier {
       );
       return user;
     } catch (e) {
-      setError(e.toString());
+      debugPrint('AuthController.continueWithGoogle error: $e');
+      if (e is fb.FirebaseAuthException) {
+        setError(e.message ?? 'Unable to complete Google sign-in. Please try again.');
+      } else {
+        setError('Unable to complete Google sign-in. Please try again.');
+      }
       rethrow;
     } finally {
       setLoading(false);

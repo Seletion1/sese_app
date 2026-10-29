@@ -174,7 +174,7 @@ class RemoteKeysConfig {
       featureProviders: features,
       exchangeRateApiKey: (map['exchangeRateApiKey'] ??
               map['exchange_rate_api_key'] ??
-              'ex_live_79a2b8c3d4e5f6g7h8i9_sample')
+              '')
           .toString()
           .trim(),
       resendApiKey: (map['resendApiKey'] ??

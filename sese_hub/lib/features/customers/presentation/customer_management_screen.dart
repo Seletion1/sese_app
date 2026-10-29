@@ -98,8 +98,12 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('CustomerManagementScreen updateSuspension error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update suspension status: $e')),
+        const SnackBar(
+          content:
+              Text('Unable to update suspension status. Please try again.'),
+        ),
       );
     }
   }

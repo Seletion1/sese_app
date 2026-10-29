@@ -612,9 +612,12 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('OrderPoolSheet submitBid error: $e');
       setState(() => _submittingBid = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not submit bid: $e')),
+        const SnackBar(
+          content: Text('Unable to submit offer right now. Please try again.'),
+        ),
       );
     }
   }

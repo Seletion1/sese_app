@@ -130,10 +130,11 @@ class _InAppCallScreenState extends State<InAppCallScreen>
         );
       }
     } catch (e) {
+      debugPrint('InAppCallScreen initializeCall error: $e');
       if (mounted) {
         setState(() {
           _state = CallState.error;
-          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _errorMessage = 'Call connection failed. Please try again.';
         });
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) Navigator.of(context).pop();

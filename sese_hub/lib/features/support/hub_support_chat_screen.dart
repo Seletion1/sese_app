@@ -206,9 +206,11 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('HubSupportChat claimSession error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Claim failed: ${e.toString().replaceAll('Exception: ', '')}'),
+        const SnackBar(
+          content:
+              Text('Unable to claim this support session. Please try again.'),
           backgroundColor: Colors.red,
         ),
       );
@@ -269,8 +271,11 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
       _scrollToEnd();
     } catch (e) {
       if (!mounted) return;
+      debugPrint('HubSupportChat sendMessage error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send message: $e')),
+        const SnackBar(
+          content: Text('Unable to send message. Please try again.'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -398,8 +403,11 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('HubSupportChat resolveSession error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to resolve chat: $e')),
+        const SnackBar(
+          content: Text('Unable to resolve support chat. Please try again.'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _isResolving = false);

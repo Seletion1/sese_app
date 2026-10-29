@@ -182,7 +182,11 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
     } on TripException catch (e) {
       if (mounted) setState(() => _error = e.userMessage);
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      debugPrint('LiveTripScreen keepSearching error: $e');
+      if (mounted) {
+        setState(() =>
+            _error = 'Unable to search for drivers right now. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _keepSearchingLoading = false);
     }
@@ -689,72 +693,26 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             ));
           }
 
-          // If no real online drivers exist in Firestore in dev/testing, provide candidate pins within stage radius
-          if (list.isEmpty) {
-            final seedCategory = widget.trip.vehicleCategory.isNotEmpty
-                ? widget.trip.vehicleCategory
-                : 'car';
-            list.addAll(_generateMockNearbyDrivers(
-              _pickup,
-              seedCategory,
-              stageRadius,
-            ));
-          }
-
+          // Strictly live server markers from Firestore
           setState(() => _nearbyDrivers = list);
         },
-        onError: (_) {
+        onError: (err) {
+          debugPrint('LiveTripScreen nearbyDrivers stream error: $err');
           if (mounted) {
             setState(() {
-              _nearbyDrivers = _generateMockNearbyDrivers(
-                _pickup,
-                widget.trip.vehicleCategory.isNotEmpty
-                    ? widget.trip.vehicleCategory
-                    : 'car',
-                _activeStageRadiusKm,
-              );
+              _nearbyDrivers = const [];
             });
           }
         },
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('LiveTripScreen initNearbyDrivers error: $e');
       if (mounted) {
         setState(() {
-          _nearbyDrivers = _generateMockNearbyDrivers(
-            _pickup,
-            widget.trip.vehicleCategory.isNotEmpty
-                ? widget.trip.vehicleCategory
-                : 'car',
-            _activeStageRadiusKm,
-          );
+          _nearbyDrivers = const [];
         });
       }
     }
-  }
-
-  /// Generates simulated candidate vehicle markers scaled to the active stage radius around pickup for testing.
-  List<_NearbyDriverMarker> _generateMockNearbyDrivers(
-    LatLng center,
-    String category,
-    double maxRadiusKm,
-  ) {
-    final scale = (maxRadiusKm / 5.0).clamp(0.3, 2.0);
-    final offsets = [
-      LatLng(0.007 * scale, 0.006 * scale),
-      LatLng(-0.010 * scale, 0.008 * scale),
-      LatLng(0.012 * scale, -0.007 * scale),
-      LatLng(-0.006 * scale, -0.011 * scale),
-    ];
-    return List.generate(offsets.length, (i) {
-      return _NearbyDriverMarker(
-        id: 'nearby_$i',
-        position: LatLng(
-          center.latitude + offsets[i].latitude,
-          center.longitude + offsets[i].longitude,
-        ),
-        category: category,
-      );
-    });
   }
 
   @override

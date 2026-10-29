@@ -150,8 +150,12 @@ class _HubPayoutDeskScreenState extends State<HubPayoutDeskScreen>
                   );
                 } catch (e) {
                   if (!mounted) return;
+                  debugPrint('HubPayoutDesk updatePayoutStatus error: $e');
                   messenger.showSnackBar(
-                    SnackBar(content: Text('Failed to update payout status: $e')),
+                    const SnackBar(
+                      content:
+                          Text('Unable to update payout status. Please try again.'),
+                    ),
                   );
                 }
               },

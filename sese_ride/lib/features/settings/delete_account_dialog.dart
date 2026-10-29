@@ -217,7 +217,8 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
       //    "deactivated ancestor" FlutterError on both Android and iOS.
       Navigator.of(context).pop();
     } on FirebaseAuthException catch (e) {
-      String message = 'Deletion failed: ${e.message ?? e.code}';
+      debugPrint('DeleteAccountDialog auth error: $e');
+      String message = 'Unable to delete account right now. Please try again.';
       if (e.code == 'wrong-password') {
         message = 'Incorrect password. Re-authentication failed.';
       } else if (e.code == 'requires-recent-login') {
@@ -228,9 +229,11 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
         _actionError = message;
       });
     } catch (e) {
+      debugPrint('DeleteAccountDialog unexpected error: $e');
       setState(() {
         _isProcessing = false;
-        _actionError = 'Failed to delete account: $e';
+        _actionError =
+            'Unable to delete account right now. Please try again or contact support.';
       });
     }
   }

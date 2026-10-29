@@ -128,8 +128,12 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
+      debugPrint('BankDetailsScreen save error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save bank details: $e')),
+        const SnackBar(
+          content: Text(
+              'Unable to save bank details. Please check connection and try again.'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);

@@ -142,7 +142,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _googleQuotaCapCtrl = TextEditingController(text: '20000');
   final _mapboxQuotaCapCtrl = TextEditingController(text: '50000');
   final _cartoQuotaCapCtrl = TextEditingController(text: '100000');
-  final _exchangeRateApiKeyCtrl = TextEditingController(text: 'ex_live_79a2b8c3d4e5f6g7h8i9_sample');
+  final _exchangeRateApiKeyCtrl = TextEditingController();
   final _resendApiKeyCtrl = TextEditingController();
   final _osmTileServerUrlCtrl = TextEditingController(
       text: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
@@ -317,9 +317,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
       _cartoApiKeyCtrl.text = remoteKeys.cartoApiKey;
-      _exchangeRateApiKeyCtrl.text = remoteKeys.exchangeRateApiKey.isEmpty
-          ? 'ex_live_79a2b8c3d4e5f6g7h8i9_sample'
-          : remoteKeys.exchangeRateApiKey;
+      _exchangeRateApiKeyCtrl.text = remoteKeys.exchangeRateApiKey;
       _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
       _activeMapProvider =
           GlobalMapConfig(activeProvider: remoteKeys.activeMapProvider).normalizedProvider;
@@ -801,8 +799,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('GlobalConfigScreen saveConfig error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save config: $e')),
+        const SnackBar(
+          content: Text('Unable to save configuration. Please try again.'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving = false);

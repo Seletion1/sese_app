@@ -1925,46 +1925,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       uid: widget.user?.uid,
     );
 
-    // Payload mirror for the createTrip / createDelivery Cloud Functions
-    // (route + server-verified fare + optional contact numbers). Sent via
-    // the authenticated callable above — never hardcode credentials.
-    final dispatchPayload = <String, dynamic>{
-      'tripId': tripId,
-      'pickup': {
-        'lat': pickup.latitude,
-        'lng': pickup.longitude,
-        'address': _pickupController.text,
-        if (pickupName.isNotEmpty) 'name': pickupName,
-        'phone': pickupPhone,
-      },
-      'dropoff': {
-        'lat': dropoff.latitude,
-        'lng': dropoff.longitude,
-        'address': _dropoffController.text,
-        if (dropoffName.isNotEmpty) 'name': dropoffName,
-        'phone': dropoffPhone,
-      },
-      'pickupPhone': pickupPhone,
-      'dropoffPhone': dropoffPhone,
-      if (pickupName.isNotEmpty) 'pickupName': pickupName,
-      if (dropoffName.isNotEmpty) 'dropoffName': dropoffName,
-      'serviceType':
-          isDelivery ? (_isReceivePackageMode ? 'receive_item' : 'send_item') : 'ride',
-      'selectedTiers': selectedTiers,
-      'fareToken': fareResp.fareToken,
-      'distanceKm': fareResp.distanceKm,
-      'durationMins': fareResp.durationMins,
-      'paymentMethod': _paymentMode == 'receiver_pays' ? 'cash' : _paymentMethod,
-      'paymentMode': _paymentMode,
-      if (_splitSenderAmount != null) 'senderShareAmount': _splitSenderAmount,
-      if (_splitReceiverAmount != null)
-        'receiverShareAmount': _splitReceiverAmount,
-      'walletCoverageAmount': walletCoverage,
-      'cashToCollect': cashToCollect,
-      'collectAt': collectAt,
-      'payerRole': payerRole,
-    };
-    debugPrint('Dispatch payload: $dispatchPayload');
+    // The createTrip / createDelivery callables above consumed the route,
+    // fare token, payment fields, and contact numbers directly. No local
+    // payload mirror is needed here; the server is the source of truth.
 
     // 2. Navigate directly to the live tracker while retaining this booking state underneath
     // so any cancellation or re-editing seamlessly restores all inputs without route reset.

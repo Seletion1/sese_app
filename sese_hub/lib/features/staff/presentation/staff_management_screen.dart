@@ -310,8 +310,10 @@ class AddStaffDialogState extends State<AddStaffDialog> {
       );
     } catch (e) {
       if (!mounted) return;
+      debugPrint('StaffManagementDialog error: $e');
       setState(() {
-        _error = e.toString().replaceFirst(RegExp(r'^[A-Za-z]+: '), '');
+        _error =
+            'Unable to provision staff member. Please check details and try again.';
         _submitting = false;
       });
     }
