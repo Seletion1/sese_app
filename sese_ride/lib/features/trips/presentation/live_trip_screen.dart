@@ -1802,7 +1802,19 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                 ),
 
-                // a. Status Container
+                // a. Live Driver ETA Card — shown whenever a valid driver
+                // location fix exists.  Distance is computed from the
+                // driver's last-published GPS fix (trip.driverLat/Lng)
+                // to the relevant destination: pickup while en route,
+                // dropoff once the trip is in-progress.  ETA uses the
+                // same 30 km/h urban estimate as the driver cockpit (display
+                // only — not money, client-side computation is acceptable).
+                if (trip.driverLat != null && trip.driverLng != null)
+                  _DriverEtaCard(trip: trip),
+                if (trip.driverLat != null && trip.driverLng != null)
+                  const SizedBox(height: 8),
+
+                // b. Status Container
                 Container(
                   key: const Key('customer_active_status_container'),
                   width: double.infinity,
@@ -2423,6 +2435,93 @@ void _showBoostFareDialog(
       ),
     ),
   );
+}
+
+/// Live ETA card shown on the customer active trip sheet.
+///
+/// Reads [ActiveTrip.driverLat] / [ActiveTrip.driverLng] which the driver's
+/// device publishes every ~10 s via the `updateDriverLocation` callable.
+/// Because the outer [StreamBuilder] that owns the trip object rebuilds on
+/// every Firestore update, this card updates automatically in near real-time
+/// without its own timer or stream.
+///
+/// Destination logic:
+/// - Pre-trip ([driverAccepted] / [driverArriving] / [driverArrived]):
+///   measures distance to **pickup** so the customer sees "Driver arriving in
+///   X min • Y m away".
+/// - Active trip ([inProgress]): measures distance to **dropoff** so the
+///   customer sees "In progress • X min to dropoff".
+class _DriverEtaCard extends StatelessWidget {
+  final ActiveTrip trip;
+
+  const _DriverEtaCard({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final driverPos = LatLng(trip.driverLat!, trip.driverLng!);
+    final isInProgress = trip.status == TripStatus.inProgress;
+
+    // Choose the relevant destination based on trip stage.
+    final destLat = isInProgress ? trip.dropoffLat : trip.pickupLat;
+    final destLng = isInProgress ? trip.dropoffLng : trip.pickupLng;
+
+    // Guard: skip if destination coords are unset.
+    if (destLat == 0.0 && destLng == 0.0) return const SizedBox.shrink();
+
+    final destPos = LatLng(destLat, destLng);
+    final distM = const Distance().as(LengthUnit.Meter, driverPos, destPos);
+    final distKm = distM / 1000.0;
+
+    // Same 30 km/h urban average used in the driver navigation cockpit.
+    final etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+    final distLabel =
+        distM < 1000 ? '${distM.round()} m' : '${distKm.toStringAsFixed(1)} km';
+
+    final cardBg = isDark
+        ? const Color(0xFF78350F).withValues(alpha: 0.35)
+        : const Color(0xFFFEF3C7);
+    final borderColor = isDark
+        ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
+        : const Color(0xFFF59E0B).withValues(alpha: 0.5);
+    final iconColor =
+        isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706);
+    final textColor =
+        isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E);
+
+    final label = isInProgress
+        ? 'In progress  •  $etaMin min to dropoff  •  $distLabel'
+        : 'Driver arriving in $etaMin min  •  $distLabel away';
+
+    return Container(
+      key: const Key('customer_driver_eta_card'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.directions_car_filled_rounded, color: iconColor, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: textColor,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 

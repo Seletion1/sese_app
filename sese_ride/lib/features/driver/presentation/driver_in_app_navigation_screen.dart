@@ -288,7 +288,7 @@ class _DriverInAppNavigationScreenState
           // ── 3. Floating Re-Center & External App Switcher ──────────────────
           Positioned(
             right: 16,
-            bottom: 120,
+            bottom: 170,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -327,14 +327,28 @@ class _DriverInAppNavigationScreenState
             ),
           ),
 
-          // ── 4. Bottom Navigation Stats Bar ─────────────────────────────────
+          // ── 4. Speed Limit Badge (bottom-left, above FABs) ────────────────
+          // Hardcoded 50 km/h urban placeholder — a live speed-limit API
+          // (e.g. HERE, TomTom) can slot in here once provisioned.
+          Positioned(
+            left: 16,
+            bottom: 140,
+            child: _SpeedLimitBadge(
+              limitKmh: 50,
+              currentSpeedKmh: _speedKmh,
+            ),
+          ),
+
+          // ── 5. Bottom Navigation Stats Bar (ETA pill + speed row) ──────────
+          // Redesigned from three equal columns to a visually prominent pill
+          // centred above a thin speed-readout row, matching top-tier
+          // ride-hailing navigation cockpits (Bolt, Uber).
           Positioned(
             left: 0,
             right: 0,
             bottom: 0,
             child: Container(
-              // 16px gutters: nav metrics + actions span edge-to-edge.
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               decoration: BoxDecoration(
                 color: bottomBarBg,
                 boxShadow: [
@@ -347,24 +361,60 @@ class _DriverInAppNavigationScreenState
               ),
               child: SafeArea(
                 top: false,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _NavMetric(
-                      label: 'ETA',
-                      value: '$_etaMinutes min',
-                      color: AppColors.seseGold,
+                    // Primary ETA + distance pill
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.seseGold,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.timer_outlined,
+                              color: Colors.black, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            _distanceRemainingKm > 0
+                                ? '$_etaMinutes min  •  '
+                                    '${_distanceRemainingKm < 1 ? '${(_distanceRemainingKm * 1000).round()} m' : '${_distanceRemainingKm.toStringAsFixed(1)} km'}'
+                                : 'Calculating route…',
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.black,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    Container(width: 1, height: 32, color: Colors.grey.withValues(alpha: 0.3)),
-                    _NavMetric(
-                      label: 'DISTANCE',
-                      value: '${_distanceRemainingKm.toStringAsFixed(1)} km',
+                    const SizedBox(height: 8),
+                    // Secondary speed readout
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.speed_rounded,
+                          size: 14,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${_speedKmh.round()} km/h',
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ],
                     ),
-                    Container(width: 1, height: 32, color: Colors.grey.withValues(alpha: 0.3)),
-                    _NavMetric(
-                      label: 'SPEED',
-                      value: '${_speedKmh.round()} km/h',
-                    ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
@@ -376,40 +426,68 @@ class _DriverInAppNavigationScreenState
   }
 }
 
-class _NavMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? color;
+/// Circular speed-limit badge displayed over the map canvas.
+///
+/// Turns red when [currentSpeedKmh] exceeds [limitKmh] to warn the driver.
+/// A live speed-limit API (e.g. HERE Maps Roads, TomTom) can replace the
+/// hardcoded [limitKmh] once provisioned; the widget itself is API-agnostic.
+class _SpeedLimitBadge extends StatelessWidget {
+  final int limitKmh;
+  final double currentSpeedKmh;
 
-  const _NavMetric({
-    required this.label,
-    required this.value,
-    this.color,
+  const _SpeedLimitBadge({
+    required this.limitKmh,
+    required this.currentSpeedKmh,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+    final isSpeeding = currentSpeedKmh > limitKmh;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isSpeeding ? const Color(0xFFEF4444) : Colors.white,
+        border: Border.all(
+          color: isSpeeding ? const Color(0xFF991B1B) : Colors.black,
+          width: 3.5,
         ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: color,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        ),
-      ],
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$limitKmh',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: isSpeeding ? Colors.white : Colors.black,
+              height: 1.0,
+            ),
+          ),
+          Text(
+            'km/h',
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              color: isSpeeding ? Colors.white70 : Colors.black54,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
+
+

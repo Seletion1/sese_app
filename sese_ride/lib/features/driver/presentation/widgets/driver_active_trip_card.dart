@@ -1047,6 +1047,25 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ),
 
+            // Compact live ETA telemetry pill — visible only while the trip
+            // is IN_PROGRESS and the sheet is collapsed to the 0.18 stub,
+            // giving the driver at-a-glance remaining time + distance without
+            // expanding the sheet or entering the navigation cockpit.
+            if (trip.status == TripStatus.inProgress &&
+                widget.driverPosition != null &&
+                trip.dropoffLat != 0.0 &&
+                trip.dropoffLng != 0.0)
+              _ActiveTripEtaPill(
+                driverPosition: widget.driverPosition!,
+                dropoffLat: trip.dropoffLat,
+                dropoffLng: trip.dropoffLng,
+              ),
+            if (trip.status == TripStatus.inProgress &&
+                widget.driverPosition != null &&
+                trip.dropoffLat != 0.0 &&
+                trip.dropoffLng != 0.0)
+              const SizedBox(height: 8),
+
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(
               key: const Key('driver_slide_action_button'),
@@ -1998,6 +2017,76 @@ class _PaymentCollectionCard extends StatelessWidget {
               fontSize: 11,
               fontWeight: FontWeight.w500,
               color: isDark ? Colors.grey.shade400 : accentColor.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact telemetry pill shown above the slide-to-action button when the
+/// trip is [TripStatus.inProgress] and the sheet is collapsed to its 0.18
+/// stub.  Gives the driver at-a-glance remaining ETA + distance to the
+/// dropoff without requiring them to expand the sheet or open the cockpit.
+///
+/// ETA is estimated at 30 km/h average urban speed (same formula as the
+/// in-app navigation screen); this is a display-only, non-money calculation
+/// so client-side computation is acceptable per server-authoritative rules.
+class _ActiveTripEtaPill extends StatelessWidget {
+  final LatLng driverPosition;
+  final double dropoffLat;
+  final double dropoffLng;
+
+  const _ActiveTripEtaPill({
+    required this.driverPosition,
+    required this.dropoffLat,
+    required this.dropoffLng,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dropoff = LatLng(dropoffLat, dropoffLng);
+    final distM = const Distance().as(
+      LengthUnit.Meter,
+      driverPosition,
+      dropoff,
+    );
+    final distKm = distM / 1000.0;
+    final etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+    final distLabel = distM < 1000
+        ? '${distM.round()} m'
+        : '${distKm.toStringAsFixed(1)} km';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.seseGold,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.seseGold.withValues(
+              alpha: isDark ? 0.25 : 0.35,
+            ),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.timer_outlined, color: Colors.black, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            '$etaMin min  •  $distLabel to dropoff',
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Colors.black,
+              letterSpacing: -0.1,
             ),
           ),
         ],
