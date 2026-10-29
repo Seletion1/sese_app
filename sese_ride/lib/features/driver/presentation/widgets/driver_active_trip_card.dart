@@ -594,21 +594,26 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     return trip.paymentMethod.toUpperCase();
   }
 
+  /// Compact one-line subtitle shown beneath the customer name in the
+  /// identity row.  Full payment instructions are in [_PaymentCollectionCard]
+  /// below, so this line shows only the fare + a short mode label to avoid
+  /// conflicting or duplicate cash-amount text.
   String _formatTripPaymentSubtitle(ActiveTrip trip) {
     final fareStr = trip.fareFormatted.isNotEmpty
         ? trip.fareFormatted
         : '₦${trip.fareAmount.toStringAsFixed(0)}';
 
     if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
-      return '$fareStr • Collect $fareStr Cash at Drop-off';
+      return '$fareStr • Receiver Pays at Drop-off';
     }
 
     if (trip.walletCoverageAmount > 0 && trip.cashToCollect > 0) {
-      return '$fareStr • Collect ₦${trip.cashToCollect.toStringAsFixed(0)} Cash (₦${trip.walletCoverageAmount.toStringAsFixed(0)} Wallet)';
+      // Split: show wallet + cash portions without repeating the collection instruction.
+      return '$fareStr • Wallet + ₦${trip.cashToCollect.toStringAsFixed(0)} Cash';
     } else if (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0) {
-      return '$fareStr • 100% Wallet Prepaid (₦0 Cash)';
+      return '$fareStr • 100% Wallet Prepaid';
     } else if (trip.cashToCollect > 0) {
-      return '$fareStr • Collect ₦${trip.cashToCollect.toStringAsFixed(0)} Cash at Pickup';
+      return '$fareStr • Cash Payment';
     }
 
     return '$fareStr • ${_paymentLabel(trip)}';
@@ -1936,8 +1941,12 @@ class _PaymentCollectionCard extends StatelessWidget {
       textColor = isDark ? Colors.white : Colors.black87;
       icon = Icons.money_rounded;
       title = 'CASH PAYMENT';
+      // Use the server-computed cashToCollect when available; fall back to
+      // the full fare only when no partial escrow is set, preventing a
+      // mismatch where the subtitle shows a different figure than the card.
+      final cashDisplay = hasCash ? trip.cashToCollect : trip.fareAmount;
       collectionText =
-          'Collect ₦${trip.fareAmount.toStringAsFixed(0)} cash at pickup from sender.';
+          'Collect ₦${cashDisplay.toStringAsFixed(0)} cash at pickup from sender.';
       settlementText = 'Keep 100% of collected cash.';
     }
 

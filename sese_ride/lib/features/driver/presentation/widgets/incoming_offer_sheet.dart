@@ -361,8 +361,15 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                             Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const UserAvatar(
-                                    displayName: 'Rider', radius: 20),
+                                UserAvatar(
+                                  // Use the real customer first name so the
+                                  // avatar initials match the actual person
+                                  // rather than the generic 'RI' placeholder.
+                                  displayName: trip.customerName.isNotEmpty
+                                      ? trip.customerName.trim().split(RegExp(r'\s+')).first
+                                      : 'Customer',
+                                  radius: 20,
+                                ),
                                 if (trip.isVerifiedCustomer) ...[
                                   const SizedBox(height: 2),
                                   const VerifiedBadge(

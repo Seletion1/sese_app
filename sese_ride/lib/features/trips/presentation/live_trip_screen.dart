@@ -1532,31 +1532,9 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     }
   }
 
-  String _paymentLabel(ActiveTrip trip) {
-    final mode = trip.paymentMode.toLowerCase();
-    final hasWallet = trip.walletCoverageAmount > 0;
-    final hasCash = trip.cashToCollect > 0;
-
-    if (mode == 'receiver_pays') {
-      return 'RECEIVER PAYS (CASH)';
-    } else if (mode == 'split' ||
-        trip.splitEnabled ||
-        trip.paymentMethod.toLowerCase() == 'split') {
-      if (hasWallet && hasCash) {
-        return 'SPLIT (WALLET + CASH)';
-      }
-      return 'SPLIT PAYMENT';
-    } else if (hasWallet && hasCash) {
-      return 'SPLIT (WALLET + CASH)';
-    } else if (trip.paymentMethod.toLowerCase() == 'wallet' ||
-        (hasWallet && !hasCash)) {
-      return '100% WALLET PREPAID';
-    } else if (mode == 'sender_pays') {
-      return 'SENDER PAYS';
-    }
-    return trip.paymentMethod.toUpperCase();
-  }
-
+  /// Compact one-line subtitle shown under the driver name on the customer
+  /// active trip sheet.  Payment details are shown in the banner card below,
+  /// so this line is limited to fare + vehicle info to avoid redundancy.
   String _formatCustomerPaymentSubtitle(ActiveTrip trip, DriverInfo driver) {
     final fareStr = trip.fareFormatted.isNotEmpty
         ? trip.fareFormatted
@@ -1564,19 +1542,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final vehicle =
         driver.vehicleLabel.isNotEmpty ? ' • ${driver.vehicleLabel}' : '';
 
-    if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
-      return '$fareStr$vehicle • Receiver Pays Cash at Drop-off';
-    }
-
-    if (trip.walletCoverageAmount > 0 && trip.cashToCollect > 0) {
-      return '$fareStr$vehicle • Pay ₦${trip.cashToCollect.toStringAsFixed(0)} Cash (₦${trip.walletCoverageAmount.toStringAsFixed(0)} Wallet Locked)';
-    } else if (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0) {
-      return '$fareStr$vehicle • 100% Wallet (₦0 Cash)';
-    } else if (trip.cashToCollect > 0) {
-      return '$fareStr$vehicle • Pay ₦${trip.cashToCollect.toStringAsFixed(0)} Cash at Pickup';
-    }
-
-    return '$fareStr$vehicle • ${_paymentLabel(trip)}';
+    return '$fareStr$vehicle';
   }
 
   Widget? _buildCustomerPaymentBreakdown(ActiveTrip trip) {
@@ -1912,7 +1878,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                   Flexible(
                                     child: Text(
                                       driver.fullName.isNotEmpty
-                                          ? driver.fullName
+                                          ? _firstName(driver.fullName)
                                           : 'Driver',
                                       style: const TextStyle(
                                         fontWeight: FontWeight.bold,
@@ -2187,17 +2153,17 @@ class _CommunicationButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
           decoration: BoxDecoration(
             color: bgColor,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, color: color, size: 18),
+              Icon(icon, color: color, size: 19),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
@@ -2205,7 +2171,7 @@ class _CommunicationButton extends StatelessWidget {
                   style: TextStyle(
                     color: color,
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: 13,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
