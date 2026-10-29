@@ -74,6 +74,15 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   bool _isMuted = false;
   bool _isSpeakerOn = false;
   String? _errorMessage;
+  bool _isDismissed = false;
+
+  void _dismissScreen() {
+    if (_isDismissed || !mounted) return;
+    _isDismissed = true;
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
 
   @override
   void initState() {
@@ -91,19 +100,19 @@ class _InAppCallScreenState extends State<InAppCallScreen>
     );
 
     _stateSub = _service.stateStream.listen((state) {
-      if (!mounted) return;
+      if (!mounted || _isDismissed) return;
       setState(() => _state = state);
 
       if (state == CallState.ended) {
         _pulseController.stop();
-        Future.delayed(const Duration(milliseconds: 1200), () {
-          if (mounted) Navigator.of(context).pop();
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          _dismissScreen();
         });
       } else if (state == CallState.error) {
         _pulseController.stop();
         setState(() => _errorMessage = 'Call failed to connect');
         Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) Navigator.of(context).pop();
+          _dismissScreen();
         });
       }
     });
@@ -137,7 +146,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
           _errorMessage = 'Call connection failed. Please try again.';
         });
         Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) Navigator.of(context).pop();
+          _dismissScreen();
         });
       }
     }
@@ -156,8 +165,12 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   }
 
   Future<void> _endCall() async {
-    await _service.endCall(reason: 'User tapped hangup');
-    if (mounted) Navigator.of(context).pop();
+    try {
+      await _service.endCall(reason: 'User tapped hangup');
+    } catch (e) {
+      debugPrint('InAppCallScreen endCall error: $e');
+    }
+    _dismissScreen();
   }
 
   @override

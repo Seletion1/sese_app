@@ -275,29 +275,33 @@ class WebRtcCallServiceImpl implements ICallService {
       }
       earlyCandidates.clear();
 
-      // 8. Listen for remote answer
+      // 8. Listen for remote answer / rejection / end
       _callDocSub = callDocRef.snapshots().listen((snapshot) async {
-        final data = snapshot.data();
-        if (data == null || !snapshot.exists) return;
+        try {
+          final data = snapshot.data();
+          if (data == null || !snapshot.exists) return;
 
-        final status = data['status']?.toString();
-        if (status == 'ended' || status == 'rejected') {
-          await endCall(reason: 'Call declined or ended by remote party.');
-          return;
-        }
-
-        if (status == 'connected' && _peerConnection != null) {
-          final answer = data['answer'] as Map<String, dynamic>?;
-          if (answer != null && _currentState != CallState.connected) {
-            _setCallState(CallState.connecting);
-            final rtcAnswer = RTCSessionDescription(
-              answer['sdp']?.toString(),
-              answer['type']?.toString(),
-            );
-            await _peerConnection!.setRemoteDescription(rtcAnswer);
-            _startCallTimer();
-            _setCallState(CallState.connected);
+          final status = data['status']?.toString();
+          if (status == 'ended' || status == 'rejected') {
+            await endCall(reason: 'Call declined or ended by remote party.');
+            return;
           }
+
+          if (status == 'connected' && _peerConnection != null) {
+            final answer = data['answer'] as Map<String, dynamic>?;
+            if (answer != null && _currentState != CallState.connected) {
+              _setCallState(CallState.connecting);
+              final rtcAnswer = RTCSessionDescription(
+                answer['sdp']?.toString(),
+                answer['type']?.toString(),
+              );
+              await _peerConnection!.setRemoteDescription(rtcAnswer);
+              _startCallTimer();
+              _setCallState(CallState.connected);
+            }
+          }
+        } catch (e) {
+          debugPrint('WebRtcCallServiceImpl _callDocSub error: $e');
         }
       });
 
@@ -524,27 +528,44 @@ class WebRtcCallServiceImpl implements ICallService {
       }
     }
 
-    await _callDocSub?.cancel();
+    try {
+      await _callDocSub?.cancel();
+    } catch (_) {}
     _callDocSub = null;
-    await _candidatesSub?.cancel();
+
+    try {
+      await _candidatesSub?.cancel();
+    } catch (_) {}
     _candidatesSub = null;
 
     if (_localStream != null) {
-      for (final track in _localStream!.getTracks()) {
-        track.stop();
+      try {
+        for (final track in _localStream!.getTracks()) {
+          track.stop();
+        }
+        await _localStream!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl localStream dispose error: $e');
       }
-      await _localStream!.dispose();
       _localStream = null;
     }
 
     if (_remoteStream != null) {
-      await _remoteStream!.dispose();
+      try {
+        await _remoteStream!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl remoteStream dispose error: $e');
+      }
       _remoteStream = null;
     }
 
     if (_peerConnection != null) {
-      await _peerConnection!.close();
-      await _peerConnection!.dispose();
+      try {
+        await _peerConnection!.close();
+        await _peerConnection!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl peerConnection dispose error: $e');
+      }
       _peerConnection = null;
     }
 
