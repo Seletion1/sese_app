@@ -1133,66 +1133,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ),
 
-            // Compact live ETA telemetry pill — visible only while the trip
-            // is IN_PROGRESS and the sheet is collapsed to the 0.18 stub,
-            // giving the driver at-a-glance remaining time + distance without
-            // expanding the sheet or entering the navigation cockpit.
-            if (trip.status == TripStatus.inProgress &&
-                widget.driverPosition != null &&
-                trip.dropoffLat != 0.0 &&
-                trip.dropoffLng != 0.0)
-              _ActiveTripEtaPill(
-                driverPosition: widget.driverPosition!,
-                dropoffLat: trip.dropoffLat,
-                dropoffLng: trip.dropoffLng,
-              ),
-            if (trip.status == TripStatus.inProgress &&
-                widget.driverPosition != null &&
-                trip.dropoffLat != 0.0 &&
-                trip.dropoffLng != 0.0)
-              const SizedBox(height: 8),
-
-            // Dynamic single-line trip status banner — mirrors the customer
-            // sheet's unified status box for visual parity between both sides.
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? const Color(0xFF78350F).withValues(alpha: 0.25)
-                    : const Color(0xFFFEF3C7),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark
-                      ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
-                      : const Color(0xFFF59E0B).withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _driverStatusIcon(trip.status),
-                    color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _driverStatusMessage(trip),
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(
               key: const Key('driver_slide_action_button'),
@@ -2148,12 +2088,12 @@ class _PaymentCollectionCard extends StatelessWidget {
       textColor = isDark ? Colors.white : Colors.black87;
       icon = Icons.money_rounded;
       title = 'CASH PAYMENT';
-      // Use the server-computed cashToCollect when available; fall back to
-      // the full fare only when no partial escrow is set, preventing a
-      // mismatch where the subtitle shows a different figure than the card.
-      final cashDisplay = hasCash ? trip.cashToCollect : trip.fareAmount;
-      collectionText =
-          'Collect ₦${cashDisplay.toStringAsFixed(0)} cash at pickup from sender.';
+      final fullFare = trip.fareAmount;
+      final isCompletionStage = trip.status == TripStatus.inProgress ||
+          trip.status == TripStatus.driverArrived;
+      collectionText = isCompletionStage
+          ? 'Collect ₦${fullFare.toStringAsFixed(0)} cash from customer.'
+          : 'Total Cash Fare: ₦${fullFare.toStringAsFixed(0)}';
       settlementText = 'Keep 100% of collected cash.';
     }
 

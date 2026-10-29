@@ -202,10 +202,6 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   @override
   Widget build(BuildContext context) {
-    final providerName = _service.providerType == CallProviderType.webrtc
-        ? 'WebRTC P2P (Firebase Signaling)'
-        : 'ZegoCloud SDK';
-
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -216,7 +212,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
         body: SafeArea(
           child: Column(
             children: [
-              // ── Header / Active Provider Chip ──────────────────────────
+              // ── Header / Encrypted In-App Call Chip ──────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 child: Row(
@@ -228,19 +224,17 @@ class _InAppCallScreenState extends State<InAppCallScreen>
                         color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Row(
+                      child: const Row(
                         children: [
                           Icon(
-                            _service.providerType == CallProviderType.webrtc
-                                ? Icons.sync_alt_rounded
-                                : Icons.cloud_done_rounded,
+                            Icons.shield_outlined,
                             size: 14,
                             color: Colors.cyanAccent,
                           ),
-                          const SizedBox(width: 6),
+                          SizedBox(width: 6),
                           Text(
-                            providerName,
-                            style: const TextStyle(
+                            'Encrypted In-App Call',
+                            style: TextStyle(
                               color: Colors.white70,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
