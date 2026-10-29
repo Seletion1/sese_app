@@ -45,6 +45,11 @@ enum TripStatus {
   /// Terminal: cancelled by customer, driver, or system.
   cancelled('CANCELLED'),
 
+  /// Terminal: customer cancelled during paid waiting time and elected to pay
+  /// the driver in cash. Driver must confirm cash collection before the trip
+  /// is fully closed. Wire value: `CANCELLED_WAITING_CASH_SETTLEMENT`.
+  cancelledWaitingCashSettlement('CANCELLED_WAITING_CASH_SETTLEMENT'),
+
   /// Auto-reassignment exhausted (3 attempts). Customer must raise the fare
   /// or cancel. Maps to 'needs_customer_action' on the wire.
   needsCustomerAction('needs_customer_action'),
@@ -358,9 +363,12 @@ class ActiveTrip {
   }
 
   /// True while the trip still needs live tracking / re-entry restore.
-  /// needsCustomerAction and bidding are also live states.
+  /// [needsCustomerAction], [bidding], and [cancelledWaitingCashSettlement]
+  /// are also considered live: the first two still need customer input; the
+  /// last requires the driver to confirm cash before it fully closes.
   bool get isLive =>
-      status != TripStatus.completed && status != TripStatus.cancelled;
+      status != TripStatus.completed &&
+      status != TripStatus.cancelled;
 
   /// Best available completion-ish timestamp for earnings bucketing.
   DateTime? get earningDate => settledAt ?? updatedAt ?? createdAt;

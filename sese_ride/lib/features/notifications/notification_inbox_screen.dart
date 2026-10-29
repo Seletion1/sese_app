@@ -2,11 +2,66 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
+/// Notification types that are **inbox-worthy** (sensitive or actionable).
+///
+/// Mirrors the server-side `INBOX_TYPES` set in `functions/src/trips.ts`.
+/// Only these types are ever written to `users/{uid}/notifications` by the
+/// backend; transient trip-status events (e.g. `driver_arrived`) are
+/// FCM-push-only and are intentionally excluded from the inbox so that
+/// both customer and driver notification bells stay uncluttered.
+const Set<String> _kInboxTypes = {
+  'delivery_pin_issued',
+  'cash_settlement_requested',
+  'trip_needs_customer_action',
+  'driver_counter_bid',
+  'trip_chat_message',
+  'broadcast',
+  'P2P_TRANSFER_RECEIVED',
+  'split_payment_request',
+  'support_escalated',
+  'support_reply',
+};
+
+/// Returns the icon most relevant for [type].
+///
+/// Covers the full `INBOX_TYPES` set from `functions/src/trips.ts`.
+/// Every sensitive notification type gets a distinct visual cue so both
+/// customers and drivers can instantly identify the nature of a message
+/// without reading the body.  Unrecognised types (those outside
+/// [_kInboxTypes]) fall back to a generic bell.
+IconData _iconForType(String type) {
+  // Guard: unrecognised types outside the allow-list get a plain bell.
+  if (!_kInboxTypes.contains(type)) return Icons.notifications_outlined;
+  switch (type) {
+    case 'delivery_pin_issued':
+      return Icons.pin_outlined;
+    case 'cash_settlement_requested':
+      return Icons.payments_outlined;
+    case 'trip_needs_customer_action':
+      return Icons.warning_amber_rounded;
+    case 'driver_counter_bid':
+      return Icons.local_offer_outlined;
+    case 'trip_chat_message':
+      return Icons.chat_bubble_outline;
+    case 'broadcast':
+      return Icons.campaign_outlined;
+    case 'P2P_TRANSFER_RECEIVED':
+      return Icons.account_balance_wallet_outlined;
+    case 'split_payment_request':
+      return Icons.group_outlined;
+    case 'support_escalated':
+    case 'support_reply':
+      return Icons.support_agent_outlined;
+    default:
+      return Icons.notifications_outlined;
+  }
+}
+
 /// Single inbox entry backed by `users/{uid}/notifications/{id}`.
 ///
-/// Written exclusively by backend Cloud Functions (`sendTargetedBroadcast`,
-/// support escalations); clients only flip [isRead]. Unknown/missing fields
-/// degrade to empty strings — never a throw.
+/// Written exclusively by backend Cloud Functions for high-value,
+/// non-transient event types only (see [_kInboxTypes]). Clients only flip
+/// [isRead]. Unknown/missing fields degrade to empty strings — never a throw.
 class InboxNotification {
   final String id;
   final String title;
@@ -44,10 +99,15 @@ class InboxNotification {
   }
 }
 
-/// Chronological inbox of announcements and alerts for one user.
+/// Chronological inbox of sensitive announcements and alerts for one user.
 ///
-/// Source: `users/{userId}/notifications` (newest first). Tapping an item
-/// marks it read (`isRead: true`) and opens the full message detail sheet.
+/// Source: `users/{userId}/notifications` (newest first). Only types listed
+/// in [_kInboxTypes] are ever written here — transient trip-status events
+/// like "Driver arrived" are FCM-push-only and never reach this screen.
+/// Tapping an item marks it read (`isRead: true`) and opens the full detail.
+///
+/// Used for **both** customer and driver accounts — the same Firestore
+/// subcollection pattern applies to all user roles.
 class NotificationInboxScreen extends StatelessWidget {
   final String userId;
 
@@ -132,7 +192,8 @@ class NotificationInboxScreen extends StatelessWidget {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Announcements and trip alerts will appear here.',
+                      'Important alerts — PINs, offers, broadcasts, and '
+                      'support messages — will appear here.',
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -153,10 +214,9 @@ class NotificationInboxScreen extends StatelessWidget {
                       ? Colors.grey.shade300
                       : AppColors.seseGold,
                   child: Icon(
-                    n.type == 'broadcast'
-                        ? Icons.campaign_outlined
-                        : Icons.notifications_outlined,
+                    _iconForType(n.type),
                     color: n.isRead ? Colors.grey.shade600 : Colors.black,
+                    size: 20,
                   ),
                 ),
                 title: Text(
@@ -211,12 +271,29 @@ class _NotificationDetailSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              item.title.isEmpty ? 'Notification' : item.title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: AppColors.seseGold.withValues(alpha: 0.15),
+                  child: Icon(
+                    _iconForType(item.type),
+                    color: AppColors.seseGold,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    item.title.isEmpty ? 'Notification' : item.title,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
             ),
             if (when.isNotEmpty) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(when, style: const TextStyle(color: Colors.grey)),
             ],
             const SizedBox(height: 12),
@@ -237,8 +314,11 @@ class _NotificationDetailSheet extends StatelessWidget {
 
 /// Top-right bell with a live unread badge. Pushes [NotificationInboxScreen].
 ///
-/// Reads `users/{uid}/notifications` where `isRead == false`; the badge
-/// hides at zero. Best-effort in tests/offline (renders a plain bell).
+/// Reads `users/{uid}/notifications` where `isRead == false`.  The badge
+/// hides at zero.  Best-effort in tests/offline (renders a plain bell).
+///
+/// Used for both customer and driver accounts; the Firestore path is
+/// identical for all user roles.
 class NotificationBellButton extends StatelessWidget {
   final String uid;
 

@@ -493,8 +493,18 @@ class _TripFeedCard extends StatelessWidget {
   }
 }
 
+/// Status badge rendered on every trip card and in the trip detail sheet.
+///
+/// Covers the full server lifecycle including the driver-side
+/// `CANCELLED_WAITING_CASH_SETTLEMENT` state, which was previously falling
+/// through to `TripStatus.unknown` and showing as "Active" — a misleading
+/// label for what is actually a terminal-pending cancellation.
 class _StatusChip extends StatelessWidget {
   final TripStatus status;
+
+  /// `cancellationSource` value from Firestore — used to distinguish
+  /// driver-declined, driver-cancelled, and customer-cancelled flows inside
+  /// the generic [TripStatus.cancelled] bucket.
   final String? source;
 
   const _StatusChip({
@@ -509,10 +519,13 @@ class _StatusChip extends StatelessWidget {
     final Color bgColor;
 
     switch (status) {
+      // ── Terminal success ───────────────────────────────────────────────
       case TripStatus.completed:
         label = 'Completed';
         color = const Color(0xFF059669);
         bgColor = const Color(0xFFD1FAE5);
+
+      // ── Active / live states ───────────────────────────────────────────
       case TripStatus.inProgress:
         label = 'In Progress';
         color = const Color(0xFF2563EB);
@@ -526,44 +539,68 @@ class _StatusChip extends StatelessWidget {
         label = 'Driver Arrived';
         color = const Color(0xFF059669);
         bgColor = const Color(0xFFD1FAE5);
+
+      // ── Searching / matchmaking ────────────────────────────────────────
       case TripStatus.searchingDriver:
       case TripStatus.waitingForAcceptance:
       case TripStatus.driverPinged:
       case TripStatus.marketplaceOpen:
       case TripStatus.marketplaceList:
       case TripStatus.bidding:
-        label = 'Searching for Driver...';
+        label = 'Searching for Driver';
         color = const Color(0xFFD97706);
         bgColor = const Color(0xFFFEF3C7);
+
+      // ── Customer action needed ─────────────────────────────────────────
       case TripStatus.needsCustomerAction:
-        label = 'Action Needed: Boost Fare';
+        label = 'Action Needed';
         color = const Color(0xFFD97706);
         bgColor = const Color(0xFFFEF3C7);
+
+      // ── Pending cash confirmation (driver must confirm before closing) ─
+      case TripStatus.cancelledWaitingCashSettlement:
+        label = 'Awaiting Cash Confirmation';
+        color = const Color(0xFFD97706);
+        bgColor = const Color(0xFFFEF3C7);
+
+      // ── Cancelled — differentiated by cancellationSource ──────────────
       case TripStatus.cancelled:
         if (source == 'driver_declined' ||
             source == 'driver_rejected' ||
             source == 'rejected' ||
-            source == 'declined') {
-          label = 'Rejected / Declined';
+            source == 'declined' ||
+            source == 'ping_expired') {
+          label = 'Order Declined';
           color = const Color(0xFFD97706);
           bgColor = const Color(0xFFFEF3C7);
-        } else if (source == 'driver' || source == 'driver_cancelled') {
+        } else if (source == 'driver' ||
+            source == 'driver_cancelled' ||
+            source == 'driver_before_arrival' ||
+            source == 'driver_cancelled_reassigning' ||
+            source == 'driver_cancelled_max_reached') {
           label = 'Cancelled by Driver';
           color = const Color(0xFFDC2626);
           bgColor = const Color(0xFFFEE2E2);
         } else if (source == 'customer' || source == 'customer_cancelled') {
-          label = 'Cancelled by Customer';
+          label = 'Cancelled by You';
           color = const Color(0xFFDC2626);
           bgColor = const Color(0xFFFEE2E2);
+        } else if (source == 'admin_hub') {
+          label = 'Cancelled by Support';
+          color = const Color(0xFF6B7280);
+          bgColor = const Color(0xFFF3F4F6);
         } else {
           label = 'Cancelled';
           color = const Color(0xFFDC2626);
           bgColor = const Color(0xFFFEE2E2);
         }
+
+      // ── Catch-all (unknown is never shown in history — trips.ts only
+      // writes known statuses, but guard avoids missing-case warnings) ───
       case TripStatus.unknown:
-        label = 'Active';
-        color = const Color(0xFF2563EB);
-        bgColor = const Color(0xFFDBEAFE);
+        label = 'Processing';
+        color = const Color(0xFF6B7280);
+        bgColor = const Color(0xFFF3F4F6);
     }
 
     return Container(

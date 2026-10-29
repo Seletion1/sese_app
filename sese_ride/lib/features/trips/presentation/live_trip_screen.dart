@@ -1207,6 +1207,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
       case TripStatus.needsCustomerAction:
       case TripStatus.completed:
       case TripStatus.cancelled:
+      case TripStatus.cancelledWaitingCashSettlement:
         message = '';
     }
 

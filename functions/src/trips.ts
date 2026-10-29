@@ -167,9 +167,44 @@ const LIVE_STATUSES: TripStatusWire[] = [
 ];
 
 /**
- * Best-effort customer alert: in-app `users/{uid}/notifications` row plus
- * rich high-priority FCM push on the customer's topic. Never throws —
- * dispatch must not fail because a notification failed.
+ * INBOX ALLOW-LIST — only these notification types are written to the
+ * persistent `users/{uid}/notifications` inbox.  All other types fire an
+ * FCM push only (phone buzz / banner) and are intentionally excluded from
+ * the inbox so transient trip-status noise (e.g. "Driver arrived") does not
+ * clutter the bell icon for both customers AND drivers.
+ *
+ * Allowed types (sensitive / official communications only):
+ *   - delivery_pin_issued        — 4-digit PIN the customer must share
+ *   - cash_settlement_requested  — financial action required from driver
+ *   - trip_needs_customer_action — all drivers busy, customer must decide
+ *   - driver_counter_bid         — driver offered a custom fare in marketplace
+ *   - trip_chat_message          — in-trip chat message (peer or support)
+ *   - broadcast                  — Hub-wide or targeted broadcast from admin
+ *   - P2P_TRANSFER_RECEIVED      — wallet transfer confirmation
+ *   - support_escalated          — live support agent joined the chat
+ *   - support_reply              — agent replied to support ticket
+ */
+const INBOX_TYPES = new Set([
+  "delivery_pin_issued",
+  "cash_settlement_requested",
+  "trip_needs_customer_action",
+  "driver_counter_bid",
+  "trip_chat_message",
+  "broadcast",
+  "P2P_TRANSFER_RECEIVED",
+  "split_payment_request",
+  "support_escalated",
+  "support_reply",
+]);
+
+/**
+ * Best-effort user alert: optionally writes an in-app
+ * `users/{uid}/notifications` inbox row (only for [INBOX_TYPES]) PLUS
+ * always fires a rich high-priority FCM push on the user's topic.
+ *
+ * Separating inbox-write from FCM-push means transient status events
+ * (e.g. "Driver arrived") can still buzz the phone without permanently
+ * cluttering the notification bell for customers or drivers.
  *
  * Push shape: Android high priority + `sese_alert_chime` custom sound
  * (res/raw in both apps) so alerts are audible; iOS default sound (the
@@ -185,20 +220,23 @@ async function notifyCustomer(
   topicOverride?: string
 ): Promise<void> {
   if (!customerId) return;
-  try {
-    await db()
-      .collection("users")
-      .doc(customerId)
-      .collection("notifications")
-      .add({
-        title,
-        body,
-        tripId,
-        type,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-  } catch (e) {
-    console.warn(`notifyCustomer: in-app write failed for ${customerId}: ${e}`);
+  // Only persist to the inbox for high-value, non-transient event types.
+  if (INBOX_TYPES.has(type)) {
+    try {
+      await db()
+        .collection("users")
+        .doc(customerId)
+        .collection("notifications")
+        .add({
+          title,
+          body,
+          tripId,
+          type,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    } catch (e) {
+      console.warn(`notifyCustomer: in-app write failed for ${customerId}: ${e}`);
+    }
   }
   try {
     await admin.messaging().send({
