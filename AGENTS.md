@@ -4644,3 +4644,77 @@ Added a new amber status banner above the action slider (mirroring customer shee
 
 - `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
 - Committed as `7795a1e`, pushed to `origin main`.
+
+## 2026-10-29 — Cancellation Rules, Waiting Fee Settlement, Driver Cancel Gating & Skip OTP
+
+### Overview
+
+Implemented the full lifecycle cancellation rule-set, 10-minute waiting fee enforcement, and dynamic OTP skip logic across backend (Cloud Functions TypeScript) and both Flutter apps.
+
+### A. `skipDeliveryPin` Callable — `functions/src/trips.ts`
+
+- New exported callable `skipDeliveryPin` appended to `trips.ts`.
+- **Server-side gates** (all must pass):
+  1. Caller must be the assigned driver.
+  2. Trip must be a delivery (`serviceType != 'ride'`).
+  3. `deliveryPinRequired` must be `true` and not yet verified or previously skipped.
+  4. At least 10 minutes must have elapsed since `IN_PROGRESS` (uses `startedAt`, falls back to `updatedAt`).
+- On success: sets `deliveryPinVerified: true`, `deliveryPinSkipped: true`, `deliveryPinSkippedAt`, `deliveryPinSkippedBy` on the trip doc. Best-effort writes an audit entry to `delivery_pin_skips/{auto-id}`.
+- Idempotent: returns `{ ok: true, alreadyHandled: true }` if already verified or skipped.
+
+### B. `ActiveTrip` Model — `trip_models.dart`
+
+- Added `deliveryPinVerified` field (`bool`, default `false`).
+  - Parsed from `map['deliveryPinVerified'] == true || map['deliveryPinSkipped'] == true` — both the PIN-verified and PIN-skipped states collapse to `true` on the client.
+
+### C. `DriverStreakService` — `driver_streak_service.dart`
+
+- Added `callSkipDeliveryPin(String tripId)` to `DriverStreakBackend` abstract interface.
+- Added `_FunctionsDriverStreakBackend.callSkipDeliveryPin()` implementation invoking `skipDeliveryPin` callable.
+- Added public `skipDeliveryPin(String tripId)` method on `DriverStreakService` routing through `_guard`.
+
+### D. Driver Cancel Button Gating — `driver_active_trip_card.dart`
+
+- **`driverAccepted` / `driverArriving`**: cancel button **completely hidden**. Driver must drive to pickup first (per spec: "Once a driver accepts an order, they do not have an immediate cancellation button").
+- **`driverArrived` < 10 min**: cancel button **hidden**. Wait notice remains: "Wait at least N min after Arrived".
+- **`driverArrived` ≥ 10 min** (`_hasWaitTimeExpired == true`): "Cancel Trip (Customer No-Show)" appears → calls `_confirmNoShowCancel`.
+- **`inProgress`**: cancel button **hidden** entirely.
+- Removed `_cancelTripWithDialog` method (no remaining call sites; contradicted the no-cancel-while-en-route spec).
+- Removed `cancel_trip_dialog.dart` import (no longer needed).
+
+### E. Skip OTP Button — `driver_active_trip_card.dart`
+
+- `_askDeliveryPin` refactored to pass `onSkipOtp` to `_DeliveryPinDialog` when `_canSkipDeliveryPin(trip)` returns `true`.
+- `_canSkipDeliveryPin`: returns `true` when `deliveryPinRequired`, `!deliveryPinVerified`, `arrivedAt != null`, and elapsed ≥ `waitThresholdMinutes`.
+- `_DeliveryPinDialog` updated: accepts `ActiveTrip trip` and optional `VoidCallback? onSkipOtp`. Renders a deep-orange "Skip OTP" `TextButton` (leftmost action) only when `onSkipOtp != null`.
+- Skip flow: dialog pops with sentinel `'__skip__'` → liability warning `AlertDialog` shown → driver confirms → `skipDeliveryPin(tripId)` callable invoked. Cancelling the warning aborts without making any server call.
+- Liability warning text: *"If you skip the code and report an issue, you will be 100% responsible for the item."*
+
+### F. Customer Cancel Button Gating — `live_trip_screen.dart`
+
+- **`inProgress`**: cancel button **hidden entirely** (condition: `trip.status != TripStatus.inProgress`).
+- **`driverArrived` < 10 min**: normal "Cancel ride" `TextButton` (free window).
+- **`driverArrived` ≥ 10 min** (`waitExpired == true`): "Settle Waiting Fee & Cancel" `TextButton.icon` (orange) replaces normal cancel → calls `_showWaitingFeeSettlementSheet`.
+- **All other live statuses**: normal "Cancel ride" button.
+- Wait threshold constant is `10` (matches backend `freeWaitMs = 10 * 60 * 1000`).
+
+### G. Waiting Fee Settlement Sheet — `live_trip_screen.dart`
+
+- New `_WaitingCancelChoice` enum: `walletDeduction` | `cashSettlement`.
+- New `_WaitingFeeSettlementSheet` widget: full-featured bottom sheet showing:
+  - Estimated fee (display-only client calc; server recomputes authoritatively).
+  - **"Deduct ₦X from Wallet & Cancel"** `FilledButton` (deep-orange) → `walletDeduction`.
+  - **"Pay ₦X Cash to Driver & Cancel"** `OutlinedButton` → `cashSettlement`.
+  - Go Back dismiss.
+- `_AcceptedDriverSheet` extended with `repository` (required) and `onNavigateAway` (optional `VoidCallback`) fields; instantiation site passes both.
+- `_showWaitingFeeSettlementSheet` calls `repository.cancelTrip(tripId, reason: 'waiting_fee', useCashSettlement: ...)` directly. On success: shows post-cancel feedback sheet, then calls `onNavigateAway ?? onCancel` for navigation.
+- Backend `INSUFFICIENT_FUNDS` error surfaces as a `TripException` snackbar.
+
+### Verification
+
+- MCP `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
+- `functions/src/trips.ts` compiled cleanly (`tsc` exit code 0).
+- Firebase deploy attempted; **credentials expired** — re-auth required (`firebase login --reauth`).
+- Committed as `988b518`, pushed to `origin main`.
+
+> **ACTION REQUIRED**: Run `firebase login --reauth` then `firebase deploy --only functions --project sese-ride` to deploy the new `skipDeliveryPin` callable.
