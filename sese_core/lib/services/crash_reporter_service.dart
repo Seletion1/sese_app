@@ -140,8 +140,13 @@ class CrashReporterService {
           .add(payload)
           .timeout(const Duration(seconds: 5));
     } catch (e) {
-      // Fail silent: crash reporting must NEVER trigger a secondary crash.
-      debugPrint('CrashReporterService.recordCrash silent error: $e');
+      // Fail silent: crash reporting must NEVER trigger a secondary crash or noisy console logs.
+      final err = e.toString();
+      if (!err.contains('permission-denied') &&
+          !err.contains('PERMISSION_DENIED') &&
+          !err.contains('TimeoutException')) {
+        debugPrint('CrashReporterService.recordCrash silent error: $e');
+      }
     }
   }
 }
