@@ -4529,65 +4529,67 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
     String? errorText;
     final maxAmount = base * 2;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            /// Validates the current input and updates [errorText].
-            void validate(String value) {
-              final parsed = double.tryParse(value.replaceAll(',', ''));
-              if (value.trim().isEmpty) {
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (ctx, setSheetState) {
+              /// Validates the current input and updates [errorText].
+              void validate(String value) {
+                final parsed = double.tryParse(value.replaceAll(',', ''));
+                if (value.trim().isEmpty) {
+                  setSheetState(() => errorText = null);
+                  return;
+                }
+                if (parsed == null || parsed <= 0) {
+                  setSheetState(
+                      () => errorText = 'Enter a valid amount.');
+                  return;
+                }
+                if (parsed < base) {
+                  setSheetState(() => errorText =
+                      'Cannot go below the base fare of '
+                      '${widget.baseFareFormatted ?? _fmtRaw(base)}.');
+                  return;
+                }
+                if (parsed > maxAmount) {
+                  setSheetState(() => errorText =
+                      'Maximum allowed is ${_fmtRaw(maxAmount)} '
+                      '(100% above base fare).');
+                  return;
+                }
                 setSheetState(() => errorText = null);
-                return;
               }
-              if (parsed == null || parsed <= 0) {
-                setSheetState(
-                    () => errorText = 'Enter a valid amount.');
-                return;
-              }
-              if (parsed < base) {
-                setSheetState(() => errorText =
-                    'Cannot go below the base fare of '
-                    '${widget.baseFareFormatted ?? _fmtRaw(base)}.');
-                return;
-              }
-              if (parsed > maxAmount) {
-                setSheetState(() => errorText =
-                    'Maximum allowed is ${_fmtRaw(maxAmount)} '
-                    '(100% above base fare).');
-                return;
-              }
-              setSheetState(() => errorText = null);
-            }
 
-            final isDark =
-                Theme.of(ctx).brightness == Brightness.dark;
-            final surfaceColor =
-                isDark ? const Color(0xFF1E1E28) : Colors.white;
-            final hintColor =
-                isDark ? Colors.grey.shade500 : Colors.grey.shade400;
-            final labelColor =
-                isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+              final isDark =
+                  Theme.of(ctx).brightness == Brightness.dark;
+              final surfaceColor =
+                  isDark ? const Color(0xFF1E1E28) : Colors.white;
+              final hintColor =
+                  isDark ? Colors.grey.shade500 : Colors.grey.shade400;
+              final labelColor =
+                  isDark ? Colors.grey.shade300 : Colors.grey.shade700;
 
-            return Padding(
-              // Slide the sheet above the keyboard.
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(24)),
+              return Padding(
+                // Slide the sheet above the keyboard.
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(ctx).viewInsets.bottom,
                 ),
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: surfaceColor,
+                    borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(24)),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                     // Drag handle
                     Center(
                       child: Container(
@@ -4764,7 +4766,9 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         );
       },
     );
-    ctrl.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ctrl.dispose();
+    });
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
