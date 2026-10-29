@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:sese_core/services/crash_reporter_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

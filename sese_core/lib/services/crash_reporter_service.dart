@@ -52,6 +52,10 @@ class CrashReporterService {
 
     // 2. Platform dispatcher async / isolate error handler
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      final errStr = error.toString();
+      if (errStr.contains('The client has already been terminated')) {
+        return true; // Ignore hot-restart platform channel teardown
+      }
       if (kDebugMode) {
         debugPrint('CrashReporterService caught async platform error: $error');
       }
@@ -100,6 +104,10 @@ class CrashReporterService {
       } catch (_) {}
 
       final errorStr = exception.toString();
+      if (errorStr.contains('The client has already been terminated')) {
+        // Hot-restart transient platform channel teardown — skip background report.
+        return;
+      }
       final sanitizedError = errorStr.length > 500
           ? '${errorStr.substring(0, 500)}... [truncated]'
           : errorStr;

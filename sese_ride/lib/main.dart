@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:sese_core/services/crash_reporter_service.dart';
 
 import 'package:google_maps_flutter_android/google_maps_flutter_android.dart'
     show GoogleMapsFlutterAndroid;
