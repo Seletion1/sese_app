@@ -6,7 +6,6 @@ import 'package:sese_core/sese_core.dart';
 
 import '../../../../core/services/call_service.dart';
 import '../../../trips/models/trip_models.dart';
-import '../../../trips/presentation/cancel_trip_dialog.dart';
 import '../../../trips/presentation/mutual_profile_modal.dart';
 import '../../../trips/presentation/trip_chat_screen.dart';
 import '../../services/driver_streak_service.dart';
@@ -429,13 +428,80 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     final pin = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => const _DeliveryPinDialog(),
+      builder: (ctx) => _DeliveryPinDialog(
+        trip: trip,
+        onSkipOtp: _canSkipDeliveryPin(trip)
+            ? () => Navigator.of(ctx).pop('__skip__')
+            : null,
+      ),
     );
     if (pin == null || !mounted) return;
+
+    if (pin == '__skip__') {
+      // Driver tapped Skip OTP — show mandatory liability warning dialog before
+      // calling the server. This is a UX gate only; the server also time-gates.
+      final confirmed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          key: const Key('skip_otp_liability_dialog'),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.deepOrange),
+              SizedBox(width: 8),
+              Text('Liability Warning'),
+            ],
+          ),
+          content: const Text(
+            'If you skip the code and report an issue, you will be 100% '
+            'responsible for the item.\n\n'
+            'Only proceed if you have genuinely been unable to reach the '
+            'recipient after waiting at least 10 minutes.',
+            style: TextStyle(fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Go Back'),
+            ),
+            FilledButton(
+              key: const Key('skip_otp_confirm_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.deepOrange,
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('I Accept — Skip OTP'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await _run(
+        () => widget.streakService.skipDeliveryPin(trip.tripId),
+        'Unable to skip the delivery PIN. Please try again.',
+      );
+      return;
+    }
+
     await _run(
       () => widget.streakService.verifyDeliveryPin(trip.tripId, pin),
       'Could not complete delivery.',
     );
+  }
+
+  /// Returns true when enough time has elapsed in IN_PROGRESS for the driver
+  /// to legitimately skip the delivery PIN (≥ 10 min since [trip.arrivedAt]).
+  ///
+  /// Uses [trip.arrivedAt] as a proxy for when the trip reached the drop-off
+  /// phase since `startedAt` may not be populated in all versions. The server
+  /// enforces the same gate independently and is idempotent if already handled.
+  bool _canSkipDeliveryPin(ActiveTrip trip) {
+    if (!trip.deliveryPinRequired) return false;
+    // Delivery trips use arrivedAt as the start of the drop-off wait window.
+    final arrivedAt = trip.arrivedAt;
+    if (arrivedAt == null) return false;
+    final elapsed = DateTime.now().difference(arrivedAt);
+    return elapsed.inMinutes >= (widget.waitThresholdMinutes);
   }
 
   /// Auto-arrival expiry: advance to DRIVER_ARRIVED (server alerts customer).
@@ -682,25 +748,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  Future<void> _cancelTripWithDialog(ActiveTrip trip) async {
-    final result = await CancelTripDialog.show(context, isDriver: true);
-    if (result != null && mounted) {
-      await _run(
-        () => widget.streakService.cancelTrip(trip.tripId, reason: result.reason),
-        'Could not cancel trip.',
-      );
-      // Show optional post-cancel feedback sheet after the cancellation succeeds.
-      if (mounted) {
-        await CancelTripDialog.showPostCancelFeedback(
-          context,
-          tripId: trip.tripId,
-          userId: widget.driverId,
-          role: 'driver',
-          isDriver: true,
-        );
-      }
-    }
-  }
+  // _cancelTripWithDialog removed: per spec, drivers cannot cancel while
+  // en-route to pickup (driverAccepted / driverArriving). The only driver
+  // cancel path is _confirmNoShowCancel after the 10-minute no-show wait.
+
 
   Future<void> _makeDirectPhoneCall(BuildContext context, ActiveTrip trip) async {
     final phone = _bookerPhone(trip);
@@ -1591,35 +1642,37 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ],
 
-            // Cancellation option — visible after scrolling, with generous bottom clearance
-            const SizedBox(height: 24),
-            Center(
-              child: TextButton.icon(
-                key: const Key('driver_cancel_trip_button'),
-                icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.grey),
-                label: Text(
-                  isAtPickupWait && _hasWaitTimeExpired
-                      ? 'Cancel Trip (Customer No-Show)'
-                      : 'Cancel Trip',
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    decoration: TextDecoration.underline,
+            // Cancellation option — visible after scrolling, with generous bottom clearance.
+            // Per spec: no cancel button while en-route to pickup (DRIVER_ACCEPTED /
+            // DRIVER_ARRIVING). Only DRIVER_ARRIVED exposes the cancel after the 10-minute
+            // no-show wait elapses. IN_PROGRESS hides the button entirely — the driver
+            // must complete the trip.
+            if (trip.status == TripStatus.driverArrived && _hasWaitTimeExpired) ...{
+              const SizedBox(height: 24),
+              Center(
+                child: TextButton.icon(
+                  key: const Key('driver_cancel_trip_button'),
+                  icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.grey),
+                  label: Text(
+                    'Cancel Trip (Customer No-Show)',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      decoration: TextDecoration.underline,
+                    ),
                   ),
+                  onPressed: _busy ? null : () => _confirmNoShowCancel(trip),
                 ),
-                onPressed: _busy
-                    ? null
-                    : () {
-                        if (isAtPickupWait && _hasWaitTimeExpired) {
-                          _confirmNoShowCancel(trip);
-                        } else {
-                          _cancelTripWithDialog(trip);
-                        }
-                      },
               ),
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            } else if (trip.status == TripStatus.driverArrived && !_hasWaitTimeExpired) ...{
+              // Wait notice: driver must wait for the 10-minute threshold before cancelling.
+              const SizedBox(height: 8),
+            } else ...{
+              // driverAccepted / driverArriving / inProgress: no cancel button.
+              const SizedBox(height: 8),
+            },
           ],
         ),
       ),
@@ -1922,8 +1975,19 @@ class _SlideToActionButtonState extends State<_SlideToActionButton> {
 }
 
 /// Delivery PIN confirmation dialog widget. Keeps controller alive during pop transitions.
+/// Dialog prompting the driver to enter the 4-digit delivery PIN given by the
+/// recipient. When [onSkipOtp] is provided (i.e., the 10-minute wait has
+/// elapsed), a "Skip OTP" escape-hatch button is shown that triggers the
+/// liability warning flow before calling the server.
 class _DeliveryPinDialog extends StatefulWidget {
-  const _DeliveryPinDialog();
+  final ActiveTrip trip;
+
+  /// Called when the driver taps "Skip OTP". Non-null only after the 10-minute
+  /// wait threshold has elapsed. Pops the dialog with the sentinel `'__skip__'`
+  /// string so the parent can handle the liability warning flow.
+  final VoidCallback? onSkipOtp;
+
+  const _DeliveryPinDialog({required this.trip, this.onSkipOtp});
 
   @override
   State<_DeliveryPinDialog> createState() => _DeliveryPinDialogState();
@@ -1977,6 +2041,18 @@ class _DeliveryPinDialogState extends State<_DeliveryPinDialog> {
         ],
       ),
       actions: [
+        // Skip OTP escape-hatch: only visible after the 10-minute wait has
+        // elapsed AND the parent determined it is eligible. Positioned as
+        // the leftmost action so it is not accidentally tapped.
+        if (widget.onSkipOtp != null)
+          TextButton(
+            key: const Key('skip_otp_button'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.deepOrange,
+            ),
+            onPressed: widget.onSkipOtp,
+            child: const Text('Skip OTP'),
+          ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),

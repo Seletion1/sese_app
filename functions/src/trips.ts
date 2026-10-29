@@ -2832,3 +2832,108 @@ export const submitCancellationFeedback = onCall(async (request) => {
 
   return { ok: true };
 });
+
+/**
+ * Callable: driver skips the 4-digit delivery PIN after the recipient is
+ * unreachable for 10 minutes at the drop-off location.
+ *
+ * This is an escape-hatch designed to prevent drivers from being indefinitely
+ * stuck if a recipient cannot be contacted. The driver assumes full liability
+ * for the delivery outcome by explicitly confirming the liability warning in
+ * the app before this callable is invoked. The trip is marked
+ * `deliveryPinSkipped: true` and `deliveryPinVerified: true` so that the
+ * normal settlement path can continue — but the audit trail is permanent.
+ *
+ * Security gates enforced on the server:
+ *  1. Caller must be the assigned driver.
+ *  2. Trip must be a delivery (serviceType != 'ride').
+ *  3. PIN must be required and not yet verified or previously skipped.
+ *  4. At least 10 minutes must have elapsed since the trip entered
+ *     `IN_PROGRESS` status (using `startedAt` timestamp on the trip doc).
+ *
+ * Client-side: the driver must confirm a liability warning dialog before
+ * calling this function. The server does NOT enforce the dialog — it is a UX
+ * gate only. The permanent audit trail is the real safeguard.
+ */
+export const skipDeliveryPin = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Drivers must sign in.");
+  }
+  const driverId = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "tripId is required.");
+  }
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+  const data = snap.data()!;
+
+  // Gate 1: caller must be the assigned driver.
+  if (data.driver?.driverId !== driverId) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  // Gate 2: delivery trips only.
+  const serviceType = String(data.serviceType ?? "ride");
+  if (serviceType === "ride") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Passenger trips do not use a delivery PIN."
+    );
+  }
+
+  // Gate 3: PIN must be required and not already handled.
+  if (!data.deliveryPinRequired) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Delivery PIN is not required for this trip."
+    );
+  }
+  if (data.deliveryPinVerified === true || data.deliveryPinSkipped === true) {
+    // Idempotent — already completed or skipped.
+    return { ok: true, alreadyHandled: true };
+  }
+
+  // Gate 4: at least 10 minutes must have passed since the trip started
+  // (entered IN_PROGRESS). We use `startedAt` written by advanceTripStatus.
+  // If `startedAt` is absent we fall back to `updatedAt` as a conservative
+  // proxy — the server can never be tricked into skipping prematurely.
+  const skipWaitMs = 10 * 60 * 1000; // 10 minutes
+  const startedAtMs: number =
+    data.startedAt?.toMillis?.() ??
+    data.updatedAt?.toMillis?.() ??
+    Date.now();
+  const elapsedMs = nowMs() - startedAtMs;
+  if (elapsedMs < skipWaitMs) {
+    const remainingSec = Math.ceil((skipWaitMs - elapsedMs) / 1000);
+    throw new HttpsError(
+      "failed-precondition",
+      `You can only skip the PIN after waiting 10 minutes. ${remainingSec}s remaining.`
+    );
+  }
+
+  // All gates passed — mark as skipped with full audit trail.
+  await ref.update({
+    deliveryPinVerified: true,
+    deliveryPinSkipped: true,
+    deliveryPinSkippedAt: admin.firestore.FieldValue.serverTimestamp(),
+    deliveryPinSkippedBy: driverId,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Best-effort audit log for operations/dispute review.
+  try {
+    await db().collection("delivery_pin_skips").add({
+      tripId,
+      driverId,
+      skippedAt: admin.firestore.FieldValue.serverTimestamp(),
+      elapsedMs,
+    });
+  } catch (e) {
+    console.warn(`skipDeliveryPin: audit write failed for ${tripId}: ${e}`);
+  }
+
+  return { ok: true };
+});

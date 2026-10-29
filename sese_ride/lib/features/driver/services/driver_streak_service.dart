@@ -30,6 +30,12 @@ abstract class DriverStreakBackend {
     String tripId,
     String pin,
   );
+
+  /// Skips the 4-digit delivery PIN after the recipient is unreachable for
+  /// 10 minutes. The server enforces the time gate; the client must have
+  /// already shown the liability warning dialog before calling this.
+  Future<Map<String, dynamic>> callSkipDeliveryPin(String tripId);
+
   Future<Map<String, dynamic>> callReportDriverLocation(
     String tripId,
     double lat,
@@ -81,6 +87,13 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
     String pin,
   ) =>
       _call('verifyDeliveryPin', {'tripId': tripId, 'pin': pin});
+
+  @override
+  /// Invokes the `skipDeliveryPin` server callable. The server validates that
+  /// 10 minutes have elapsed since `IN_PROGRESS` and marks the trip as
+  /// `deliveryPinSkipped: true` with a full audit entry.
+  Future<Map<String, dynamic>> callSkipDeliveryPin(String tripId) =>
+      _call('skipDeliveryPin', {'tripId': tripId});
 
   @override
   Future<Map<String, dynamic>> callReportDriverLocation(
@@ -301,6 +314,15 @@ class DriverStreakService {
   /// path; wrong codes throw with a user-safe message.
   Future<void> verifyDeliveryPin(String tripId, String pin) =>
       _guard(() => _ops.callVerifyDeliveryPin(tripId, pin));
+
+  /// Skips the delivery PIN after 10 minutes of recipient unavailability.
+  ///
+  /// The caller is responsible for confirming the liability warning dialog
+  /// before invoking this. The server double-checks the 10-minute gate and
+  /// creates a permanent audit entry. On success the trip is marked verified
+  /// so that settlement proceeds normally.
+  Future<void> skipDeliveryPin(String tripId) =>
+      _guard(() => _ops.callSkipDeliveryPin(tripId));
 
   /// GPS heartbeat for the live trip (powers the customer marker +
   /// proximity triggers). Mocked fixes are rejected server-side; the

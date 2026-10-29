@@ -811,7 +811,9 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           _AcceptedDriverSheet(
             driver: trip.driver!,
             trip: trip,
+            repository: widget.repository,
             onCancel: () => _cancel(context),
+            onNavigateAway: () => _navigateBackToBookingOrPop(context, trip),
           ),
       ],
     );
@@ -1491,10 +1493,22 @@ class _AcceptedDriverSheet extends StatefulWidget {
   final ActiveTrip trip;
   final VoidCallback? onCancel;
 
+  /// Repository reference used to invoke the waiting-fee cancel path directly
+  /// from within the sheet (avoids routing a multi-arg cancel through a
+  /// single [VoidCallback]).
+  final TripRepository repository;
+
+  /// Called after a successful waiting-fee cancel to navigate the customer
+  /// back to the booking screen. Distinct from [onCancel] which opens the
+  /// cancel dialog; this skips the dialog and goes straight to navigation.
+  final VoidCallback? onNavigateAway;
+
   const _AcceptedDriverSheet({
     required this.driver,
     required this.trip,
+    required this.repository,
     this.onCancel,
+    this.onNavigateAway,
   });
 
   @override
@@ -1516,6 +1530,76 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final trimmed = fullName.trim();
     if (trimmed.isEmpty) return 'Driver';
     return trimmed.split(RegExp(r'\s+')).first;
+  }
+
+  /// Displays the waiting-fee settlement bottom sheet when the customer wants
+  /// to cancel after the 10-minute free-wait window has expired.
+  ///
+  /// The computed fee is a display-only estimate. The server recomputes the
+  /// authoritative amount and performs the actual wallet deduction or rejects
+  /// with `INSUFFICIENT_FUNDS` if the wallet is short. This method routes
+  /// the outcome through the parent's [widget.onCancel] callback on success
+  /// so that navigation and post-cancel feedback run through the same path.
+  Future<void> _showWaitingFeeSettlementSheet(
+      BuildContext context, ActiveTrip trip) async {
+    // Estimate the waiting fee for display. The server recomputes authoritatively.
+    final arrivedAt = trip.arrivedAt;
+    const freeWaitMinutes = 10;
+    const ratePerMin = 20.0; // fallback display rate in ₦; server uses timeRatePerMinute
+    double estimatedFee = 0.0;
+    if (arrivedAt != null) {
+      final elapsed = DateTime.now().difference(arrivedAt);
+      final billableMin =
+          (elapsed.inSeconds / 60 - freeWaitMinutes).clamp(0.0, double.infinity);
+      estimatedFee = (billableMin * ratePerMin).ceilToDouble();
+    }
+    final feeStr = '₦${estimatedFee.toStringAsFixed(0)}';
+
+    final result = await showModalBottomSheet<_WaitingCancelChoice>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) =>
+          _WaitingFeeSettlementSheet(estimatedFee: estimatedFee, feeStr: feeStr),
+    );
+    if (result == null || !context.mounted) return;
+
+    try {
+      await widget.repository.cancelTrip(
+        trip.tripId,
+        reason: 'waiting_fee',
+        useCashSettlement: result == _WaitingCancelChoice.cashSettlement,
+      );
+      if (context.mounted) {
+        await CancelTripDialog.showPostCancelFeedback(
+          context,
+          tripId: trip.tripId,
+          userId: trip.customerId,
+          role: 'customer',
+          isDriver: false,
+        );
+      }
+      if (context.mounted && widget.onNavigateAway != null) {
+        widget.onNavigateAway!();
+      } else if (context.mounted && widget.onCancel != null) {
+        // Fallback: onCancel will re-check trip status (now cancelled) and route.
+        widget.onCancel!();
+      }
+    } on TripException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Unable to cancel right now. Please try again.')),
+        );
+      }
+    }
   }
 
   /// Returns the single consolidated status string shown in the top status box.
@@ -2132,26 +2216,71 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                 ),
 
-                // e. Cancellation Option
-                if (widget.onCancel != null && trip.status != TripStatus.completed) ...[
+                // e. Cancellation Option — gated by trip status and waiting time.
+                //
+                // Rules (per spec):
+                //   - SEARCHING / DRIVER_ACCEPTED / DRIVER_ARRIVING: show normal cancel.
+                //   - DRIVER_ARRIVED < 10 min: show normal cancel (free window).
+                //   - DRIVER_ARRIVED ≥ 10 min: show "Settle & Cancel" — waiting fee applies.
+                //   - IN_PROGRESS: hide cancel button entirely.
+                //   - COMPLETED / any closed status: hide.
+                if (widget.onCancel != null &&
+                    trip.status != TripStatus.completed &&
+                    trip.status != TripStatus.inProgress) ...[
                   const SizedBox(height: 12),
-                  Center(
-                    child: TextButton(
-                      onPressed: widget.onCancel,
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red.shade600,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      ),
-                      child: const Text(
-                        'Cancel ride',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
+                  Builder(builder: (context) {
+                    // Determine if the 10-minute free-wait window has elapsed.
+                    final arrivedAt = trip.arrivedAt;
+                    final waitThresh = 10; // 10-minute free waiting window (matches backend default)
+                    final isDriverArrived =
+                        trip.status == TripStatus.driverArrived;
+                    final waitExpired = isDriverArrived &&
+                        arrivedAt != null &&
+                        DateTime.now().difference(arrivedAt).inMinutes >=
+                            waitThresh;
+
+                    if (waitExpired) {
+                      // Waiting fee applies — show the settle-and-cancel prompt.
+                      return Center(
+                        child: TextButton.icon(
+                          key: const Key('customer_settle_cancel_button'),
+                          icon: Icon(Icons.access_time_filled,
+                              size: 14, color: Colors.orange.shade700),
+                          label: Text(
+                            'Settle Waiting Fee & Cancel',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.orange.shade700,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                          onPressed: () =>
+                              _showWaitingFeeSettlementSheet(context, trip),
+                        ),
+                      );
+                    }
+
+                    // Free-cancel window: plain text button.
+                    return Center(
+                      child: TextButton(
+                        onPressed: widget.onCancel,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red.shade600,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                        ),
+                        child: const Text(
+                          'Cancel ride',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  }),
                   const SizedBox(height: 8),
                 ] else ...[
                   const SizedBox(height: 8),
@@ -2553,3 +2682,157 @@ class _DriverEtaCard extends StatelessWidget {
 }
 
 
+
+// ── Waiting Fee Settlement ─────────────────────────────────────────────────
+
+/// Enumerates the two ways a customer can resolve a waiting-fee cancel.
+enum _WaitingCancelChoice {
+  /// Deduct the fee from the customer's wallet automatically.
+  walletDeduction,
+
+  /// Acknowledge cash settlement (driver collects cash; server records it).
+  cashSettlement,
+}
+
+/// Bottom sheet shown when the customer cancels after the 10-minute free-wait
+/// window has elapsed and a waiting fee applies.
+///
+/// Presents two resolution paths:
+///  1. **Auto-Deduct from Wallet** — server deducts [estimatedFee] from the
+///     customer's wallet and transfers it to the driver. Requires sufficient
+///     wallet balance.
+///  2. **Cash Settlement** — driver collects cash on-site. Server sets trip to
+///     `CANCELLED_WAITING_CASH_SETTLEMENT` and notifies the driver.
+///
+/// The displayed fee is a client-side estimate for UX only; the server
+/// recomputes the authoritative amount and rejects the call if the wallet is
+/// insufficient (returning `INSUFFICIENT_FUNDS` which surfaces as a snackbar).
+class _WaitingFeeSettlementSheet extends StatelessWidget {
+  final double estimatedFee;
+  final String feeStr;
+
+  const _WaitingFeeSettlementSheet({
+    required this.estimatedFee,
+    required this.feeStr,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+
+            // Title
+            Row(
+              children: [
+                Icon(Icons.access_time_filled,
+                    color: Colors.orange.shade700, size: 22),
+                const SizedBox(width: 10),
+                const Text(
+                  'Waiting Fee Applies',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Fee explanation
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF78350F).withValues(alpha: 0.25)
+                    : const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.5),
+                ),
+              ),
+              child: Text(
+                'The driver has been waiting more than 10 minutes. A waiting '
+                'fee of approximately $feeStr applies to this cancellation.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark
+                      ? const Color(0xFFFDE68A)
+                      : const Color(0xFF92400E),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Option 1: Wallet auto-deduction
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: const Key('wallet_settle_cancel_button'),
+                icon: const Icon(Icons.account_balance_wallet_outlined,
+                    size: 18),
+                label: Text('Deduct $feeStr from Wallet & Cancel'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.deepOrange,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () => Navigator.of(context)
+                    .pop(_WaitingCancelChoice.walletDeduction),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Option 2: Cash settlement
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('cash_settle_cancel_button'),
+                icon: const Icon(Icons.payments_outlined, size: 18),
+                label: Text('Pay $feeStr Cash to Driver & Cancel'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      isDark ? Colors.amber.shade300 : Colors.deepOrange,
+                  side: BorderSide(
+                    color: isDark
+                        ? Colors.amber.shade700
+                        : Colors.deepOrange.shade300,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () => Navigator.of(context)
+                    .pop(_WaitingCancelChoice.cashSettlement),
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // Dismiss
+            Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Go Back'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

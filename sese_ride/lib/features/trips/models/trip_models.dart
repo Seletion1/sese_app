@@ -255,6 +255,10 @@ class ActiveTrip {
   final String? deliveryPin;
   final bool deliveryPinRequired;
 
+  /// True once the delivery PIN has been verified (or skipped after 10 min).
+  /// Prevents the Skip OTP button from appearing after the trip is already resolved.
+  final bool deliveryPinVerified;
+
   /// Global waiting time billing toggle snapshot from system config.
   final bool enableWaitingTimeBilling;
 
@@ -337,6 +341,7 @@ class ActiveTrip {
     this.receiverShareAmount,
     this.deliveryPin,
     this.deliveryPinRequired = false,
+    this.deliveryPinVerified = false,
     this.enableWaitingTimeBilling = true,
     this.paidWaitingFee = 0.0,
     this.outstandingBalanceIncluded = 0.0,
@@ -515,6 +520,8 @@ class ActiveTrip {
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
           map['forceDeliveryPinSystemWide'] == true,
+      deliveryPinVerified: map['deliveryPinVerified'] == true ||
+          map['deliveryPinSkipped'] == true,
       enableWaitingTimeBilling: map['enableWaitingTimeBilling'] != false,
       paidWaitingFee: (map['paidWaitingFee'] as num?)?.toDouble() ?? 0.0,
       outstandingBalanceIncluded:
