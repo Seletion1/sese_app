@@ -129,12 +129,14 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.maybePaddingOf(context)?.top ?? 0.0;
+
     return Stack(
       children: [
         widget.child,
         if (_incomingSession != null)
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
+            top: topPadding + 8,
             left: 12,
             right: 12,
             child: Material(
