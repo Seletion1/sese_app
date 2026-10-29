@@ -111,6 +111,22 @@ void main() {
       expect(tx.amountKobo, 1000000);
       expect(tx.label, 'Streak grand award');
     });
+
+    test('formats referral commission types and incentive check', () {
+      final tx1 = WalletTransaction.fromMap('t3', {
+        'type': 'REFERRAL_COMMISSION_DRIVER',
+        'amount': 500.0,
+      });
+      expect(tx1.label, 'Referral bonus');
+      expect(WalletTransaction.isIncentiveType('REFERRAL_COMMISSION_DRIVER'), isTrue);
+
+      final tx2 = WalletTransaction.fromMap('t4', {
+        'type': 'REFERRAL_COMMISSION_CUSTOMER',
+        'amount': 250.0,
+      });
+      expect(tx2.label, 'Referral bonus');
+      expect(WalletTransaction.isIncentiveType('REFERRAL_COMMISSION_CUSTOMER'), isTrue);
+    });
   });
 
   group('formatNaira', () {

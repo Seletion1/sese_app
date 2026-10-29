@@ -66,6 +66,9 @@ class WalletTransaction {
         return 'Payout';
       case 'referral_bonus':
       case 'referral_earnings':
+      case 'referral_commission':
+      case 'REFERRAL_COMMISSION_DRIVER':
+      case 'REFERRAL_COMMISSION_CUSTOMER':
         return 'Referral bonus';
       case 'incentive_bonus':
         return 'Incentive bonus';
@@ -117,6 +120,9 @@ class WalletTransaction {
         'streak_grand_award',
         'referral_bonus',
         'referral_earnings',
+        'referral_commission',
+        'REFERRAL_COMMISSION_DRIVER',
+        'REFERRAL_COMMISSION_CUSTOMER',
         'incentive_bonus',
       }.contains(type);
 

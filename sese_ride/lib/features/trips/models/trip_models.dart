@@ -45,6 +45,12 @@ enum TripStatus {
   /// Terminal: cancelled by customer, driver, or system.
   cancelled('CANCELLED'),
 
+  /// Terminal: explicitly rejected by driver or customer.
+  rejected('REJECTED'),
+
+  /// Terminal: ping expired or ignored without driver action.
+  ignored('IGNORED'),
+
   /// Terminal: customer cancelled during paid waiting time and elected to pay
   /// the driver in cash. Driver must confirm cash collection before the trip
   /// is fully closed. Wire value: `CANCELLED_WAITING_CASH_SETTLEMENT`.
@@ -373,7 +379,9 @@ class ActiveTrip {
   /// last requires the driver to confirm cash before it fully closes.
   bool get isLive =>
       status != TripStatus.completed &&
-      status != TripStatus.cancelled;
+      status != TripStatus.cancelled &&
+      status != TripStatus.rejected &&
+      status != TripStatus.ignored;
 
   /// Best available completion-ish timestamp for earnings bucketing.
   DateTime? get earningDate => settledAt ?? updatedAt ?? createdAt;
@@ -405,40 +413,48 @@ class ActiveTrip {
       return null;
     }
 
-    // Gross fare: prefer the selected tier's fareAmount, else first tier.
-    double fareAmount = 0;
-    final fareTiers = map['fareTiers'];
-    if (fareTiers is List && fareTiers.isNotEmpty) {
-      final selected =
-          ((map['selectedTiers'] ?? map['tierIds']) as List<dynamic>?)
-              ?.map((t) => t.toString())
-              .toSet();
-      Map<String, dynamic>? matched;
-      for (final t in fareTiers) {
-        if (t is Map) {
-          final m = Map<String, dynamic>.from(t);
-          if (selected != null &&
-              selected.contains((m['tierId'] ?? '').toString())) {
-            matched = m;
-            break;
+    // Gross fare: prefer explicitly specified trip document fare amounts (fareAmount, proposedFare, etc.)
+    // over raw baseline tier calculations in fareTiers.
+    double fareAmount = (map['fareAmount'] as num?)?.toDouble() ??
+        (map['proposedFare'] as num?)?.toDouble() ??
+        (map['fare'] as num?)?.toDouble() ??
+        (map['offeredFare'] as num?)?.toDouble() ??
+        (map['agreedFare'] as num?)?.toDouble() ??
+        (map['grossFare'] as num?)?.toDouble() ??
+        (settlement['fareAmount'] as num?)?.toDouble() ??
+        (map['fareMinor'] is num ? (map['fareMinor'] as num).toDouble() / 100.0 : 0.0);
+
+    if (fareAmount == 0) {
+      final fareTiers = map['fareTiers'];
+      if (fareTiers is List && fareTiers.isNotEmpty) {
+        final selected =
+            ((map['selectedTiers'] ?? map['tierIds']) as List<dynamic>?)
+                ?.map((t) => t.toString())
+                .toSet();
+        Map<String, dynamic>? matched;
+        for (final t in fareTiers) {
+          if (t is Map) {
+            final m = Map<String, dynamic>.from(t);
+            if (selected != null &&
+                selected.contains((m['tierId'] ?? '').toString())) {
+              matched = m;
+              break;
+            }
+            matched ??= m;
           }
-          matched ??= m;
         }
-      }
-      if (matched != null) {
-        fareAmount = (matched['fareAmount'] as num?)?.toDouble() ?? 0;
+        if (matched != null) {
+          fareAmount = (matched['fareAmount'] as num?)?.toDouble() ?? 0;
+        }
       }
     }
 
-    if (fareAmount == 0) {
-      fareAmount = (map['fareAmount'] as num?)?.toDouble() ??
-          (map['fare'] as num?)?.toDouble() ??
-          (map['offeredFare'] as num?)?.toDouble() ??
-          (map['agreedFare'] as num?)?.toDouble() ??
-          (map['grossFare'] as num?)?.toDouble() ??
-          (settlement['fareAmount'] as num?)?.toDouble() ??
-          (map['fareMinor'] is num ? (map['fareMinor'] as num).toDouble() / 100.0 : 0.0);
-    }
+    final rawFareFormatted = (map['fareFormatted'] ?? '').toString();
+    final fareFormatted = rawFareFormatted.isNotEmpty
+        ? rawFareFormatted
+        : (fareAmount > 0
+            ? '₦${fareAmount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
+            : '');
 
     return ActiveTrip(
       tripId: tripId,
@@ -473,7 +489,7 @@ class ActiveTrip {
               ?.map((t) => t.toString())
               .toList() ??
           const [],
-      fareFormatted: (map['fareFormatted'] ?? '').toString(),
+      fareFormatted: fareFormatted,
       distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0.0,
       durationMins: (map['durationMins'] as num?)?.toDouble() ?? 0.0,
       declineCount: (map['declineCount'] as num?)?.toInt() ?? 0,

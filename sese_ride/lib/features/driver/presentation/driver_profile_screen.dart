@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../../home/security_pin_screen.dart';
 import '../../referral/referral_hub_screen.dart';
 import '../../trips/models/trip_models.dart';
 import '../../../widgets/verified_badge.dart';
@@ -326,19 +325,6 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => ReferralHubScreen(user: widget.user),
-                    )),
-                  ),
-                  const SizedBox(height: 16),
-                  SettingsTile(
-                    tileKey: const Key('driver_security_pin_tile'),
-                    leading: const Icon(Icons.lock_outline,
-                        color: AppColors.seseGold),
-                    title: 'Security PIN',
-                    infoDescription:
-                        'Protect your wallet and payouts with a 4-digit PIN.',
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => SecurityPinScreen(uid: widget.user.uid),
                     )),
                   ),
                   const SizedBox(height: 16),

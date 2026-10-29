@@ -655,16 +655,40 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     );
   }
 
-  // Baseline fare from verified token for the primary tier
-  const baselineFare = verified.tiers[0]?.fareAmount ?? 0;
-  const proposedFare =
-    typeof (d as any).proposedFare === "number" && (d as any).proposedFare >= baselineFare
-      ? (d as any).proposedFare
-      : baselineFare;
+  // Primary selected tier and its baseline fare
+  const primaryTier = Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0
+    ? String(d.selectedTiers[0])
+    : "";
+  const primaryTierObj = verified.tiers.find((t) => t.tierId === primaryTier);
+  const primaryBaselineFare = primaryTierObj?.fareAmount ?? verified.tiers[0]?.fareAmount ?? 0;
+  const baselineFare = primaryBaselineFare;
+
   const customTierFares =
     (d as any).customTierFares && typeof (d as any).customTierFares === "object"
       ? (d as any).customTierFares
       : {};
+
+  // Resolve custom fare for the primary tier if provided
+  const customPrimaryFare = primaryTier && typeof customTierFares[primaryTier] === "number"
+    ? Number(customTierFares[primaryTier])
+    : 0;
+
+  const rawProposedFare = typeof (d as any).proposedFare === "number" ? Number((d as any).proposedFare) : 0;
+  const proposedFare = Math.max(rawProposedFare, customPrimaryFare, primaryBaselineFare);
+
+  // Update tier entries in fareTiers to reflect custom/proposed fares
+  const updatedFareTiers = verified.tiers.map((t) => {
+    const customForTier = typeof customTierFares[t.tierId] === "number" ? Number(customTierFares[t.tierId]) : 0;
+    let tierFare = t.fareAmount;
+    if (customForTier > tierFare) {
+      tierFare = customForTier;
+    }
+    if (t.tierId === primaryTier && proposedFare > tierFare) {
+      tierFare = proposedFare;
+    }
+    return { ...t, fareAmount: tierFare };
+  });
+
   // Payment rail & Payment Mode resolution
   const rawPaymentMode = String((d as any).paymentMode ?? "sender_pays").toLowerCase();
   const paymentMode = ["sender_pays", "receiver_pays", "split"].includes(rawPaymentMode)
@@ -694,12 +718,9 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
 
   // Rides never take a drop-off PIN: there is no recipient handoff, and
   // the driver completion path never asks for one on rides. Deliveries
-  // keep the standing behavior (always PIN'd — the toggle + admin force
-  // stay wired as explicit markers of that intent). The raw-field check
-  // (not the narrowed `serviceType`) keeps tsc's literal-narrowing happy.
+  // require PIN only if system-wide forced or customer explicitly toggled on.
   const isPinRequired = serviceType !== "ride" &&
-    (forceDeliveryPinSystemWide || (d as any).requireDeliveryPin === true ||
-      (d as any).serviceType !== "ride");
+    (forceDeliveryPinSystemWide || (d as any).requireDeliveryPin === true);
   const pinCode = isPinRequired ? String(Math.floor(1000 + Math.random() * 9000)) : null;
 
   // Split payment validation if split selected
@@ -912,10 +933,11 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     selectedTiers: d.selectedTiers,
     vehicleCategory: String(d.vehicleCategory ?? d.category ?? (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(),
     fareToken: d.fareToken,
-    fareTiers: verified.tiers,
+    fareTiers: updatedFareTiers,
     baselineFare: adjustedBaselineFare,
     proposedFare: adjustedProposedFare,
     fareAmount: adjustedProposedFare,
+    fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`,
     outstandingBalanceIncluded: outstandingNegativeBalance,
     fareBoosted: false,
     boostPercent: 0,
@@ -2518,7 +2540,17 @@ export const increaseTripFare = onCall(async (request) => {
     currentFare > 0
       ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
       : 0;
-  await tripRef.update({
+
+  const rawFareTiers = Array.isArray(tripData.fareTiers) ? tripData.fareTiers : [];
+  const selectedTiers: string[] = Array.isArray(tripData.selectedTiers) ? tripData.selectedTiers : [];
+  const updatedFareTiers = rawFareTiers.map((t: any) => {
+    if (t && typeof t === "object" && (selectedTiers.length === 0 || selectedTiers.includes(t.tierId))) {
+      return { ...t, fareAmount: roundedNewFare };
+    }
+    return t;
+  });
+
+  const updatePayload: Record<string, any> = {
     fareAmount: roundedNewFare,
     proposedFare: roundedNewFare,
     fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
@@ -2529,7 +2561,12 @@ export const increaseTripFare = onCall(async (request) => {
     reassignmentCount: wasNeedsAction ? 0 : (tripData.reassignmentCount ?? 0),
     statusMessage: "Price increased! Searching for nearby drivers...",
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  };
+  if (updatedFareTiers.length > 0) {
+    updatePayload.fareTiers = updatedFareTiers;
+  }
+
+  await tripRef.update(updatePayload);
 
   if (wasNeedsAction) {
     const fresh = (await tripRef.get()).data()!;

@@ -359,7 +359,7 @@ function applyStreakBreak(streak) {
  * Computes streak-aware commission, credits refunds/bonuses, persists state.
  */
 exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
     if (!before || !after)
@@ -374,14 +374,13 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         console.warn(`onTripCompleted[${tripId}]: no driverId, skipping streak`);
         return;
     }
-    // Determine fare amount from the trip doc
-    // fareTiers is an array [{tierId, fareAmount}]; we take the first selected tier.
+    // Determine fare amount from the trip doc (prioritize top-level fareAmount/proposedFare)
     const fareTiers = Array.isArray(after["fareTiers"]) ? after["fareTiers"] : [];
     const selectedTiers = Array.isArray(after["selectedTiers"])
         ? after["selectedTiers"]
         : [];
     const matchedTier = fareTiers.find((t) => selectedTiers.includes(t.tierId));
-    const fareAmount = (_h = (_f = matchedTier === null || matchedTier === void 0 ? void 0 : matchedTier.fareAmount) !== null && _f !== void 0 ? _f : (_g = fareTiers[0]) === null || _g === void 0 ? void 0 : _g.fareAmount) !== null && _h !== void 0 ? _h : 0;
+    const fareAmount = Number((_k = (_h = (_g = (_f = after["fareAmount"]) !== null && _f !== void 0 ? _f : after["proposedFare"]) !== null && _g !== void 0 ? _g : matchedTier === null || matchedTier === void 0 ? void 0 : matchedTier.fareAmount) !== null && _h !== void 0 ? _h : (_j = fareTiers[0]) === null || _j === void 0 ? void 0 : _j.fareAmount) !== null && _k !== void 0 ? _k : 0);
     if (fareAmount <= 0) {
         console.warn(`onTripCompleted[${tripId}]: fareAmount=0, skipping`);
         return;
@@ -414,7 +413,7 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     // 2. Deduct platform commission fee from driver wallet ledger & annotate trip
     const commissionDebitNaira = result.commissionAmount;
     const commissionDebitKobo = nairaToKobo(commissionDebitNaira);
-    const isCommissionAlreadySettled = ((_j = after["settlement"]) === null || _j === void 0 ? void 0 : _j["commissionSettled"]) === true;
+    const isCommissionAlreadySettled = ((_l = after["settlement"]) === null || _l === void 0 ? void 0 : _l["commissionSettled"]) === true;
     if (commissionDebitKobo > 0 && !isCommissionAlreadySettled) {
         const driverWalletRef = db().collection("wallets").doc(driverId);
         batch.set(driverWalletRef, {
@@ -498,7 +497,7 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     }
     await batch.commit();
     // 4a-post. Atomically increment completedTrips counter for both driver and customer
-    const custIdForTrips = String((_l = (_k = after["customerId"]) !== null && _k !== void 0 ? _k : after["userId"]) !== null && _l !== void 0 ? _l : "");
+    const custIdForTrips = String((_o = (_m = after["customerId"]) !== null && _m !== void 0 ? _m : after["userId"]) !== null && _o !== void 0 ? _o : "");
     try {
         const driverUserRef = db().collection("users").doc(driverId);
         await driverUserRef.set({ completedTrips: admin.firestore.FieldValue.increment(1) }, { merge: true });
@@ -512,9 +511,9 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     }
     // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
     try {
-        const walletCoverage = Number((_p = (_m = after["walletCoverageAmount"]) !== null && _m !== void 0 ? _m : (_o = after["paymentBreakdown"]) === null || _o === void 0 ? void 0 : _o["walletCoverageAmount"]) !== null && _p !== void 0 ? _p : 0);
+        const walletCoverage = Number((_r = (_p = after["walletCoverageAmount"]) !== null && _p !== void 0 ? _p : (_q = after["paymentBreakdown"]) === null || _q === void 0 ? void 0 : _q["walletCoverageAmount"]) !== null && _r !== void 0 ? _r : 0);
         if (walletCoverage > 0 && !after["walletSettledAt"]) {
-            const customerId = String((_r = (_q = after["customerId"]) !== null && _q !== void 0 ? _q : after["userId"]) !== null && _r !== void 0 ? _r : "");
+            const customerId = String((_t = (_s = after["customerId"]) !== null && _s !== void 0 ? _s : after["userId"]) !== null && _t !== void 0 ? _t : "");
             const coverageKobo = nairaToKobo(walletCoverage);
             // 1. Finalize debit on customer's wallet (deduct from main balance, clear escrow)
             if (customerId) {
@@ -562,8 +561,8 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     }
     // 5. Automated Residual Referral Commission Split Engine
     try {
-        const customerId = String((_t = (_s = after["customerId"]) !== null && _s !== void 0 ? _s : after["userId"]) !== null && _t !== void 0 ? _t : "");
-        const driverName = String((_v = (_u = driverData["fullName"]) !== null && _u !== void 0 ? _u : driverData["displayName"]) !== null && _v !== void 0 ? _v : "Driver");
+        const customerId = String((_v = (_u = after["customerId"]) !== null && _u !== void 0 ? _u : after["userId"]) !== null && _v !== void 0 ? _v : "");
+        const driverName = String((_x = (_w = driverData["fullName"]) !== null && _w !== void 0 ? _w : driverData["displayName"]) !== null && _x !== void 0 ? _x : "Driver");
         const refSplits = await processReferralCommissions(tripId, customerId, driverId, driverName, fareAmount);
         await db().collection("trips").doc(tripId).update({
             "settlement.platformFeeNaira": refSplits.platformFeeNaira,
@@ -584,12 +583,12 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         console.warn(`onTripCompleted[${tripId}]: driver streak reward evaluation warning: ${e}`);
     }
     try {
-        const customerId = String((_x = (_w = after["customerId"]) !== null && _w !== void 0 ? _w : after["userId"]) !== null && _x !== void 0 ? _x : "");
+        const customerId = String((_z = (_y = after["customerId"]) !== null && _y !== void 0 ? _y : after["userId"]) !== null && _z !== void 0 ? _z : "");
         if (customerId) {
             const custSnap = await db().collection("users").doc(customerId).get();
             const custData = custSnap.exists ? custSnap.data() : {};
-            const custCountry = String((_z = (_y = custData["countryCode"]) !== null && _y !== void 0 ? _y : countryCode) !== null && _z !== void 0 ? _z : "NG");
-            const custState = String((_1 = (_0 = custData["stateOrRegion"]) !== null && _0 !== void 0 ? _0 : stateOrRegion) !== null && _1 !== void 0 ? _1 : "");
+            const custCountry = String((_1 = (_0 = custData["countryCode"]) !== null && _0 !== void 0 ? _0 : countryCode) !== null && _1 !== void 0 ? _1 : "NG");
+            const custState = String((_3 = (_2 = custData["stateOrRegion"]) !== null && _2 !== void 0 ? _2 : stateOrRegion) !== null && _3 !== void 0 ? _3 : "");
             await (0, streakRewards_1.evaluateAndGrantStreakRewards)(customerId, "customer", tripId, custCountry, custState);
         }
     }
@@ -602,6 +601,11 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         `cashBack=${result.cashBackAmount} bonus=${result.cashBonusAmount} ` +
         `grandAward=${result.grandAwardTriggered}`);
 });
+function normalizeRateFraction(val, fallback) {
+    if (typeof val !== "number" || isNaN(val))
+        return fallback;
+    return val > 1 ? val / 100 : val;
+}
 async function getBackendFinancialConfig() {
     let userReferralCommissionRate = 0.01;
     let agentReferralCommissionRate = 0.02;
@@ -613,9 +617,9 @@ async function getBackendFinancialConfig() {
         if (snap.exists && snap.data()) {
             const d = snap.data();
             if (typeof d.userReferralCommissionRate === "number")
-                userReferralCommissionRate = d.userReferralCommissionRate;
+                userReferralCommissionRate = normalizeRateFraction(d.userReferralCommissionRate, 0.01);
             if (typeof d.agentReferralCommissionRate === "number")
-                agentReferralCommissionRate = d.agentReferralCommissionRate;
+                agentReferralCommissionRate = normalizeRateFraction(d.agentReferralCommissionRate, 0.02);
             if (typeof d.standardReferralDurationDays === "number")
                 standardReferralDurationDays = d.standardReferralDurationDays;
             if (typeof d.agentReferralDurationDays === "number")
@@ -639,6 +643,10 @@ async function getReferralSettings() {
     let platformBaseCommissionRate = 20.0;
     let driverReferrerRate = 5.0;
     let customerReferrerRate = 5.0;
+    let userReferralCommissionRate;
+    let agentReferralCommissionRate;
+    let standardReferralDurationDays;
+    let agentReferralDurationDays;
     try {
         const snap = await db().collection("system_config").doc("referral_settings").get();
         if (snap.exists && snap.data()) {
@@ -649,12 +657,28 @@ async function getReferralSettings() {
                 driverReferrerRate = d.driverReferrerRate;
             if (typeof d.customerReferrerRate === "number")
                 customerReferrerRate = d.customerReferrerRate;
+            if (typeof d.userReferralCommissionRate === "number")
+                userReferralCommissionRate = d.userReferralCommissionRate;
+            if (typeof d.agentReferralCommissionRate === "number")
+                agentReferralCommissionRate = d.agentReferralCommissionRate;
+            if (typeof d.standardReferralDurationDays === "number")
+                standardReferralDurationDays = d.standardReferralDurationDays;
+            if (typeof d.agentReferralDurationDays === "number")
+                agentReferralDurationDays = d.agentReferralDurationDays;
         }
     }
     catch (_a) {
         // Fall back to defaults
     }
-    return { platformBaseCommissionRate, driverReferrerRate, customerReferrerRate };
+    return {
+        platformBaseCommissionRate,
+        driverReferrerRate,
+        customerReferrerRate,
+        userReferralCommissionRate,
+        agentReferralCommissionRate,
+        standardReferralDurationDays,
+        agentReferralDurationDays,
+    };
 }
 async function processReferralCommissions(tripId, customerId, driverId, driverName, totalFareNaira) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
@@ -667,7 +691,7 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
     const now = admin.firestore.FieldValue.serverTimestamp();
     // Helper: Process referral credit to seseCoinBalance + auto-sweep check
     const creditReferrerCoins = async (referrerId, refereeId, refereeName, signupTimestamp, type) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         let signupMs = nowMs;
         if (signupTimestamp) {
             try {
@@ -694,7 +718,7 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
             }
             catch (_) { }
         }
-        // Determine referrer role & commission rates
+        // Determine referrer role & commission rates from Hub master settings
         let isAgentOrStaff = false;
         try {
             const refUserSnap = await db().collection("users").doc(targetUid).get();
@@ -706,20 +730,54 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
             }
         }
         catch (_) { }
-        const rate = isAgentOrStaff ? finCfg.agentReferralCommissionRate : finCfg.userReferralCommissionRate;
-        const maxDays = isAgentOrStaff ? finCfg.agentReferralDurationDays : finCfg.standardReferralDurationDays;
+        // Dynamic Rate Selection from Hub Settings:
+        // 1. Agent/Staff rate: agentReferralCommissionRate (default ~2%)
+        // 2. Specific driver/customer rate from system_config/referral_settings or financials (default ~5%)
+        let rate = 0.05;
+        if (isAgentOrStaff) {
+            rate = normalizeRateFraction((_f = settings.agentReferralCommissionRate) !== null && _f !== void 0 ? _f : finCfg.agentReferralCommissionRate, 0.02);
+        }
+        else if (type === "driver") {
+            rate = normalizeRateFraction((_h = (_g = settings.driverReferrerRate) !== null && _g !== void 0 ? _g : settings.userReferralCommissionRate) !== null && _h !== void 0 ? _h : finCfg.userReferralCommissionRate, 0.05);
+        }
+        else {
+            rate = normalizeRateFraction((_k = (_j = settings.customerReferrerRate) !== null && _j !== void 0 ? _j : settings.userReferralCommissionRate) !== null && _k !== void 0 ? _k : finCfg.userReferralCommissionRate, 0.05);
+        }
+        const maxDays = isAgentOrStaff
+            ? ((_l = settings.agentReferralDurationDays) !== null && _l !== void 0 ? _l : finCfg.agentReferralDurationDays)
+            : ((_m = settings.standardReferralDurationDays) !== null && _m !== void 0 ? _m : finCfg.standardReferralDurationDays);
         if (ageDays > maxDays)
             return 0; // Eligibility window expired
         const cutNaira = totalFareNaira * rate;
         if (cutNaira <= 0)
             return 0;
+        // First qualifying trip check on referee document
+        const refereeColl = type === "driver" ? "drivers" : "users";
+        const refereeRef = db().collection(refereeColl).doc(refereeId);
+        let isFirstTrip = false;
+        try {
+            const refSnap = await refereeRef.get();
+            if (refSnap.exists && !((_o = refSnap.data()) === null || _o === void 0 ? void 0 : _o.hasCompletedFirstTrip)) {
+                isFirstTrip = true;
+            }
+        }
+        catch (_) { }
         const wRef = db().collection("wallets").doc(targetUid);
         const txRef = wRef.collection("transactions").doc();
         const auditRef = db().collection("wallet_transactions").doc();
         const earnRef = db().collection("referral_earnings").doc();
-        const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}`;
+        const tripTag = isFirstTrip ? " (First Qualifying Trip)" : "";
+        const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}${tripTag}`;
         await db().runTransaction(async (tx) => {
             var _a;
+            // Mark referee doc with first qualifying trip milestone
+            if (isFirstTrip) {
+                tx.set(refereeRef, {
+                    hasCompletedFirstTrip: true,
+                    firstQualifyingTripId: tripId,
+                    firstQualifyingTripAt: now,
+                }, { merge: true });
+            }
             const wSnap = await tx.get(wRef);
             const wData = wSnap.exists ? ((_a = wSnap.data()) !== null && _a !== void 0 ? _a : {}) : {};
             const currentCoins = typeof wData.seseCoinBalance === "number" ? wData.seseCoinBalance : 0;
@@ -749,6 +807,7 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
                     note,
                     tripId,
                     refereeId,
+                    isFirstTrip,
                     createdAt: now,
                 });
             }
@@ -758,6 +817,7 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
                 refereeId,
                 tripId,
                 amountNaira: cutNaira,
+                isFirstTrip,
                 createdAt: now,
             });
             tx.set(earnRef, {
@@ -766,6 +826,7 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
                 amount: cutNaira,
                 orderId: tripId,
                 type: `${type}_commission`,
+                isFirstTrip,
                 createdAt: now,
             });
         });

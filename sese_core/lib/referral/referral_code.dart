@@ -5,12 +5,10 @@
 ///   First letter of Surname/Second Name (uppercase) +
 ///   Last 4 digits of registered phone number.
 ///
-/// Example: "Micheal Bamiduro", "+2348012344321" -> "MB4321".
+/// Example: "Micheal Bamiduro", "08161561592" -> "MB1592".
 ///
-/// Collision handling: [generateReferralCode] is deterministic; callers that
-/// need global uniqueness should use [withUniquenessSuffix] or rely on the
-/// `referral_codes/{code}` lookup collection (first-writer-wins via the
-/// `ensureReferralCode` Cloud Function backfill).
+/// Collision handling: [withCounterUniqueness] appends an incremental counter
+/// (`MB15921`, `MB15922`, `MB15923`, etc.) until a unique referral ID is secured.
 library;
 
 /// Generates a deterministic referral code from first name, last name, and phone number.
@@ -18,7 +16,7 @@ library;
 /// Algorithm:
 /// - Extracts the first character of [firstName] and [lastName] (converted to uppercase).
 /// - Extracts the last 4 numeric digits of [phoneNumber].
-/// - Concatenates them into a single string (e.g. "MB6789").
+/// - Concatenates them into a single string (e.g. "MB1592").
 String generateReferralCodeFromNames(
   String firstName,
   String lastName,
@@ -43,8 +41,8 @@ String generateReferralCodeFromNames(
 /// Generates a deterministic referral code from display name + phone.
 ///
 /// - [fullName]: e.g. "Micheal Bamiduro". Single-word names reuse the first
-///   letter twice (e.g. "Ada" -> "AA").
-/// - [phoneNumber]: any format; non-digits are stripped and the last 4 digits
+///   letter twice (e.g. "Micheal" -> "MM").
+/// - [phoneNumber]: e.g. "08161561592"; non-digits are stripped and the last 4 digits
 ///   are used. When fewer than 4 digits exist, the digits are left-padded
 ///   with `0` (e.g. "12" -> "0012"); with no digits at all, "0000" is used.
 String generateReferralCode({
@@ -89,9 +87,20 @@ String _initialOf(String word) {
   return word.isEmpty ? 'X' : word.characters.first.toUpperCase();
 }
 
-/// Appends a numeric suffix when the deterministic code is already taken.
+/// Incrementally appends a counter when a collision occurs.
 ///
-/// e.g. `MB4321` -> `MB4321-2`, `MB4321-3`, ...
+/// - Counter 0: `MB1592`
+/// - Counter 1: `MB15921`
+/// - Counter 2: `MB15922`
+/// - Counter 3: `MB15923`
+String withCounterUniqueness(String baseCode, int counter) {
+  if (counter <= 0) return baseCode.toUpperCase();
+  return '${baseCode.toUpperCase()}$counter';
+}
+
+/// Appends a numeric suffix when the deterministic code is already taken (legacy format).
+///
+/// e.g. `MB1592` -> `MB1592-2`, `MB1592-3`, ...
 String withUniquenessSuffix(String baseCode, int attempt) {
   if (attempt <= 1) return baseCode.toUpperCase();
   return '${baseCode.toUpperCase()}-$attempt';
@@ -100,10 +109,10 @@ String withUniquenessSuffix(String baseCode, int attempt) {
 /// Normalises user-entered referral codes (trim + uppercase).
 String normalizeReferralCode(String input) => input.trim().toUpperCase();
 
-/// True when [code] matches the deterministic shape: 2 letters + 4 digits,
-/// with an optional `-N` uniqueness suffix.
+/// True when [code] matches the referral code shape: 2 letters + 4 or more digits
+/// (e.g. `MB1592`, `MB15921`, `MB15922`), or legacy `-N` suffix.
 bool isPlausibleReferralCode(String code) {
-  return RegExp(r'^[A-Z]{2}\d{4}(-\d+)?$')
+  return RegExp(r'^[A-Z]{2}\d{4,10}(-\d+)?$')
       .hasMatch(normalizeReferralCode(code));
 }
 
@@ -113,3 +122,4 @@ extension _FirstChar on String {
     yield this[0];
   }
 }
+

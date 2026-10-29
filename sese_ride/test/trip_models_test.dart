@@ -122,6 +122,24 @@ void main() {
       expect(trip.pickupPhone, isEmpty);
       expect(trip.dropoffPhone, isEmpty);
     });
+
+    test('parses REJECTED and IGNORED statuses correctly', () {
+      final tripRejected = ActiveTrip.fromMap('trip-rej', {
+        'status': 'REJECTED',
+        'customerId': 'cust-1',
+        'cancellationSource': 'driver_declined',
+      });
+      expect(tripRejected.status, TripStatus.rejected);
+      expect(tripRejected.isLive, isFalse);
+
+      final tripIgnored = ActiveTrip.fromMap('trip-ign', {
+        'status': 'IGNORED',
+        'customerId': 'cust-1',
+        'cancellationSource': 'ping_expired',
+      });
+      expect(tripIgnored.status, TripStatus.ignored);
+      expect(tripIgnored.isLive, isFalse);
+    });
   });
 
   group('DriverInfo', () {

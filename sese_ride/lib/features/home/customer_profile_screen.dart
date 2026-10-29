@@ -11,8 +11,6 @@ import '../wallet/customer_wallet_screen.dart';
 import '../../widgets/verified_badge.dart';
 import '../referral/referral_hub_screen.dart';
 import 'profile_details_screen.dart';
-import 'saved_places_screen.dart';
-import 'security_pin_screen.dart';
 
 /// Customer Profile tab: account details + preferences + sign-out.
 ///
@@ -181,21 +179,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // ── Saved Places ─────────────────────────────────────────
-                SettingsTile(
-                  tileKey: const Key('customer_saved_places_tile'),
-                  tooltipId: 'menu_saved_places',
-                  userId: widget.user.uid,
-                  leading: const Icon(Icons.bookmark_border_outlined,
-                      color: AppColors.seseGold),
-                  title: 'Saved Places',
-                  infoDescription: 'Set Home and Work addresses for fast one-tap booking.',
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => SavedPlacesScreen(uid: widget.user.uid),
-                  )),
-                ),
-                const SizedBox(height: 12),
-
                 // ── Bank & Payout Details ────────────────────────────────
                 SettingsTile(
                   tileKey: const Key('customer_bank_details_tile'),
@@ -207,21 +190,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) =>
                         BankDetailsScreen(uid: widget.user.uid),
-                  )),
-                ),
-                const SizedBox(height: 12),
-
-                // ── Security PIN ─────────────────────────────────────────
-                SettingsTile(
-                  tileKey: const Key('customer_security_pin_tile'),
-                  tooltipId: 'menu_security_pin',
-                  userId: widget.user.uid,
-                  leading: const Icon(Icons.lock_outline),
-                  title: 'Security PIN',
-                  infoDescription: 'Protect your account and wallet transfers with a 4-digit PIN.',
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        SecurityPinScreen(uid: widget.user.uid),
                   )),
                 ),
                 const SizedBox(height: 12),

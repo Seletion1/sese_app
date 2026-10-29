@@ -414,8 +414,7 @@ export const onTripCompleted = onDocumentUpdated(
       return;
     }
 
-    // Determine fare amount from the trip doc
-    // fareTiers is an array [{tierId, fareAmount}]; we take the first selected tier.
+    // Determine fare amount from the trip doc (prioritize top-level fareAmount/proposedFare)
     const fareTiers: Array<{ tierId: string; fareAmount: number }> =
       Array.isArray(after["fareTiers"]) ? after["fareTiers"] : [];
     const selectedTiers: string[] = Array.isArray(after["selectedTiers"])
@@ -424,8 +423,13 @@ export const onTripCompleted = onDocumentUpdated(
     const matchedTier = fareTiers.find((t) =>
       selectedTiers.includes(t.tierId)
     );
-    const fareAmount: number =
-      matchedTier?.fareAmount ?? fareTiers[0]?.fareAmount ?? 0;
+    const fareAmount: number = Number(
+      after["fareAmount"] ??
+        after["proposedFare"] ??
+        matchedTier?.fareAmount ??
+        fareTiers[0]?.fareAmount ??
+        0
+    );
 
     if (fareAmount <= 0) {
       console.warn(`onTripCompleted[${tripId}]: fareAmount=0, skipping`);
@@ -722,6 +726,10 @@ interface ReferralSettings {
   platformBaseCommissionRate: number;
   driverReferrerRate: number;
   customerReferrerRate: number;
+  userReferralCommissionRate?: number;
+  agentReferralCommissionRate?: number;
+  standardReferralDurationDays?: number;
+  agentReferralDurationDays?: number;
 }
 
 interface FinancialConfigBackend {
@@ -730,6 +738,11 @@ interface FinancialConfigBackend {
   standardReferralDurationDays: number;
   agentReferralDurationDays: number;
   maxBonusThreshold: number;
+}
+
+function normalizeRateFraction(val: unknown, fallback: number): number {
+  if (typeof val !== "number" || isNaN(val)) return fallback;
+  return val > 1 ? val / 100 : val;
 }
 
 async function getBackendFinancialConfig(): Promise<FinancialConfigBackend> {
@@ -743,11 +756,16 @@ async function getBackendFinancialConfig(): Promise<FinancialConfigBackend> {
     const snap = await db().collection("system_configs").doc("financials").get();
     if (snap.exists && snap.data()) {
       const d = snap.data()!;
-      if (typeof d.userReferralCommissionRate === "number") userReferralCommissionRate = d.userReferralCommissionRate;
-      if (typeof d.agentReferralCommissionRate === "number") agentReferralCommissionRate = d.agentReferralCommissionRate;
-      if (typeof d.standardReferralDurationDays === "number") standardReferralDurationDays = d.standardReferralDurationDays;
-      if (typeof d.agentReferralDurationDays === "number") agentReferralDurationDays = d.agentReferralDurationDays;
-      if (typeof d.maxBonusThreshold === "number") maxBonusThreshold = d.maxBonusThreshold;
+      if (typeof d.userReferralCommissionRate === "number")
+        userReferralCommissionRate = normalizeRateFraction(d.userReferralCommissionRate, 0.01);
+      if (typeof d.agentReferralCommissionRate === "number")
+        agentReferralCommissionRate = normalizeRateFraction(d.agentReferralCommissionRate, 0.02);
+      if (typeof d.standardReferralDurationDays === "number")
+        standardReferralDurationDays = d.standardReferralDurationDays;
+      if (typeof d.agentReferralDurationDays === "number")
+        agentReferralDurationDays = d.agentReferralDurationDays;
+      if (typeof d.maxBonusThreshold === "number")
+        maxBonusThreshold = d.maxBonusThreshold;
     }
   } catch {
     // Fall back to defaults
@@ -765,19 +783,42 @@ async function getReferralSettings(): Promise<ReferralSettings> {
   let platformBaseCommissionRate = 20.0;
   let driverReferrerRate = 5.0;
   let customerReferrerRate = 5.0;
+  let userReferralCommissionRate: number | undefined;
+  let agentReferralCommissionRate: number | undefined;
+  let standardReferralDurationDays: number | undefined;
+  let agentReferralDurationDays: number | undefined;
 
   try {
     const snap = await db().collection("system_config").doc("referral_settings").get();
     if (snap.exists && snap.data()) {
       const d = snap.data()!;
-      if (typeof d.platformBaseCommissionRate === "number") platformBaseCommissionRate = d.platformBaseCommissionRate;
-      if (typeof d.driverReferrerRate === "number") driverReferrerRate = d.driverReferrerRate;
-      if (typeof d.customerReferrerRate === "number") customerReferrerRate = d.customerReferrerRate;
+      if (typeof d.platformBaseCommissionRate === "number")
+        platformBaseCommissionRate = d.platformBaseCommissionRate;
+      if (typeof d.driverReferrerRate === "number")
+        driverReferrerRate = d.driverReferrerRate;
+      if (typeof d.customerReferrerRate === "number")
+        customerReferrerRate = d.customerReferrerRate;
+      if (typeof d.userReferralCommissionRate === "number")
+        userReferralCommissionRate = d.userReferralCommissionRate;
+      if (typeof d.agentReferralCommissionRate === "number")
+        agentReferralCommissionRate = d.agentReferralCommissionRate;
+      if (typeof d.standardReferralDurationDays === "number")
+        standardReferralDurationDays = d.standardReferralDurationDays;
+      if (typeof d.agentReferralDurationDays === "number")
+        agentReferralDurationDays = d.agentReferralDurationDays;
     }
   } catch {
     // Fall back to defaults
   }
-  return { platformBaseCommissionRate, driverReferrerRate, customerReferrerRate };
+  return {
+    platformBaseCommissionRate,
+    driverReferrerRate,
+    customerReferrerRate,
+    userReferralCommissionRate,
+    agentReferralCommissionRate,
+    standardReferralDurationDays,
+    agentReferralDurationDays,
+  };
 }
 
 async function processReferralCommissions(
@@ -837,7 +878,7 @@ async function processReferralCommissions(
       } catch (_) {}
     }
 
-    // Determine referrer role & commission rates
+    // Determine referrer role & commission rates from Hub master settings
     let isAgentOrStaff = false;
     try {
       const refUserSnap = await db().collection("users").doc(targetUid).get();
@@ -849,22 +890,69 @@ async function processReferralCommissions(
       }
     } catch (_) {}
 
-    const rate = isAgentOrStaff ? finCfg.agentReferralCommissionRate : finCfg.userReferralCommissionRate;
-    const maxDays = isAgentOrStaff ? finCfg.agentReferralDurationDays : finCfg.standardReferralDurationDays;
+    // Dynamic Rate Selection from Hub Settings:
+    // 1. Agent/Staff rate: agentReferralCommissionRate (default ~2%)
+    // 2. Specific driver/customer rate from system_config/referral_settings or financials (default ~5%)
+    let rate = 0.05;
+    if (isAgentOrStaff) {
+      rate = normalizeRateFraction(
+        settings.agentReferralCommissionRate ?? finCfg.agentReferralCommissionRate,
+        0.02
+      );
+    } else if (type === "driver") {
+      rate = normalizeRateFraction(
+        settings.driverReferrerRate ?? settings.userReferralCommissionRate ?? finCfg.userReferralCommissionRate,
+        0.05
+      );
+    } else {
+      rate = normalizeRateFraction(
+        settings.customerReferrerRate ?? settings.userReferralCommissionRate ?? finCfg.userReferralCommissionRate,
+        0.05
+      );
+    }
+
+    const maxDays = isAgentOrStaff
+      ? (settings.agentReferralDurationDays ?? finCfg.agentReferralDurationDays)
+      : (settings.standardReferralDurationDays ?? finCfg.standardReferralDurationDays);
 
     if (ageDays > maxDays) return 0; // Eligibility window expired
 
     const cutNaira = totalFareNaira * rate;
     if (cutNaira <= 0) return 0;
 
+    // First qualifying trip check on referee document
+    const refereeColl = type === "driver" ? "drivers" : "users";
+    const refereeRef = db().collection(refereeColl).doc(refereeId);
+    let isFirstTrip = false;
+    try {
+      const refSnap = await refereeRef.get();
+      if (refSnap.exists && !refSnap.data()?.hasCompletedFirstTrip) {
+        isFirstTrip = true;
+      }
+    } catch (_) {}
+
     const wRef = db().collection("wallets").doc(targetUid);
     const txRef = wRef.collection("transactions").doc();
     const auditRef = db().collection("wallet_transactions").doc();
     const earnRef = db().collection("referral_earnings").doc();
 
-    const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}`;
+    const tripTag = isFirstTrip ? " (First Qualifying Trip)" : "";
+    const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}${tripTag}`;
 
     await db().runTransaction(async (tx) => {
+      // Mark referee doc with first qualifying trip milestone
+      if (isFirstTrip) {
+        tx.set(
+          refereeRef,
+          {
+            hasCompletedFirstTrip: true,
+            firstQualifyingTripId: tripId,
+            firstQualifyingTripAt: now,
+          },
+          { merge: true }
+        );
+      }
+
       const wSnap = await tx.get(wRef);
       const wData = wSnap.exists ? (wSnap.data() ?? {}) : {};
       const currentCoins = typeof wData.seseCoinBalance === "number" ? wData.seseCoinBalance : 0;
@@ -872,11 +960,15 @@ async function processReferralCommissions(
 
       // Auto-Sweep check
       if (newCoins >= finCfg.maxBonusThreshold) {
-        tx.set(wRef, {
-          seseCoinBalance: 0,
-          mainWalletBalance: admin.firestore.FieldValue.increment(newCoins),
-          updatedAt: now,
-        }, { merge: true });
+        tx.set(
+          wRef,
+          {
+            seseCoinBalance: 0,
+            mainWalletBalance: admin.firestore.FieldValue.increment(newCoins),
+            updatedAt: now,
+          },
+          { merge: true }
+        );
 
         tx.set(txRef, {
           type: "sese_coin_auto_sweep",
@@ -885,10 +977,14 @@ async function processReferralCommissions(
           createdAt: now,
         });
       } else {
-        tx.set(wRef, {
-          seseCoinBalance: admin.firestore.FieldValue.increment(cutNaira),
-          updatedAt: now,
-        }, { merge: true });
+        tx.set(
+          wRef,
+          {
+            seseCoinBalance: admin.firestore.FieldValue.increment(cutNaira),
+            updatedAt: now,
+          },
+          { merge: true }
+        );
 
         tx.set(txRef, {
           type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
@@ -896,6 +992,7 @@ async function processReferralCommissions(
           note,
           tripId,
           refereeId,
+          isFirstTrip,
           createdAt: now,
         });
       }
@@ -906,6 +1003,7 @@ async function processReferralCommissions(
         refereeId,
         tripId,
         amountNaira: cutNaira,
+        isFirstTrip,
         createdAt: now,
       });
 
@@ -915,6 +1013,7 @@ async function processReferralCommissions(
         amount: cutNaira,
         orderId: tripId,
         type: `${type}_commission`,
+        isFirstTrip,
         createdAt: now,
       });
     });

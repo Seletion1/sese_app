@@ -493,7 +493,7 @@ async function maskedPhones(customerId, pickupPhone, dropoffPhone, d) {
  * the live trip document. Returns `{ tripId }`.
  */
 exports.createTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to book.");
     }
@@ -536,20 +536,40 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     if (!verified || verified.uid !== customerId) {
         throw new https_1.HttpsError("invalid-argument", "Fare verification failed. Please re-check the fare and try again.");
     }
-    // Baseline fare from verified token for the primary tier
-    const baselineFare = (_h = (_g = verified.tiers[0]) === null || _g === void 0 ? void 0 : _g.fareAmount) !== null && _h !== void 0 ? _h : 0;
-    const proposedFare = typeof d.proposedFare === "number" && d.proposedFare >= baselineFare
-        ? d.proposedFare
-        : baselineFare;
+    // Primary selected tier and its baseline fare
+    const primaryTier = Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0
+        ? String(d.selectedTiers[0])
+        : "";
+    const primaryTierObj = verified.tiers.find((t) => t.tierId === primaryTier);
+    const primaryBaselineFare = (_j = (_g = primaryTierObj === null || primaryTierObj === void 0 ? void 0 : primaryTierObj.fareAmount) !== null && _g !== void 0 ? _g : (_h = verified.tiers[0]) === null || _h === void 0 ? void 0 : _h.fareAmount) !== null && _j !== void 0 ? _j : 0;
+    const baselineFare = primaryBaselineFare;
     const customTierFares = d.customTierFares && typeof d.customTierFares === "object"
         ? d.customTierFares
         : {};
+    // Resolve custom fare for the primary tier if provided
+    const customPrimaryFare = primaryTier && typeof customTierFares[primaryTier] === "number"
+        ? Number(customTierFares[primaryTier])
+        : 0;
+    const rawProposedFare = typeof d.proposedFare === "number" ? Number(d.proposedFare) : 0;
+    const proposedFare = Math.max(rawProposedFare, customPrimaryFare, primaryBaselineFare);
+    // Update tier entries in fareTiers to reflect custom/proposed fares
+    const updatedFareTiers = verified.tiers.map((t) => {
+        const customForTier = typeof customTierFares[t.tierId] === "number" ? Number(customTierFares[t.tierId]) : 0;
+        let tierFare = t.fareAmount;
+        if (customForTier > tierFare) {
+            tierFare = customForTier;
+        }
+        if (t.tierId === primaryTier && proposedFare > tierFare) {
+            tierFare = proposedFare;
+        }
+        return Object.assign(Object.assign({}, t), { fareAmount: tierFare });
+    });
     // Payment rail & Payment Mode resolution
-    const rawPaymentMode = String((_j = d.paymentMode) !== null && _j !== void 0 ? _j : "sender_pays").toLowerCase();
+    const rawPaymentMode = String((_k = d.paymentMode) !== null && _k !== void 0 ? _k : "sender_pays").toLowerCase();
     const paymentMode = ["sender_pays", "receiver_pays", "split"].includes(rawPaymentMode)
         ? rawPaymentMode
         : "sender_pays";
-    const rawPayment = String((_k = d.paymentMethod) !== null && _k !== void 0 ? _k : "auto").toLowerCase();
+    const rawPayment = String((_l = d.paymentMethod) !== null && _l !== void 0 ? _l : "auto").toLowerCase();
     let paymentMethod = [
         "auto", "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
     ].includes(rawPayment)
@@ -563,24 +583,21 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     let forceDeliveryPinSystemWide = false;
     try {
         const remoteKeysSnap = await db().collection("system_config").doc("remote_keys").get();
-        if (remoteKeysSnap.exists && ((_l = remoteKeysSnap.data()) === null || _l === void 0 ? void 0 : _l.forceDeliveryPinSystemWide) === true) {
+        if (remoteKeysSnap.exists && ((_m = remoteKeysSnap.data()) === null || _m === void 0 ? void 0 : _m.forceDeliveryPinSystemWide) === true) {
             forceDeliveryPinSystemWide = true;
         }
     }
     catch (_) { }
     // Rides never take a drop-off PIN: there is no recipient handoff, and
     // the driver completion path never asks for one on rides. Deliveries
-    // keep the standing behavior (always PIN'd — the toggle + admin force
-    // stay wired as explicit markers of that intent). The raw-field check
-    // (not the narrowed `serviceType`) keeps tsc's literal-narrowing happy.
+    // require PIN only if system-wide forced or customer explicitly toggled on.
     const isPinRequired = serviceType !== "ride" &&
-        (forceDeliveryPinSystemWide || d.requireDeliveryPin === true ||
-            d.serviceType !== "ride");
+        (forceDeliveryPinSystemWide || d.requireDeliveryPin === true);
     const pinCode = isPinRequired ? String(Math.floor(1000 + Math.random() * 9000)) : null;
     // Split payment validation if split selected
     let splitPaymentData = null;
     if (paymentMethod === "split" || d.paymentMode === "split") {
-        const recPhone = (0, exports.normPhone)((_m = d.receiverPhone) !== null && _m !== void 0 ? _m : dropoffPhone);
+        const recPhone = (0, exports.normPhone)((_o = d.receiverPhone) !== null && _o !== void 0 ? _o : dropoffPhone);
         if (recPhone === "") {
             throw new https_1.HttpsError("invalid-argument", "Split payment needs the receiver's phone number so their share " +
                 "can be settled. Add it, or use Sender/Receiver Pays.");
@@ -602,14 +619,14 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         if (!recSnap) {
             throw new https_1.HttpsError("invalid-argument", "Split payment requires both parties to be registered users. Ask the receiver to sign up, or select 'Sender Pays' / 'Receiver Pays'.");
         }
-        const senderShare = Number((_o = d.senderShareAmount) !== null && _o !== void 0 ? _o : baselineFare / 2);
-        const receiverShare = Number((_p = d.receiverShareAmount) !== null && _p !== void 0 ? _p : baselineFare / 2);
+        const senderShare = Number((_p = d.senderShareAmount) !== null && _p !== void 0 ? _p : baselineFare / 2);
+        const receiverShare = Number((_q = d.receiverShareAmount) !== null && _q !== void 0 ? _q : baselineFare / 2);
         splitPaymentData = {
             status: "pending_receiver_consent",
             senderShare,
             receiverShare,
-            senderPaymentMethod: String((_q = d.senderPaymentMethod) !== null && _q !== void 0 ? _q : "cash"),
-            receiverPaymentMethod: String((_r = d.receiverPaymentMethod) !== null && _r !== void 0 ? _r : "cash"),
+            senderPaymentMethod: String((_r = d.senderPaymentMethod) !== null && _r !== void 0 ? _r : "cash"),
+            receiverPaymentMethod: String((_s = d.receiverPaymentMethod) !== null && _s !== void 0 ? _s : "cash"),
             senderPhone: pickupPhone,
             receiverPhone: recPhone,
             receiverUid: recSnap.id,
@@ -624,9 +641,9 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         const custSnap = await db().collection("users").doc(customerId).get();
         if (custSnap.exists) {
             const cData = custSnap.data();
-            customerName = String((_t = (_s = cData.fullName) !== null && _s !== void 0 ? _s : cData.name) !== null && _t !== void 0 ? _t : "Customer");
-            customerPhone = (0, exports.normPhone)((_v = (_u = cData.phoneNumberE164) !== null && _u !== void 0 ? _u : cData.phoneNumber) !== null && _v !== void 0 ? _v : "");
-            outstandingNegativeBalance = Math.max(0, Number((_w = cData.outstandingNegativeBalance) !== null && _w !== void 0 ? _w : 0));
+            customerName = String((_u = (_t = cData.fullName) !== null && _t !== void 0 ? _t : cData.name) !== null && _u !== void 0 ? _u : "Customer");
+            customerPhone = (0, exports.normPhone)((_w = (_v = cData.phoneNumberE164) !== null && _v !== void 0 ? _v : cData.phoneNumber) !== null && _w !== void 0 ? _w : "");
+            outstandingNegativeBalance = Math.max(0, Number((_x = cData.outstandingNegativeBalance) !== null && _x !== void 0 ? _x : 0));
         }
     }
     catch (_) { }
@@ -674,8 +691,8 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     }
     else if (paymentMode === "split") {
         payerRole = "split";
-        const senderShare = Number((_x = d.senderShareAmount) !== null && _x !== void 0 ? _x : adjustedProposedFare / 2);
-        const receiverShare = Number((_y = d.receiverShareAmount) !== null && _y !== void 0 ? _y : (adjustedProposedFare - senderShare));
+        const senderShare = Number((_y = d.senderShareAmount) !== null && _y !== void 0 ? _y : adjustedProposedFare / 2);
+        const receiverShare = Number((_z = d.receiverShareAmount) !== null && _z !== void 0 ? _z : (adjustedProposedFare - senderShare));
         receiverCashToCollect = receiverShare;
         if (paymentMethod === "cash") {
             walletCoverageAmount = 0;
@@ -759,7 +776,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         isVerifiedCustomer: await isVerifiedCustomer(customerId) }, (await maskedPhones(customerId, pickupPhone, dropoffPhone, d))), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, deliveryPin: pinCode, order: {
             deliveryPin: pinCode,
             requireDeliveryPin: isPinRequired,
-        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_0 = (_z = d.vehicleCategory) !== null && _z !== void 0 ? _z : d.category) !== null && _0 !== void 0 ? _0 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: verified.tiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
+        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_1 = (_0 = d.vehicleCategory) !== null && _0 !== void 0 ? _0 : d.category) !== null && _1 !== void 0 ? _1 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
         paymentMode,
         walletCoverageAmount,
         cashToCollect,
@@ -2074,7 +2091,15 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
     const boostPct = currentFare > 0
         ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
         : 0;
-    await tripRef.update({
+    const rawFareTiers = Array.isArray(tripData.fareTiers) ? tripData.fareTiers : [];
+    const selectedTiers = Array.isArray(tripData.selectedTiers) ? tripData.selectedTiers : [];
+    const updatedFareTiers = rawFareTiers.map((t) => {
+        if (t && typeof t === "object" && (selectedTiers.length === 0 || selectedTiers.includes(t.tierId))) {
+            return Object.assign(Object.assign({}, t), { fareAmount: roundedNewFare });
+        }
+        return t;
+    });
+    const updatePayload = {
         fareAmount: roundedNewFare,
         proposedFare: roundedNewFare,
         fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
@@ -2085,7 +2110,11 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
         reassignmentCount: wasNeedsAction ? 0 : ((_d = tripData.reassignmentCount) !== null && _d !== void 0 ? _d : 0),
         statusMessage: "Price increased! Searching for nearby drivers...",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    };
+    if (updatedFareTiers.length > 0) {
+        updatePayload.fareTiers = updatedFareTiers;
+    }
+    await tripRef.update(updatePayload);
     if (wasNeedsAction) {
         const fresh = (await tripRef.get()).data();
         const restarted = await startTier1(tripRef, fresh, await getDispatchTuning());

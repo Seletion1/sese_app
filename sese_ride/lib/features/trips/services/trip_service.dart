@@ -167,14 +167,16 @@ class FirestoreTripRepository implements TripRepository {
       late final StreamController<List<ActiveTrip>> controller;
       StreamSubscription? subNested;
       StreamSubscription? subFlat;
+      StreamSubscription? subAttempted;
 
       List<QueryDocumentSnapshot<Map<String, dynamic>>> nestedDocs = [];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> flatDocs = [];
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> attemptedDocs = [];
 
       void emitCombined() {
         if (controller.isClosed) return;
         final map = <String, ActiveTrip>{};
-        for (final doc in [...nestedDocs, ...flatDocs]) {
+        for (final doc in [...nestedDocs, ...flatDocs, ...attemptedDocs]) {
           try {
             final trip = ActiveTrip.fromMap(doc.id, doc.data());
             map[trip.tripId] = trip;
@@ -219,6 +221,21 @@ class FirestoreTripRepository implements TripRepository {
                 emitCombined();
               },
             );
+
+            subAttempted = _db
+                .collection('trips')
+                .where('attemptedDriverIds', arrayContains: userId)
+                .snapshots()
+                .listen(
+              (snap) {
+                attemptedDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) {
+                debugPrint('userTripHistoryStream (attemptedDriverIds) error: $err');
+                emitCombined();
+              },
+            );
           } catch (e) {
             debugPrint('userTripHistoryStream listener error: $e');
             emitCombined();
@@ -227,6 +244,7 @@ class FirestoreTripRepository implements TripRepository {
         onCancel: () {
           subNested?.cancel();
           subFlat?.cancel();
+          subAttempted?.cancel();
         },
       );
 
@@ -290,19 +308,26 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   Future<void> _ensureFreshAuthToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw const TripException(
+        'unauthenticated',
+        'Your session has expired. Please sign in again.',
+      );
+    }
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
+      // Refresh token if needed
+      await user.getIdToken();
+    } catch (_) {
+      try {
+        await user.getIdToken(true);
+      } catch (e) {
+        debugPrint('FirestoreTripRepository token refresh failure: $e');
         throw const TripException(
           'unauthenticated',
           'Your session has expired. Please sign in again.',
         );
       }
-      await user.getIdToken(true);
-    } on TripException {
-      rethrow;
-    } catch (e) {
-      debugPrint('FirestoreTripRepository token refresh warning: $e');
     }
   }
 

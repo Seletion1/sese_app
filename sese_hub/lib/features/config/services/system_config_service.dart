@@ -314,20 +314,33 @@ class ReferralRevenueSettings {
   final double platformBaseCommissionRate;
   final double driverReferrerRate;
   final double customerReferrerRate;
+  final double userReferralCommissionRate;
+  final double agentReferralCommissionRate;
+  final int standardReferralDurationDays;
+  final int agentReferralDurationDays;
 
   const ReferralRevenueSettings({
     this.platformBaseCommissionRate = 20.0,
     this.driverReferrerRate = 5.0,
     this.customerReferrerRate = 5.0,
+    this.userReferralCommissionRate = 0.01,
+    this.agentReferralCommissionRate = 0.02,
+    this.standardReferralDurationDays = 365,
+    this.agentReferralDurationDays = 547,
   });
 
   factory ReferralRevenueSettings.fromMap(Map<String, dynamic>? map) {
     map ??= const {};
     double doubleOf(String k, double fb) => (map![k] is num) ? (map[k] as num).toDouble() : fb;
+    int intOf(String k, int fb) => (map![k] is num) ? (map[k] as num).toInt() : fb;
     return ReferralRevenueSettings(
       platformBaseCommissionRate: doubleOf('platformBaseCommissionRate', 20.0),
       driverReferrerRate: doubleOf('driverReferrerRate', 5.0),
       customerReferrerRate: doubleOf('customerReferrerRate', 5.0),
+      userReferralCommissionRate: doubleOf('userReferralCommissionRate', 0.01),
+      agentReferralCommissionRate: doubleOf('agentReferralCommissionRate', 0.02),
+      standardReferralDurationDays: intOf('standardReferralDurationDays', 365),
+      agentReferralDurationDays: intOf('agentReferralDurationDays', 547),
     );
   }
 
@@ -335,5 +348,9 @@ class ReferralRevenueSettings {
     'platformBaseCommissionRate': platformBaseCommissionRate,
     'driverReferrerRate': driverReferrerRate,
     'customerReferrerRate': customerReferrerRate,
+    'userReferralCommissionRate': userReferralCommissionRate,
+    'agentReferralCommissionRate': agentReferralCommissionRate,
+    'standardReferralDurationDays': standardReferralDurationDays,
+    'agentReferralDurationDays': agentReferralDurationDays,
   };
 }

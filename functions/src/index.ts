@@ -124,6 +124,8 @@ export {
   onUserVerificationUpdated,
   onDriverVerificationUpdated,
   onDriverVehicleVerified,
+  onUserCreated,
+  onDriverCreated,
 } from "./verification";
 
 export {

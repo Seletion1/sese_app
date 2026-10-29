@@ -112,6 +112,7 @@ class CustomerTripsScreen extends StatelessWidget {
                 final trip = trips[i];
                 return _TripFeedCard(
                   trip: trip,
+                  isDriver: isDriver,
                   repository: _repo,
                 );
               },
@@ -125,10 +126,12 @@ class CustomerTripsScreen extends StatelessWidget {
 
 class _TripFeedCard extends StatelessWidget {
   final ActiveTrip trip;
+  final bool isDriver;
   final TripRepository repository;
 
   const _TripFeedCard({
     required this.trip,
+    this.isDriver = false,
     required this.repository,
   });
 
@@ -287,7 +290,11 @@ class _TripFeedCard extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _StatusChip(status: trip.status, source: trip.cancellationSource),
+                  _StatusChip(
+                    status: trip.status,
+                    source: trip.cancellationSource,
+                    isDriver: isDriver,
+                  ),
                   if (trip.isLive)
                     const Row(
                       children: [
@@ -374,7 +381,11 @@ class _TripFeedCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  _StatusChip(status: trip.status, source: trip.cancellationSource),
+                  _StatusChip(
+                    status: trip.status,
+                    source: trip.cancellationSource,
+                    isDriver: isDriver,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -507,9 +518,13 @@ class _StatusChip extends StatelessWidget {
   /// the generic [TripStatus.cancelled] bucket.
   final String? source;
 
+  /// Whether the active viewer is a driver or customer account.
+  final bool isDriver;
+
   const _StatusChip({
     required this.status,
     this.source,
+    this.isDriver = false,
   });
 
   @override
@@ -518,89 +533,111 @@ class _StatusChip extends StatelessWidget {
     final Color color;
     final Color bgColor;
 
-    switch (status) {
-      // ── Terminal success ───────────────────────────────────────────────
-      case TripStatus.completed:
-        label = 'Completed';
-        color = const Color(0xFF059669);
-        bgColor = const Color(0xFFD1FAE5);
+    final isRejected = status == TripStatus.rejected ||
+        source == 'driver_declined' ||
+        source == 'driver_rejected' ||
+        source == 'rejected' ||
+        source == 'declined';
 
-      // ── Active / live states ───────────────────────────────────────────
-      case TripStatus.inProgress:
-        label = 'In Progress';
-        color = const Color(0xFF2563EB);
-        bgColor = const Color(0xFFDBEAFE);
-      case TripStatus.driverAccepted:
-      case TripStatus.driverArriving:
-        label = 'Driver En Route';
-        color = const Color(0xFF059669);
-        bgColor = const Color(0xFFD1FAE5);
-      case TripStatus.driverArrived:
-        label = 'Driver Arrived';
-        color = const Color(0xFF059669);
-        bgColor = const Color(0xFFD1FAE5);
+    final isIgnored = status == TripStatus.ignored ||
+        source == 'ping_expired' ||
+        source == 'ignored' ||
+        source == 'timeout';
 
-      // ── Searching / matchmaking ────────────────────────────────────────
-      case TripStatus.searchingDriver:
-      case TripStatus.waitingForAcceptance:
-      case TripStatus.driverPinged:
-      case TripStatus.marketplaceOpen:
-      case TripStatus.marketplaceList:
-      case TripStatus.bidding:
-        label = 'Searching for Driver';
-        color = const Color(0xFFD97706);
-        bgColor = const Color(0xFFFEF3C7);
+    if (isRejected) {
+      label = 'Rejected';
+      color = const Color(0xFFD97706);
+      bgColor = const Color(0xFFFEF3C7);
+    } else if (isIgnored) {
+      label = 'Ignored';
+      color = const Color(0xFFD97706);
+      bgColor = const Color(0xFFFEF3C7);
+    } else {
+      switch (status) {
+        // ── Terminal success ───────────────────────────────────────────────
+        case TripStatus.completed:
+          label = 'Completed';
+          color = const Color(0xFF059669);
+          bgColor = const Color(0xFFD1FAE5);
 
-      // ── Customer action needed ─────────────────────────────────────────
-      case TripStatus.needsCustomerAction:
-        label = 'Action Needed';
-        color = const Color(0xFFD97706);
-        bgColor = const Color(0xFFFEF3C7);
+        // ── Active / live states ───────────────────────────────────────────
+        case TripStatus.inProgress:
+          label = 'In Progress';
+          color = const Color(0xFF2563EB);
+          bgColor = const Color(0xFFDBEAFE);
+        case TripStatus.driverAccepted:
+        case TripStatus.driverArriving:
+          label = 'Driver En Route';
+          color = const Color(0xFF059669);
+          bgColor = const Color(0xFFD1FAE5);
+        case TripStatus.driverArrived:
+          label = 'Driver Arrived';
+          color = const Color(0xFF059669);
+          bgColor = const Color(0xFFD1FAE5);
 
-      // ── Pending cash confirmation (driver must confirm before closing) ─
-      case TripStatus.cancelledWaitingCashSettlement:
-        label = 'Awaiting Cash Confirmation';
-        color = const Color(0xFFD97706);
-        bgColor = const Color(0xFFFEF3C7);
-
-      // ── Cancelled — differentiated by cancellationSource ──────────────
-      case TripStatus.cancelled:
-        if (source == 'driver_declined' ||
-            source == 'driver_rejected' ||
-            source == 'rejected' ||
-            source == 'declined' ||
-            source == 'ping_expired') {
-          label = 'Order Declined';
+        // ── Searching / matchmaking ────────────────────────────────────────
+        case TripStatus.searchingDriver:
+        case TripStatus.waitingForAcceptance:
+        case TripStatus.driverPinged:
+        case TripStatus.marketplaceOpen:
+        case TripStatus.marketplaceList:
+        case TripStatus.bidding:
+          label = 'Searching for Driver';
           color = const Color(0xFFD97706);
           bgColor = const Color(0xFFFEF3C7);
-        } else if (source == 'driver' ||
-            source == 'driver_cancelled' ||
-            source == 'driver_before_arrival' ||
-            source == 'driver_cancelled_reassigning' ||
-            source == 'driver_cancelled_max_reached') {
-          label = 'Cancelled by Driver';
-          color = const Color(0xFFDC2626);
-          bgColor = const Color(0xFFFEE2E2);
-        } else if (source == 'customer' || source == 'customer_cancelled') {
-          label = 'Cancelled by You';
-          color = const Color(0xFFDC2626);
-          bgColor = const Color(0xFFFEE2E2);
-        } else if (source == 'admin_hub') {
-          label = 'Cancelled by Support';
+
+        // ── Customer action needed ─────────────────────────────────────────
+        case TripStatus.needsCustomerAction:
+          label = 'Action Needed';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+
+        // ── Pending cash confirmation (driver must confirm before closing) ─
+        case TripStatus.cancelledWaitingCashSettlement:
+          label = 'Awaiting Cash Confirmation';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+
+        case TripStatus.rejected:
+          label = 'Rejected';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+
+        case TripStatus.ignored:
+          label = 'Ignored';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+
+        // ── Cancelled — differentiated by account role & cancellationSource ─
+        case TripStatus.cancelled:
+          if (source == 'driver' ||
+              source == 'driver_cancelled' ||
+              source == 'driver_before_arrival' ||
+              source == 'driver_cancelled_reassigning' ||
+              source == 'driver_cancelled_max_reached') {
+            label = isDriver ? 'Cancelled by You' : 'Cancelled by Driver';
+            color = const Color(0xFFDC2626);
+            bgColor = const Color(0xFFFEE2E2);
+          } else if (source == 'customer' || source == 'customer_cancelled') {
+            label = isDriver ? 'Cancelled by Customer' : 'Cancelled by You';
+            color = const Color(0xFFDC2626);
+            bgColor = const Color(0xFFFEE2E2);
+          } else if (source == 'admin_hub' || source == 'support') {
+            label = 'Cancelled by Support';
+            color = const Color(0xFF6B7280);
+            bgColor = const Color(0xFFF3F4F6);
+          } else {
+            label = 'Cancelled';
+            color = const Color(0xFFDC2626);
+            bgColor = const Color(0xFFFEE2E2);
+          }
+
+        // ── Catch-all ──────────────────────────────────────────────────────
+        case TripStatus.unknown:
+          label = 'Processing';
           color = const Color(0xFF6B7280);
           bgColor = const Color(0xFFF3F4F6);
-        } else {
-          label = 'Cancelled';
-          color = const Color(0xFFDC2626);
-          bgColor = const Color(0xFFFEE2E2);
-        }
-
-      // ── Catch-all (unknown is never shown in history — trips.ts only
-      // writes known statuses, but guard avoids missing-case warnings) ───
-      case TripStatus.unknown:
-        label = 'Processing';
-        color = const Color(0xFF6B7280);
-        bgColor = const Color(0xFFF3F4F6);
+      }
     }
 
     return Container(

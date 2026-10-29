@@ -94,17 +94,9 @@ class AwarenessTooltipService extends ChangeNotifier {
       title: 'Wallet & Payments',
       description: 'Manage your payment balance, linked debit cards, and transaction history.',
     ),
-    'menu_saved_places': (
-      title: 'Saved Places',
-      description: 'Bookmark your Home, Work, and frequent addresses for zero-cost instant booking.',
-    ),
     'menu_bank___payout_details': (
       title: 'Bank & Payout Details',
       description: 'Link and verify your Nigerian bank account for instant withdrawal settlements.',
-    ),
-    'menu_security_pin': (
-      title: 'Security PIN',
-      description: 'Protect your account, withdrawals, and wallet transfers with a secure 4-digit PIN.',
     ),
     'sese_coin': (
       title: 'SeSe Coin Balance',

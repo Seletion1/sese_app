@@ -16,19 +16,6 @@ import '../../trips/services/trip_service.dart';
 import 'pick_on_map_screen.dart';
 import 'widgets/split_payment_sheet.dart';
 
-/// Minimal model for a saved Home or Work place fetched from
-/// `users/{uid}.savedPlaces`. Private to this file — no separate model
-/// file needed for this screen-local type.
-class _SavedDispatchPlace {
-  final String address;
-  final double? lat;
-  final double? lng;
-
-  const _SavedDispatchPlace({required this.address, this.lat, this.lng});
-
-  bool get hasCoords => lat != null && lng != null;
-}
-
 /// Validates a Nigerian phone number (strict, server-aligned).
 ///
 /// Mirrors the backend `NG_PHONE` contract (`^(\+?234|0)(70|71|80|81|90|91)
@@ -348,13 +335,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // Firestore is absent (widget tests, offline). Never throws.
   RemoteKeysConfig _remoteKeys = const RemoteKeysConfig();
 
-  // ── Module 3: Saved Places (Home / Work) ─────────────────────────────────
-  // Loaded once from Firestore on open. Each field is a nullable record
-  // so we don't hard-depend on Dart 3 records on all SDK targets —
-  // plain named fields in a tiny private class instead.
-  _SavedDispatchPlace? _savedHomePlace;
-  _SavedDispatchPlace? _savedWorkPlace;
-
   // ── Dispatch ──────────────────────────────────────────────────────────────
   static const Map<VehicleCategory, String> _deliveryTierIds = {
     VehicleCategory.bicycle: 'bicycle',
@@ -505,9 +485,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     RemoteKeysService().fetchRemoteKeys().then((cfg) {
       if (mounted) setState(() => _remoteKeys = cfg);
     });
-    // Load saved places (Home/Work) for quick-select chips.
-    // ignore: discarded_futures
-    _loadSavedPlaces();
     if (_pickupLatLng != null && _dropoffLatLng != null) {
       _updateMapBoundsAndRoute();
       if (_currentStep >= 1) {
@@ -540,146 +517,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } else {
       _dropoffFocusNode.requestFocus();
     }
-  }
-
-  // ── Module 3: Saved Places ────────────────────────────────────────────────
-
-  /// Fetches the user's saved Home and Work places from Firestore.
-  /// Gracefully handles missing/offline (no throw). Uses an inner private
-  /// type so no new file is needed.
-  Future<void> _loadSavedPlaces() async {
-    final uid = widget.user?.uid;
-    if (uid == null || uid.isEmpty) return;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
-      final data = doc.data() ?? {};
-      final raw = (data['savedPlaces'] as Map<String, dynamic>?) ?? {};
-      final home = _parseSavedPlace(
-        raw['home'] ?? data['home_address'] ?? data['homeAddress'],
-      );
-      final work = _parseSavedPlace(
-        raw['work'] ?? data['work_address'] ?? data['workAddress'],
-      );
-      if (mounted) {
-        setState(() {
-          _savedHomePlace = home;
-          _savedWorkPlace = work;
-        });
-      }
-    } catch (_) {
-      // Fail silently — chips just won't appear.
-    }
-  }
-
-  /// Parses either the new `{address, lat, lng}` map or the legacy
-  /// plain-string format into a [_SavedDispatchPlace].
-  _SavedDispatchPlace? _parseSavedPlace(dynamic raw) {
-    if (raw == null) return null;
-    if (raw is String) {
-      return raw.trim().isEmpty
-          ? null
-          : _SavedDispatchPlace(address: raw.trim());
-    }
-    if (raw is Map<String, dynamic>) {
-      final address = (raw['address'] as String? ?? '').trim();
-      if (address.isEmpty) return null;
-      final lat = ((raw['lat'] ?? raw['latitude']) as num?)?.toDouble();
-      final lng = ((raw['lng'] ?? raw['longitude']) as num?)?.toDouble();
-      return _SavedDispatchPlace(address: address, lat: lat, lng: lng);
-    }
-    return null;
-  }
-
-  /// Applies a saved-place chip tap to the drop-off field.
-  ///
-  /// When the place has stored coordinates we resolve immediately at zero
-  /// API cost. When only the address text is stored (legacy or geocoding
-  /// previously failed) we run one autocomplete + Details call to resolve
-  /// coordinates before populating the field.
-  Future<void> _applySavedPlace(_SavedDispatchPlace place) async {
-    if (place.hasCoords) {
-      _applyResolvedSuggestion(place.address, LatLng(place.lat!, place.lng!));
-      return;
-    }
-    // Legacy fallback: no coords stored — geocode once.
-    setState(() => _isLoadingSuggestions = true);
-    try {
-      final suggestions = await LocationAutocompleteService.fetchSuggestions(
-        place.address,
-      );
-      if (!mounted) return;
-      if (suggestions.isEmpty) {
-        setState(() => _isLoadingSuggestions = false);
-        _dropoffController.text = place.address;
-        return;
-      }
-      final top = suggestions.first;
-      final placeId = top.placeId;
-      if (placeId != null && placeId.isNotEmpty) {
-        final resolved = await LocationService.resolvePrediction(top);
-        if (!mounted) return;
-        if (resolved != null) {
-          _applyResolvedSuggestion(
-            resolved.description,
-            LatLng(resolved.lat, resolved.lng),
-          );
-          return;
-        }
-      }
-      _applyResolvedSuggestion(top.description, LatLng(top.lat, top.lng));
-    } catch (_) {
-      if (mounted) {
-        setState(() => _isLoadingSuggestions = false);
-        _dropoffController.text = place.address;
-      }
-    }
-  }
-
-  /// Renders Home / Work quick-select chip row beneath the drop-off field.
-  ///
-  /// Only shown when the drop-off field is empty (no query typed yet) and at
-  /// least one saved place is loaded. Chips are not shown if the user has
-  /// already started typing or selected a destination.
-  Widget _buildSavedPlaceChips() {
-    final dropText = _dropoffController.text.trim();
-    if (dropText.isNotEmpty) return const SizedBox.shrink();
-    if (_savedHomePlace == null && _savedWorkPlace == null) {
-      return const SizedBox.shrink();
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 2),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 6,
-        children: [
-          if (_savedHomePlace != null)
-            ActionChip(
-              key: const Key('saved_place_home_chip'),
-              avatar: const Icon(
-                Icons.home_outlined,
-                size: 16,
-                color: AppColors.seseGold,
-              ),
-              label: const Text('Home'),
-              onPressed: () => _applySavedPlace(_savedHomePlace!),
-            ),
-          if (_savedWorkPlace != null)
-            ActionChip(
-              key: const Key('saved_place_work_chip'),
-              avatar: const Icon(
-                Icons.work_outline,
-                size: 16,
-                color: AppColors.seseGold,
-              ),
-              label: const Text('Work'),
-              onPressed: () => _applySavedPlace(_savedWorkPlace!),
-            ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -822,39 +659,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   // ── Smart Hybrid Search & Zero-Cost Recents System ───────────────────────
 
-  /// Loads local saved places (Home/Work) and frequent/recent addresses (0 API calls).
+  /// Loads frequent/recent addresses from local store (0 API calls).
   Future<List<PlaceSuggestion>> _loadLocalFrequentAndRecent() async {
     final list = <PlaceSuggestion>[];
 
-    // 1. Saved places (Home / Work) with stored coordinates
-    if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
-      list.add(
-        PlaceSuggestion(
-          description: _savedHomePlace!.address,
-          mainText: 'Home',
-          secondaryText: _savedHomePlace!.address,
-          lat: _savedHomePlace!.lat!,
-          lng: _savedHomePlace!.lng!,
-          tag: 'Home',
-          isFromCache: true,
-        ),
-      );
-    }
-    if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
-      list.add(
-        PlaceSuggestion(
-          description: _savedWorkPlace!.address,
-          mainText: 'Work',
-          secondaryText: _savedWorkPlace!.address,
-          lat: _savedWorkPlace!.lat!,
-          lng: _savedWorkPlace!.lng!,
-          tag: 'Work',
-          isFromCache: true,
-        ),
-      );
-    }
-
-    // 2. Local frequent and recent places from repository (0 API calls)
+    // Local frequent and recent places from repository (0 API calls)
     final recents = await _recents.getFrequentAndRecent(limit: 8);
     for (final loc in recents) {
       final alreadyPresent = list.any(
@@ -927,44 +736,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // 1. Fast local search from local cache (0 API calls)
     final localMatches = await _recents.searchLocal(clean, limit: 6);
     final localSuggestions = <PlaceSuggestion>[];
-
-    // Check Home/Work matches
-    if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
-      if ('home'.contains(clean.toLowerCase()) ||
-          _savedHomePlace!.address.toLowerCase().contains(
-            clean.toLowerCase(),
-          )) {
-        localSuggestions.add(
-          PlaceSuggestion(
-            description: _savedHomePlace!.address,
-            mainText: 'Home',
-            secondaryText: _savedHomePlace!.address,
-            lat: _savedHomePlace!.lat!,
-            lng: _savedHomePlace!.lng!,
-            tag: 'Home',
-            isFromCache: true,
-          ),
-        );
-      }
-    }
-    if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
-      if ('work'.contains(clean.toLowerCase()) ||
-          _savedWorkPlace!.address.toLowerCase().contains(
-            clean.toLowerCase(),
-          )) {
-        localSuggestions.add(
-          PlaceSuggestion(
-            description: _savedWorkPlace!.address,
-            mainText: 'Work',
-            secondaryText: _savedWorkPlace!.address,
-            lat: _savedWorkPlace!.lat!,
-            lng: _savedWorkPlace!.lng!,
-            tag: 'Work',
-            isFromCache: true,
-          ),
-        );
-      }
-    }
 
     for (final loc in localMatches) {
       final exists = localSuggestions.any(
@@ -1629,13 +1400,37 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         false;
   }
 
+  static String _formatNaira(double amount) {
+    if (amount <= 0) return '';
+    final isWhole = amount == amount.truncateToDouble();
+    final formatted =
+        isWhole ? amount.toInt().toString() : amount.toStringAsFixed(2);
+    final parts = formatted.split('.');
+    final intPart = parts[0];
+    final fracPart = parts.length > 1 ? '.${parts[1]}' : '';
+    final buf = StringBuffer();
+    for (int i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write(',');
+      buf.write(intPart[i]);
+    }
+    return '₦$buf$fracPart';
+  }
+
   /// Ride card display tier. Overrides the server row in two cases, both
   /// driven by distance:
   /// - tricycle: renamed to 'Tricycle (Keke)' (server echoes the raw id) and
   ///   badged Recommended only while the Keke offer is active;
   /// - comfort: badge suppressed while Keke holds the recommendation so two
   ///   cards never claim it at once.
+  /// Also applies any custom fare entered for this tier in Step 2.
   FareTier _displayRideTier(FareTier tier, double distanceKm) {
+    final customFare = _customTierFares[tier.tierId];
+    final effectiveAmount =
+        (customFare != null && customFare > 0) ? customFare : tier.fareAmount;
+    final effectiveFormatted = (customFare != null && customFare > 0)
+        ? _formatNaira(customFare)
+        : tier.fareFormatted;
+
     if (tier.tierId == _rideTricycleTierId) {
       return FareTier(
         tierId: tier.tierId,
@@ -1644,8 +1439,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           distanceKm,
           _recConfig,
         ),
-        fareFormatted: tier.fareFormatted,
-        fareAmount: tier.fareAmount,
+        fareFormatted: effectiveFormatted,
+        fareAmount: effectiveAmount,
       );
     }
     if (tier.tierId == 'comfort' &&
@@ -1654,23 +1449,36 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         tierId: tier.tierId,
         name: tier.name,
         isRecommended: false,
-        fareFormatted: tier.fareFormatted,
-        fareAmount: tier.fareAmount,
+        fareFormatted: effectiveFormatted,
+        fareAmount: effectiveAmount,
       );
     }
-    return tier;
+    return FareTier(
+      tierId: tier.tierId,
+      name: tier.name,
+      isRecommended: tier.isRecommended,
+      fareFormatted: effectiveFormatted,
+      fareAmount: effectiveAmount,
+    );
   }
 
-  /// Delivery display tier: engine badge override, fares untouched.
+  /// Delivery display tier: engine badge override, custom fares applied if set.
   FareTier _displayDeliveryTier(FareTier tier, VehicleCategory cat) {
     final resp = _fareResponse;
     if (resp == null) return tier;
+    final customFare = _customTierFares[tier.tierId];
+    final effectiveAmount =
+        (customFare != null && customFare > 0) ? customFare : tier.fareAmount;
+    final effectiveFormatted = (customFare != null && customFare > 0)
+        ? _formatNaira(customFare)
+        : tier.fareFormatted;
+
     return FareTier(
       tierId: tier.tierId,
       name: tier.name,
       isRecommended: _deliveryRecommended(cat, resp),
-      fareFormatted: tier.fareFormatted,
-      fareAmount: tier.fareAmount,
+      fareFormatted: effectiveFormatted,
+      fareAmount: effectiveAmount,
     );
   }
 
@@ -1954,6 +1762,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               isDelivery &&
               (_requireDeliveryPin || _remoteKeys.forceDeliveryPinSystemWide),
           receiverPhone: dropoffPhone,
+          proposedFare: totalFare,
           customTierFares: _customTierFares.isNotEmpty
               ? Map.from(_customTierFares)
               : null,
@@ -2654,8 +2463,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   ),
                 ),
               ),
-              // Home / Work chips
-              _buildSavedPlaceChips(),
               if (!_addressesReady &&
                   !_pickupGeocoding &&
                   _suggestions.isEmpty &&
@@ -2779,7 +2586,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               ),
               const SizedBox(width: 6),
               Text(
-                hasCached ? 'Recent & Saved Places' : 'Search Results',
+                hasCached ? 'Recent Places' : 'Search Results',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,

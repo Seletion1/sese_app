@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 
 const db = () => admin.firestore();
 
@@ -11,12 +11,9 @@ const db = () => admin.firestore();
  * user or driver and persists it atomically to both the profile document and
  * the `referral_codes/{CODE}` lookup index.
  *
- * Algorithm:
- *   Base = FirstInitial + LastInitial + last-4-digits-of-phone (uppercase).
- *   If a collision is found (another user already owns that code), progressively
- *   prepend the next-preceding digit from the phone number until the code is
- *   unique (e.g. MB1592 → MB61592 → MB561592 …).
- *   Fallback when name/phone data is insufficient: "SE" + last-4-chars-of-uid.
+ * Format Rule: FirstInitial + LastInitial + last-4-digits-of-phone (uppercase).
+ * Collision Handling: Incrementally appends counter (MB1592, MB15921, MB15922, ...)
+ * until a unique referral ID is secured.
  *
  * The function is idempotent: if the profile already has a `referralCode` it
  * returns immediately without writing anything.
@@ -45,121 +42,114 @@ async function _generateAndSaveReferralCode(
     return;
   }
 
-  // ── Build the base candidate code ─────────────────────────────────────────
-  const firstName = String(profileData.firstName ?? profileData.fullName ?? "").trim();
+  // ── Format Rule: First Initial + Last Initial + Last 4 phone digits ────────
+  const fullName = String(profileData.fullName ?? profileData.displayName ?? "").trim();
+  const firstName = String(profileData.firstName ?? "").trim();
   const lastName = String(profileData.lastName ?? "").trim();
-  // For fullName-only profiles split on whitespace and take the last word as surname.
-  const nameParts = firstName.split(/\s+/).filter(Boolean);
-  const first = nameParts[0] ?? "";
-  const last =
-    lastName.length > 0
-      ? lastName
-      : nameParts.length > 1
-        ? nameParts[nameParts.length - 1]
-        : first; // single-word name: repeat the initial
 
-  const firstInitial = (first.match(/[A-Za-z]/)?.[0] ?? "").toUpperCase();
-  const lastInitial = (last.match(/[A-Za-z]/)?.[0] ?? "").toUpperCase();
-  const initials = firstInitial + lastInitial; // 2-char initials, or fewer if name is malformed
+  let fInitial = "X";
+  let lInitial = "X";
 
-  const rawPhone = String(profileData.phoneNumber ?? "");
-  const digits = rawPhone.replace(/\D/g, ""); // strip non-numeric chars
-
-  // ── Attempt codes from shortest (4-digit suffix) to longest ───────────────
-  // Minimum: initials (2 chars) + 4 trailing phone digits.
-  // Fallback: "SE" + last 4 chars of uid when name/phone is insufficient.
-  const useFallback = initials.length < 2 || digits.length < 4;
-
-  let resolved = false;
-
-  if (!useFallback) {
-    // Progressive digit-prepend: start with last 4 digits, grow leftward.
-    for (let suffixLen = 4; suffixLen <= digits.length && suffixLen <= 12; suffixLen++) {
-      const numericSuffix = digits.slice(-suffixLen);
-      const candidate = (initials + numericSuffix).toUpperCase();
-
-      try {
-        resolved = await firestore.runTransaction(async (tx) => {
-          const codeRef = firestore.collection("referral_codes").doc(candidate);
-          const codeSnap = await tx.get(codeRef);
-
-          if (!codeSnap.exists) {
-            // Slot is free — claim it atomically.
-            tx.set(codeRef, {
-              referrerId: userId,
-              collection,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            tx.update(profileRef, { referralCode: candidate });
-            return true; // success signal
-          }
-
-          if (codeSnap.data()?.referrerId === userId) {
-            // This user already owns this code (race/idempotence). Just
-            // ensure the profile field is written.
-            tx.update(profileRef, { referralCode: candidate });
-            return true;
-          }
-
-          // Real collision — abort this transaction without error and try
-          // a longer suffix in the next loop iteration.
-          return false;
-        });
-      } catch (err) {
-        console.warn(
-          `_generateAndSaveReferralCode: transaction error for ${candidate}:`,
-          err
-        );
-        // Don't rethrow — try next suffix.
-      }
-
-      if (resolved) break;
+  if (firstName.length > 0) {
+    fInitial = (firstName.match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
+    lInitial = lastName.length > 0 ? (lastName.match(/[A-Za-z]/)?.[0] ?? fInitial).toUpperCase() : fInitial;
+  } else if (fullName.length > 0) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      fInitial = (parts[0].match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
+      lInitial = fInitial;
+    } else if (parts.length > 1) {
+      fInitial = (parts[0].match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
+      lInitial = (parts[parts.length - 1].match(/[A-Za-z]/)?.[0] ?? fInitial).toUpperCase();
     }
   }
 
-  // ── Fallback: "SE" + last 4 chars of uid ──────────────────────────────────
-  if (!resolved) {
-    const fallbackBase = ("SE" + userId.slice(-4)).toUpperCase();
-    // Try base, then base + more uid chars if even that collides.
-    for (let extra = 0; extra <= 4; extra++) {
-      const candidate =
-        extra === 0
-          ? fallbackBase
-          : ("SE" + userId.slice(-(4 + extra))).toUpperCase();
+  const initials = (fInitial + lInitial).toUpperCase();
 
-      try {
-        resolved = await firestore.runTransaction(async (tx) => {
-          const codeRef = firestore.collection("referral_codes").doc(candidate);
-          const codeSnap = await tx.get(codeRef);
-          if (!codeSnap.exists || codeSnap.data()?.referrerId === userId) {
-            tx.set(
-              codeRef,
-              {
-                referrerId: userId,
-                collection,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-            tx.update(profileRef, { referralCode: candidate });
-            return true;
-          }
-          return false;
-        });
-      } catch (err) {
-        console.warn(`_generateAndSaveReferralCode fallback error for ${candidate}:`, err);
-      }
+  const rawPhone = String(profileData.phoneNumber ?? "");
+  const digits = rawPhone.replace(/\D/g, ""); // strip non-numeric chars
+  const last4 = digits.length >= 4 ? digits.slice(-4) : digits.padStart(4, "0");
 
-      if (resolved) break;
+  const baseCode = (initials + last4).toUpperCase();
+
+  let resolved = false;
+
+  // ── Collision Handling: Incrementally append counter 0, 1, 2, 3... ────────
+  for (let counter = 0; counter < 50; counter++) {
+    const candidate = counter === 0 ? baseCode : `${baseCode}${counter}`;
+
+    try {
+      resolved = await firestore.runTransaction(async (tx) => {
+        const codeRef = firestore.collection("referral_codes").doc(candidate);
+        const codeSnap = await tx.get(codeRef);
+
+        if (!codeSnap.exists) {
+          tx.set(codeRef, {
+            referrerId: userId,
+            collection,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          tx.update(profileRef, { referralCode: candidate });
+          return true;
+        }
+
+        if (codeSnap.data()?.referrerId === userId) {
+          tx.update(profileRef, { referralCode: candidate });
+          return true;
+        }
+
+        return false;
+      });
+    } catch (err) {
+      console.warn(
+        `_generateAndSaveReferralCode: transaction error for ${candidate}:`,
+        err
+      );
     }
+
+    if (resolved) break;
   }
 
   if (!resolved) {
     console.error(
-      `_generateAndSaveReferralCode: exhausted all candidates for ${collection}/${userId}. No code written.`
+      `_generateAndSaveReferralCode: exhausted candidate attempts for ${collection}/${userId}.`
     );
   }
 }
+
+/**
+ * Trigger: onUserCreated
+ *
+ * Runs upon user registration document creation in users/{userId}.
+ */
+export const onUserCreated = onDocumentCreated(
+  "users/{userId}",
+  async (event) => {
+    const userId = event.params.userId;
+    try {
+      await _generateAndSaveReferralCode(userId, "users");
+    } catch (err) {
+      console.warn(`onUserCreated referral code generation failed for ${userId}:`, err);
+    }
+  }
+);
+
+/**
+ * Trigger: onDriverCreated
+ *
+ * Runs upon driver registration document creation in drivers/{driverId}.
+ */
+export const onDriverCreated = onDocumentCreated(
+  "drivers/{driverId}",
+  async (event) => {
+    const driverId = event.params.driverId;
+    try {
+      await _generateAndSaveReferralCode(driverId, "drivers");
+    } catch (err) {
+      console.warn(`onDriverCreated referral code generation failed for ${driverId}:`, err);
+    }
+  }
+);
 
 interface ReviewCustomerData {
   userId: string;

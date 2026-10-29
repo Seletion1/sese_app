@@ -540,12 +540,21 @@ class FirebaseAuthRepository implements AuthRepository {
           isDriver ? DriverVerification.pendingOnboarding : '',
     );
 
+    // Generate and secure custom referral ID on registration.
+    final referralCode = await generateAndSecureReferralCode(
+      firestore: firestore,
+      uid: firebaseUser.uid,
+      fullName: fullName,
+      phoneNumber: phoneNumber,
+      isDriver: isDriver,
+    );
+
     // Write profile document to the appropriate Firestore collection.
-    // referralCode is intentionally omitted — it will be written server-side
-    // by verification.ts once admin KYC approval is granted.
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
+        if (referralCode != null && referralCode.isNotEmpty)
+          'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -565,6 +574,8 @@ class FirebaseAuthRepository implements AuthRepository {
           .doc(firebaseUser.uid)
           .set({
         ...appUser.toMap(),
+        if (referralCode != null && referralCode.isNotEmpty)
+          'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -573,6 +584,58 @@ class FirebaseAuthRepository implements AuthRepository {
     }
 
     return appUser;
+  }
+
+  /// Generates and secures a unique referral ID upon user/driver registration.
+  ///
+  /// Format Rule: First Initial + Last Initial + Last 4 phone digits (e.g., MB1592).
+  /// Collision Handling: Incrementally appends counter (MB15921, MB15922, MB15923, ...)
+  /// until a unique slot is secured in `referral_codes/{CODE}`.
+  Future<String?> generateAndSecureReferralCode({
+    required FirebaseFirestore firestore,
+    required String uid,
+    required String fullName,
+    required String phoneNumber,
+    required bool isDriver,
+  }) async {
+    try {
+      final baseCode = generateReferralCode(
+        fullName: fullName,
+        phoneNumber: phoneNumber,
+      );
+
+      for (int counter = 0; counter < 50; counter++) {
+        final candidate = withCounterUniqueness(baseCode, counter);
+        final codeRef = firestore.collection('referral_codes').doc(candidate);
+
+        try {
+          final secured = await firestore.runTransaction<bool>((tx) async {
+            final snap = await tx.get(codeRef);
+            if (!snap.exists) {
+              tx.set(codeRef, {
+                'referrerId': uid,
+                'collection': isDriver ? 'drivers' : 'users',
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+              return true;
+            }
+            final owner = (snap.data()?['referrerId'] ?? '').toString();
+            if (owner == uid) return true;
+            return false;
+          });
+
+          if (secured) {
+            return candidate;
+          }
+        } catch (e) {
+          debugPrint('generateAndSecureReferralCode attempt $counter error: $e');
+        }
+      }
+      return baseCode;
+    } catch (e) {
+      debugPrint('generateAndSecureReferralCode outer error: $e');
+      return null;
+    }
   }
 
   /// Ensures a deterministic referral code exists on a profile document.
