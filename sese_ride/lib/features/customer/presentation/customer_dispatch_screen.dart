@@ -326,12 +326,20 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       if (_selectedDeliveryCategories.isNotEmpty) {
         final cat = _selectedDeliveryCategories.first;
         final tierId = _deliveryTierIds[cat] ?? cat.name;
+        // Prefer the customer's custom (surged) fare for this tier when set.
+        if (_customTierFares.containsKey(tierId)) {
+          return _customTierFares[tierId]!;
+        }
         final t = resp.tierById(tierId);
         if (t != null) return t.fareAmount;
       }
     } else {
       if (_orderedRideTierIds.isNotEmpty) {
-        final t = resp.tierById(_orderedRideTierIds.first);
+        final firstTierId = _orderedRideTierIds.first;
+        if (_customTierFares.containsKey(firstTierId)) {
+          return _customTierFares[firstTierId]!;
+        }
+        final t = resp.tierById(firstTierId);
         if (t != null) return t.fareAmount;
       }
     }
@@ -2913,14 +2921,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         const SizedBox(height: 12),
         ...categories.map((cat) {
           final selected = _selectedDeliveryCategories.contains(cat);
-          final tier = resp?.tierById(_deliveryTierIds[cat] ?? cat.name);
+          final tierId = _deliveryTierIds[cat] ?? cat.name;
+          final tier = resp?.tierById(tierId);
           final recommended =
               resp != null && _deliveryRecommended(cat, resp);
+          final customFare = _customTierFares[tierId];
           return _VehicleTierTile(
             key: Key('delivery_vehicle_${cat.name}'),
             art: VehicleArt.fromCategory(cat),
             title: _vehicleCategoryLabel(cat),
-            subtitle: tier?.fareFormatted,
+            baseFareFormatted: tier?.fareFormatted,
+            baseFareAmount: tier?.fareAmount ?? 0.0,
+            customFareAmount: customFare,
             selected: selected,
             isRecommended: recommended,
             onChanged: (_) {
@@ -2929,6 +2941,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   _selectedDeliveryCategories.remove(cat);
                 } else if (!selected) {
                   _selectedDeliveryCategories.add(cat);
+                }
+              });
+            },
+            onFareEdited: (newFare) {
+              setState(() {
+                if (newFare == null) {
+                  _customTierFares.remove(tierId);
+                } else {
+                  _customTierFares[tierId] = newFare;
                 }
               });
             },
@@ -2985,11 +3006,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               (id[0].toUpperCase() + id.substring(1));
           final recommended = tier?.isRecommended ?? false;
           final selected = _selectedRideTierIds.contains(id);
+          final customFare = _customTierFares[id];
           return _VehicleTierTile(
             key: Key('ride_tier_$id'),
             art: VehicleArt.fromTierId(id),
             title: label,
-            subtitle: tier?.fareFormatted,
+            baseFareFormatted: tier?.fareFormatted,
+            baseFareAmount: tier?.fareAmount ?? 0.0,
+            customFareAmount: customFare,
             selected: selected,
             isRecommended: recommended,
             // Keep at least one tier selected so the broadcast payload is
@@ -3000,6 +3024,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   _selectedRideTierIds.remove(id);
                 } else if (!selected) {
                   _selectedRideTierIds.add(id);
+                }
+              });
+            },
+            onFareEdited: (newFare) {
+              setState(() {
+                if (newFare == null) {
+                  _customTierFares.remove(id);
+                } else {
+                  _customTierFares[id] = newFare;
                 }
               });
             },
@@ -4409,114 +4442,493 @@ class _InfoBanner extends StatelessWidget {
   }
 }
 
-/// Custom Vehicle Tier Selection Card with expanded vehicle artwork,
-/// full width title allocation, and compact sub-row "Recommended" chip.
-class _VehicleTierTile extends StatelessWidget {
+/// Vehicle tier selection card with:
+/// - Price displayed **inline** beside the vehicle name on the same row.
+/// - A pen/edit icon that opens a validated fare-bidding bottom sheet when
+///   [baseFareAmount] > 0. The customer may raise the fare by up to 100 %
+///   above the server base; decreasing below base is blocked.
+/// - Propagates the accepted bid amount via [onFareEdited]; null resets to base.
+class _VehicleTierTile extends StatefulWidget {
   final VehicleArt art;
   final String title;
-  final String? subtitle;
+
+  /// Server-formatted base fare string, e.g. "₦5,300". Rendered verbatim.
+  final String? baseFareFormatted;
+
+  /// Raw base amount used for bid validation (never formatted by the client).
+  final double baseFareAmount;
+
+  /// Active custom fare override in raw units, or null when not yet set.
+  final double? customFareAmount;
+
   final bool selected;
   final bool isRecommended;
   final ValueChanged<bool> onChanged;
+
+  /// Called with the newly accepted bid amount, or null to clear the override.
+  final void Function(double? fare)? onFareEdited;
 
   const _VehicleTierTile({
     super.key,
     required this.art,
     required this.title,
-    this.subtitle,
+    this.baseFareFormatted,
+    this.baseFareAmount = 0.0,
+    this.customFareAmount,
     required this.selected,
     required this.isRecommended,
     required this.onChanged,
+    this.onFareEdited,
   });
+
+  @override
+  State<_VehicleTierTile> createState() => _VehicleTierTileState();
+}
+
+class _VehicleTierTileState extends State<_VehicleTierTile> {
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  /// Formats a raw numeric amount as a Naira string for display inside the
+  /// bid sheet. Uses integer formatting when the value is a whole number so
+  /// "₦5,300" is shown instead of "₦5300.00".
+  String _fmtRaw(double amount) {
+    if (amount <= 0) return '';
+    final isWhole = amount == amount.truncateToDouble();
+    final formatted = isWhole
+        ? amount.toInt().toString()
+        : amount.toStringAsFixed(2);
+    // Insert thousands separators manually — no intl dependency needed.
+    final parts = formatted.split('.');
+    final intPart = parts[0];
+    final fracPart = parts.length > 1 ? '.${parts[1]}' : '';
+    final buf = StringBuffer();
+    for (int i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write(',');
+      buf.write(intPart[i]);
+    }
+    return '₦$buf$fracPart';
+  }
+
+  // ── Bid sheet ─────────────────────────────────────────────────────────────
+
+  /// Opens a bottom sheet that lets the customer raise the fare for this tier.
+  ///
+  /// Validation rules (enforced both in-line and on confirm):
+  /// - Input must be a positive number.
+  /// - Must not be **less than** the base fare (no undercutting).
+  /// - Must not exceed **200 %** of the base fare (≤ base × 2).
+  Future<void> _openBidSheet() async {
+    final base = widget.baseFareAmount;
+    if (base <= 0) return; // no fare loaded yet — nothing to bid against
+
+    final ctrl = TextEditingController(
+      text: widget.customFareAmount != null
+          ? widget.customFareAmount!.toStringAsFixed(0)
+          : '',
+    );
+    String? errorText;
+    final maxAmount = base * 2;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            /// Validates the current input and updates [errorText].
+            void validate(String value) {
+              final parsed = double.tryParse(value.replaceAll(',', ''));
+              if (value.trim().isEmpty) {
+                setSheetState(() => errorText = null);
+                return;
+              }
+              if (parsed == null || parsed <= 0) {
+                setSheetState(
+                    () => errorText = 'Enter a valid amount.');
+                return;
+              }
+              if (parsed < base) {
+                setSheetState(() => errorText =
+                    'Cannot go below the base fare of '
+                    '${widget.baseFareFormatted ?? _fmtRaw(base)}.');
+                return;
+              }
+              if (parsed > maxAmount) {
+                setSheetState(() => errorText =
+                    'Maximum allowed is ${_fmtRaw(maxAmount)} '
+                    '(100% above base fare).');
+                return;
+              }
+              setSheetState(() => errorText = null);
+            }
+
+            final isDark =
+                Theme.of(ctx).brightness == Brightness.dark;
+            final surfaceColor =
+                isDark ? const Color(0xFF1E1E28) : Colors.white;
+            final hintColor =
+                isDark ? Colors.grey.shade500 : Colors.grey.shade400;
+            final labelColor =
+                isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+
+            return Padding(
+              // Slide the sheet above the keyboard.
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: surfaceColor,
+                  borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24)),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Drag handle
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF3A3A46)
+                              : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Title row
+                    Row(
+                      children: [
+                        const Icon(Icons.local_offer_rounded,
+                            size: 20, color: Color(0xFFF59E0B)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Boost Offer — ${widget.title}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDark
+                                  ? Colors.white
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Raise your offer to attract drivers faster. '
+                      'Base: ${widget.baseFareFormatted ?? _fmtRaw(base)} · '
+                      'Max: ${_fmtRaw(maxAmount)}',
+                      style: TextStyle(
+                          fontSize: 12, color: labelColor),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Amount input
+                    TextField(
+                      controller: ctrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false),
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        prefixText: '₦ ',
+                        prefixStyle: const TextStyle(
+                          color: Color(0xFFF59E0B),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        hintText: base.toStringAsFixed(0),
+                        hintStyle: TextStyle(color: hintColor),
+                        errorText: errorText,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                              color: Color(0xFFF59E0B), width: 2),
+                        ),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              BorderSide(color: Colors.red.shade400),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: Colors.red.shade400, width: 2),
+                        ),
+                      ),
+                      onChanged: validate,
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Quick-preset chips
+                    Wrap(
+                      spacing: 8,
+                      children: [10, 25, 50, 100].map((pct) {
+                        final preset = base * (1 + pct / 100);
+                        return ActionChip(
+                          label: Text('+$pct%  ${_fmtRaw(preset)}',
+                              style: const TextStyle(fontSize: 11)),
+                          onPressed: () {
+                            ctrl.text =
+                                preset.toStringAsFixed(0);
+                            validate(ctrl.text);
+                          },
+                          side: const BorderSide(
+                              color: Color(0xFFF59E0B)),
+                          backgroundColor: const Color(0xFFF59E0B)
+                              .withValues(alpha: 0.08),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Action buttons
+                    Row(
+                      children: [
+                        // Reset to base — only shown when a custom fare exists
+                        if (widget.customFareAmount != null) ...[
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                widget.onFareEdited?.call(null);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14),
+                                side: BorderSide(
+                                    color: Colors.grey.shade400),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(12)),
+                              ),
+                              child: const Text('Reset to Base'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor:
+                                  const Color(0xFFF59E0B),
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(12)),
+                            ),
+                            onPressed: () {
+                              final raw = ctrl.text
+                                  .replaceAll(',', '')
+                                  .trim();
+                              final parsed = double.tryParse(raw);
+                              // Re-validate before accepting.
+                              if (parsed == null ||
+                                  parsed < base ||
+                                  parsed > maxAmount) {
+                                validate(ctrl.text);
+                                return;
+                              }
+                              Navigator.pop(ctx);
+                              widget.onFareEdited?.call(parsed);
+                            },
+                            child: const Text(
+                              'Confirm Offer',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    ctrl.dispose();
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasCustomFare = widget.customFareAmount != null;
+
+    // Displayed price: custom fare takes precedence over base.
+    final displayPrice = hasCustomFare
+        ? _fmtRaw(widget.customFareAmount!)
+        : (widget.baseFareFormatted ?? '');
+    final hasFare = displayPrice.isNotEmpty;
+    final canBid =
+        widget.baseFareAmount > 0 && widget.onFareEdited != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: selected
+        color: widget.selected
             ? AppColors.seseGold.withValues(alpha: 0.08)
             : (isDark ? const Color(0xFF252530) : Colors.grey.shade50),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: selected
+          color: widget.selected
               ? AppColors.seseGold
-              : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200),
-          width: selected ? 2.0 : 1.0,
+              : (isDark
+                  ? const Color(0xFF3A3A46)
+                  : Colors.grey.shade200),
+          width: widget.selected ? 2.0 : 1.0,
         ),
-        boxShadow: selected
+        boxShadow: widget.selected
             ? [
                 BoxShadow(
                   color: AppColors.seseGold.withValues(alpha: 0.15),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
-                )
+                ),
               ]
             : null,
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => onChanged(!selected),
+          onTap: () => widget.onChanged(!widget.selected),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                // 1. Prominent, Larger Vehicle Image (80px width)
+                // ── 1. Vehicle artwork ────────────────────────────────────
                 SizedBox(
                   width: 80,
                   child: VehicleIllustration(
-                    art: art,
+                    art: widget.art,
                     height: 48,
-                    selected: selected,
+                    selected: widget.selected,
                   ),
                 ),
                 const SizedBox(width: 14),
 
-                // 2. Text Column (Expanded - 100% Full Width for Title & Pricing)
+                // ── 2. Name + inline price row + Recommended chip ─────────
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (subtitle != null && subtitle!.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFFD97706),
+                      // Vehicle name and price on the same horizontal line.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Name — shrinks when price is long.
+                          Flexible(
+                            child: Text(
+                              widget.title,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? Colors.white
+                                    : Colors.black87,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
-                      if (isRecommended) ...[
+                          if (hasFare) ...[
+                            const SizedBox(width: 8),
+                            // Surged fares get a subtle amber glow border.
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: hasCustomFare
+                                  ? BoxDecoration(
+                                      color: const Color(0xFFF59E0B)
+                                          .withValues(alpha: 0.12),
+                                      borderRadius:
+                                          BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: const Color(0xFFF59E0B)
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                    )
+                                  : null,
+                              child: Text(
+                                displayPrice,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: hasCustomFare
+                                      ? const Color(0xFFF59E0B)
+                                      : const Color(0xFFD97706),
+                                ),
+                              ),
+                            ),
+                            // Pen icon — opens bid sheet.
+                            if (canBid) ...[
+                              const SizedBox(width: 2),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  // Don't propagate to the tile's onTap.
+                                  _openBidSheet();
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4),
+                                  child: Icon(
+                                    hasCustomFare
+                                        ? Icons.edit_rounded
+                                        : Icons.edit_outlined,
+                                    size: 15,
+                                    color: hasCustomFare
+                                        ? const Color(0xFFF59E0B)
+                                        : (isDark
+                                            ? Colors.grey.shade400
+                                            : Colors.grey.shade600),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ],
+                      ),
+
+                      // Recommended chip sits below the name+price row.
+                      if (widget.isRecommended) ...[
                         const SizedBox(height: 4),
-                        // 3. Compact "Recommended" Chip in sub-row
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
                             color: isDark
-                                ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                                ? const Color(0xFF78350F)
+                                    .withValues(alpha: 0.3)
                                 : const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
                               color: isDark
-                                  ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
-                                  : const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                                  ? const Color(0xFFF59E0B)
+                                      .withValues(alpha: 0.4)
+                                  : const Color(0xFFF59E0B)
+                                      .withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
@@ -4525,7 +4937,9 @@ class _VehicleTierTile extends StatelessWidget {
                               Icon(
                                 Icons.star_rounded,
                                 size: 12,
-                                color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                                color: isDark
+                                    ? const Color(0xFFFBBF24)
+                                    : const Color(0xFFD97706),
                               ),
                               const SizedBox(width: 3),
                               Text(
@@ -4533,7 +4947,9 @@ class _VehicleTierTile extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
-                                  color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
+                                  color: isDark
+                                      ? const Color(0xFFFDE68A)
+                                      : const Color(0xFF92400E),
                                 ),
                               ),
                             ],
@@ -4545,24 +4961,25 @@ class _VehicleTierTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
 
-                // 4. Selection Checkbox/Indicator
+                // ── 3. Selection indicator ────────────────────────────────
                 Container(
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: selected ? AppColors.seseGold : Colors.transparent,
+                    color: widget.selected
+                        ? AppColors.seseGold
+                        : Colors.transparent,
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: selected ? AppColors.seseGold : Colors.grey.shade400,
+                      color: widget.selected
+                          ? AppColors.seseGold
+                          : Colors.grey.shade400,
                       width: 2,
                     ),
                   ),
-                  child: selected
-                      ? const Icon(
-                          Icons.check,
-                          size: 16,
-                          color: Colors.black,
-                        )
+                  child: widget.selected
+                      ? const Icon(Icons.check,
+                          size: 16, color: Colors.black)
                       : null,
                 ),
               ],
@@ -4573,5 +4990,4 @@ class _VehicleTierTile extends StatelessWidget {
     );
   }
 }
-
 
