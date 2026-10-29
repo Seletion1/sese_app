@@ -330,7 +330,9 @@ class PushNotificationService {
         type == 'support_reply') {
       return PushChannels.chat;
     }
-    if (type.startsWith('order_') ||
+    if (type.startsWith('order') ||
+        type == 'trip_offer' ||
+        type == 'direct_ping' ||
         type == 'tier_ping' ||
         type == 'marketplace_broadcast') {
       return PushChannels.orders;

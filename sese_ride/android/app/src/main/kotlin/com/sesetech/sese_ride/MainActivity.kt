@@ -22,6 +22,9 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        try {
+            flutterEngine.plugins?.add(AppLauncherPlugin())
+        } catch (_: Exception) {}
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "bringToForeground") {
                 bringAppToForeground()

@@ -101,15 +101,14 @@ class _OverlayBubble extends StatelessWidget {
   const _OverlayBubble();
 
   Future<void> _requestForeground() async {
-    // Notify the main isolate first so it can hide state + foreground the
-    // app even if the direct channel call below is unavailable in this
-    // background isolate.
+    try {
+      await DriverOverlayService.instance.bringToForeground();
+    } catch (e) {
+      debugPrint('OverlayBubble bringToForeground failed: $e');
+    }
     try {
       await FlutterOverlayWindow.shareData(
           {'action': 'foreground', 'tripId': ''});
-    } catch (_) {}
-    try {
-      await DriverOverlayService.instance.bringToForeground();
     } catch (_) {}
     try {
       await FlutterOverlayWindow.closeOverlay();
