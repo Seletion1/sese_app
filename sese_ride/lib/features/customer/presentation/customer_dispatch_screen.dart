@@ -4771,7 +4771,6 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
       ctrl.dispose();
     });
   }
-  }
 
   // ── Build ─────────────────────────────────────────────────────────────────
 
