@@ -649,6 +649,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         () => widget.streakService.cancelTrip(trip.tripId, reason: result.reason),
         'Could not cancel trip.',
       );
+      // Show optional post-cancel feedback sheet after the cancellation succeeds.
+      if (mounted) {
+        await CancelTripDialog.showPostCancelFeedback(
+          context,
+          tripId: trip.tripId,
+          userId: widget.driverId,
+          role: 'driver',
+          isDriver: true,
+        );
+      }
     }
   }
 

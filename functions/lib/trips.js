@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
+exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
 exports.releaseTripEscrow = releaseTripEscrow;
@@ -2264,5 +2264,53 @@ exports.hubManualPinBypass = (0, https_1.onCall)(async (request) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     return { ok: true, tripId };
+});
+/**
+ * Submit cancellation feedback for a trip.
+ *
+ * Accepts a structured reason and optional detail from either the customer or
+ * driver after a trip is cancelled. Writes to `cancellation_feedback` with a
+ * compound doc ID of `{tripId}_{userId}` so first-write wins — idempotent on
+ * duplicate submissions.
+ */
+exports.submitCancellationFeedback = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
+    const userId = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.userId) !== null && _d !== void 0 ? _d : "").trim();
+    const role = String((_f = (_e = request.data) === null || _e === void 0 ? void 0 : _e.role) !== null && _f !== void 0 ? _f : "").trim();
+    const reason = String((_h = (_g = request.data) === null || _g === void 0 ? void 0 : _g.reason) !== null && _h !== void 0 ? _h : "").trim();
+    const detail = String((_k = (_j = request.data) === null || _j === void 0 ? void 0 : _j.detail) !== null && _k !== void 0 ? _k : "").trim();
+    if (!tripId)
+        throw new https_1.HttpsError("invalid-argument", "tripId is required.");
+    if (!userId)
+        throw new https_1.HttpsError("invalid-argument", "userId is required.");
+    if (role !== "customer" && role !== "driver") {
+        throw new https_1.HttpsError("invalid-argument", "role must be 'customer' or 'driver'.");
+    }
+    if (!reason)
+        throw new https_1.HttpsError("invalid-argument", "reason is required.");
+    if (reason.length > 100) {
+        throw new https_1.HttpsError("invalid-argument", "reason must be at most 100 characters.");
+    }
+    if (detail.length > 300) {
+        throw new https_1.HttpsError("invalid-argument", "detail must be at most 300 characters.");
+    }
+    const docId = `${tripId}_${userId}`;
+    const ref = db().collection("cancellation_feedback").doc(docId);
+    try {
+        await ref.set({
+            tripId,
+            userId,
+            role,
+            reason,
+            detail: detail !== null && detail !== void 0 ? detail : "",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: false });
+    }
+    catch (e) {
+        console.error(`submitCancellationFeedback[${docId}]: ${e}`);
+        throw new https_1.HttpsError("internal", "Unable to save feedback.");
+    }
+    return { ok: true };
 });
 //# sourceMappingURL=trips.js.map

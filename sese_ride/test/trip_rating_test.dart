@@ -20,6 +20,7 @@ class _FakeRatingService implements TripRatingService {
     required int rating,
     String? comment,
     bool isRatedUserDriver = false,
+    List<String> lowRatingReasons = const [],
   }) async {
     lastTripId = tripId;
     lastRaterId = raterId;

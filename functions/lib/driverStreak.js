@@ -359,7 +359,7 @@ function applyStreakBreak(streak) {
  * Computes streak-aware commission, credits refunds/bonuses, persists state.
  */
 exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
     if (!before || !after)
@@ -472,11 +472,24 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         });
     }
     await batch.commit();
+    // 4a-post. Atomically increment completedTrips counter for both driver and customer
+    const custIdForTrips = String((_k = (_j = after["customerId"]) !== null && _j !== void 0 ? _j : after["userId"]) !== null && _k !== void 0 ? _k : "");
+    try {
+        const driverUserRef = db().collection("users").doc(driverId);
+        await driverUserRef.set({ completedTrips: admin.firestore.FieldValue.increment(1) }, { merge: true });
+        if (custIdForTrips) {
+            const custUserRef = db().collection("users").doc(custIdForTrips);
+            await custUserRef.set({ completedTrips: admin.firestore.FieldValue.increment(1) }, { merge: true });
+        }
+    }
+    catch (e) {
+        console.warn(`onTripCompleted[${tripId}]: completedTrips increment warning: ${e}`);
+    }
     // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
     try {
-        const walletCoverage = Number((_l = (_j = after["walletCoverageAmount"]) !== null && _j !== void 0 ? _j : (_k = after["paymentBreakdown"]) === null || _k === void 0 ? void 0 : _k["walletCoverageAmount"]) !== null && _l !== void 0 ? _l : 0);
+        const walletCoverage = Number((_o = (_l = after["walletCoverageAmount"]) !== null && _l !== void 0 ? _l : (_m = after["paymentBreakdown"]) === null || _m === void 0 ? void 0 : _m["walletCoverageAmount"]) !== null && _o !== void 0 ? _o : 0);
         if (walletCoverage > 0 && !after["walletSettledAt"]) {
-            const customerId = String((_o = (_m = after["customerId"]) !== null && _m !== void 0 ? _m : after["userId"]) !== null && _o !== void 0 ? _o : "");
+            const customerId = String((_q = (_p = after["customerId"]) !== null && _p !== void 0 ? _p : after["userId"]) !== null && _q !== void 0 ? _q : "");
             const coverageKobo = nairaToKobo(walletCoverage);
             // 1. Finalize debit on customer's wallet (deduct from main balance, clear escrow)
             if (customerId) {
@@ -524,8 +537,8 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     }
     // 5. Automated Residual Referral Commission Split Engine
     try {
-        const customerId = String((_q = (_p = after["customerId"]) !== null && _p !== void 0 ? _p : after["userId"]) !== null && _q !== void 0 ? _q : "");
-        const driverName = String((_s = (_r = driverData["fullName"]) !== null && _r !== void 0 ? _r : driverData["displayName"]) !== null && _s !== void 0 ? _s : "Driver");
+        const customerId = String((_s = (_r = after["customerId"]) !== null && _r !== void 0 ? _r : after["userId"]) !== null && _s !== void 0 ? _s : "");
+        const driverName = String((_u = (_t = driverData["fullName"]) !== null && _t !== void 0 ? _t : driverData["displayName"]) !== null && _u !== void 0 ? _u : "Driver");
         const refSplits = await processReferralCommissions(tripId, customerId, driverId, driverName, fareAmount);
         await db().collection("trips").doc(tripId).update({
             "settlement.platformFeeNaira": refSplits.platformFeeNaira,
@@ -546,12 +559,12 @@ exports.onTripCompleted = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
         console.warn(`onTripCompleted[${tripId}]: driver streak reward evaluation warning: ${e}`);
     }
     try {
-        const customerId = String((_u = (_t = after["customerId"]) !== null && _t !== void 0 ? _t : after["userId"]) !== null && _u !== void 0 ? _u : "");
+        const customerId = String((_w = (_v = after["customerId"]) !== null && _v !== void 0 ? _v : after["userId"]) !== null && _w !== void 0 ? _w : "");
         if (customerId) {
             const custSnap = await db().collection("users").doc(customerId).get();
             const custData = custSnap.exists ? custSnap.data() : {};
-            const custCountry = String((_w = (_v = custData["countryCode"]) !== null && _v !== void 0 ? _v : countryCode) !== null && _w !== void 0 ? _w : "NG");
-            const custState = String((_y = (_x = custData["stateOrRegion"]) !== null && _x !== void 0 ? _x : stateOrRegion) !== null && _y !== void 0 ? _y : "");
+            const custCountry = String((_y = (_x = custData["countryCode"]) !== null && _x !== void 0 ? _x : countryCode) !== null && _y !== void 0 ? _y : "NG");
+            const custState = String((_0 = (_z = custData["stateOrRegion"]) !== null && _z !== void 0 ? _z : stateOrRegion) !== null && _0 !== void 0 ? _0 : "");
             await (0, streakRewards_1.evaluateAndGrantStreakRewards)(customerId, "customer", tripId, custCountry, custState);
         }
     }

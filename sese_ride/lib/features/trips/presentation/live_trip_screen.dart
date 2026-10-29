@@ -226,6 +226,16 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
+      // Show optional post-cancel feedback sheet before navigating away.
+      if (mounted) {
+        await CancelTripDialog.showPostCancelFeedback(
+          context,
+          tripId: widget.trip.tripId,
+          userId: widget.trip.customerId,
+          role: 'customer',
+          isDriver: false,
+        );
+      }
       if (mounted) _navigateBackToBookingOrPop(context, widget.trip);
     } on TripException catch (e) {
       if (mounted) {
@@ -818,6 +828,16 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
+      // Show optional post-cancel feedback sheet before navigating away.
+      if (context.mounted) {
+        await CancelTripDialog.showPostCancelFeedback(
+          context,
+          tripId: widget.trip.tripId,
+          userId: widget.trip.customerId,
+          role: 'customer',
+          isDriver: false,
+        );
+      }
       if (context.mounted) _navigateBackToBookingOrPop(context, widget.trip);
     } on TripException catch (e) {
       if (context.mounted) {

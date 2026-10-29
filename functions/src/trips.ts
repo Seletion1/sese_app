@@ -2743,3 +2743,54 @@ export const hubManualPinBypass = onCall(async (request) => {
 
   return { ok: true, tripId };
 });
+
+/**
+ * Submit cancellation feedback for a trip.
+ *
+ * Accepts a structured reason and optional detail from either the customer or
+ * driver after a trip is cancelled. Writes to `cancellation_feedback` with a
+ * compound doc ID of `{tripId}_{userId}` so first-write wins — idempotent on
+ * duplicate submissions.
+ */
+export const submitCancellationFeedback = onCall(async (request) => {
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const userId = String(request.data?.userId ?? "").trim();
+  const role = String(request.data?.role ?? "").trim() as "customer" | "driver";
+  const reason = String(request.data?.reason ?? "").trim();
+  const detail = String(request.data?.detail ?? "").trim();
+
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
+  if (!userId) throw new HttpsError("invalid-argument", "userId is required.");
+  if (role !== "customer" && role !== "driver") {
+    throw new HttpsError("invalid-argument", "role must be 'customer' or 'driver'.");
+  }
+  if (!reason) throw new HttpsError("invalid-argument", "reason is required.");
+  if (reason.length > 100) {
+    throw new HttpsError("invalid-argument", "reason must be at most 100 characters.");
+  }
+  if (detail.length > 300) {
+    throw new HttpsError("invalid-argument", "detail must be at most 300 characters.");
+  }
+
+  const docId = `${tripId}_${userId}`;
+  const ref = db().collection("cancellation_feedback").doc(docId);
+
+  try {
+    await ref.set(
+      {
+        tripId,
+        userId,
+        role,
+        reason,
+        detail: detail ?? "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: false }
+    );
+  } catch (e) {
+    console.error(`submitCancellationFeedback[${docId}]: ${e}`);
+    throw new HttpsError("internal", "Unable to save feedback.");
+  }
+
+  return { ok: true };
+});

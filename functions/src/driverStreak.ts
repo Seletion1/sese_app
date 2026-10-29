@@ -543,6 +543,25 @@ export const onTripCompleted = onDocumentUpdated(
 
     await batch.commit();
 
+    // 4a-post. Atomically increment completedTrips counter for both driver and customer
+    const custIdForTrips = String(after["customerId"] ?? after["userId"] ?? "");
+    try {
+      const driverUserRef = db().collection("users").doc(driverId);
+      await driverUserRef.set(
+        { completedTrips: admin.firestore.FieldValue.increment(1) },
+        { merge: true }
+      );
+      if (custIdForTrips) {
+        const custUserRef = db().collection("users").doc(custIdForTrips);
+        await custUserRef.set(
+          { completedTrips: admin.firestore.FieldValue.increment(1) },
+          { merge: true }
+        );
+      }
+    } catch (e) {
+      console.warn(`onTripCompleted[${tripId}]: completedTrips increment warning: ${e}`);
+    }
+
     // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
     try {
       const walletCoverage = Number(

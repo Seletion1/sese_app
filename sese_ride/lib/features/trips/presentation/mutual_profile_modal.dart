@@ -85,12 +85,18 @@ class MutualProfileModal extends StatelessWidget {
                     : 'Sese User';
 
         final photoUrl = (data?['photoUrl'] as String?) ?? fallbackPhotoUrl;
+
+        // Live average star rating — server-computed from totalRatingSum/Count.
         final rating =
             (data?['averageRating'] as num?)?.toDouble() ?? fallbackRating;
+
+        // Total number of individual ratings received (shown as "N Reviews").
         final ratingCount =
-            (data?['totalRatingCount'] as num?)?.toInt() ?? 12;
+            (data?['totalRatingCount'] as num?)?.toInt() ?? 0;
+
+        // Total completed trips — incremented by the onTripCompleted Cloud Function.
         final completedTrips =
-            (data?['completedTrips'] as num?)?.toInt() ?? (ratingCount * 3 + 5);
+            (data?['completedTrips'] as num?)?.toInt() ?? 0;
 
         final rawCreated = data?['createdAt'];
         final createdAt = AppUser.fromMap({'createdAt': rawCreated}).createdAt;
@@ -223,8 +229,12 @@ class MutualProfileModal extends StatelessWidget {
                     child: _MetricCard(
                       icon: Icons.star_rounded,
                       iconColor: Colors.amber,
-                      value: rating.toStringAsFixed(1),
-                      label: '$ratingCount Reviews',
+                      value: ratingCount > 0
+                          ? rating.toStringAsFixed(1)
+                          : '—',
+                      label: ratingCount > 0
+                          ? '$ratingCount ${ratingCount == 1 ? "Review" : "Reviews"}'
+                          : 'No ratings yet',
                     ),
                   ),
                   const SizedBox(width: 10),
