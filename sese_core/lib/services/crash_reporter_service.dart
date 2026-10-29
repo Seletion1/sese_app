@@ -104,8 +104,11 @@ class CrashReporterService {
       } catch (_) {}
 
       final errorStr = exception.toString();
-      if (errorStr.contains('The client has already been terminated')) {
-        // Hot-restart transient platform channel teardown — skip background report.
+      if (errorStr.contains('The client has already been terminated') ||
+          errorStr.contains('!_debugLocked') ||
+          errorStr.contains('permission-denied') ||
+          errorStr.contains('PERMISSION_DENIED')) {
+        // Filter out transient lifecycle/hot-restart/permission logs to avoid log loops.
         return;
       }
       final sanitizedError = errorStr.length > 500

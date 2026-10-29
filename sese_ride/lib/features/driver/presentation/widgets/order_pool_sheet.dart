@@ -95,8 +95,8 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
     return 'waiting ${mins}m';
   }
 
-  void _openDetails(ActiveTrip trip) {
-    showModalBottomSheet<String>(
+  void _openDetails(ActiveTrip trip) async {
+    final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       useSafeArea: false,
@@ -107,11 +107,13 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
         currencySymbol: widget.currencySymbol,
         streakService: widget.streakService,
         onAccepted: (tripId) {
-          Navigator.of(ctx).pop(tripId);
-          Navigator.of(context).pop(tripId);
+          if (ctx.mounted) Navigator.of(ctx).pop(tripId);
         },
       ),
     );
+    if (result != null && mounted) {
+      Navigator.of(context).pop(result);
+    }
   }
 
   @override
