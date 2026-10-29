@@ -426,14 +426,16 @@ class PaymentService {
   }
 
   static String formatNaira(double amount) {
-    final parts = amount.toStringAsFixed(2).split('.');
+    final absAmount = amount.abs();
+    final parts = absAmount.toStringAsFixed(2).split('.');
     final digits = parts[0].split('').reversed.toList();
     final out = <String>[];
     for (var i = 0; i < digits.length; i++) {
       if (i > 0 && i % 3 == 0) out.add(',');
       out.add(digits[i]);
     }
-    return '₦${out.reversed.join()}.${parts[1]}';
+    final formatted = '₦${out.reversed.join()}.${parts[1]}';
+    return amount < 0 ? '-$formatted' : formatted;
   }
 
   static String _mapError(String code, String? message) {

@@ -24,11 +24,7 @@ class _SavedDispatchPlace {
   final double? lat;
   final double? lng;
 
-  const _SavedDispatchPlace({
-    required this.address,
-    this.lat,
-    this.lng,
-  });
+  const _SavedDispatchPlace({required this.address, this.lat, this.lng});
 
   bool get hasCoords => lat != null && lng != null;
 }
@@ -43,9 +39,7 @@ class _SavedDispatchPlace {
 bool isValidNigerianPhoneNumber(String? input) {
   if (input == null || input.trim().isEmpty) return false;
   return SesePhoneSanitizer.isValidNigerianNumber(input) ||
-      SesePhoneSanitizer.isValidE164(
-        SesePhoneSanitizer.normalize(input),
-      );
+      SesePhoneSanitizer.isValidE164(SesePhoneSanitizer.normalize(input));
 }
 
 /// Optional variant of phone validation for Step 3 contact fields:
@@ -56,7 +50,8 @@ bool isOptionalNigerianPhoneNumber(String? input) {
   if (input == null || input.trim().isEmpty) return true;
   final activeIso = CountryDetectionService.instance.currentCountryCode;
   final norm = SesePhoneSanitizer.normalize(input, defaultIsoCode: activeIso);
-  return SesePhoneSanitizer.isValidE164(norm) || isValidNigerianPhoneNumber(input);
+  return SesePhoneSanitizer.isValidE164(norm) ||
+      isValidNigerianPhoneNumber(input);
 }
 
 /// Strips any hardcoded country prefix from a stored/profile number down to
@@ -64,7 +59,10 @@ bool isOptionalNigerianPhoneNumber(String? input) {
 String nationalDisplayDigits(String? raw) {
   if (raw == null || raw.trim().isEmpty) return '';
   final activeIso = CountryDetectionService.instance.currentCountryCode;
-  return SesePhoneSanitizer.parse(raw, defaultIsoCode: activeIso).nationalNumber;
+  return SesePhoneSanitizer.parse(
+    raw,
+    defaultIsoCode: activeIso,
+  ).nationalNumber;
 }
 
 /// Step-by-step booking screen for both Ride-Hailing and Package Delivery.
@@ -170,7 +168,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// spinner and ignores repeat taps).
   bool _creatingTrip = false;
 
-
   // ── Mode & Step ───────────────────────────────────────────────────────────
   int _selectedModeIndex = 0;
   int _currentStep = 0;
@@ -269,8 +266,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // Distance thresholds (system_configs/vehicle_recommendations, editable in
   // sese_hub without a release). Compiled defaults apply when the doc is
   // missing/unreadable, so recommendations always resolve to something sane.
-  VehicleRecommendationConfig _recConfig =
-      const VehicleRecommendationConfig();
+  VehicleRecommendationConfig _recConfig = const VehicleRecommendationConfig();
 
   // ── Step 3: Contact phones & names ───────────────────────────────────────
   // Cached validity driving the guarded _onPhoneChanged refresh.
@@ -312,7 +308,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Context-Aware, Security PIN & Payment selection state ─────────────────
   bool _isReceivePackageMode = false;
   bool _requireDeliveryPin = false;
-  String _paymentMode = 'sender_pays'; // 'sender_pays', 'receiver_pays', 'split'
+  String _paymentMode =
+      'sender_pays'; // 'sender_pays', 'receiver_pays', 'split'
   String _paymentMethod = 'auto'; // 'auto' (default), 'cash', 'wallet'
   double? _splitSenderAmount;
   double? _splitReceiverAmount;
@@ -404,7 +401,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // Seed the Sending/Receiving toggle from the entry route (`isReceiving`
     // from the Home "Receive Item" card). The `focusedTitle` text match is a
     // fallback so older call sites without the flag keep working.
-    _isReceivePackageMode = widget.isReceiving ||
+    _isReceivePackageMode =
+        widget.isReceiving ||
         (widget.focusedTitle?.toLowerCase().contains('receive') == true);
     // Receive Item: the user's own location is the DELIVERY destination, so
     // GPS auto-detect fills the drop-off field and Pickup stays empty for
@@ -434,15 +432,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // country prefix, so a raw E.164 value would double it (`+234 +234…`).
     // Both fields are optional: empty means "no secondary contact".
     if (_isReceiveMode) {
-      _pickupPhoneController.text =
-          nationalDisplayDigits(widget.initialPickupPhone);
+      _pickupPhoneController.text = nationalDisplayDigits(
+        widget.initialPickupPhone,
+      );
       _dropoffPhoneController.text = nationalDisplayDigits(
-          widget.initialDropoffPhone ?? widget.user?.phoneNumber);
+        widget.initialDropoffPhone ?? widget.user?.phoneNumber,
+      );
     } else {
       _pickupPhoneController.text = nationalDisplayDigits(
-          widget.initialPickupPhone ?? widget.user?.phoneNumber);
-      _dropoffPhoneController.text =
-          nationalDisplayDigits(widget.initialDropoffPhone);
+        widget.initialPickupPhone ?? widget.user?.phoneNumber,
+      );
+      _dropoffPhoneController.text = nationalDisplayDigits(
+        widget.initialDropoffPhone,
+      );
     }
     if (widget.initialStep > 0) {
       _currentStep = widget.initialStep;
@@ -453,8 +455,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
     if (widget.initialCategory != null) {
       final cat = VehicleCategory.values
-          .where((c) =>
-              c.name.toLowerCase() == widget.initialCategory!.toLowerCase())
+          .where(
+            (c) =>
+                c.name.toLowerCase() == widget.initialCategory!.toLowerCase(),
+          )
           .firstOrNull;
       if (cat != null) {
         _selectedDeliveryCategories.clear();
@@ -552,10 +556,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           .doc(uid)
           .get();
       final data = doc.data() ?? {};
-      final raw =
-          (data['savedPlaces'] as Map<String, dynamic>?) ?? {};
-      final home = _parseSavedPlace(raw['home'] ?? data['home_address'] ?? data['homeAddress']);
-      final work = _parseSavedPlace(raw['work'] ?? data['work_address'] ?? data['workAddress']);
+      final raw = (data['savedPlaces'] as Map<String, dynamic>?) ?? {};
+      final home = _parseSavedPlace(
+        raw['home'] ?? data['home_address'] ?? data['homeAddress'],
+      );
+      final work = _parseSavedPlace(
+        raw['work'] ?? data['work_address'] ?? data['workAddress'],
+      );
       if (mounted) {
         setState(() {
           _savedHomePlace = home;
@@ -572,18 +579,16 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   _SavedDispatchPlace? _parseSavedPlace(dynamic raw) {
     if (raw == null) return null;
     if (raw is String) {
-      return raw.trim().isEmpty ? null : _SavedDispatchPlace(address: raw.trim());
+      return raw.trim().isEmpty
+          ? null
+          : _SavedDispatchPlace(address: raw.trim());
     }
     if (raw is Map<String, dynamic>) {
       final address = (raw['address'] as String? ?? '').trim();
       if (address.isEmpty) return null;
       final lat = ((raw['lat'] ?? raw['latitude']) as num?)?.toDouble();
       final lng = ((raw['lng'] ?? raw['longitude']) as num?)?.toDouble();
-      return _SavedDispatchPlace(
-        address: address,
-        lat: lat,
-        lng: lng,
-      );
+      return _SavedDispatchPlace(address: address, lat: lat, lng: lng);
     }
     return null;
   }
@@ -596,17 +601,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// coordinates before populating the field.
   Future<void> _applySavedPlace(_SavedDispatchPlace place) async {
     if (place.hasCoords) {
-      _applyResolvedSuggestion(
-        place.address,
-        LatLng(place.lat!, place.lng!),
-      );
+      _applyResolvedSuggestion(place.address, LatLng(place.lat!, place.lng!));
       return;
     }
     // Legacy fallback: no coords stored — geocode once.
     setState(() => _isLoadingSuggestions = true);
     try {
-      final suggestions =
-          await LocationAutocompleteService.fetchSuggestions(place.address);
+      final suggestions = await LocationAutocompleteService.fetchSuggestions(
+        place.address,
+      );
       if (!mounted) return;
       if (suggestions.isEmpty) {
         setState(() => _isLoadingSuggestions = false);
@@ -620,12 +623,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         if (!mounted) return;
         if (resolved != null) {
           _applyResolvedSuggestion(
-              resolved.description, LatLng(resolved.lat, resolved.lng));
+            resolved.description,
+            LatLng(resolved.lat, resolved.lng),
+          );
           return;
         }
       }
-      _applyResolvedSuggestion(
-          top.description, LatLng(top.lat, top.lng));
+      _applyResolvedSuggestion(top.description, LatLng(top.lat, top.lng));
     } catch (_) {
       if (mounted) {
         setState(() => _isLoadingSuggestions = false);
@@ -654,16 +658,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           if (_savedHomePlace != null)
             ActionChip(
               key: const Key('saved_place_home_chip'),
-              avatar: const Icon(Icons.home_outlined,
-                  size: 16, color: AppColors.seseGold),
+              avatar: const Icon(
+                Icons.home_outlined,
+                size: 16,
+                color: AppColors.seseGold,
+              ),
               label: const Text('Home'),
               onPressed: () => _applySavedPlace(_savedHomePlace!),
             ),
           if (_savedWorkPlace != null)
             ActionChip(
               key: const Key('saved_place_work_chip'),
-              avatar: const Icon(Icons.work_outline,
-                  size: 16, color: AppColors.seseGold),
+              avatar: const Icon(
+                Icons.work_outline,
+                size: 16,
+                color: AppColors.seseGold,
+              ),
               label: const Text('Work'),
               onPressed: () => _applySavedPlace(_savedWorkPlace!),
             ),
@@ -705,14 +715,17 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Future<void> _initPickupLocation() async {
     setState(() => _pickupGeocoding = true);
     try {
-      final latLng = widget.initialPickupLatLng ??
+      final latLng =
+          widget.initialPickupLatLng ??
           await LocationService.getCurrentLatLng();
       if (!mounted) return;
 
       if (latLng != null) {
         _pickupLatLng = latLng;
-        final address =
-            await LocationService.reverseGeocode(latLng.latitude, latLng.longitude);
+        final address = await LocationService.reverseGeocode(
+          latLng.latitude,
+          latLng.longitude,
+        );
         if (!mounted) return;
         // Cache the raw device fix for the tab-switch fast path (always the
         // device position even if the user edits the field afterwards).
@@ -756,7 +769,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Future<void> _initDropoffLocation() async {
     setState(() => _dropoffGeocoding = true);
     try {
-      final latLng = widget.initialDropoffLatLng ??
+      final latLng =
+          widget.initialDropoffLatLng ??
           (widget.initialPickupAddress == null
               ? widget.initialPickupLatLng
               : null) ??
@@ -765,8 +779,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
       if (latLng != null) {
         _dropoffLatLng = latLng;
-        final address =
-            await LocationService.reverseGeocode(latLng.latitude, latLng.longitude);
+        final address = await LocationService.reverseGeocode(
+          latLng.latitude,
+          latLng.longitude,
+        );
         if (!mounted) return;
         // Cache the raw device fix for the tab-switch fast path (see pickup).
         _gpsDropoffFix = latLng;
@@ -812,34 +828,40 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
     // 1. Saved places (Home / Work) with stored coordinates
     if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
-      list.add(PlaceSuggestion(
-        description: _savedHomePlace!.address,
-        mainText: 'Home',
-        secondaryText: _savedHomePlace!.address,
-        lat: _savedHomePlace!.lat!,
-        lng: _savedHomePlace!.lng!,
-        tag: 'Home',
-        isFromCache: true,
-      ));
+      list.add(
+        PlaceSuggestion(
+          description: _savedHomePlace!.address,
+          mainText: 'Home',
+          secondaryText: _savedHomePlace!.address,
+          lat: _savedHomePlace!.lat!,
+          lng: _savedHomePlace!.lng!,
+          tag: 'Home',
+          isFromCache: true,
+        ),
+      );
     }
     if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
-      list.add(PlaceSuggestion(
-        description: _savedWorkPlace!.address,
-        mainText: 'Work',
-        secondaryText: _savedWorkPlace!.address,
-        lat: _savedWorkPlace!.lat!,
-        lng: _savedWorkPlace!.lng!,
-        tag: 'Work',
-        isFromCache: true,
-      ));
+      list.add(
+        PlaceSuggestion(
+          description: _savedWorkPlace!.address,
+          mainText: 'Work',
+          secondaryText: _savedWorkPlace!.address,
+          lat: _savedWorkPlace!.lat!,
+          lng: _savedWorkPlace!.lng!,
+          tag: 'Work',
+          isFromCache: true,
+        ),
+      );
     }
 
     // 2. Local frequent and recent places from repository (0 API calls)
     final recents = await _recents.getFrequentAndRecent(limit: 8);
     for (final loc in recents) {
-      final alreadyPresent = list.any((s) =>
-          s.description.toLowerCase() == loc.formattedAddress.toLowerCase() ||
-          (loc.placeId.isNotEmpty && s.placeId == loc.placeId));
+      final alreadyPresent = list.any(
+        (s) =>
+            s.description.toLowerCase() == loc.formattedAddress.toLowerCase() ||
+            (loc.placeId.isNotEmpty && s.placeId == loc.placeId),
+      );
       if (!alreadyPresent) {
         list.add(PlaceSuggestion.fromRecent(loc));
       }
@@ -859,7 +881,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     });
     _showOrRefreshSuggestionsOverlay();
 
-    final isPlaceholder = query.isEmpty ||
+    final isPlaceholder =
+        query.isEmpty ||
         query == _resolvedPickupQuery ||
         query == _resolvedDropoffQuery ||
         query.startsWith('Location unavailable');
@@ -908,36 +931,46 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // Check Home/Work matches
     if (_savedHomePlace != null && _savedHomePlace!.hasCoords) {
       if ('home'.contains(clean.toLowerCase()) ||
-          _savedHomePlace!.address.toLowerCase().contains(clean.toLowerCase())) {
-        localSuggestions.add(PlaceSuggestion(
-          description: _savedHomePlace!.address,
-          mainText: 'Home',
-          secondaryText: _savedHomePlace!.address,
-          lat: _savedHomePlace!.lat!,
-          lng: _savedHomePlace!.lng!,
-          tag: 'Home',
-          isFromCache: true,
-        ));
+          _savedHomePlace!.address.toLowerCase().contains(
+            clean.toLowerCase(),
+          )) {
+        localSuggestions.add(
+          PlaceSuggestion(
+            description: _savedHomePlace!.address,
+            mainText: 'Home',
+            secondaryText: _savedHomePlace!.address,
+            lat: _savedHomePlace!.lat!,
+            lng: _savedHomePlace!.lng!,
+            tag: 'Home',
+            isFromCache: true,
+          ),
+        );
       }
     }
     if (_savedWorkPlace != null && _savedWorkPlace!.hasCoords) {
       if ('work'.contains(clean.toLowerCase()) ||
-          _savedWorkPlace!.address.toLowerCase().contains(clean.toLowerCase())) {
-        localSuggestions.add(PlaceSuggestion(
-          description: _savedWorkPlace!.address,
-          mainText: 'Work',
-          secondaryText: _savedWorkPlace!.address,
-          lat: _savedWorkPlace!.lat!,
-          lng: _savedWorkPlace!.lng!,
-          tag: 'Work',
-          isFromCache: true,
-        ));
+          _savedWorkPlace!.address.toLowerCase().contains(
+            clean.toLowerCase(),
+          )) {
+        localSuggestions.add(
+          PlaceSuggestion(
+            description: _savedWorkPlace!.address,
+            mainText: 'Work',
+            secondaryText: _savedWorkPlace!.address,
+            lat: _savedWorkPlace!.lat!,
+            lng: _savedWorkPlace!.lng!,
+            tag: 'Work',
+            isFromCache: true,
+          ),
+        );
       }
     }
 
     for (final loc in localMatches) {
-      final exists = localSuggestions.any((s) =>
-          s.description.toLowerCase() == loc.formattedAddress.toLowerCase());
+      final exists = localSuggestions.any(
+        (s) =>
+            s.description.toLowerCase() == loc.formattedAddress.toLowerCase(),
+      );
       if (!exists) {
         localSuggestions.add(PlaceSuggestion.fromRecent(loc));
       }
@@ -978,7 +1011,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       });
       _showOrRefreshSuggestionsOverlay();
 
-      final bias = (forPickup ? _pickupLatLng : _dropoffLatLng) ??
+      final bias =
+          (forPickup ? _pickupLatLng : _dropoffLatLng) ??
           LocationService.lastKnownPosition;
       final results = await LocationAutocompleteService.fetchSuggestions(
         clean,
@@ -1093,17 +1127,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       }
       // Persist the fresh resolution for zero-cost reuse next time.
       // ignore: discarded_futures
-      _recents.saveLocation(
-        address: resolved.description,
-        lat: resolved.lat,
-        lng: resolved.lng,
-        placeId: placeId,
-        mainText: resolved.mainText,
-        secondaryText: resolved.secondaryText,
-        uid: widget.user?.uid,
-      ).then((_) {
-        if (mounted) _loadRecents();
-      });
+      _recents
+          .saveLocation(
+            address: resolved.description,
+            lat: resolved.lat,
+            lng: resolved.lng,
+            placeId: placeId,
+            mainText: resolved.mainText,
+            secondaryText: resolved.secondaryText,
+            uid: widget.user?.uid,
+          )
+          .then((_) {
+            if (mounted) _loadRecents();
+          });
       _applyResolvedSuggestion(
         resolved.description,
         LatLng(resolved.lat, resolved.lng),
@@ -1179,17 +1215,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         return;
       }
       // ignore: discarded_futures
-      _recents.saveLocation(
-        address: resolved.description,
-        lat: resolved.lat,
-        lng: resolved.lng,
-        placeId: placeId,
-        mainText: resolved.mainText,
-        secondaryText: resolved.secondaryText,
-        uid: widget.user?.uid,
-      ).then((_) {
-        if (mounted) _loadRecents();
-      });
+      _recents
+          .saveLocation(
+            address: resolved.description,
+            lat: resolved.lat,
+            lng: resolved.lng,
+            placeId: placeId,
+            mainText: resolved.mainText,
+            secondaryText: resolved.secondaryText,
+            uid: widget.user?.uid,
+          )
+          .then((_) {
+            if (mounted) _loadRecents();
+          });
       _applyResolvedPickupSuggestion(
         resolved.description,
         LatLng(resolved.lat, resolved.lng),
@@ -1263,8 +1301,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
     _suggestionsOverlay = OverlayEntry(
       builder: (_) {
-        final link =
-            _suggestingForPickup ? _pickupLayerLink : _dropoffLayerLink;
+        final link = _suggestingForPickup
+            ? _pickupLayerLink
+            : _dropoffLayerLink;
         final screenWidth = MediaQuery.of(context).size.width;
         // top: 0 + left: 0 anchor the Positioned in the Overlay stack;
         // CompositedTransformFollower then moves the child to sit directly
@@ -1345,8 +1384,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // owns the route state now.
     if (_pickupLatLng != pickup || _dropoffLatLng != dropoff) return;
     setState(() {
-      _routePoints =
-          result.points.isNotEmpty ? result.points : [pickup, dropoff];
+      _routePoints = result.points.isNotEmpty
+          ? result.points
+          : [pickup, dropoff];
       _routeDistanceM = result.distanceM;
       _routeDurationS = result.durationS;
       _routedPickup = pickup;
@@ -1383,23 +1423,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // was needed — see computeFares/carTierConfigForTierId fallback.
     final selectedTiers = isDelivery
         ? VehicleCategory.values
-            .where((c) => c.isDeliveryEligible)
-            .map((c) => _deliveryTierIds[c] ?? c.name)
-            .toList()
+              .where((c) => c.isDeliveryEligible)
+              .map((c) => _deliveryTierIds[c] ?? c.name)
+              .toList()
         : _rideFareTierIds;
 
     final serviceType = isDelivery
         ? (_isReceiveMode
-            ? FareServiceType.receiveItem
-            : FareServiceType.sendItem)
+              ? FareServiceType.receiveItem
+              : FareServiceType.sendItem)
         : FareServiceType.ride;
 
     try {
       // Recommendation thresholds resolve alongside the fare so badges and
       // pre-selection apply in the same frame. Best-effort: compiled
       // defaults apply when the doc is missing/unreadable.
-      final recConfig =
-          await const VehicleRecommendationService().getConfig();
+      final recConfig = await const VehicleRecommendationService().getConfig();
       final response = await _fareService.calculateFare(
         pickup: pickup,
         dropoff: dropoff,
@@ -1416,9 +1455,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           if (isDelivery) {
             final engineCats =
                 VehicleRecommendationEngine.recommendedDeliveriesFor(
-              response.distanceKm,
-              recConfig,
-            );
+                  response.distanceKm,
+                  recConfig,
+                );
             final serverCat = response.recommendedTier == null
                 ? null
                 : _tierIdToCategory(response.recommendedTier!.tierId);
@@ -1437,14 +1476,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             // Keep the user's ride-tier broadcast selection; if none of the
             // selected tiers came back from the server, fall back to the
             // recommended / first tier so at least one stays selected.
-            final validIds =
-                response.tiers.map((t) => t.tierId).toSet();
+            final validIds = response.tiers.map((t) => t.tierId).toSet();
             _selectedRideTierIds.retainWhere(validIds.contains);
             // Keke offer is distance-driven: below the ceiling it joins the
             // broadcast set (more drivers for short hops); at/above it the
             // UI unchecks it while keeping the card visible.
             if (VehicleRecommendationEngine.offerKekeForRide(
-                response.distanceKm, recConfig)) {
+              response.distanceKm,
+              recConfig,
+            )) {
               if (validIds.contains(_rideTricycleTierId)) {
                 _selectedRideTierIds.add(_rideTricycleTierId);
               }
@@ -1453,10 +1493,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             }
             if (_selectedRideTierIds.isEmpty) {
               final rec = response.recommendedTier;
-              _selectedRideTierIds.add(rec?.tierId ??
-                  (response.tiers.isNotEmpty
-                      ? response.tiers.first.tierId
-                      : 'comfort'));
+              _selectedRideTierIds.add(
+                rec?.tierId ??
+                    (response.tiers.isNotEmpty
+                        ? response.tiers.first.tierId
+                        : 'comfort'),
+              );
             }
           }
         });
@@ -1511,8 +1553,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     return true;
   }
 
-  bool get _addressesReady =>
-      _pickupLatLng != null && _dropoffLatLng != null;
+  bool get _addressesReady => _pickupLatLng != null && _dropoffLatLng != null;
 
   /// True when the preview's pinned pair is exactly the live pair, so the
   /// route polyline + distance/duration badge describe the trip on screen.
@@ -1572,15 +1613,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Selected ride tiers in canonical server order (comfort → premium → luxe
   /// → tricycle) so payloads and the review table stay deterministic.
   List<String> get _orderedRideTierIds => const [
-        ..._rideTierIds,
-        _rideTricycleTierId,
-      ].where(_selectedRideTierIds.contains).toList();
+    ..._rideTierIds,
+    _rideTricycleTierId,
+  ].where(_selectedRideTierIds.contains).toList();
 
   /// Delivery card badge source. The engine overrides the server badge when it
   /// resolves categories for this distance; otherwise the server value stands.
   bool _deliveryRecommended(VehicleCategory cat, FareResponse resp) {
-    final engineCats =
-        VehicleRecommendationEngine.recommendedDeliveriesFor(
+    final engineCats = VehicleRecommendationEngine.recommendedDeliveriesFor(
       resp.distanceKm,
       _recConfig,
     );
@@ -1601,14 +1641,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         tierId: tier.tierId,
         name: VehicleCategory.tricycle.displayName,
         isRecommended: VehicleRecommendationEngine.offerKekeForRide(
-            distanceKm, _recConfig),
+          distanceKm,
+          _recConfig,
+        ),
         fareFormatted: tier.fareFormatted,
         fareAmount: tier.fareAmount,
       );
     }
     if (tier.tierId == 'comfort' &&
-        VehicleRecommendationEngine.offerKekeForRide(
-            distanceKm, _recConfig)) {
+        VehicleRecommendationEngine.offerKekeForRide(distanceKm, _recConfig)) {
       return FareTier(
         tierId: tier.tierId,
         name: tier.name,
@@ -1647,8 +1688,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   ) {
     final dist = distanceKm.toStringAsFixed(1);
     final lines = warned.map((c) {
-      final ceiling =
-          VehicleRecommendationEngine.warningCeilingFor(c, _recConfig);
+      final ceiling = VehicleRecommendationEngine.warningCeilingFor(
+        c,
+        _recConfig,
+      );
       final name = c.displayName;
       if (c == VehicleCategory.bicycle) {
         return 'You have selected $name for a long-distance trip '
@@ -1676,9 +1719,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               Text(line, style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 8),
             ],
-            Text(suggestion,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(
+              suggestion,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ],
         ),
         actions: [
@@ -1714,8 +1758,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final orderedRideTiers = _orderedRideTierIds;
     final selectedTiers = isDelivery
         ? _selectedDeliveryCategories
-            .map((c) => _deliveryTierIds[c] ?? c.name)
-            .toList()
+              .map((c) => _deliveryTierIds[c] ?? c.name)
+              .toList()
         : orderedRideTiers;
 
     // Smart Distance Warning: when a selected vehicle is non-ideal for this
@@ -1729,12 +1773,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             _recConfig,
           )
         : (_selectedRideTierIds.contains(_rideTricycleTierId)
-            ? VehicleRecommendationEngine.nonIdealSelections(
-                fareResp.distanceKm,
-                const [VehicleCategory.tricycle],
-                _recConfig,
-              )
-            : const <VehicleCategory>[]);
+              ? VehicleRecommendationEngine.nonIdealSelections(
+                  fareResp.distanceKm,
+                  const [VehicleCategory.tricycle],
+                  _recConfig,
+                )
+              : const <VehicleCategory>[]);
     if (warned.isNotEmpty) {
       final proceed = await _showDistanceWarningDialog(
         warned,
@@ -1747,7 +1791,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       if (!_remoteKeys.splitPaymentMasterEnabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Split Payment is currently disabled by Hub admin.')),
+            const SnackBar(
+              content: Text(
+                'Split Payment is currently disabled by Hub admin.',
+              ),
+            ),
           );
         }
         return;
@@ -1774,7 +1822,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       }
       setState(() => _creatingTrip = true);
       try {
-        final result = await P2pService().lookupRecipient(recipientPhone: dropoffPhone);
+        final result = await P2pService().lookupRecipient(
+          recipientPhone: dropoffPhone,
+        );
         if (result.recipientId.isEmpty) {
           throw const P2pException('not-found', 'Unregistered user');
         }
@@ -1816,8 +1866,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       final userData = userDoc.data();
       verifiedCustomer =
           userData?[CustomerVerification.fieldStatus] ==
-                  CustomerVerification.verified ||
-              userData?[CustomerVerification.fieldIsVerified] == true;
+              CustomerVerification.verified ||
+          userData?[CustomerVerification.fieldIsVerified] == true;
     } catch (_) {}
     final pickupName = _pickupNameController.text.trim();
     final dropoffName = _dropoffNameController.text.trim();
@@ -1882,10 +1932,16 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           distanceKm: fareResp.distanceKm,
           durationMins: fareResp.durationMins,
           isVerifiedCustomer: verifiedCustomer,
-          paymentMethod: _paymentMode == 'receiver_pays' ? 'cash' : _paymentMethod,
+          paymentMethod: _paymentMode == 'receiver_pays'
+              ? 'cash'
+              : _paymentMethod,
           paymentMode: _paymentMode,
-          senderShareAmount: _paymentMode == 'split' ? _splitSenderAmount : null,
-          receiverShareAmount: _paymentMode == 'split' ? _splitReceiverAmount : null,
+          senderShareAmount: _paymentMode == 'split'
+              ? _splitSenderAmount
+              : null,
+          receiverShareAmount: _paymentMode == 'split'
+              ? _splitReceiverAmount
+              : null,
           walletCoverageAmount: walletCoverage,
           cashToCollect: cashToCollect,
           collectAt: collectAt,
@@ -1894,11 +1950,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           // gating here also covers Delivery→Ride toggles carrying a stale
           // `_requireDeliveryPin`). The server mints rides PIN-free anyway —
           // this keeps the intent honest at the source.
-          requireDeliveryPin: isDelivery &&
+          requireDeliveryPin:
+              isDelivery &&
               (_requireDeliveryPin || _remoteKeys.forceDeliveryPinSystemWide),
           receiverPhone: dropoffPhone,
-          customTierFares:
-              _customTierFares.isNotEmpty ? Map.from(_customTierFares) : null,
+          customTierFares: _customTierFares.isNotEmpty
+              ? Map.from(_customTierFares)
+              : null,
         ),
       );
     } on TripException catch (e) {
@@ -1942,10 +2000,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (mounted) {
       final result = await Navigator.of(context).push<dynamic>(
         MaterialPageRoute(
-          builder: (_) => LiveTripScreen(
-            tripId: tripId,
-            repository: _tripRepository,
-          ),
+          builder: (_) =>
+              LiveTripScreen(tripId: tripId, repository: _tripRepository),
         ),
       );
       if (result == 'completed' && mounted) {
@@ -1962,7 +2018,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final title = !focused
         ? 'SESE Dispatch & Ride-Hailing'
         : (widget.focusedTitle ??
-            (_selectedModeIndex == 1 ? 'Book a Ride' : 'Courier Delivery'));
+              (_selectedModeIndex == 1 ? 'Book a Ride' : 'Courier Delivery'));
 
     return PopScope(
       // Only allow the system to pop the route on the first step; deeper
@@ -1984,9 +2040,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           // screens; the badge keeps a fixed mini size.
           title: Row(
             children: [
-              Expanded(
-                child: Text(title, overflow: TextOverflow.ellipsis),
-              ),
+              Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
               if (_currentStep != 0) ...[
                 const SizedBox(width: 8),
                 _buildHeaderStepBadge(),
@@ -2007,9 +2061,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             // map preview below takes all remaining vertical space via
             // Expanded. Steps 2-3 keep their scrolling content.
             if (_currentStep == 0)
-              Expanded(
-                child: _buildStep1Content(),
-              )
+              Expanded(child: _buildStep1Content())
             else
               Expanded(
                 child: SingleChildScrollView(
@@ -2070,24 +2122,32 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildStepCircle(
-              stepNumber: 1, currentStep: _currentStep, compact: true),
-          _buildStepConnector(
-              isCompleted: _currentStep > 1, compact: true),
+            stepNumber: 1,
+            currentStep: _currentStep,
+            compact: true,
+          ),
+          _buildStepConnector(isCompleted: _currentStep > 1, compact: true),
           _buildStepCircle(
-              stepNumber: 2, currentStep: _currentStep, compact: true),
-          _buildStepConnector(
-              isCompleted: _currentStep > 2, compact: true),
+            stepNumber: 2,
+            currentStep: _currentStep,
+            compact: true,
+          ),
+          _buildStepConnector(isCompleted: _currentStep > 2, compact: true),
           _buildStepCircle(
-              stepNumber: 3, currentStep: _currentStep, compact: true),
+            stepNumber: 3,
+            currentStep: _currentStep,
+            compact: true,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildStepCircle(
-      {required int stepNumber,
-      required int currentStep,
-      bool compact = false}) {
+  Widget _buildStepCircle({
+    required int stepNumber,
+    required int currentStep,
+    bool compact = false,
+  }) {
     // Step indices are 0-based internally; circles are 1-based.
     final int stepIndex = stepNumber - 1;
     final bool isCompleted = currentStep > stepIndex;
@@ -2095,10 +2155,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    Color backgroundColor =
-        isDark ? theme.colorScheme.surfaceContainerHighest : Colors.grey.shade300;
-    Color textColor =
-        isDark ? theme.colorScheme.onSurfaceVariant : Colors.grey.shade700;
+    Color backgroundColor = isDark
+        ? theme.colorScheme.surfaceContainerHighest
+        : Colors.grey.shade300;
+    Color textColor = isDark
+        ? theme.colorScheme.onSurfaceVariant
+        : Colors.grey.shade700;
 
     if (isCompleted || isActive) {
       backgroundColor = theme.colorScheme.primary;
@@ -2111,15 +2173,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final circle = Container(
       width: diameter,
       height: diameter,
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        shape: BoxShape.circle,
-      ),
+      decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
       child: Center(
         child: isCompleted
-            ? Icon(Icons.check,
+            ? Icon(
+                Icons.check,
                 size: compact ? 12 : 18,
-                color: theme.colorScheme.onPrimary)
+                color: theme.colorScheme.onPrimary,
+              )
             : Text(
                 '$stepNumber',
                 style: TextStyle(
@@ -2142,7 +2203,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     return circle;
   }
 
-  Widget _buildStepConnector({required bool isCompleted, bool compact = false}) {
+  Widget _buildStepConnector({
+    required bool isCompleted,
+    bool compact = false,
+  }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final line = Container(
@@ -2152,9 +2216,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       height: 2,
       color: isCompleted
           ? theme.colorScheme.primary
-          : (isDark
-              ? theme.colorScheme.outlineVariant
-              : Colors.grey.shade300),
+          : (isDark ? theme.colorScheme.outlineVariant : Colors.grey.shade300),
     );
     if (compact) return line;
     return Expanded(child: line);
@@ -2199,15 +2261,23 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : Icon(_selectedModeIndex == 0
-                              ? Icons.broadcast_on_personal
-                              : Icons.car_rental),
-                      label: Text(_selectedModeIndex == 0
-                          ? 'Confirm & Broadcast'
-                          : 'Confirm & Book Ride'),
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Icon(
+                              _selectedModeIndex == 0
+                                  ? Icons.broadcast_on_personal
+                                  : Icons.car_rental,
+                            ),
+                      label: Text(
+                        _selectedModeIndex == 0
+                            ? 'Confirm & Broadcast'
+                            : 'Confirm & Book Ride',
+                      ),
                       style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
                     )
                   : FilledButton(
                       onPressed: (canContinue && !_fareLoading)
@@ -2215,9 +2285,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                           : null,
                       child: _fareLoading && _currentStep == 0
                           ? const SizedBox(
-                              width: 18, height: 18,
+                              width: 18,
+                              height: 18,
                               child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
                           : const Text('Next'),
                     ),
             ),
@@ -2229,8 +2303,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 onPressed: _handleBackNavigation,
                 style: OutlinedButton.styleFrom(
                   side: BorderSide.none,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
                 ),
                 child: const Text('Back'),
               ),
@@ -2255,8 +2330,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             child: _RouteMapPreview(
               pickup: previewPickup,
               dropoff: previewDropoff,
-              routePoints:
-                  _previewMatchesLive ? _routePoints : const <LatLng>[],
+              routePoints: _previewMatchesLive
+                  ? _routePoints
+                  : const <LatLng>[],
               isLoadingRoute: _fetchingRoute && _previewMatchesLive,
               distanceM: _previewMatchesLive ? _routeDistanceM : 0,
               durationS: _previewMatchesLive ? _routeDurationS : 0,
@@ -2266,9 +2342,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         else
           Positioned.fill(
             child: Container(
-              color: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerHighest
+              color: Theme.of(context).colorScheme.surfaceContainerHighest
                   .withValues(alpha: 0.3),
               alignment: Alignment.center,
               child: const SizedBox(
@@ -2333,10 +2407,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 children: [
                   const Text(
                     'Step 1: Locations',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   const Spacer(),
                   _buildHeaderStepBadge(),
@@ -2380,7 +2451,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               const SizedBox(height: 5),
               Row(
                 children: [
-                  const Icon(Icons.location_on, size: 10, color: Colors.redAccent),
+                  const Icon(
+                    Icons.location_on,
+                    size: 10,
+                    color: Colors.redAccent,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -2423,10 +2498,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 children: [
                   const Text(
                     'Step 1: Locations',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   const Spacer(),
                   _buildHeaderStepBadge(),
@@ -2457,23 +2529,30 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     labelText: 'Pickup Location',
                     hintText: 'Where from?',
                     alignLabelWithHint: true,
-                    prefixIcon:
-                        const Icon(Icons.trip_origin, color: Colors.green),
-                    suffixIcon: (_pickupGeocoding ||
+                    prefixIcon: const Icon(
+                      Icons.trip_origin,
+                      color: Colors.green,
+                    ),
+                    suffixIcon:
+                        (_pickupGeocoding ||
                             (_isLoadingSuggestions && _suggestingForPickup))
                         ? const Padding(
                             padding: EdgeInsets.all(14),
                             child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2)))
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (_pickupLatLng != null)
-                                const Icon(Icons.check_circle,
-                                    color: Colors.green, size: 20),
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 20,
+                                ),
                               IconButton(
                                 key: const Key('pickup_pick_on_map_icon'),
                                 icon: const Icon(Icons.map_outlined),
@@ -2506,8 +2585,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         .colorScheme
                         .surfaceContainerHighest,
                     isDense: false,
-                    contentPadding:
-                        const EdgeInsets.fromLTRB(12, 14, 12, 10),
+                    contentPadding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
                   ),
                 ),
               ),
@@ -2522,24 +2600,30 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     labelText: 'Destination / Drop-off',
                     hintText: 'Where to?',
                     alignLabelWithHint: true,
-                    prefixIcon:
-                        const Icon(Icons.location_on, color: Colors.red),
-                    suffixIcon: ((_isLoadingSuggestions &&
-                                !_suggestingForPickup) ||
+                    prefixIcon: const Icon(
+                      Icons.location_on,
+                      color: Colors.red,
+                    ),
+                    suffixIcon:
+                        ((_isLoadingSuggestions && !_suggestingForPickup) ||
                             _dropoffGeocoding)
                         ? const Padding(
                             padding: EdgeInsets.all(14),
                             child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2)))
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
                         : Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               if (_dropoffLatLng != null)
-                                const Icon(Icons.check_circle,
-                                    color: Colors.green, size: 20),
+                                const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 20,
+                                ),
                               IconButton(
                                 key: const Key('dropoff_pick_on_map_icon'),
                                 icon: const Icon(Icons.map_outlined),
@@ -2566,8 +2650,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         .colorScheme
                         .surfaceContainerHighest,
                     isDense: false,
-                    contentPadding:
-                        const EdgeInsets.fromLTRB(12, 14, 12, 10),
+                    contentPadding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
                   ),
                 ),
               ),
@@ -2581,15 +2664,20 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
-                          size: 14, color: Colors.grey.shade500),
+                      Icon(
+                        Icons.info_outline,
+                        size: 14,
+                        color: Colors.grey.shade500,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         _pickupLatLng == null
                             ? 'Enter your pickup address'
                             : 'Type a destination to continue',
                         style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500),
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
                       ),
                     ],
                   ),
@@ -2599,8 +2687,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 Center(
                   child: TextButton.icon(
                     icon: const Icon(Icons.map_outlined, size: 14),
-                    label: const Text('Collapse to view map',
-                        style: TextStyle(fontSize: 11)),
+                    label: const Text(
+                      'Collapse to view map',
+                      style: TextStyle(fontSize: 11),
+                    ),
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       foregroundColor: scheme.primary,
@@ -2671,7 +2761,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           decoration: BoxDecoration(
             color: isDark
                 ? Colors.grey.shade900
-                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
             border: Border(
               bottom: BorderSide(
                 color: theme.dividerColor.withValues(alpha: 0.15),
@@ -2724,13 +2816,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         ? s.mainText!
         : s.description;
 
-    final subtitle = (s.secondaryText != null &&
+    final subtitle =
+        (s.secondaryText != null &&
             s.secondaryText!.isNotEmpty &&
             s.secondaryText != s.mainText)
         ? s.secondaryText!
         : (s.mainText != null && s.mainText != s.description)
-            ? s.description
-            : null;
+        ? s.description
+        : null;
 
     final tag = s.tag;
 
@@ -2845,11 +2938,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       ),
       child: Text(
         tag,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: fg),
       ),
     );
   }
@@ -2906,8 +2995,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       // vehicle rows run edge-to-edge instead of double-insetting.
       padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       children: [
-        const Text('Select Vehicle Type(s)',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text(
+          'Select Vehicle Type(s)',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         const Text(
           'Select all vehicle types to broadcast — first driver to accept wins.',
@@ -2923,8 +3014,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           final selected = _selectedDeliveryCategories.contains(cat);
           final tierId = _deliveryTierIds[cat] ?? cat.name;
           final tier = resp?.tierById(tierId);
-          final recommended =
-              resp != null && _deliveryRecommended(cat, resp);
+          final recommended = resp != null && _deliveryRecommended(cat, resp);
           final customFare = _customTierFares[tierId];
           return _VehicleTierTile(
             key: Key('delivery_vehicle_${cat.name}'),
@@ -2974,8 +3064,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       ..._rideTierIds,
       if (resp != null &&
           resp.tierById(_rideTricycleTierId) != null &&
-          VehicleRecommendationEngine.offerKekeForRide(
-              distanceKm, _recConfig))
+          VehicleRecommendationEngine.offerKekeForRide(distanceKm, _recConfig))
         _rideTricycleTierId,
     ];
     return ListView(
@@ -2984,8 +3073,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       // Same single-gutter rule as the delivery selector above.
       padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       children: [
-        const Text('Select Car Tier(s)',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text(
+          'Select Car Tier(s)',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 4),
         const Text(
           'Select all tiers to broadcast — first driver to accept wins.',
@@ -3002,8 +3093,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           final tier = raw == null
               ? null
               : _displayRideTier(raw, distanceKm < 0 ? 0 : distanceKm);
-          final label = tier?.name ??
-              (id[0].toUpperCase() + id.substring(1));
+          final label = tier?.name ?? (id[0].toUpperCase() + id.substring(1));
           final recommended = tier?.isRecommended ?? false;
           final selected = _selectedRideTierIds.contains(id);
           final customFare = _customTierFares[id];
@@ -3044,12 +3134,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   String _vehicleCategoryLabel(VehicleCategory cat) {
     switch (cat) {
-      case VehicleCategory.bicycle: return 'Bicycle';
-      case VehicleCategory.motorcycle: return 'Motorcycle';
-      case VehicleCategory.tricycle: return 'Tricycle (Keke)';
-      case VehicleCategory.car: return 'Car / Sedan';
-      case VehicleCategory.van: return 'Van';
-      case VehicleCategory.truck: return 'Truck';
+      case VehicleCategory.bicycle:
+        return 'Bicycle';
+      case VehicleCategory.motorcycle:
+        return 'Motorcycle';
+      case VehicleCategory.tricycle:
+        return 'Tricycle (Keke)';
+      case VehicleCategory.car:
+        return 'Car / Sedan';
+      case VehicleCategory.van:
+        return 'Van';
+      case VehicleCategory.truck:
+        return 'Truck';
     }
   }
 
@@ -3065,8 +3161,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// listeners treat the assigned text as already resolved.
   bool _restoreGpsSlot({required bool isPickup}) {
     final fix = _gpsPickupFix ?? _gpsDropoffFix;
-    final address =
-        _gpsPickupFix != null ? _gpsPickupAddress : _gpsDropoffAddress;
+    final address = _gpsPickupFix != null
+        ? _gpsPickupAddress
+        : _gpsDropoffAddress;
     if (fix == null || address == null || address.isEmpty) return false;
     if (isPickup) {
       _resolvedPickupQuery = address;
@@ -3097,30 +3194,30 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _hideSuggestionsOverlay();
     FocusScope.of(context).unfocus();
 
-    final effectiveTarget = target ??
+    final effectiveTarget =
+        target ??
         (_pickupFocusNode.hasFocus
             ? 'pickup'
             : _dropoffFocusNode.hasFocus
-                ? 'destination'
-                : (_isReceiveMode && _pickupLatLng == null)
-                    ? 'pickup'
-                    : 'destination');
+            ? 'destination'
+            : (_isReceiveMode && _pickupLatLng == null)
+            ? 'pickup'
+            : 'destination');
 
-    final center = (effectiveTarget == 'pickup'
+    final center =
+        (effectiveTarget == 'pickup'
             ? (_pickupLatLng ??
-                LocationService.lastKnownPosition ??
-                _dropoffLatLng)
+                  LocationService.lastKnownPosition ??
+                  _dropoffLatLng)
             : (_dropoffLatLng ??
-                _pickupLatLng ??
-                LocationService.lastKnownPosition)) ??
+                  _pickupLatLng ??
+                  LocationService.lastKnownPosition)) ??
         const LatLng(6.4550575, 3.3839020); // Lagos Island fallback
 
     final result = await Navigator.of(context).push<PickOnMapResult>(
       MaterialPageRoute(
-        builder: (_) => PickOnMapScreen(
-          initialCenter: center,
-          targetType: effectiveTarget,
-        ),
+        builder: (_) =>
+            PickOnMapScreen(initialCenter: center, targetType: effectiveTarget),
       ),
     );
 
@@ -3202,7 +3299,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: SwitchListTile(
         value: forced ? true : _requireDeliveryPin,
-        onChanged: forced ? null : (val) => setState(() => _requireDeliveryPin = val),
+        onChanged: forced
+            ? null
+            : (val) => setState(() => _requireDeliveryPin = val),
         title: Row(
           children: [
             const Expanded(
@@ -3215,20 +3314,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               tooltipId: 'delivery_pin_verification',
               userId: widget.user?.uid,
               title: 'Delivery Security PIN',
-              description:
-                  'Recipient gives driver a 4-digit PIN at drop-off to complete delivery and prevent wrongful release.',
+              description: 'Recipient gives driver a 4-digit PIN at drop-off to complete delivery and prevent wrongful release.',
             ),
           ],
         ),
         subtitle: Text(
-          forced
-              ? 'Enforced System-Wide by Admin Override'
-              : 'Recipient gives driver a 4-digit PIN at drop-off to complete delivery',
+          forced ? 'Enforced System-Wide by Admin Override' : 'Recipient gives driver a 4-digit PIN at drop-off to complete delivery',
           style: const TextStyle(fontSize: 12),
         ),
         secondary: Icon(
           Icons.lock_clock,
-          color: (_requireDeliveryPin || forced) ? Colors.amber.shade700 : Colors.grey,
+          color: (_requireDeliveryPin || forced)
+              ? Colors.amber.shade700
+              : Colors.grey,
         ),
       ),
     );
@@ -3261,8 +3359,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (fare <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Please select a vehicle category first to calculate fare.'),
+          content: Text(
+            'Please select a vehicle category first to calculate fare.',
+          ),
         ),
       );
       return;
@@ -3348,8 +3447,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   tooltipId: 'payment_mode',
                   userId: widget.user?.uid,
                   title: 'Payment Mode',
-                  description:
-                      'Choose who pays for the trip: Sender at pickup, Receiver at drop-off, or Split Payment between both.',
+                  description: 'Choose who pays for the trip: Sender at pickup, Receiver at drop-off, or Split Payment between both.',
                 ),
               ],
             ),
@@ -3360,7 +3458,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             Container(
               padding: const EdgeInsets.all(3),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF252530) : const Color(0xFFF3F4F6),
+                color: isDark
+                    ? const Color(0xFF252530)
+                    : const Color(0xFFF3F4F6),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -3387,7 +3487,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       onTap: () {
                         setState(() {
                           _paymentMode = 'receiver_pays';
-                          _paymentMethod = 'cash'; // Enforce Cash Only for receiver pays
+                          _paymentMethod =
+                              'cash'; // Enforce Cash Only for receiver pays
                           _splitSenderAmount = null;
                           _splitReceiverAmount = null;
                         });
@@ -3415,7 +3516,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               // Enforce Cash Only
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: isDark
                       ? const Color(0xFF78350F).withValues(alpha: 0.25)
@@ -3432,7 +3536,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     Icon(
                       Icons.money_rounded,
                       size: 20,
-                      color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+                      color: isDark
+                          ? const Color(0xFFFBBF24)
+                          : const Color(0xFFD97706),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -3444,7 +3550,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
-                              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+                              color: isDark
+                                  ? const Color(0xFFFBBF24)
+                                  : const Color(0xFF92400E),
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -3452,7 +3560,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             'Driver will collect ₦${totalFare.toStringAsFixed(0)} cash from Receiver at drop-off. No payment at pickup.',
                             style: TextStyle(
                               fontSize: 11,
-                              color: isDark ? const Color(0xFFFDE68A) : const Color(0xFFB45309),
+                              color: isDark
+                                  ? const Color(0xFFFDE68A)
+                                  : const Color(0xFFB45309),
                             ),
                           ),
                         ],
@@ -3517,7 +3627,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                    color: isDark
+                        ? const Color(0xFF3A3A46)
+                        : Colors.grey.shade200,
                   ),
                 ),
                 child: Column(
@@ -3531,8 +3643,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                               : Icons.info_outline_rounded,
                           size: 16,
                           color: walletCoverage > 0
-                              ? (isDark ? const Color(0xFF34D399) : const Color(0xFF10B981))
-                              : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                              ? (isDark
+                                    ? const Color(0xFF34D399)
+                                    : const Color(0xFF10B981))
+                              : (isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade700),
                         ),
                         const SizedBox(width: 6),
                         Text(
@@ -3543,7 +3659,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: walletCoverage > 0
-                                ? (isDark ? const Color(0xFF34D399) : const Color(0xFF047857))
+                                ? (isDark
+                                      ? const Color(0xFF34D399)
+                                      : const Color(0xFF047857))
                                 : (isDark ? Colors.white : Colors.black87),
                           ),
                         ),
@@ -3574,7 +3692,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+                              color: isDark
+                                  ? const Color(0xFF34D399)
+                                  : const Color(0xFF059669),
                             ),
                           ),
                           Text(
@@ -3594,10 +3714,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             : '₦${walletCoverage.toStringAsFixed(0)} locked from your wallet. Pay remaining ₦${cashToCollect.toStringAsFixed(0)} cash at pickup. No payment at drop-off.',
                         style: TextStyle(
                           fontSize: 11,
-                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
                         ),
                       ),
-                    ] else if (walletCoverage >= totalFare && totalFare > 0) ...[
+                    ] else if (walletCoverage >= totalFare &&
+                        totalFare > 0) ...[
                       Row(
                         children: [
                           const Icon(
@@ -3611,7 +3734,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
-                              color: isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
+                              color: isDark
+                                  ? const Color(0xFF34D399)
+                                  : const Color(0xFF059669),
                             ),
                           ),
                         ],
@@ -3621,7 +3746,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         'Total fare locked in wallet escrow. No cash needed during or after the ride.',
                         style: TextStyle(
                           fontSize: 11,
-                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
                         ),
                       ),
                     ] else ...[
@@ -3632,7 +3759,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             'Total Cash to Collect:',
                             style: TextStyle(
                               fontSize: 12,
-                              color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                              color: isDark
+                                  ? Colors.grey.shade400
+                                  : Colors.grey.shade700,
                             ),
                           ),
                           Text(
@@ -3650,7 +3779,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         'Paid in cash to the driver at pickup.',
                         style: TextStyle(
                           fontSize: 11,
-                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
                         ),
                       ),
                     ],
@@ -3699,8 +3830,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               color: isSelected
                   ? Colors.black
                   : (isEnabled
-                      ? (isDark ? const Color(0xFFE5E7EB) : const Color(0xFF374151))
-                      : (isDark ? Colors.grey.shade600 : Colors.grey.shade400)),
+                        ? (isDark
+                              ? const Color(0xFFE5E7EB)
+                              : const Color(0xFF374151))
+                        : (isDark
+                              ? Colors.grey.shade600
+                              : Colors.grey.shade400)),
             ),
             maxLines: 1,
           ),
@@ -3780,9 +3915,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         .map((c) => resp.tierById(_deliveryTierIds[c] ?? c.name))
         .whereType<FareTier>()
         .map((t) {
-      final cat = _tierIdToCategory(t.tierId);
-      return cat == null ? t : _displayDeliveryTier(t, cat);
-    }).toList();
+          final cat = _tierIdToCategory(t.tierId);
+          return cat == null ? t : _displayDeliveryTier(t, cat);
+        })
+        .toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3801,8 +3937,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         const SizedBox(height: 12),
         _buildSecurityPinToggle(),
         _buildPaymentOptionSelector(isDelivery: true),
-        const Text('Fare by Vehicle Type',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        const Text(
+          'Fare by Vehicle Type',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+        ),
         const SizedBox(height: 8),
         _ServerFareTable(tiers: selectedTiers),
         const SizedBox(height: 8),
@@ -3845,8 +3983,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         ),
         const SizedBox(height: 12),
         _buildPaymentOptionSelector(isDelivery: false),
-        const Text('Fare Summary',
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        const Text(
+          'Fare Summary',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+        ),
         const SizedBox(height: 8),
         _ServerFareTable(tiers: selectedTiers),
         const SizedBox(height: 8),
@@ -3860,7 +4000,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       ],
     );
   }
-
 }
 
 /// Inline route map preview showing route between pickup & dropoff.
@@ -3998,9 +4137,7 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6),
-        ],
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6)],
       ),
       child: Stack(
         children: [
@@ -4034,12 +4171,12 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2)),
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                       SizedBox(width: 8),
-                      Text('Loading route…',
-                          style: TextStyle(fontSize: 12)),
+                      Text('Loading route…', style: TextStyle(fontSize: 12)),
                     ],
                   ),
                 ),
@@ -4056,8 +4193,10 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withAlpha(165),
                     borderRadius: BorderRadius.circular(20),
@@ -4065,28 +4204,37 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.route_outlined,
-                          size: 14, color: Colors.white70),
+                      const Icon(
+                        Icons.route_outlined,
+                        size: 14,
+                        color: Colors.white70,
+                      ),
                       const SizedBox(width: 5),
                       Text(
                         _formatDistance(widget.distanceM),
                         style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      const Text('  ·  ',
-                          style: TextStyle(
-                              color: Colors.white54, fontSize: 13)),
-                      const Icon(Icons.access_time,
-                          size: 13, color: Colors.white70),
+                      const Text(
+                        '  ·  ',
+                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                      ),
+                      const Icon(
+                        Icons.access_time,
+                        size: 13,
+                        color: Colors.white70,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         _formatDuration(widget.durationS),
                         style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -4117,8 +4265,6 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     return '$mins min';
   }
 }
-
-
 
 /// Route summary card shown in Step 3, with tagged pickup / drop-off
 /// sections, contact name fields, and contact phone fields for driver coordination.
@@ -4151,7 +4297,9 @@ class _RouteReviewCard extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     return Card(
       elevation: 0,
-      color: isDark ? theme.colorScheme.surfaceContainerHighest : Colors.grey.shade50,
+      color: isDark
+          ? theme.colorScheme.surfaceContainerHighest
+          : Colors.grey.shade50,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide.none,
@@ -4181,8 +4329,10 @@ class _RouteReviewCard extends StatelessWidget {
               padding: const EdgeInsets.only(left: 22.0),
               child: Text(
                 pickup,
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -4210,8 +4360,10 @@ class _RouteReviewCard extends StatelessWidget {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                 ),
                 onChanged: (_) => onPhoneChanged?.call(),
               ),
@@ -4227,8 +4379,9 @@ class _RouteReviewCard extends StatelessWidget {
                 onPickContact: () async {
                   final res = await ContactsService.pickContact(context);
                   if (res != null && res.phoneNumber.isNotEmpty) {
-                    pickupPhoneController.text =
-                        nationalDisplayDigits(res.phoneNumber);
+                    pickupPhoneController.text = nationalDisplayDigits(
+                      res.phoneNumber,
+                    );
                     if (res.displayName.isNotEmpty &&
                         pickupNameController.text.trim().isEmpty) {
                       pickupNameController.text = res.displayName;
@@ -4270,8 +4423,10 @@ class _RouteReviewCard extends StatelessWidget {
               padding: const EdgeInsets.only(left: 24.0),
               child: Text(
                 dropoff,
-                style:
-                    const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -4299,8 +4454,10 @@ class _RouteReviewCard extends StatelessWidget {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
                 ),
                 onChanged: (_) => onPhoneChanged?.call(),
               ),
@@ -4316,8 +4473,9 @@ class _RouteReviewCard extends StatelessWidget {
                 onPickContact: () async {
                   final res = await ContactsService.pickContact(context);
                   if (res != null && res.phoneNumber.isNotEmpty) {
-                    dropoffPhoneController.text =
-                        nationalDisplayDigits(res.phoneNumber);
+                    dropoffPhoneController.text = nationalDisplayDigits(
+                      res.phoneNumber,
+                    );
                     if (res.displayName.isNotEmpty &&
                         dropoffNameController.text.trim().isEmpty) {
                       dropoffNameController.text = res.displayName;
@@ -4342,16 +4500,18 @@ class _RouteReviewCard extends StatelessWidget {
                 Chip(
                   avatar: const Icon(Icons.straighten, size: 16),
                   label: Text('${distanceKm.toStringAsFixed(1)} km'),
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
                   side: BorderSide.none,
                 ),
                 const SizedBox(width: 12),
                 Chip(
                   avatar: const Icon(Icons.access_time, size: 16),
                   label: Text('~${durationMins.toStringAsFixed(0)} mins'),
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest,
                   side: BorderSide.none,
                 ),
               ],
@@ -4383,23 +4543,34 @@ class _ServerFareTable extends StatelessWidget {
           return Column(
             children: [
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 child: Row(
                   children: [
                     if (t.isRecommended)
                       Padding(
                         padding: const EdgeInsets.only(right: 6),
-                        child: Icon(Icons.verified,
-                            size: 16, color: Colors.green.shade600),
+                        child: Icon(
+                          Icons.verified,
+                          size: 16,
+                          color: Colors.green.shade600,
+                        ),
                       ),
                     Expanded(
-                        child: Text(t.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w500))),
-                    Text(t.fareFormatted,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 16)),
+                      child: Text(
+                        t.name,
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    Text(
+                      t.fareFormatted,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -4418,8 +4589,11 @@ class _InfoBanner extends StatelessWidget {
   final Color color;
   final String text;
 
-  const _InfoBanner(
-      {required this.icon, required this.color, required this.text});
+  const _InfoBanner({
+    required this.icon,
+    required this.color,
+    required this.text,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4434,8 +4608,8 @@ class _InfoBanner extends StatelessWidget {
           Icon(icon, color: color, size: 18),
           const SizedBox(width: 8),
           Expanded(
-              child: Text(text,
-                  style: TextStyle(fontSize: 12, color: color))),
+            child: Text(text, style: TextStyle(fontSize: 12, color: color)),
+          ),
         ],
       ),
     );
@@ -4545,33 +4719,38 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                   return;
                 }
                 if (parsed == null || parsed <= 0) {
-                  setSheetState(
-                      () => errorText = 'Enter a valid amount.');
+                  setSheetState(() => errorText = 'Enter a valid amount.');
                   return;
                 }
                 if (parsed < base) {
-                  setSheetState(() => errorText =
-                      'Cannot go below the base fare of '
-                      '${widget.baseFareFormatted ?? _fmtRaw(base)}.');
+                  setSheetState(
+                    () => errorText =
+                        'Cannot go below the base fare of '
+                        '${widget.baseFareFormatted ?? _fmtRaw(base)}.',
+                  );
                   return;
                 }
                 if (parsed > maxAmount) {
-                  setSheetState(() => errorText =
-                      'Maximum allowed is ${_fmtRaw(maxAmount)} '
-                      '(100% above base fare).');
+                  setSheetState(
+                    () => errorText =
+                        'Maximum allowed is ${_fmtRaw(maxAmount)} '
+                        '(100% above base fare).',
+                  );
                   return;
                 }
                 setSheetState(() => errorText = null);
               }
 
-              final isDark =
-                  Theme.of(ctx).brightness == Brightness.dark;
-              final surfaceColor =
-                  isDark ? const Color(0xFF1E1E28) : Colors.white;
-              final hintColor =
-                  isDark ? Colors.grey.shade500 : Colors.grey.shade400;
-              final labelColor =
-                  isDark ? Colors.grey.shade300 : Colors.grey.shade700;
+              final isDark = Theme.of(ctx).brightness == Brightness.dark;
+              final surfaceColor = isDark
+                  ? const Color(0xFF1E1E28)
+                  : Colors.white;
+              final hintColor = isDark
+                  ? Colors.grey.shade500
+                  : Colors.grey.shade400;
+              final labelColor = isDark
+                  ? Colors.grey.shade300
+                  : Colors.grey.shade700;
 
               return Padding(
                 // Slide the sheet above the keyboard.
@@ -4582,7 +4761,8 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                   decoration: BoxDecoration(
                     color: surfaceColor,
                     borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(24)),
+                      top: Radius.circular(24),
+                    ),
                   ),
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
                   child: SingleChildScrollView(
@@ -4590,178 +4770,187 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    // Drag handle
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF3A3A46)
-                              : Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-
-                    // Title row
-                    Row(
-                      children: [
-                        const Icon(Icons.local_offer_rounded,
-                            size: 20, color: Color(0xFFF59E0B)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Boost Offer — ${widget.title}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                        // Drag handle
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
                               color: isDark
-                                  ? Colors.white
-                                  : Colors.black87,
+                                  ? const Color(0xFF3A3A46)
+                                  : Colors.grey.shade300,
+                              borderRadius: BorderRadius.circular(2),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Raise your offer to attract drivers faster. '
-                      'Base: ${widget.baseFareFormatted ?? _fmtRaw(base)} · '
-                      'Max: ${_fmtRaw(maxAmount)}',
-                      style: TextStyle(
-                          fontSize: 12, color: labelColor),
-                    ),
-                    const SizedBox(height: 16),
 
-                    // Amount input
-                    TextField(
-                      controller: ctrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                          decimal: false),
-                      autofocus: true,
-                      decoration: InputDecoration(
-                        prefixText: '₦ ',
-                        prefixStyle: const TextStyle(
-                          color: Color(0xFFF59E0B),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                        hintText: base.toStringAsFixed(0),
-                        hintStyle: TextStyle(color: hintColor),
-                        errorText: errorText,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                              color: Color(0xFFF59E0B), width: 2),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              BorderSide(color: Colors.red.shade400),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                              color: Colors.red.shade400, width: 2),
-                        ),
-                      ),
-                      onChanged: validate,
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Quick-preset chips
-                    Wrap(
-                      spacing: 8,
-                      children: [10, 25, 50, 100].map((pct) {
-                        final preset = base * (1 + pct / 100);
-                        return ActionChip(
-                          label: Text('+$pct%  ${_fmtRaw(preset)}',
-                              style: const TextStyle(fontSize: 11)),
-                          onPressed: () {
-                            ctrl.text =
-                                preset.toStringAsFixed(0);
-                            validate(ctrl.text);
-                          },
-                          side: const BorderSide(
-                              color: Color(0xFFF59E0B)),
-                          backgroundColor: const Color(0xFFF59E0B)
-                              .withValues(alpha: 0.08),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Action buttons
-                    Row(
-                      children: [
-                        // Reset to base — only shown when a custom fare exists
-                        if (widget.customFareAmount != null) ...[
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                widget.onFareEdited?.call(null);
-                              },
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 14),
-                                side: BorderSide(
-                                    color: Colors.grey.shade400),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(12)),
+                        // Title row
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.local_offer_rounded,
+                              size: 20,
+                              color: Color(0xFFF59E0B),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Boost Offer — ${widget.title}',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
                               ),
-                              child: const Text('Reset to Base'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Raise your offer to attract drivers faster. '
+                          'Base: ${widget.baseFareFormatted ?? _fmtRaw(base)} · '
+                          'Max: ${_fmtRaw(maxAmount)}',
+                          style: TextStyle(fontSize: 12, color: labelColor),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Amount input
+                        TextField(
+                          controller: ctrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: false,
+                          ),
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            prefixText: '₦ ',
+                            prefixStyle: const TextStyle(
+                              color: Color(0xFFF59E0B),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                            hintText: base.toStringAsFixed(0),
+                            hintStyle: TextStyle(color: hintColor),
+                            errorText: errorText,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFF59E0B),
+                                width: 2,
+                              ),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.red.shade400,
+                              ),
+                            ),
+                            focusedErrorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: Colors.red.shade400,
+                                width: 2,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 10),
-                        ],
-                        Expanded(
-                          flex: 2,
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  const Color(0xFFF59E0B),
-                              foregroundColor: Colors.black,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(12)),
-                            ),
-                            onPressed: () {
-                              final raw = ctrl.text
-                                  .replaceAll(',', '')
-                                  .trim();
-                              final parsed = double.tryParse(raw);
-                              // Re-validate before accepting.
-                              if (parsed == null ||
-                                  parsed < base ||
-                                  parsed > maxAmount) {
+                          onChanged: validate,
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Quick-preset chips
+                        Wrap(
+                          spacing: 8,
+                          children: [10, 25, 50, 100].map((pct) {
+                            final preset = base * (1 + pct / 100);
+                            return ActionChip(
+                              label: Text(
+                                '+$pct%  ${_fmtRaw(preset)}',
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                              onPressed: () {
+                                ctrl.text = preset.toStringAsFixed(0);
                                 validate(ctrl.text);
-                                return;
-                              }
-                              Navigator.pop(ctx);
-                              widget.onFareEdited?.call(parsed);
-                            },
-                            child: const Text(
-                              'Confirm Offer',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold),
+                              },
+                              side: const BorderSide(color: Color(0xFFF59E0B)),
+                              backgroundColor: const Color(0xFFF59E0B)
+                                  .withValues(alpha: 0.08),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Action buttons
+                        Row(
+                          children: [
+                            // Reset to base — only shown when a custom fare exists
+                            if (widget.customFareAmount != null) ...[
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    widget.onFareEdited?.call(null);
+                                  },
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 14,
+                                    ),
+                                    side: BorderSide(
+                                      color: Colors.grey.shade400,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  child: const Text('Reset to Base'),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Expanded(
+                              flex: 2,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF59E0B),
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () {
+                                  final raw = ctrl.text
+                                      .replaceAll(',', '')
+                                      .trim();
+                                  final parsed = double.tryParse(raw);
+                                  // Re-validate before accepting.
+                                  if (parsed == null ||
+                                      parsed < base ||
+                                      parsed > maxAmount) {
+                                    validate(ctrl.text);
+                                    return;
+                                  }
+                                  Navigator.pop(ctx);
+                                  widget.onFareEdited?.call(parsed);
+                                },
+                                child: const Text(
+                                  'Confirm Offer',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         },
       );
@@ -4784,8 +4973,7 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         ? _fmtRaw(widget.customFareAmount!)
         : (widget.baseFareFormatted ?? '');
     final hasFare = displayPrice.isNotEmpty;
-    final canBid =
-        widget.baseFareAmount > 0 && widget.onFareEdited != null;
+    final canBid = widget.baseFareAmount > 0 && widget.onFareEdited != null;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -4797,9 +4985,7 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         border: Border.all(
           color: widget.selected
               ? AppColors.seseGold
-              : (isDark
-                  ? const Color(0xFF3A3A46)
-                  : Colors.grey.shade200),
+              : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200),
           width: widget.selected ? 2.0 : 1.0,
         ),
         boxShadow: widget.selected
@@ -4818,8 +5004,7 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
           onTap: () => widget.onChanged(!widget.selected),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
                 // ── 1. Vehicle artwork ────────────────────────────────────
@@ -4850,9 +5035,7 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                               style: TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.bold,
-                                color: isDark
-                                    ? Colors.white
-                                    : Colors.black87,
+                                color: isDark ? Colors.white : Colors.black87,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -4863,13 +5046,14 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                             // Surged fares get a subtle amber glow border.
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: hasCustomFare
                                   ? BoxDecoration(
                                       color: const Color(0xFFF59E0B)
                                           .withValues(alpha: 0.12),
-                                      borderRadius:
-                                          BorderRadius.circular(6),
+                                      borderRadius: BorderRadius.circular(6),
                                       border: Border.all(
                                         color: const Color(0xFFF59E0B)
                                             .withValues(alpha: 0.5),
@@ -4906,8 +5090,8 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                                     color: hasCustomFare
                                         ? const Color(0xFFF59E0B)
                                         : (isDark
-                                            ? Colors.grey.shade400
-                                            : Colors.grey.shade600),
+                                              ? Colors.grey.shade400
+                                              : Colors.grey.shade600),
                                   ),
                                 ),
                               ),
@@ -4921,19 +5105,20 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                         const SizedBox(height: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: isDark
-                                ? const Color(0xFF78350F)
-                                    .withValues(alpha: 0.3)
+                                ? const Color(0xFF78350F).withValues(alpha: 0.3)
                                 : const Color(0xFFFEF3C7),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
                               color: isDark
                                   ? const Color(0xFFF59E0B)
-                                      .withValues(alpha: 0.4)
+                                        .withValues(alpha: 0.4)
                                   : const Color(0xFFF59E0B)
-                                      .withValues(alpha: 0.3),
+                                        .withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
@@ -4983,8 +5168,7 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                     ),
                   ),
                   child: widget.selected
-                      ? const Icon(Icons.check,
-                          size: 16, color: Colors.black)
+                      ? const Icon(Icons.check, size: 16, color: Colors.black)
                       : null,
                 ),
               ],
@@ -4995,4 +5179,3 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
     );
   }
 }
-

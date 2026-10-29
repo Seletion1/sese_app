@@ -78,6 +78,10 @@ void main() {
           'Platform commission fee');
       expect(
           _tx('e', 'platform_commission', 35000).signedAmount, '-₦350.00');
+      expect(
+          _tx('comm1', 'platform_commission', 67500).signedAmount, '-₦675.00');
+      expect(
+          _tx('comm2', 'platform_commission', 127500).signedAmount, '-₦1,275.00');
       expect(_tx('f', 'bank_withdrawal', 100000).isCredit, isFalse);
       expect(
           _tx('f', 'bank_withdrawal', 100000).label, 'Bank withdrawal');
@@ -139,7 +143,7 @@ void main() {
           ]));
 
       expect(find.text('Wallet & Earnings'), findsOneWidget);
-      expect(find.text('₦2,500.00'), findsOneWidget);
+      expect(find.text('₦2,500.00'), findsWidgets);
       expect(find.text('+ Top Up'), findsOneWidget);
       expect(find.text('Withdraw / Payout'), findsOneWidget);
       expect(find.text('Ride fare received'), findsOneWidget);

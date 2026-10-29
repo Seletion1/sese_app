@@ -470,11 +470,43 @@ export const onTripCompleted = onDocumentUpdated(
     const streakRef = db().collection("driver_streaks").doc(driverId);
     batch.set(streakRef, streakToMap(result.newState, driverId), { merge: true });
 
-    // 2. Annotate the trip with the settled commission details
+    // 2. Deduct platform commission fee from driver wallet ledger & annotate trip
+    const commissionDebitNaira = result.commissionAmount;
+    const commissionDebitKobo = nairaToKobo(commissionDebitNaira);
+    const isCommissionAlreadySettled = after["settlement"]?.["commissionSettled"] === true;
+
+    if (commissionDebitKobo > 0 && !isCommissionAlreadySettled) {
+      const driverWalletRef = db().collection("wallets").doc(driverId);
+      batch.set(
+        driverWalletRef,
+        {
+          balance: admin.firestore.FieldValue.increment(-commissionDebitKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-commissionDebitNaira),
+        },
+        { merge: true }
+      );
+
+      const commTxRef = driverWalletRef
+        .collection("transactions")
+        .doc(`${tripId}_commission`);
+      batch.set(commTxRef, {
+        type: "platform_commission",
+        amount: commissionDebitKobo,
+        amountKobo: commissionDebitKobo,
+        amountNaira: commissionDebitNaira,
+        tripId,
+        currency: "NGN",
+        note: `Platform commission fee for trip ${tripId}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
     const tripRef = db().collection("trips").doc(tripId);
     batch.update(tripRef, {
       "settlement.commissionRate": result.commissionRate,
       "settlement.commissionAmount": result.commissionAmount,
+      "settlement.commissionSettled": true,
+      "settlement.commissionSettledAt": admin.firestore.FieldValue.serverTimestamp(),
       "settlement.cashBackAmount": result.cashBackAmount,
       "settlement.cashBonusAmount": result.cashBonusAmount,
       "settlement.streakLevel": streak.currentLevel,

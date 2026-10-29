@@ -118,5 +118,11 @@ void main() {
       expect(PaymentService.formatNaira(3700), '₦3,700.00');
       expect(PaymentService.formatNaira(10000.5), '₦10,000.50');
     });
+
+    test('formats negative amounts correctly without string artifacts', () {
+      expect(PaymentService.formatNaira(-525), '-₦525.00');
+      expect(PaymentService.formatNaira(-1275), '-₦1,275.00');
+      expect(PaymentService.formatNaira(-8500), '-₦8,500.00');
+    });
   });
 }
