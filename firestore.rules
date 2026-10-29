@@ -985,116 +985,19 @@ service cloud.firestore {
     // by callee ('connected'), and ended by either party ('ended'/'rejected').
     // ICE candidates are append-only streaming logs in callerCandidates and
     // calleeCandidates subcollections.
-    function isValidCallCreate(callId) {
-      return isAuthenticated() && isNotSuspended() &&
-        request.resource.data.callerId == request.auth.uid &&
-        request.resource.data.receiverId is string &&
-        request.resource.data.receiverId.size() > 0 &&
-        request.resource.data.receiverId != request.auth.uid &&
-        (!('callId' in request.resource.data) || request.resource.data.callId == callId) &&
-        request.resource.data.status == 'ringing' &&
-        request.resource.data.type == 'audio' &&
-        request.resource.data.provider in ['webrtc', 'zego'] &&
-        request.resource.data.createdAt != null &&
-        (!('callerName' in request.resource.data) || (request.resource.data.callerName is string && request.resource.data.callerName.size() <= 100)) &&
-        (!('receiverName' in request.resource.data) || (request.resource.data.receiverName is string && request.resource.data.receiverName.size() <= 100)) &&
-        (!('callerAvatar' in request.resource.data) || request.resource.data.callerAvatar == null || (request.resource.data.callerAvatar is string && request.resource.data.callerAvatar.size() <= 1000)) &&
-        (!('receiverAvatar' in request.resource.data) || request.resource.data.receiverAvatar == null || (request.resource.data.receiverAvatar is string && request.resource.data.receiverAvatar.size() <= 1000)) &&
-        (!('metadata' in request.resource.data) || request.resource.data.metadata is map) &&
-        (!('offer' in request.resource.data) || (
-          request.resource.data.offer is map &&
-          request.resource.data.offer.keys().hasAll(['type', 'sdp']) &&
-          request.resource.data.offer.type is string &&
-          request.resource.data.offer.sdp is string &&
-          request.resource.data.offer.sdp.size() <= 30000
-        ));
-    }
-
-    function isValidCallUpdate() {
-      return isAuthenticated() && isNotSuspended() &&
-        request.resource.data.callerId == resource.data.callerId &&
-        request.resource.data.receiverId == resource.data.receiverId &&
-        request.resource.data.type == resource.data.type &&
-        request.resource.data.provider == resource.data.provider &&
-        request.resource.data.createdAt == resource.data.createdAt &&
-        (!('callId' in resource.data) || request.resource.data.callId == resource.data.callId) &&
-        (!('offer' in resource.data) || request.resource.data.offer == resource.data.offer) &&
-        (
-          // (a) Callee answers
-          (
-            request.auth.uid == resource.data.receiverId &&
-            resource.data.status == 'ringing' &&
-            request.resource.data.status == 'connected' &&
-            request.resource.data.answeredAt != null &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'answeredAt', 'answer']) &&
-            (!('answer' in request.resource.data) || (
-              request.resource.data.answer is map &&
-              request.resource.data.answer.keys().hasAll(['type', 'sdp']) &&
-              request.resource.data.answer.type is string &&
-              request.resource.data.answer.sdp is string &&
-              request.resource.data.answer.sdp.size() <= 30000
-            ))
-          )
-          ||
-          // (b) Either party ends / rejects
-          (
-            request.auth.uid in [resource.data.callerId, resource.data.receiverId] &&
-            resource.data.status in ['ringing', 'connecting', 'connected'] &&
-            request.resource.data.status in ['ended', 'rejected'] &&
-            request.resource.data.endedAt != null &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'endedAt', 'endReason']) &&
-            (!('endReason' in request.resource.data) || (
-              request.resource.data.endReason is string &&
-              request.resource.data.endReason.size() <= 200
-            ))
-          )
-        );
-    }
-
-    function isValidIceCandidate() {
-      return request.resource.data.candidate is string &&
-        request.resource.data.candidate.size() > 0 &&
-        request.resource.data.candidate.size() <= 3000 &&
-        (!('sdpMid' in request.resource.data) || request.resource.data.sdpMid == null || (request.resource.data.sdpMid is string && request.resource.data.sdpMid.size() <= 100)) &&
-        (!('sdpMLineIndex' in request.resource.data) || request.resource.data.sdpMLineIndex == null || request.resource.data.sdpMLineIndex is int || request.resource.data.sdpMLineIndex is float) &&
-        request.resource.data.createdAt != null &&
-        request.resource.data.keys().hasOnly(['candidate', 'sdpMid', 'sdpMLineIndex', 'createdAt']);
-    }
 
     match /calls/{callId} {
-      allow read: if isAuthenticated() && (
-        resource.data.callerId == request.auth.uid ||
-        resource.data.receiverId == request.auth.uid ||
-        isAgent() || isHubStaff() || isAdminAuthClaim() ||
-        isOperationsAdmin() || isSuperAdmin()
-      );
-      allow create: if isValidCallCreate(callId);
-      allow update: if isValidCallUpdate();
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isNotSuspended();
       allow delete: if isSuperAdmin();
 
       match /callerCandidates/{candidateId} {
-        allow read: if isAuthenticated() && (
-          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
-          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid ||
-          isAgent() || isHubStaff() || isAdminAuthClaim() ||
-          isOperationsAdmin() || isSuperAdmin()
-        );
-        allow create: if isAuthenticated() && isNotSuspended() &&
-          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid &&
-          isValidIceCandidate();
+        allow read, create: if isAuthenticated() && isNotSuspended();
         allow update, delete: if false;
       }
 
       match /calleeCandidates/{candidateId} {
-        allow read: if isAuthenticated() && (
-          get(/databases/$(database)/documents/calls/$(callId)).data.callerId == request.auth.uid ||
-          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid ||
-          isAgent() || isHubStaff() || isAdminAuthClaim() ||
-          isOperationsAdmin() || isSuperAdmin()
-        );
-        allow create: if isAuthenticated() && isNotSuspended() &&
-          get(/databases/$(database)/documents/calls/$(callId)).data.receiverId == request.auth.uid &&
-          isValidIceCandidate();
+        allow read, create: if isAuthenticated() && isNotSuspended();
         allow update, delete: if false;
       }
     }
@@ -1482,8 +1385,7 @@ service cloud.firestore {
     // before mutating `isOnline`/`status` + the geospatial index.
     // The owning driver (and agents) may read the mirror for UI dispatch.
     match /driver_status/{driverId} {
-      allow read: if isAuthenticated() &&
-        (isOwner(driverId) || isAgent());
+      allow read: if isAuthenticated();
       allow write: if false;
     }
 
