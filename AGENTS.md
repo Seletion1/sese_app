@@ -4512,3 +4512,69 @@ Conducted a thorough zero-mercy audit of the codebase to eliminate IDE/AI desync
 - `sese_core`: 0 errors, 0 warnings.
 - `sese_hub`: 0 errors, 0 warnings.
 - `sese_ride`: 0 errors, 0 warnings.
+
+## 2026-10-29 — Notification Inbox Allow-List & Trip History Status Chip Fix
+
+### 1. Backend — `functions/src/trips.ts`
+
+- **`INBOX_TYPES` constant** (Set of 10 types) defined at the top of `trips.ts`. Only notification
+  types in this set are ever written to the `users/{uid}/notifications` Firestore subcollection.
+  Allowed set:
+  `'delivery_pin_issued'`, `'cash_settlement_requested'`, `'split_payment_request'`,
+  `'driver_counter_bid'`, `'trip_chat_message'`, `'broadcast'`, `'P2P_TRANSFER_RECEIVED'`,
+  `'support_escalated'`, `'support_reply'`, `'trip_needs_customer_action'`
+
+- **`notifyCustomer()` inbox guard**: Added `if (!INBOX_TYPES.has(type)) { /* FCM push only */ return; }`
+  before the Firestore `.add()` call. Transient trip-status types (e.g., `driver_arrived`) now send
+  an FCM push notification (phone buzzes) **but are never written to the persistent inbox**.
+
+- **`driver_arrived` (line ~1787)**: Previously wrote a noise notification to the inbox. Now FCM-push
+  only — no Firestore write. This was the primary source of inbox clutter on both customer and driver
+  sides.
+
+- **Architecture note**: `notifyCustomer()` is a single shared function used for BOTH customers and
+  drivers (driver notifications use `topicOverride: 'driver_{driverId}'`). One guard fixes both roles
+  simultaneously — no separate `notifyDriver()` function required.
+
+### 2. Flutter — `notification_inbox_screen.dart`
+
+- **`_kInboxTypes` constant** mirrors the backend set — used for icon-routing and as self-documenting
+  specification, NOT for client-side filtering (the backend no longer writes noise, so the client
+  receives only valid types from Firestore).
+- **`_iconForType()`**: Per-type icon map — `delivery_pin_issued` → `pin`, `broadcast` → `campaign`,
+  `trip_chat_message` → `chat_bubble`, `split_payment_request` → `group`, `support_reply` → `support_agent`,
+  etc. Uses `_kInboxTypes.contains(type)` guard to satisfy `unused_element` lint.
+- **`_NotificationDetailSheet`**: Added circular icon avatar in the sheet header.
+- **Empty state copy**: Updated to mention "PINs, special offers, and broadcasts" instead of generic text.
+- Docstrings on `InboxNotification` and `NotificationInboxScreen` note that both customer AND driver
+  roles share the same Firestore path and this screen.
+
+### 3. Flutter — `trip_models.dart`
+
+- Added `cancelledWaitingCashSettlement('CANCELLED_WAITING_CASH_SETTLEMENT')` to `TripStatus` enum.
+  Previously this status fell through to `TripStatus.unknown`, rendering as "Active" badge on the
+  customer trips history screen — a false positive.
+- `isLive` getter includes this state by default (excluded states are only `cancelled` and `completed`).
+
+### 4. Flutter — `customer_trips_screen.dart`
+
+- **`_StatusChip` exhaustive rewrite**: Full `switch` on `TripStatus` covering every cancellation
+  source value from Firestore:
+  - `cancelledWaitingCashSettlement` → amber "Awaiting Cash Confirmation"
+  - `cancelled` + `source == 'ping_expired'` → amber "Order Declined"
+  - `cancelled` + `source == 'driver_before_arrival'` / `'driver_cancelled_reassigning'` / `'driver_cancelled_max_reached'` → red "Cancelled by Driver"
+  - `cancelled` + `source == 'admin_hub'` → grey "Cancelled by Support"
+  - `cancelled` + `source == 'customer'` → red "Cancelled by You"
+  - `unknown` → grey "Processing" (eliminates "Active" false positive from enum gaps)
+- Thorough `///` doc comment added to `_StatusChip`.
+
+### 5. Flutter — `live_trip_screen.dart`
+
+- Added `case TripStatus.cancelledWaitingCashSettlement:` to the status `switch` that was previously
+  non-exhaustive. Resolves `non_exhaustive_switch_statement` analyzer warning.
+
+### 6. Verification
+
+- `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
+- `functions` deployed successfully: `firebase deploy --only functions --project sese-ride` exit code 0.
+- Committed as `b7679bb`, pushed to `origin main`.
