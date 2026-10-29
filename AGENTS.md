@@ -4578,3 +4578,69 @@ Conducted a thorough zero-mercy audit of the codebase to eliminate IDE/AI desync
 - `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
 - `functions` deployed successfully: `firebase deploy --only functions --project sese-ride` exit code 0.
 - Committed as `b7679bb`, pushed to `origin main`.
+
+## 2026-10-29 — Active Trip Sheet UI Polish (Customer & Driver)
+
+### Problem (screenshot evidence)
+Customer `LiveTripScreen` was showing **two** amber status banners simultaneously:
+1. `_DriverEtaCard` — "In progress • 25 min to dropoff • 12.4 km"
+2. `_customerStatusMessage` container — "Trip in progress — sit back and relax"
+
+Both rendered on the same screen, creating visual clutter and confusion.
+
+### 1. Single Unified Status Banner (`live_trip_screen.dart`)
+
+- **`_AcceptedDriverSheet`**: Replaced the unconditional dual-banner layout with a
+  conditional single-source rule:
+  - When `trip.driverLat != null && trip.driverLng != null` → show only `_DriverEtaCard`
+    (already contains a rich status line with ETA + distance).
+  - When no GPS fix yet → show only the plain amber status box.
+  - The two containers are now **mutually exclusive** — exactly one is ever visible.
+- **`_DriverEtaCard`**: Added `driverArrived` case to the label switch so it reads
+  `"Driver arrived at pickup • X m away"` instead of the generic "arriving" phrasing.
+- **`_customerStatusMessage`**: Updated copy for all states to be concise and match
+  the new single-banner contract.
+
+### 2. Bold Fare + Vehicle Name Card (Customer & Driver Identity Row)
+
+Both `_AcceptedDriverSheet` (customer) and `_buildSheetContent` (driver) identity rows
+restructured into a **3-line card** layout inside a bordered container:
+- **Primary line**: Fare in `FontWeight.w900` size-20 amber + vehicle name/category bold-15
+  (price is immediately scannable at a glance, matching Uber/Bolt conventions).
+- **Secondary line**: First name · verified badge · star rating · plate number (driver side).
+- **Tertiary line** (driver only): Payment subtitle (`_formatTripPaymentSubtitle`).
+- Card background: `isDark ? Color(0xFF252530) : Colors.grey.shade50` with border — lifted
+  from plain `Padding` to a proper bordered `Container` for visual separation.
+
+### 3. Enlarged Communication Buttons (both sides)
+
+`_CommunicationButton` in both `live_trip_screen.dart` and `driver_active_trip_card.dart`:
+- `vertical` padding: `10 → 14`
+- `borderRadius`: `12 → 14`
+- Icon size: `19 → 21`
+- Font size: `13 → 14`, weight: `bold → w700`
+- Spacing between icon and label: `6 → 7`
+
+### 4. Direct Action Labels on Driver Slide Button (`driver_active_trip_card.dart`)
+
+`_nextLabel` getter: removed "Slide to" prefix from all four states:
+- `'Slide to Start Trip'` → `'On My Way'`
+- `'Slide to confirm Arrived'` → `'Arrived at Pickup'`
+- `'Slide to Start Ride'` → `'Start Ride'`
+- `'Slide to Complete Trip'` → `'Complete Trip'`
+- `'Slide to Confirm'` → `'Confirm'`
+
+The slider thumb arrow already communicates the swipe gesture — text stays action-focused.
+
+### 5. Driver Status Banner (`driver_active_trip_card.dart`)
+
+Added a new amber status banner above the action slider (mirroring customer sheet):
+- Uses new `_driverStatusMessage(trip)` and `_driverStatusIcon(status)` helpers.
+- States: "En route to [Name]" · "Approaching pickup" · "Arrived at pickup • Waiting for [Name]"
+  · "Trip in progress • En route to drop-off".
+- Same amber `0xFF78350F / 0xFFFEF3C7` colour scheme with `0xFFF59E0B` border.
+
+### 6. Verification
+
+- `analyze_files` across `sese_ride`, `sese_core`, `sese_hub`: **0 errors, 0 warnings**.
+- Committed as `7795a1e`, pushed to `origin main`.
