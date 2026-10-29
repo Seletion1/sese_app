@@ -2071,25 +2071,36 @@ export const cancelTrip = onCall(async (request) => {
   }
 
   // Driver Reassignment Loop (Up to 3 Times)
-  if (data.status === "DRIVER_ACCEPTED" || data.status === "DRIVER_ARRIVING") {
+  // Per spec: If a driver cancels a ride after accepting (even if arrived or picked up),
+  // it must NOT cancel the order for the customer — server holds and re-assigns.
+  const isDriverActiveStatus = [
+    "DRIVER_ACCEPTED",
+    "DRIVER_ARRIVING",
+    "DRIVER_ARRIVED",
+    "IN_PROGRESS",
+  ].includes(String(data.status));
+
+  if (isDriverActiveStatus) {
     const currentCount = Number(data.reassignmentCount ?? 0);
     const nextCount = currentCount + 1;
     const history = Array.isArray(data.reassignmentHistory)
-      ? [...data.reassignmentHistory, { driverId: callerId, cancelledAt: nowMs() }]
-      : [{ driverId: callerId, cancelledAt: nowMs() }];
+      ? [...data.reassignmentHistory, { driverId: callerId, cancelledAt: nowMs(), reason }]
+      : [{ driverId: callerId, cancelledAt: nowMs(), reason }];
 
     if (nextCount <= 3) {
-      // Auto-reassign to next nearest driver
+      // Auto-reassign to next nearest driver — DO NOT cancel for the customer!
       await ref.update({
         driver: null,
         driverLocation: null,
+        driverId: null,
+        arrivedAt: null,
         reassignmentCount: nextCount,
         reassignmentHistory: history,
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(callerId),
         status: "SEARCHING_DRIVER",
         cancellationSource: "driver_cancelled_reassigning",
         cancellationReason: reason,
-        statusMessage: `Driver cancelled. Reassigning to next available driver (Attempt ${nextCount} of 3)...`,
+        statusMessage: `Driver had to cancel. Finding you another nearby driver (Attempt ${nextCount} of 3)...`,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -2107,7 +2118,7 @@ export const cancelTrip = onCall(async (request) => {
       }
       return { ok: true, reassigned: true, attempt: nextCount };
     } else {
-      // Reached 3 cancellations: revert to needs_customer_action
+      // Reached 3 cancellations: revert to needs_customer_action so customer gets prompt modal
       await ref.update({
         status: "needs_customer_action",
         reassignmentCount: nextCount,
@@ -2115,6 +2126,8 @@ export const cancelTrip = onCall(async (request) => {
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(callerId),
         driver: null,
         driverLocation: null,
+        driverId: null,
+        arrivedAt: null,
         pingDriverId: null,
         pingDriverIds: [],
         pingExpiresAt: null,
@@ -2122,7 +2135,7 @@ export const cancelTrip = onCall(async (request) => {
         cancellationSource: "driver_cancelled_max_reached",
         cancellationReason: reason,
         statusMessage:
-          "Multiple drivers had to cancel. Please raise your fare/bid to attract nearby drivers.",
+          "All drivers are busy right now. Keep searching or wait?",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -2133,8 +2146,8 @@ export const cancelTrip = onCall(async (request) => {
           .doc(data.customerId)
           .collection("notifications")
           .add({
-            title: "Trip needs your attention",
-            body: "Drivers were unavailable. Please increase your fare to get a driver faster.",
+            title: "All drivers are currently busy",
+            body: "Do you still want to order? All drivers are busy right now. Keep searching or wait?",
             tripId,
             type: "trip_needs_customer_action",
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -2493,6 +2506,60 @@ export const increaseTripFare = onCall(async (request) => {
   }
 
   return { ok: true, newFare };
+});
+
+/**
+ * Customer chooses to keep searching after 3-strike driver cancellations or when drivers are busy.
+ * Resets reassignmentCount and restarts matchmaking without dropping the order or escrow.
+ */
+export const keepSearchingTrip = onCall(async (request) => {
+  const customerId = request.auth?.uid;
+  if (!customerId) {
+    throw new HttpsError("unauthenticated", "Must be logged in.");
+  }
+  const { tripId } = (request.data ?? {}) as { tripId?: string };
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "tripId is required.");
+  }
+
+  const tripRef = db().collection("trips").doc(tripId);
+  const tripSnap = await tripRef.get();
+  if (!tripSnap.exists) {
+    throw new HttpsError("not-found", "Trip not found.");
+  }
+  const tripData = tripSnap.data()!;
+  if (tripData.customerId !== customerId) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  await tripRef.update({
+    status: "SEARCHING_DRIVER",
+    reassignmentCount: 0,
+    statusMessage: "Searching for available drivers nearby...",
+    cancellationSource: null,
+    cancellationReason: null,
+    driver: null,
+    driverLocation: null,
+    driverId: null,
+    arrivedAt: null,
+    pingDriverId: null,
+    pingDriverIds: [],
+    pingExpiresAt: null,
+    tierExpiresAt: null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  const fresh = (await tripRef.get()).data()!;
+  const restarted = await startTier1(
+    tripRef,
+    fresh,
+    await getDispatchTuning()
+  );
+  if (!restarted) {
+    await startTier3(tripRef);
+  }
+
+  return { ok: true, status: "SEARCHING_DRIVER" };
 });
 
 /**

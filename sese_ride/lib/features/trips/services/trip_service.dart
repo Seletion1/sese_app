@@ -67,6 +67,9 @@ abstract class TripRepository {
   /// resets it to [TripStatus.searchingDriver] and restarts dispatch.
   Future<void> increaseTripFare(String tripId, double newFare);
 
+  /// Customer requests to continue searching after auto-reassignment threshold is reached.
+  Future<void> keepSearchingTrip(String tripId);
+
   /// Live stream of all bids on a trip, ordered newest-first.
   /// Only pending bids are relevant for the carousel; accepted/rejected
   /// are included so the UI can reflect outcomes in real time.
@@ -302,6 +305,17 @@ class FirestoreTripRepository implements TripRepository {
       await _fn.httpsCallable('increaseTripFare').call({
         'tripId': tripId,
         'newFare': newFare,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      throw TripException(e.code, _mapError(e.code, e.message));
+    }
+  }
+
+  @override
+  Future<void> keepSearchingTrip(String tripId) async {
+    try {
+      await _fn.httpsCallable('keepSearchingTrip').call({
+        'tripId': tripId,
       });
     } on FirebaseFunctionsException catch (e) {
       throw TripException(e.code, _mapError(e.code, e.message));

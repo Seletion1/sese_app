@@ -44,6 +44,7 @@ export {
   rejectBid,
   acceptBid,
   increaseTripFare,
+  keepSearchingTrip,
   verifyDeliveryPin,
   hubForceCompleteTrip,
   hubCancelRefundTrip,

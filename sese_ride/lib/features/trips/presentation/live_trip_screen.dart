@@ -19,6 +19,50 @@ import 'split_request_sheet.dart';
 import 'trip_chat_screen.dart';
 import 'trip_rating_dialog.dart';
 import '../services/trip_rating_service.dart';
+import '../../customer/presentation/customer_dispatch_screen.dart';
+
+/// Navigates back to the booking review screen or pops if already stacked.
+///
+/// If [CustomerDispatchScreen] pushed this screen, popping restores the exact
+/// in-memory state (controllers, addresses, vehicle choices, and payment modes).
+/// If opened directly (app relaunch / notification), reconstructs [CustomerDispatchScreen]
+/// seeded with all details from [trip] on step 2 (Review & Confirm).
+void _navigateBackToBookingOrPop(BuildContext context, ActiveTrip trip) {
+  if (Navigator.of(context).canPop()) {
+    Navigator.of(context).pop(true);
+    return;
+  }
+  final pickupLoc = trip.pickupLat != 0 && trip.pickupLng != 0
+      ? LatLng(trip.pickupLat, trip.pickupLng)
+      : null;
+  final dropoffLoc = trip.dropoffLat != 0 && trip.dropoffLng != 0
+      ? LatLng(trip.dropoffLat, trip.dropoffLng)
+      : null;
+
+  Navigator.of(context).pushReplacement(
+    MaterialPageRoute(
+      builder: (_) => CustomerDispatchScreen(
+        initialPickupAddress:
+            trip.pickupAddress.isNotEmpty ? trip.pickupAddress : null,
+        initialPickupLatLng: pickupLoc,
+        initialDropoffAddress:
+            trip.dropoffAddress.isNotEmpty ? trip.dropoffAddress : null,
+        initialDropoffLatLng: dropoffLoc,
+        initialPickupPhone:
+            trip.pickupPhone.isNotEmpty ? trip.pickupPhone : null,
+        initialDropoffPhone:
+            trip.dropoffPhone.isNotEmpty ? trip.dropoffPhone : null,
+        initialPickupName:
+            trip.pickupName.isNotEmpty ? trip.pickupName : null,
+        initialDropoffName:
+            trip.dropoffName.isNotEmpty ? trip.dropoffName : null,
+        initialPaymentMode:
+            trip.paymentMode.isNotEmpty ? trip.paymentMode : null,
+        initialStep: 2,
+      ),
+    ),
+  );
+}
 
 /// Live dispatch tracker for one trip.
 ///
@@ -76,7 +120,7 @@ class LiveTripScreen extends StatelessWidget {
               icon: Icons.cancel_outlined,
               title: 'Trip cancelled',
               body: reason,
-              onClose: () => Navigator.of(context).pop(),
+              onClose: () => _navigateBackToBookingOrPop(context, trip),
             );
           }
           // Special state: auto-reassignment exhausted — prompt fare boost.
@@ -107,6 +151,8 @@ class _NeedsActionBody extends StatefulWidget {
 class _NeedsActionBodyState extends State<_NeedsActionBody> {
   final _controller = TextEditingController();
   bool _loading = false;
+  bool _keepSearchingLoading = false;
+  bool _showBoostFields = false;
   String? _error;
 
   @override
@@ -123,6 +169,23 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<void> _keepSearching() async {
+    setState(() {
+      _keepSearchingLoading = true;
+      _error = null;
+    });
+    try {
+      await widget.repository.keepSearchingTrip(widget.trip.tripId);
+      // Stream updates to SEARCHING_DRIVER automatically.
+    } on TripException catch (e) {
+      if (mounted) setState(() => _error = e.userMessage);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _keepSearchingLoading = false);
+    }
   }
 
   Future<void> _boostFare() async {
@@ -159,7 +222,7 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) _navigateBackToBookingOrPop(context, widget.trip);
     } on TripException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -170,99 +233,204 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.warning_amber_rounded, size: 64, color: cs.error),
-          const SizedBox(height: 16),
-          Text(
-            'No drivers available',
-            style: Theme.of(context).textTheme.headlineSmall
-                ?.copyWith(fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'We tried 3 times but couldn\'t find a driver for your trip.\n'
-            'Increase your offer to attract more drivers, or cancel.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(height: 24),
-          // Quick boost presets: +5% / +10% / +20% over the current fare.
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 8,
-            children: [5, 10, 20].map((pct) {
-              final base = widget.trip.fareAmount;
-              final boosted = (base * (100 + pct) / 100).round();
-              return OutlinedButton(
-                onPressed: _loading
-                    ? null
-                    : () => setState(() {
-                          _controller.text = boosted.toString();
-                          _error = null;
-                        }),
-                child: Text('+$pct%'),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF252530) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: borderColor),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+                blurRadius: 16,
+                offset: const Offset(0, 6),
+              ),
             ],
-            decoration: InputDecoration(
-              labelText: 'New fare amount',
-              prefixText: '₦ ',
-              errorText: _error,
-              helperText:
-                  'Current: ${widget.trip.fareFormatted.isNotEmpty ? widget.trip.fareFormatted : '₦${widget.trip.fareAmount.toStringAsFixed(0)}'}',
-            ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              icon: _loading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.access_time_filled_rounded,
+                  size: 36,
+                  color: Color(0xFFF59E0B),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Do you still want to order?',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'All drivers are busy right now. Keep searching or wait?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 24),
+              // Action 1: Keep Searching
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: _keepSearchingLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black87,
+                          ),
+                        )
+                      : const Icon(Icons.search_rounded, color: Colors.black87),
+                  label: Text(
+                    _keepSearchingLoading ? 'Searching...' : 'Keep Searching',
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  onPressed: (_keepSearchingLoading || _loading)
+                      ? null
+                      : _keepSearching,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    minimumSize: const Size.fromHeight(50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Action 2: Boost Fare (Toggleable)
+              if (!_showBoostFields)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.bolt, color: Color(0xFFF59E0B)),
+                    label: const Text('Boost Offer Fare (Optional)'),
+                    onPressed: () => setState(() => _showBoostFields = true),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      side: BorderSide(color: borderColor),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    )
-                  : const Icon(Icons.bolt),
-              label: Text(_loading ? 'Boosting...' : 'Boost Fare'),
-              onPressed: _loading ? null : _boostFare,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                    ),
+                  ),
+                )
+              else ...[
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  children: [5, 10, 20].map((pct) {
+                    final base = widget.trip.fareAmount;
+                    final boosted = (base * (100 + pct) / 100).round();
+                    return OutlinedButton(
+                      onPressed: _loading
+                          ? null
+                          : () => setState(() {
+                                _controller.text = boosted.toString();
+                                _error = null;
+                              }),
+                      child: Text('+$pct%'),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _controller,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
+                  ],
+                  decoration: InputDecoration(
+                    labelText: 'New fare amount',
+                    prefixText: '₦ ',
+                    errorText: _error,
+                    helperText:
+                        'Current: ${widget.trip.fareFormatted.isNotEmpty ? widget.trip.fareFormatted : "₦${widget.trip.fareAmount.toStringAsFixed(0)}"}',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.bolt),
+                    label:
+                        Text(_loading ? 'Boosting...' : 'Submit Boost & Search'),
+                    onPressed: _loading ? null : _boostFare,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              // Action 3: Cancel & Return to Booking
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.close, color: Colors.redAccent),
+                  label: const Text(
+                    'Cancel & Return to Booking',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onPressed: _cancel,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              icon: const Icon(Icons.close),
-              label: const Text('Cancel trip'),
-              onPressed: _cancel,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(44),
-                side: BorderSide.none,
-                backgroundColor: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -692,7 +860,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
-      if (context.mounted) Navigator.of(context).pop();
+      if (context.mounted) _navigateBackToBookingOrPop(context, widget.trip);
     } on TripException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -1037,9 +1205,11 @@ class _LiveTripSearchingSheet extends StatelessWidget {
     switch (trip.status) {
       case TripStatus.searchingDriver:
       case TripStatus.unknown:
-        message = trip.declineCount > 0
-            ? "First driver didn't accept... Looking for available drivers"
-            : 'Searching for nearby available drivers...';
+        message = trip.reassignmentCount > 0
+            ? 'Driver had to cancel. Finding you another nearby driver...'
+            : (trip.declineCount > 0
+                ? "First driver didn't accept... Looking for available drivers"
+                : 'Searching for nearby available drivers...');
       case TripStatus.waitingForAcceptance:
       case TripStatus.driverPinged:
         message = 'Driver connected... Waiting for driver to accept';
@@ -2195,7 +2365,7 @@ class _CompletedTripViewState extends State<_CompletedTripView> {
       iconColor: Colors.green,
       title: 'Trip completed',
       body: 'Thanks for riding with SESE.',
-      onClose: () => Navigator.of(context).pop(),
+      onClose: () => Navigator.of(context).pop('completed'),
     );
   }
 }

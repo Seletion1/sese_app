@@ -60,6 +60,30 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-29 — Route Retention, Server-Side Driver Cancellation Re-Matching & 3-Strike Threshold Flow
+
+- **Navigation State Preservation & Route Retention**:
+  - In `customer_dispatch_screen.dart`: Replaced `pushReplacement` with `await Navigator.push<dynamic>(MaterialPageRoute(builder: (_) => LiveTripScreen(...)))`. By keeping `CustomerDispatchScreen` alive on the navigator stack while tracking the live trip, any cancellation, error, or user back-press seamlessly pops back to the dispatch screen with all controller text, selected vehicle categories, custom fares, polyline route previews, and payment configurations 100% preserved in memory.
+  - Added constructors parameters `initialStep`, `initialPickupName`, `initialDropoffName`, `initialPaymentMode`, `initialCategory` to `CustomerDispatchScreen`. If `LiveTripScreen` is ever opened directly (app relaunch or notification) and cancelled, `_navigateBackToBookingOrPop` reconstructs `CustomerDispatchScreen` on Step 2 (Review & Confirm) with all coordinates, contact numbers, names, and payment preferences pre-populated.
+  - If a ride completes normally (`pop('completed')`), `CustomerDispatchScreen` cleanly pops back to the customer home map.
+- **Server-Side Reassignment & Driver Drop Resilience (`cancelTrip`)**:
+  - In `functions/src/trips.ts:cancelTrip`: When a driver cancels an assigned ride (across all active statuses: `DRIVER_ACCEPTED`, `DRIVER_ARRIVING`, `DRIVER_ARRIVED`, `IN_PROGRESS`):
+    - The customer order is **not** cancelled.
+    - If `reassignmentCount <= 3`, the server resets the trip to `SEARCHING_DRIVER`, clears driver assignment fields (`driverId`, `driver`, `driverArrivedAt`, etc.), appends the cancelling driver to `attemptedDriverIds`, and automatically triggers `startTier1`/`startTier3` to broadcast and re-assign to another nearby driver.
+    - Customer wallet escrow remains securely locked in place during re-matching.
+- **Dynamic Re-matching UX & 3-Strike Threshold Modal**:
+  - In `live_trip_screen.dart:1040`: When `trip.status == TripStatus.searchingDriver` and `trip.reassignmentCount > 0`, UI displays dynamic status: *"Driver had to cancel. Finding you another nearby driver..."*.
+  - When driver cancellation re-matching exceeds 3 consecutive attempts (`nextCount > 3`), the backend transitions the trip to `needs_customer_action` with `cancellationSource: "driver_cancelled_max_reached"`.
+  - In `live_trip_screen.dart: _NeedsActionBody`: Overhauled into a theme-aware status modal prompting:
+    - Title: *"Do you still want to order?"*
+    - Subtitle: *"All drivers are busy right now. Keep searching or wait?"*
+    - Primary Action: **Keep Searching** (calls new callable `keepSearchingTrip`, which resets `reassignmentCount: 0`, updates status to `SEARCHING_DRIVER`, and restarts matchmaking).
+    - Optional Action: **Boost Offer Fare** (expandable fare adjustment presets).
+    - Cancel Action: **Cancel & Return to Booking** (cancels trip and routes back to the pre-populated review screen).
+- **Verification**:
+  - MCP `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **No errors (0 errors, 0 warnings)**.
+  - Backend `functions`: `npm run build` compiled cleanly (`tsc` exit code 0).
+
 ## 2026-10-29 — Driver Floating Logo Overlay, PiP Activation & Minimized Order Foreground Lifecycle
 
 - **Reliable Floating Logo Overlay Activation (Online Status)**:

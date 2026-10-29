@@ -244,5 +244,8 @@ class _StubTripRepository implements TripRepository {
   Future<void> increaseTripFare(String tripId, double newFare) async {}
 
   @override
+  Future<void> keepSearchingTrip(String tripId) async {}
+
+  @override
   Stream<List<BidModel>> bidsStream(String tripId) => Stream.value(const []);
 }

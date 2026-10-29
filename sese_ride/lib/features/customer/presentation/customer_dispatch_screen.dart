@@ -118,6 +118,19 @@ class CustomerDispatchScreen extends StatefulWidget {
   final String? initialPickupPhone;
   final String? initialDropoffPhone;
 
+  /// Initial step index (0 = Locations, 1 = Option, 2 = Review/Confirm).
+  final int initialStep;
+
+  /// Optional initial contact names (restored booking seam).
+  final String? initialPickupName;
+  final String? initialDropoffName;
+
+  /// Optional initial payment mode ('sender_pays', 'receiver_pays', 'split').
+  final String? initialPaymentMode;
+
+  /// Optional initial category or tier.
+  final String? initialCategory;
+
   const CustomerDispatchScreen({
     super.key,
     this.initialConfig,
@@ -133,6 +146,11 @@ class CustomerDispatchScreen extends StatefulWidget {
     this.initialDropoffAddress,
     this.initialPickupPhone,
     this.initialDropoffPhone,
+    this.initialStep = 0,
+    this.initialPickupName,
+    this.initialDropoffName,
+    this.initialPaymentMode,
+    this.initialCategory,
     this.tripRepository,
   });
 
@@ -418,6 +436,24 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       _dropoffPhoneController.text =
           nationalDisplayDigits(widget.initialDropoffPhone);
     }
+    if (widget.initialStep > 0) {
+      _currentStep = widget.initialStep;
+    }
+    if (widget.initialPaymentMode != null &&
+        widget.initialPaymentMode!.isNotEmpty) {
+      _paymentMode = widget.initialPaymentMode!;
+    }
+    if (widget.initialCategory != null) {
+      final cat = VehicleCategory.values
+          .where((c) =>
+              c.name.toLowerCase() == widget.initialCategory!.toLowerCase())
+          .firstOrNull;
+      if (cat != null) {
+        _selectedDeliveryCategories.clear();
+        _selectedDeliveryCategories.add(cat);
+      }
+      _selectedRideTierIds.add(widget.initialCategory!.toLowerCase());
+    }
     // Pre-fill contact names with the same mode split as phones above.
     // In Send / Ride mode the booker is at pickup, so their name pre-fills
     // the pickup name field. In Receive mode they ARE the recipient, so their
@@ -425,11 +461,15 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // the booker must explicitly name a third-party sender / recipient rather
     // than having their own name accidentally appear on the wrong endpoint.
     if (_isReceiveMode) {
-      _pickupNameController.text = ''; // remote sender — must be entered
-      _dropoffNameController.text = widget.user?.fullName ?? '';
+      _pickupNameController.text =
+          widget.initialPickupName ?? ''; // remote sender — must be entered
+      _dropoffNameController.text =
+          widget.initialDropoffName ?? (widget.user?.fullName ?? '');
     } else {
-      _pickupNameController.text = widget.user?.fullName ?? '';
-      _dropoffNameController.text = ''; // recipient — enter if third-party
+      _pickupNameController.text =
+          widget.initialPickupName ?? (widget.user?.fullName ?? '');
+      _dropoffNameController.text =
+          widget.initialDropoffName ?? ''; // recipient — enter if third-party
     }
     // Rebuild on phone edits so the Confirm button enablement tracks
     // validity live (a malformed non-empty entry still blocks; empty never
@@ -458,6 +498,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _loadSavedPlaces();
     if (_pickupLatLng != null && _dropoffLatLng != null) {
       _updateMapBoundsAndRoute();
+      if (_currentStep >= 1) {
+        // ignore: discarded_futures
+        _loadFares();
+      }
     }
     // When either address is pre-seeded, focus the mode-appropriate field
     // once the first frame is laid out (pickup for Receive, drop-off
@@ -1922,10 +1966,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     };
     debugPrint('Dispatch payload: $dispatchPayload');
 
-    // 2. Navigate directly to the live tracker — the customer immediately sees
-    // "Searching for nearby available drivers..." without an intermediate dialog.
+    // 2. Navigate directly to the live tracker while retaining this booking state underneath
+    // so any cancellation or re-editing seamlessly restores all inputs without route reset.
     if (mounted) {
-      Navigator.of(context).pushReplacement(
+      final result = await Navigator.of(context).push<dynamic>(
         MaterialPageRoute(
           builder: (_) => LiveTripScreen(
             tripId: tripId,
@@ -1933,6 +1977,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           ),
         ),
       );
+      if (result == 'completed' && mounted) {
+        Navigator.of(context).pop();
+      }
     }
   }
 

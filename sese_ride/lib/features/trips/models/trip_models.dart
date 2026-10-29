@@ -272,6 +272,9 @@ class ActiveTrip {
   /// Who pays the cash: 'sender', 'receiver', or 'split'.
   final String payerRole;
 
+  /// Number of times this order has been auto-reassigned after driver cancellation.
+  final int reassignmentCount;
+
   /// Whether the customer's wallet balance is locked into active trip escrow.
   final bool escrowLocked;
 
@@ -297,6 +300,7 @@ class ActiveTrip {
     this.distanceKm = 0,
     this.durationMins = 0,
     this.declineCount = 0,
+    this.reassignmentCount = 0,
     this.driver,
     this.driverLat,
     this.driverLng,
@@ -450,6 +454,7 @@ class ActiveTrip {
       distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0.0,
       durationMins: (map['durationMins'] as num?)?.toDouble() ?? 0.0,
       declineCount: (map['declineCount'] as num?)?.toInt() ?? 0,
+      reassignmentCount: (map['reassignmentCount'] as num?)?.toInt() ?? 0,
       driver: driverMap.isEmpty ? null : DriverInfo.fromMap(driverMap),
       driverLat: (loc['lat'] as num?)?.toDouble(),
       driverLng: (loc['lng'] as num?)?.toDouble(),
