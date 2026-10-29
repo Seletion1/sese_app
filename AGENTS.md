@@ -60,6 +60,37 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-29 — Rating, Cancellation Feedback & Real Profile Metrics
+
+- **Post-Trip Low-Rating Chip Flow**:
+  - `TripRatingDialog` now shows a `_showLowRatingSection` (true when ≤3 stars selected) that expands a red-tinted container with quick-tap reason chips and an optional free-text field.
+  - Driver chips: `"Late arrival"`, `"Unprofessional behavior"`, `"Poor driving"`, `"Vehicle condition"`, `"Took wrong route"`, `"Did not follow instructions"`.
+  - Customer chips: `"Rude customer"`, `"Wrong address"`, `"No-show"`, `"Unreasonable request"`, `"Unsafe behavior"`.
+  - `_submit()` combines selected chip labels + free-text into a single comment and passes a `lowRatingReasons: List<String>` to `TripRatingService.submitRating()`.
+  - `TripRatingService.submitRating()` stores `lowRatingReasons` and `isLowRating` flag on `ratings/{tripId}_{raterId}` in Firestore.
+
+- **Post-Cancellation Feedback Bottom Sheet**:
+  - `CancelTripDialog.showPostCancelFeedback()` static method presents `_PostCancelFeedbackSheet` after any successful `cancelTrip()` server call.
+  - Reason chips offered: `"Driver took too long"`, `"Change of plans"`, `"Wrong address entered"`, `"Found another option"`, `"Emergency"`, `"Price too high"`, `"No drivers available"`.
+  - User can skip (no-op) or submit; submission calls `TripRatingService.submitCancellationFeedback()` which writes to `cancellation_feedback/{tripId}_{userId}`.
+  - Wired into both `_NeedsActionBodyState._cancel()` and `_LiveTripBodyState._cancel()` in `live_trip_screen.dart`, and `_cancelTripWithDialog()` in `driver_active_trip_card.dart`.
+
+- **`completedTrips` Counter (Backend)**:
+  - `functions/src/driverStreak.ts:onTripCompleted`: after the main batch commit, atomically increments `completedTrips` on both `users/{driverId}` and `users/{customerId}` via `FieldValue.increment(1)` with `merge: true`. Failures are caught and `console.warn`-ed (non-fatal).
+
+- **`submitCancellationFeedback` Callable (Backend)**:
+  - New callable in `functions/src/trips.ts` — validates `tripId`, `userId`, `role` (`'customer'|'driver'`), `reason` (≤100 chars), optional `detail` (≤300 chars); writes to `cancellation_feedback/{tripId}_{userId}` with `merge: false` (idempotent per cancel event).
+
+- **`MutualProfileModal` Mock Data Removal**:
+  - Removed `ratingCount * 3 + 5` formula for `completedTrips` fallback and `?? 12` fallback for `ratingCount`.
+  - Both now default to `0` — real Firestore data or nothing. Rating card shows `'—'` / `'No ratings yet'` when `ratingCount == 0`. Review count uses singular/plural correctly.
+  - `test/trip_rating_test.dart` `_FakeRatingService.submitRating()` updated to include `lowRatingReasons = const []` to match new service signature.
+
+- **Verification**:
+  - `analyze_files` across `sese_ride`, `sese_core`, and `sese_hub`: **No errors (0 errors, 0 warnings)**.
+  - `functions` deployed successfully: `firebase deploy --only functions --project sese-ride` exit code 0.
+  - Committed as `d713c72`, pushed to `origin main`.
+
 ## 2026-10-29 — Production Standards: Zero Mock Data, Clean Error UX & Credential Hygiene
 
 - **Zero Mock Data in Production Paths**:
