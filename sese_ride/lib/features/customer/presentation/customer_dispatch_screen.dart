@@ -4766,11 +4766,11 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         );
       },
     );
-    } finally {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ctrl.dispose();
-      });
-    }
+  } finally {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ctrl.dispose();
+    });
+  }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
