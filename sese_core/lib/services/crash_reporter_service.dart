@@ -53,8 +53,11 @@ class CrashReporterService {
     // 2. Platform dispatcher async / isolate error handler
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       final errStr = error.toString();
-      if (errStr.contains('The client has already been terminated')) {
-        return true; // Ignore hot-restart platform channel teardown
+      if (errStr.contains('The client has already been terminated') ||
+          errStr.contains('!_debugLocked') ||
+          errStr.contains('permission-denied') ||
+          errStr.contains('PERMISSION_DENIED')) {
+        return true; // Ignore transient framework/hot-restart/permission errors
       }
       if (kDebugMode) {
         debugPrint('CrashReporterService caught async platform error: $error');
@@ -73,7 +76,10 @@ class CrashReporterService {
 
   /// Builds a clean, reassuring user-facing error widget and logs crash details.
   static Widget buildErrorWidget(FlutterErrorDetails details) {
-    debugPrint('CrashReporterService.buildErrorWidget: ${details.exceptionAsString()}');
+    final errStr = details.exceptionAsString();
+    if (!errStr.contains('!_debugLocked')) {
+      debugPrint('CrashReporterService.buildErrorWidget: $errStr');
+    }
     unawaited(recordCrash(
       details.exception,
       details.stack,
