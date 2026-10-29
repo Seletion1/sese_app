@@ -282,10 +282,23 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
   Future<bool?> _showPickupCashCheckDialog(ActiveTrip trip) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cashAmount =
-        trip.cashToCollect > 0 ? trip.cashToCollect : trip.fareAmount;
-    final cashStr = '₦${cashAmount.toStringAsFixed(0)}';
+    final mode = trip.paymentMode.toLowerCase();
+    final isSplit = mode == 'split';
     final hasWallet = trip.walletCoverageAmount > 0;
+
+    final double cashAmountAtPickup;
+    if (isSplit) {
+      final senderShare = trip.senderShareAmount ?? (trip.fareAmount / 2);
+      final senderWallet = math.min(senderShare, trip.walletCoverageAmount);
+      cashAmountAtPickup = math.max(0.0, senderShare - senderWallet);
+    } else if (hasWallet) {
+      cashAmountAtPickup = math.max(0.0, trip.fareAmount - trip.walletCoverageAmount);
+    } else {
+      // Standard 100% Cash trip — strictly collect full trip fare at pickup
+      cashAmountAtPickup = trip.fareAmount;
+    }
+
+    final cashStr = '₦${cashAmountAtPickup.toStringAsFixed(0)}';
     final walletStr = '₦${trip.walletCoverageAmount.toStringAsFixed(0)}';
 
     return showDialog<bool>(
@@ -304,9 +317,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              trip.serviceType == 'ride'
-                  ? 'Collect $cashStr CASH from Booker/Sender before starting ride.'
-                  : 'Collect $cashStr CASH from Sender before taking package.',
+              isSplit
+                  ? (trip.serviceType == 'ride'
+                      ? 'Collect $cashStr CASH (Sender\'s Split Share) before starting ride.'
+                      : 'Collect $cashStr CASH (Sender\'s Split Share) before taking package.')
+                  : (trip.serviceType == 'ride'
+                      ? 'Collect $cashStr CASH from Booker/Sender before starting ride.'
+                      : 'Collect $cashStr CASH from Sender before taking package.'),
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
             if (hasWallet) ...[
@@ -333,6 +350,30 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 ),
               ),
             ],
+            if (isSplit) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E293B)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF475569)
+                        : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: Text(
+                  'Split Payment Order: Receiver\'s share will be collected separately at drop-off.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -354,10 +395,24 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
   Future<bool?> _showDropoffCashCheckDialog(ActiveTrip trip) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cashAmount =
-        trip.cashToCollect > 0 ? trip.cashToCollect : trip.fareAmount;
-    final cashStr = '₦${cashAmount.toStringAsFixed(0)}';
+    final mode = trip.paymentMode.toLowerCase();
+    final isSplit = mode == 'split';
+    final isReceiverPays = mode == 'receiver_pays';
     final hasWallet = trip.walletCoverageAmount > 0;
+
+    final double cashAmountAtDropoff;
+    if (isSplit) {
+      final receiverShare = trip.receiverShareAmount ?? (trip.fareAmount / 2);
+      cashAmountAtDropoff = receiverShare;
+    } else if (isReceiverPays) {
+      cashAmountAtDropoff = trip.fareAmount;
+    } else if (hasWallet) {
+      cashAmountAtDropoff = math.max(0.0, trip.fareAmount - trip.walletCoverageAmount);
+    } else {
+      cashAmountAtDropoff = trip.fareAmount;
+    }
+
+    final cashStr = '₦${cashAmountAtDropoff.toStringAsFixed(0)}';
     final walletStr = '₦${trip.walletCoverageAmount.toStringAsFixed(0)}';
 
     return showDialog<bool>(
@@ -376,12 +431,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              trip.serviceType == 'ride'
-                  ? 'Collect $cashStr CASH from Rider/Receiver before ending ride.'
-                  : 'Collect $cashStr CASH from Receiver before releasing package.',
+              isSplit
+                  ? (trip.serviceType == 'ride'
+                      ? 'Collect $cashStr CASH (Receiver\'s Split Share) before ending ride.'
+                      : 'Collect $cashStr CASH (Receiver\'s Split Share) before releasing package.')
+                  : (trip.serviceType == 'ride'
+                      ? 'Collect $cashStr CASH from Rider/Receiver before ending ride.'
+                      : 'Collect $cashStr CASH from Receiver before releasing package.'),
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
-            if (hasWallet) ...[
+            if (hasWallet && !isSplit) ...[
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(8),

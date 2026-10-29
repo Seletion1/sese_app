@@ -138,7 +138,7 @@ class CrashReporterService {
         'fatal': fatal,
         'timestamp': FieldValue.serverTimestamp(),
         'createdAtIso': DateTime.now().toIso8601String(),
-        if (extraDetails != null) 'extra': extraDetails,
+        'extra': ?extraDetails,
       };
 
       await db

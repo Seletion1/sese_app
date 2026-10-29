@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/trips/models/bid_models.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
-import 'package:sese_ride/features/trips/presentation/live_trip_screen.dart';
 import 'package:sese_ride/features/trips/services/trip_service.dart';
 
 class _FakeTripRepo implements TripRepository {
