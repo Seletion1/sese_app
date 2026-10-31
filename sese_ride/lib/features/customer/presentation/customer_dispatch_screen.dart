@@ -4140,7 +4140,7 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.only(left: 22.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: Text(
                 pickup,
                 style: const TextStyle(
@@ -4151,11 +4151,11 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Padding(
-              padding: const EdgeInsets.only(left: 22.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: TextField(
                 controller: pickupNameController,
                 decoration: InputDecoration(
-                  labelText: 'Pickup Contact Name (Optional)',
+                  labelText: 'Pickup Contact Name',
                   hintText: 'e.g. Sender or pickup contact name',
                   prefixIcon: const Icon(Icons.person_outline, size: 20),
                   suffixIcon: ValueListenableBuilder<TextEditingValue>(
@@ -4184,11 +4184,11 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Padding(
-              padding: const EdgeInsets.only(left: 22.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: SesePhoneInputField(
                 controller: pickupPhoneController,
-                labelText: 'Pickup Phone Number (Optional)',
-                hintText: 'Leave empty to skip — e.g. call me on arrival',
+                labelText: 'Pickup Phone',
+                hintText: 'Leave empty to skip — e.g. call on arrival',
                 autoValidateMode: AutovalidateMode.onUserInteraction,
                 onPickContact: () async {
                   final res = await ContactsService.pickContact(context);
@@ -4213,8 +4213,8 @@ class _RouteReviewCard extends StatelessWidget {
             ),
 
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 14.0),
-              child: SizedBox(height: 12),
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: SizedBox(height: 8),
             ),
 
             // ── Drop-off section ────────────────────────────────────────
@@ -4234,7 +4234,7 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.only(left: 24.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: Text(
                 dropoff,
                 style: const TextStyle(
@@ -4245,11 +4245,11 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Padding(
-              padding: const EdgeInsets.only(left: 24.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: TextField(
                 controller: dropoffNameController,
                 decoration: InputDecoration(
-                  labelText: 'Drop-off Contact Name (Optional)',
+                  labelText: 'Drop-off Contact Name',
                   hintText: 'e.g. Recipient name',
                   prefixIcon: const Icon(Icons.person_outline, size: 20),
                   suffixIcon: ValueListenableBuilder<TextEditingValue>(
@@ -4278,11 +4278,11 @@ class _RouteReviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Padding(
-              padding: const EdgeInsets.only(left: 24.0),
+              padding: const EdgeInsets.only(left: 8.0),
               child: SesePhoneInputField(
                 controller: dropoffPhoneController,
-                labelText: 'Drop-off Contact Phone Number (Optional)',
-                hintText: 'Leave empty to skip — e.g. call me on arrival',
+                labelText: 'Drop-off Phone',
+                hintText: 'Leave empty to skip — e.g. call on arrival',
                 autoValidateMode: AutovalidateMode.onUserInteraction,
                 onPickContact: () async {
                   final res = await ContactsService.pickContact(context);

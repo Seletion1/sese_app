@@ -133,25 +133,22 @@ class SesePhoneSanitizer {
       }
     }
 
-    // 2. If starts with dial code without '+' (e.g. 2348161561592)
-    for (final len in [3, 2, 1]) {
-      if (digitsOnly.length >= len + 7) {
-        final prefix = digitsOnly.substring(0, len);
-        if (dialCodeToIso.containsKey(prefix)) {
-          final iso = dialCodeToIso[prefix]!;
-          String rest = digitsOnly.substring(len);
-          while (rest.startsWith(prefix)) {
-            rest = rest.substring(prefix.length);
-          }
-          return ParsedPhoneNumber(
-            isoCode: iso,
-            dialCode: '+$prefix',
-            nationalNumber: rest,
-            e164: normalize(trimmed, defaultIsoCode: iso),
-            hasExplicitCountryPrefix: true,
-          );
-        }
+    // 2. If starts with dial code matching the active default country without '+' (e.g. 2348161561592)
+    final defaultDialDigits = defaultDial.replaceAll(RegExp(r'\D'), '');
+    if (defaultDialDigits.isNotEmpty &&
+        digitsOnly.startsWith(defaultDialDigits) &&
+        digitsOnly.length >= defaultDialDigits.length + 7) {
+      String rest = digitsOnly.substring(defaultDialDigits.length);
+      while (rest.startsWith(defaultDialDigits)) {
+        rest = rest.substring(defaultDialDigits.length);
       }
+      return ParsedPhoneNumber(
+        isoCode: defaultIso,
+        dialCode: defaultDial,
+        nationalNumber: rest,
+        e164: normalize(trimmed, defaultIsoCode: defaultIso),
+        hasExplicitCountryPrefix: true,
+      );
     }
 
     // 3. Plain local national number (e.g. 08012345678 or 8012345678)
@@ -233,23 +230,19 @@ class SesePhoneSanitizer {
       return '+$withoutPlus';
     }
 
-    // 3. If it starts with known dial code digits without '+' (e.g. 234801...)
-    for (final len in [3, 2, 1]) {
-      if (digitsOnly.length >= len + 7) {
-        final prefix = digitsOnly.substring(0, len);
-        if (dialCodeToIso.containsKey(prefix)) {
-          String rest = digitsOnly.substring(len);
-          // SANITIZATION RULE: Remove duplicate dial code if repeated
-          while (rest.startsWith(prefix)) {
-            rest = rest.substring(prefix.length);
-          }
-          // SANITIZATION RULE: Strip leading zero(s)
-          while (rest.startsWith('0')) {
-            rest = rest.substring(1);
-          }
-          return '+$prefix$rest';
-        }
+    // 3. If it starts with active default dial code digits without '+' (e.g. 234801...)
+    final fallbackDialDigits = fallbackDial.replaceAll(RegExp(r'\D'), '');
+    if (fallbackDialDigits.isNotEmpty &&
+        digitsOnly.startsWith(fallbackDialDigits) &&
+        digitsOnly.length >= fallbackDialDigits.length + 7) {
+      String rest = digitsOnly.substring(fallbackDialDigits.length);
+      while (rest.startsWith(fallbackDialDigits)) {
+        rest = rest.substring(fallbackDialDigits.length);
       }
+      while (rest.startsWith('0')) {
+        rest = rest.substring(1);
+      }
+      return '+$fallbackDialDigits$rest';
     }
 
     // 4. Local national number (e.g. 08012345678 or 8012345678)

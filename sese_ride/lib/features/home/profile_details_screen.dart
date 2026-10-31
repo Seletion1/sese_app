@@ -371,8 +371,16 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
         TextFormField(
           controller: _email,
           enabled: false,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.85),
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
             labelText: 'Email Address',
+            labelStyle: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
             suffixIcon: const Icon(Icons.lock_outline, size: 16),
             filled: true,
             fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -441,6 +449,8 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     required bool locked,
     int maxLines = 1,
   }) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     return GestureDetector(
       onTap: locked ? _onLockedFieldTap : null,
       child: AbsorbPointer(
@@ -449,25 +459,20 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
           controller: controller,
           enabled: !locked,
           maxLines: maxLines,
-          style: locked
-              ? TextStyle(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.45),
-                )
-              : null,
+          style: TextStyle(
+            color: locked ? cs.onSurface.withValues(alpha: 0.85) : cs.onSurface,
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
             labelText: label,
-            filled: locked,
-            fillColor: locked
-                ? Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.5)
-                : null,
+            labelStyle: TextStyle(
+              color: cs.primary,
+              fontWeight: FontWeight.w600,
+            ),
+            filled: true,
+            fillColor: cs.surfaceContainerHighest,
             suffixIcon: locked
-                ? const Icon(Icons.lock_outline, size: 16)
+                ? Icon(Icons.lock_outline, size: 16, color: cs.onSurfaceVariant)
                 : null,
           ),
         ),

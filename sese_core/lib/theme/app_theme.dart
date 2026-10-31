@@ -136,8 +136,11 @@ abstract final class AppTheme {
       );
 
   /// Borderless chips.
-  static ChipThemeData _chipTheme(Color fillColor) => ChipThemeData(
+  static ChipThemeData _chipTheme(Color fillColor, {required bool isDark}) => ChipThemeData(
         backgroundColor: fillColor,
+        selectedColor: seseGold,
+        secondarySelectedColor: seseGold,
+        disabledColor: isDark ? const Color(0xFF2A2A36) : const Color(0xFFE0E0E0),
         side: BorderSide.none,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
@@ -145,7 +148,17 @@ abstract final class AppTheme {
         ),
         elevation: 0,
         pressElevation: 0,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+        labelStyle: TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          color: isDark ? Colors.white : const Color(0xFF1A1A1A),
+        ),
+        secondaryLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+          color: Colors.black,
+        ),
+        checkmarkColor: Colors.black,
       );
 
   // ─── Light Theme ─────────────────────────────────────────────────────────────
@@ -285,7 +298,7 @@ abstract final class AppTheme {
     outlinedButtonTheme: _outlinedButtonTheme(AppColors.lightFieldFill),
     filledButtonTheme: _filledButtonTheme(),
     elevatedButtonTheme: _elevatedButtonTheme(),
-    chipTheme: _chipTheme(AppColors.lightFieldFill),
+    chipTheme: _chipTheme(AppColors.lightFieldFill, isDark: false),
   );
 
   // ─── Dark Theme ──────────────────────────────────────────────────────────────
@@ -425,7 +438,7 @@ abstract final class AppTheme {
     outlinedButtonTheme: _outlinedButtonTheme(AppColors.darkFieldFill),
     filledButtonTheme: _filledButtonTheme(),
     elevatedButtonTheme: _elevatedButtonTheme(),
-    chipTheme: _chipTheme(AppColors.darkFieldFill),
+    chipTheme: _chipTheme(AppColors.darkFieldFill, isDark: true),
   );
 
   /// Callable aliases

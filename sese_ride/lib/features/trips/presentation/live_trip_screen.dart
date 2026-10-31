@@ -1281,27 +1281,27 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: cs.primaryContainer.withValues(alpha: 0.5),
+                  color: AppColors.seseGold,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    SizedBox(
+                    const SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: cs.primary,
+                        color: Colors.black,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         message,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: cs.onSurface,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
                         ),
                       ),
                     ),
@@ -1311,15 +1311,15 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: cs.primary,
+                          color: Colors.black,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
                           '$nearbyDriversCount nearby (${stageRadius.toStringAsFixed(stageRadius % 1 == 0 ? 0 : 1)}km)',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: cs.onPrimary,
+                            color: AppColors.seseGold,
                           ),
                         ),
                       ),

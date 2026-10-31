@@ -295,12 +295,12 @@ void main() {
       expect(find.text('Test Dropoff, Lagos'), findsWidgets);
       expect(
         find.widgetWithText(
-            TextFormField, 'Pickup Phone Number (Optional)'),
+            TextFormField, 'Pickup Phone'),
         findsOneWidget,
       );
       expect(
         find.widgetWithText(
-            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
+            TextFormField, 'Drop-off Phone'),
         findsOneWidget,
       );
     });
@@ -317,7 +317,7 @@ void main() {
       // A malformed non-empty entry still blocks, with an inline error.
       await tester.enterText(
         find.widgetWithText(
-            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
+            TextFormField, 'Drop-off Phone'),
         '12345',
       );
       await tester.pumpAndSettle();
@@ -327,12 +327,12 @@ void main() {
       // Clearing it re-enables; valid entries keep it enabled.
       await tester.enterText(
         find.widgetWithText(
-            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
+            TextFormField, 'Drop-off Phone'),
         '',
       );
       await tester.enterText(
         find.widgetWithText(
-            TextFormField, 'Pickup Phone Number (Optional)'),
+            TextFormField, 'Pickup Phone'),
         '08012345678',
       );
       await tester.pumpAndSettle();
@@ -355,14 +355,14 @@ void main() {
 
       final field = tester.widget<TextFormField>(
         find.widgetWithText(
-            TextFormField, 'Pickup Phone Number (Optional)'),
+            TextFormField, 'Pickup Phone'),
       );
       expect(field.controller?.text, '08012345678');
 
       // Drop-off starts empty and stays editable.
       final dropField = tester.widget<TextFormField>(
         find.widgetWithText(
-            TextFormField, 'Drop-off Contact Phone Number (Optional)'),
+            TextFormField, 'Drop-off Phone'),
       );
       expect(dropField.controller?.text ?? '', isEmpty);
     });
@@ -385,7 +385,7 @@ void main() {
 
       final field = tester.widget<TextFormField>(
         find.widgetWithText(
-            TextFormField, 'Pickup Phone Number (Optional)'),
+            TextFormField, 'Pickup Phone'),
       );
       final text = field.controller?.text ?? '';
       expect(text.startsWith('+'), isFalse);

@@ -233,7 +233,11 @@ class _OsmMapViewState extends State<OsmMapView> {
               fm.Polyline(
                 points: r.points.map(_toFm).toList(),
                 color: r.color,
-                strokeWidth: r.width.toDouble(),
+                strokeWidth: r.width < 5 ? 5.0 : r.width.toDouble(),
+                borderStrokeWidth: 1.5,
+                borderColor: isDark
+                    ? const Color(0x99000000)
+                    : const Color(0xCCFFFFFF),
               ),
           ],
         ),

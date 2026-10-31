@@ -214,24 +214,42 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                 runSpacing: 8,
                 children: [
                   for (final q in _quickAmounts)
-                    ChoiceChip(
-                      side: BorderSide.none,
-                      label: Text('₦${q.toStringAsFixed(0)}'),
-                      selected: _selectedQuick == q,
-                      onSelected: _busy
-                          ? null
-                          : (v) {
-                              // Mirror the chip into the amount field so the
-                              // user sees exactly what they will pay.
-                              _chipEcho = true;
-                              _amountCtrl.text =
-                                  v ? q.toStringAsFixed(0) : '';
-                              _chipEcho = false;
-                              setState(() {
-                                _selectedQuick = v ? q : null;
-                                _error = null;
-                              });
-                            },
+                    Builder(
+                      builder: (ctx) {
+                        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+                        final isSelected = _selectedQuick == q;
+                        return ChoiceChip(
+                          side: BorderSide.none,
+                          selectedColor: AppColors.seseGold,
+                          backgroundColor: isDark
+                              ? AppColors.darkFieldFill
+                              : AppColors.lightFieldFill,
+                          checkmarkColor: Colors.black,
+                          labelStyle: TextStyle(
+                            color: isSelected
+                                ? Colors.black
+                                : (isDark ? Colors.white : Colors.black87),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                          label: Text('₦${q.toStringAsFixed(0)}'),
+                          selected: isSelected,
+                          onSelected: _busy
+                              ? null
+                              : (v) {
+                                  // Mirror the chip into the amount field so the
+                                  // user sees exactly what they will pay.
+                                  _chipEcho = true;
+                                  _amountCtrl.text =
+                                      v ? q.toStringAsFixed(0) : '';
+                                  _chipEcho = false;
+                                  setState(() {
+                                    _selectedQuick = v ? q : null;
+                                    _error = null;
+                                  });
+                                },
+                        );
+                      },
                     ),
                 ],
               ),
