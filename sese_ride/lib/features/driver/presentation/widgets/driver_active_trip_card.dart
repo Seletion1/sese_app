@@ -1086,12 +1086,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
+  static const double _sheetCollapsedSize = 0.10;
+  static const double _sheetStandardSize = 0.42;
+  static const double _sheetExpandedSize = 0.88;
+
   void _toggleInternalSheet() {
     final ctrl = widget.sheetController ?? _internalSheetController;
     if (!ctrl.isAttached) return;
     try {
       final current = ctrl.size;
-      final target = current <= 0.20 ? 0.42 : 0.12;
+      final target = current <= 0.20 ? _sheetStandardSize : _sheetCollapsedSize;
       ctrl.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
@@ -1107,15 +1111,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
 
     final controller = widget.sheetController ?? _internalSheetController;
-    final initialSize = widget.sheetController != null ? 0.12 : 0.88;
+    final initialSize =
+        widget.sheetController != null ? _sheetCollapsedSize : _sheetExpandedSize;
 
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.12,
-      maxChildSize: 0.88,
+      minChildSize: _sheetCollapsedSize,
+      maxChildSize: _sheetExpandedSize,
       snap: true,
-      snapSizes: const [0.12, 0.42, 0.88],
+      snapSizes: const [_sheetCollapsedSize, _sheetStandardSize, _sheetExpandedSize],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },

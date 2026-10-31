@@ -72,6 +72,28 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-10-31 — Immersive Full-Screen Active Navigation, Sleek Bottom Sheet Auto-Collapse & Recenter Controls
+
+- **Auto-Collapse Bottom Sheet on Active Trip**:
+  - Implemented automatic minimization/collapse of `DriverActiveTripCard` to a sleek handle bar (`_sheetCollapsedSize = 0.10`) upon entering an active trip state (`driverAccepted`, `driverArriving`, `driverArrived`, `inProgress`).
+  - Maximizes screen real estate for the Mapbox/OpenStreetMap canvas, providing drivers with an unobstructed navigation map.
+  - Tapping or dragging the sleek handle bar smoothly expands the sheet to standard height (`0.42`) or full detail view (`0.88`).
+
+- **Interactive Map Panning & Recenter Control**:
+  - On user manual touch/pan gesture (`_mapController.onFollowingChanged`), GPS follow camera updates pause automatically to allow free panning and route exploration without fighting the GPS stream.
+  - Displays a clean, prominent "Recenter" pill button at bottom-center above the collapsed handle bar with an adaptive theme color for dark/light mode (`isDark ? Colors.white : Color(0xFF1E293B)`).
+  - Tapping "Recenter" instantly snaps camera to the driver's current position (`zoom: 16.5`), re-locks GPS live tracking (`_isFollowingUser = true`), and dismisses the recenter button.
+
+- **Movement Detection & Automatic Tracking / Sheet Restoration**:
+  - In `_checkAutoResumeTracking()`, monitors vehicle movement (`speed > 1.2 m/s` or displacement `> 10m` from pan origin) after a 4-second interaction quiet window, or after a 15-second idle timeout.
+  - Automatically re-engages GPS follow camera tracking and restores the standard active trip sheet (`0.42`), making trip controls (slider, contact buttons, destination details) instantly accessible as driving resumes.
+
+- **Verification & Deployment**:
+  - `flutter analyze` in `sese_ride`: **0 issues found**.
+  - `flutter test`: `driver_full_screen_nav_test.dart` and `driver_active_trip_card_test.dart` **all passed**.
+  - `functions`: `npm run build` compiled cleanly.
+  - `firebase deploy`: storage rules, firestore rules/indexes, and Cloud Functions deployed successfully.
+
 ## 2026-10-31 — Mandatory Testing Protocol Update
 
 - **Always Test When Done**:

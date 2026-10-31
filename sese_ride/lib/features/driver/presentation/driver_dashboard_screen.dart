@@ -126,6 +126,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   String? _trackedTripId;
   TripStatus? _lastTrackedStatus;
   LatLng? _tripStartLocation;
+  LatLng? _panOriginPosition;
   bool _hasAutoCollapsedForTrip = false;
   bool _isFollowingUser = true;
   DateTime? _lastPanTime;
@@ -249,6 +250,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _isFollowingUser = _mapController.isFollowingUser;
           if (!_isFollowingUser) {
             _lastPanTime = DateTime.now();
+            _panOriginPosition = _driverPosition;
           }
         });
       }
@@ -530,16 +532,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   void _checkAutoResumeTracking(Position pos, LatLng newPos) {
     if (_isFollowingUser) return;
     final now = DateTime.now();
-    if (_lastPanTime == null ||
-        now.difference(_lastPanTime!) < const Duration(seconds: 6)) {
-      return;
-    }
+    if (_lastPanTime == null) return;
 
+    final secondsSincePan = now.difference(_lastPanTime!).inSeconds;
+    // Allow driver a quiet window (at least 4s) so manual panning isn't interrupted mid-interaction
+    if (secondsSincePan < 4) return;
+
+    // Movement detection: vehicle moving (speed > 1.2 m/s ~ 4.3 km/h) or moved > 10m from pan origin
     bool isMoving = pos.speed > 1.2;
-    if (!isMoving && _tripStartLocation != null) {
+    if (!isMoving && _panOriginPosition != null) {
       final movedM = const Distance().as(
         LengthUnit.Meter,
-        _tripStartLocation!,
+        _panOriginPosition!,
         newPos,
       );
       if (movedM > 10.0) {
@@ -547,8 +551,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       }
     }
 
-    if (isMoving || _currentActiveTrip != null) {
+    // Auto-resume tracking if movement progresses or idle timeout reaches 15s
+    if (isMoving || secondsSincePan >= 15) {
       _recenterMap();
+      // Restore standard trip sheet state when movement resumes navigation
+      if (_currentActiveTrip != null && isMoving) {
+        _expandActiveTripSheetToStandard();
+      }
     }
   }
 
@@ -628,12 +637,26 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
   }
 
+  static const double _sheetCollapsedSize = 0.10;
+  static const double _sheetStandardSize = 0.42;
+
   void _collapseActiveTripSheet() {
     if (!_activeTripSheetController.isAttached) return;
     try {
       _activeTripSheetController.animateTo(
-        0.12,
-        duration: const Duration(milliseconds: 300),
+        _sheetCollapsedSize,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {}
+  }
+
+  void _expandActiveTripSheetToStandard() {
+    if (!_activeTripSheetController.isAttached) return;
+    try {
+      _activeTripSheetController.animateTo(
+        _sheetStandardSize,
+        duration: const Duration(milliseconds: 320),
         curve: Curves.easeOutCubic,
       );
     } catch (_) {}
@@ -643,13 +666,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       final current = _activeTripSheetController.size;
-      final target = current <= 0.20 ? 0.42 : 0.12;
+      final target = current <= 0.20 ? _sheetStandardSize : _sheetCollapsedSize;
       _activeTripSheetController.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
       );
     } catch (_) {}
+  }
+
+  void _autoCollapseSheetOnActiveTrip() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _collapseActiveTripSheet();
+    });
   }
 
 
@@ -1575,9 +1605,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             _fetchActiveTripRoute(active);
           }
           if (active.tripId != _trackedTripId || active.status != _lastTrackedStatus) {
-            if (active.status == TripStatus.inProgress &&
+            final isNewTrip = active.tripId != _trackedTripId;
+            final isActiveTripState = active.status == TripStatus.driverAccepted ||
+                active.status == TripStatus.driverArriving ||
+                active.status == TripStatus.driverArrived ||
+                active.status == TripStatus.inProgress;
+
+            if (isNewTrip && isActiveTripState) {
+              _hasAutoCollapsedForTrip = true;
+              _tripStartLocation = _driverPosition;
+              _autoCollapseSheetOnActiveTrip();
+            } else if (active.status == TripStatus.inProgress &&
                 _lastTrackedStatus != TripStatus.inProgress) {
-              _hasAutoCollapsedForTrip = false;
               _tripStartLocation = _driverPosition;
             }
             _trackedTripId = active.tripId;
@@ -1693,7 +1732,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             Positioned(
               right: 16,
               bottom: active != null
-                  ? 180
+                  ? 94
                   : (_isOnline ? 210 : 16),
               child: Material(
                 key: const Key('driver_recenter_fab'),
@@ -1718,12 +1757,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: active != null ? 100 : 130,
+                bottom: active != null ? 84 : 130,
                 child: Center(
                   child: Material(
                     key: const Key('driver_recenter_pill_button'),
                     color: isDark ? const Color(0xFF2D2D38) : Colors.white,
                     elevation: 6,
+                    shadowColor: Colors.black.withValues(alpha: 0.25),
                     borderRadius: BorderRadius.circular(28),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(28),
@@ -1735,10 +1775,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                           children: [
                             Transform.rotate(
                               angle: -math.pi / 4,
-                              child: const Icon(
+                              child: Icon(
                                 Icons.navigation_rounded,
                                 size: 20,
-                                color: Color(0xFF1E293B),
+                                color: isDark ? Colors.white : const Color(0xFF1E293B),
                               ),
                             ),
                             const SizedBox(width: 8),
