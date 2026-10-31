@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -1585,6 +1586,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         } else if (_activeRoutePoints.isNotEmpty) {
           _activeRoutePoints = [];
         }
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return Stack(
           fit: StackFit.expand,
           children: [
