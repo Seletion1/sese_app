@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../payments/payment_service.dart';
@@ -26,8 +28,9 @@ class TripEarning {
   double get netNaira => grossNaira - commissionNaira;
 
   factory TripEarning.fromTrip(ActiveTrip trip) {
-    final commission =
-        (trip.fareAmount * trip.commissionRate).abs();
+    final commission = trip.commissionAmount > 0
+        ? trip.commissionAmount
+        : (trip.fareAmount * trip.commissionRate).abs();
     return TripEarning(
       tripId: trip.tripId,
       grossNaira: trip.fareAmount,
@@ -78,26 +81,70 @@ class EarningsService {
   }
 
   /// Completed-trip earnings for [driverId], newest first.
+  /// Merges nested `driver.driverId` and flat `driverId` Firestore queries
+  /// so that every completed trip updates immediately with zero delay.
   Stream<List<TripEarning>> completedTripEarningsStream(String driverId,
       {int limit = 100}) {
     final db = _db;
     if (db == null || driverId.isEmpty) {
       return Stream.value(const <TripEarning>[]);
     }
-    return db
-        .collection('trips')
-        .where('driver.driverId', isEqualTo: driverId)
-        .limit(limit)
-        .snapshots()
-        .map((snap) {
-      final items = snap.docs
-          .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-          .where((t) => t.status == TripStatus.completed)
-          .map(TripEarning.fromTrip)
-          .toList()
+
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subNested;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subFlat;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> nestedDocs = const [];
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> flatDocs = const [];
+
+    late final StreamController<List<TripEarning>> controller;
+
+    void emitCombined() {
+      if (controller.isClosed) return;
+      final map = <String, ActiveTrip>{};
+      for (final doc in [...nestedDocs, ...flatDocs]) {
+        try {
+          final trip = ActiveTrip.fromMap(doc.id, doc.data());
+          if (trip.status == TripStatus.completed) {
+            map[trip.tripId] = trip;
+          }
+        } catch (_) {}
+      }
+      final items = map.values.map(TripEarning.fromTrip).toList()
         ..sort((a, b) => _compareEarningDate(b, a));
-      return items;
-    }).handleError((Object _) => const <TripEarning>[]);
+      controller.add(items.take(limit).toList());
+    }
+
+    controller = StreamController<List<TripEarning>>(
+      onListen: () {
+        subNested = db
+            .collection('trips')
+            .where('driver.driverId', isEqualTo: driverId)
+            .snapshots()
+            .listen(
+              (snap) {
+                nestedDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) => emitCombined(),
+            );
+        subFlat = db
+            .collection('trips')
+            .where('driverId', isEqualTo: driverId)
+            .snapshots()
+            .listen(
+              (snap) {
+                flatDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) => emitCombined(),
+            );
+      },
+      onCancel: () {
+        subNested?.cancel();
+        subFlat?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Real-time stream of today's earnings totals for [driverId].
@@ -162,7 +209,7 @@ class EarningsService {
       List<TripEarning> earnings, int year, int month) {
     var gross = 0.0, commission = 0.0, count = 0;
     for (final e in earnings) {
-      final d = e.completedAt;
+      final d = e.completedAt?.toLocal();
       if (d == null || d.year != year || d.month != month) continue;
       gross += e.grossNaira;
       commission += e.commissionNaira;
@@ -186,7 +233,7 @@ class EarningsService {
     var total = 0.0;
     for (final t in transactions) {
       if (!WalletTransaction.isIncentiveType(t.type)) continue;
-      final d = t.createdAt;
+      final d = t.createdAt?.toLocal();
       if (d == null || d.year != year || d.month != month) continue;
       total += t.amountNaira;
     }

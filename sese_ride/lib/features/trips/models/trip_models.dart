@@ -217,6 +217,7 @@ class ActiveTrip {
   final int streakLevel;
   final int streakStep;
   final double commissionRate;
+  final double commissionAmount;
   final double cashBackAmount;
   final double cashBonusAmount;
   final bool grandAwardTriggered;
@@ -335,6 +336,7 @@ class ActiveTrip {
     this.streakLevel = 0,
     this.streakStep = 0,
     this.commissionRate = 0,
+    this.commissionAmount = 0,
     this.cashBackAmount = 0,
     this.cashBonusAmount = 0,
     this.grandAwardTriggered = false,
@@ -518,6 +520,7 @@ class ActiveTrip {
       streakLevel: (settlement['streakLevel'] as num?)?.toInt() ?? 0,
       streakStep: (settlement['streakStep'] as num?)?.toInt() ?? 0,
       commissionRate: (settlement['commissionRate'] as num?)?.toDouble() ?? 0,
+      commissionAmount: (settlement['commissionAmount'] as num?)?.toDouble() ?? 0,
       cashBackAmount: (settlement['cashBackAmount'] as num?)?.toDouble() ?? 0,
       cashBonusAmount: (settlement['cashBonusAmount'] as num?)?.toDouble() ?? 0,
       grandAwardTriggered: settlement['grandAwardTriggered'] == true,

@@ -49,6 +49,14 @@ class WalletTransaction {
         return 'Wallet top-up';
       case 'trip_payment':
         return 'Trip payment';
+      case 'trip_wallet_settlement':
+        return 'Ride fare received';
+      case 'trip_escrow_hold':
+      case 'escrow_hold':
+        return 'Trip escrow hold';
+      case 'trip_escrow_refund':
+      case 'escrow_refund':
+        return 'Trip escrow refund';
       case 'streak_level2_cashback':
         return 'Streak cash-back';
       case 'streak_level3_bonus':
@@ -87,6 +95,7 @@ class WalletTransaction {
   /// known debit families (and `*_debit`/`*_fee`/`*_withdrawal`/`*_payout`
   /// suffixes for forward-compat) resolve to debit.
   bool get isCredit {
+    if (amountKobo < 0 || amountNaira < 0) return false;
     const debitTypes = {
       'platform_commission',
       'commission_fee',
@@ -98,12 +107,15 @@ class WalletTransaction {
       'fee',
       'debit',
       'penalty',
+      'trip_escrow_hold',
+      'escrow_hold',
     };
     if (debitTypes.contains(type)) return false;
     if (type.endsWith('_debit') ||
         type.endsWith('_fee') ||
         type.endsWith('_withdrawal') ||
-        type.endsWith('_payout')) {
+        type.endsWith('_payout') ||
+        type.endsWith('_hold')) {
       return false;
     }
     return true;

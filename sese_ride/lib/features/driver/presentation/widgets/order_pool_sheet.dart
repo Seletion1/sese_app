@@ -10,6 +10,7 @@ import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/map_provider.dart';
+import 'low_balance_dialog.dart';
 import 'order_feed.dart';
 
 /// Persistent session cache for Order Pool dismissals.
@@ -645,9 +646,17 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
     } on DriverStreakException catch (e) {
       if (!mounted) return;
       setState(() => _accepting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.userMessage)),
-      );
+      if (e.userMessage.toLowerCase().contains('balance is low') ||
+          e.userMessage.toLowerCase().contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: widget.streakService.driverId ?? '',
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.userMessage)),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _accepting = false);

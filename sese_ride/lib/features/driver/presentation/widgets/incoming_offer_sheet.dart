@@ -10,6 +10,7 @@ import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
+import 'low_balance_dialog.dart';
 import 'verified_customer_badge.dart';
 
 /// Full-screen incoming offer, Bolt-style: route preview from
@@ -31,6 +32,8 @@ class IncomingOfferSheet extends StatefulWidget {
   final LatLng driverPosition;
 
   final DriverStreakService streakService;
+  final String? driverId;
+  final AppUser? user;
 
   const IncomingOfferSheet({
     super.key,
@@ -39,6 +42,8 @@ class IncomingOfferSheet extends StatefulWidget {
     required this.currencySymbol,
     required this.driverPosition,
     required this.streakService,
+    this.driverId,
+    this.user,
   });
 
   @override
@@ -147,12 +152,21 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
       if (mounted) Navigator.of(context).pop();
     } on DriverStreakException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
       setState(() {
         _busy = false;
         _accepting = false;
       });
+      if (e.userMessage.toLowerCase().contains('balance is low') ||
+          e.userMessage.toLowerCase().contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: widget.driverId ?? widget.user?.uid ?? '',
+          user: widget.user,
+        );
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      }
     }
   }
 

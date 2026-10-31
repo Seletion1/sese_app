@@ -29,7 +29,6 @@ import 'widgets/slide_to_offline.dart';
 import 'widgets/streak_celebration_modal.dart';
 import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
-import '../../payments/top_up_sheet.dart';
 import '../../wallet/earnings_screen.dart';
 import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
@@ -229,13 +228,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   /// Streak streams/actions. Constructing never touches Firebase.
   late final DriverStreakService _streaks =
-      widget.streakService ?? DriverStreakService();
+      widget.streakService ?? DriverStreakService(driverId: widget.driverId);
 
   String get _currencySymbol => widget.config?.currencySymbol ?? '₦';
 
   @override
   void initState() {
     super.initState();
+    _streaks.driverId ??= widget.driverId;
     WidgetsBinding.instance.addObserver(this);
     _driverPosition =
         widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
@@ -1608,6 +1608,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 driverPosition: _driverPosition,
                 isAppPaused: () => _appPaused,
                 isOnBreak: () => _isOnBreak,
+                user: widget.user,
               ),
             ),
             Positioned(
@@ -2073,8 +2074,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  Widget _buildLowBalanceBanner() => const SizedBox.shrink();
-
   /// Floating top banner shown while a driver has an active trip.
   /// Matches the Uber/Lyft/Bolt top navigation indicator:
   /// Left green navigation icon, current stage ("Now PICKUP/DROPOFF"),
@@ -2355,6 +2354,8 @@ class _PingListener extends StatefulWidget {
   /// Quick-Order pool (Tier 3) remains visible and manually browseable.
   final bool Function() isOnBreak;
 
+  final AppUser? user;
+
   const _PingListener({
     required this.service,
     required this.driverId,
@@ -2362,6 +2363,7 @@ class _PingListener extends StatefulWidget {
     required this.driverPosition,
     required this.isAppPaused,
     required this.isOnBreak,
+    this.user,
   });
 
   @override
@@ -2470,6 +2472,8 @@ class _PingListenerState extends State<_PingListener> {
           currencySymbol: widget.currencySymbol,
           driverPosition: widget.driverPosition,
           streakService: widget.service,
+          driverId: widget.driverId,
+          user: widget.user,
         ),
       ),
     );

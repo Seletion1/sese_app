@@ -257,9 +257,16 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
     } catch (e) {
       debugPrint('overlay $callable failed: $e');
       if (mounted) {
+        String msg = 'Action failed — open the app to retry.';
+        if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        } else if (e.toString().toLowerCase().contains('balance is low') ||
+            e.toString().toLowerCase().contains('top up')) {
+          msg = 'Your balance is low. Please top up to accept trips.';
+        }
         setState(() {
           _busy = false;
-          _result = 'Action failed — open the app to retry.';
+          _result = msg;
         });
       }
     }

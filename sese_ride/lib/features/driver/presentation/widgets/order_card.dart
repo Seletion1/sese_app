@@ -9,6 +9,7 @@ import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
+import 'low_balance_dialog.dart';
 import 'verified_customer_badge.dart';
 
 /// One incoming ride in the driver home feed.
@@ -251,8 +252,16 @@ class _OrderCardState extends State<OrderCard> {
       );
     } on DriverStreakException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      if (e.userMessage.toLowerCase().contains('balance is low') ||
+          e.userMessage.toLowerCase().contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: widget.streakService.driverId ?? '',
+        );
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }

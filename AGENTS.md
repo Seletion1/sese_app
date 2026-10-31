@@ -60,6 +60,40 @@ there is no Firebase deploy path for those.
 
 # Decision log
 
+## 2026-10-31 — Low-Balance Acceptance Gate & Real-Time Ledger Earnings Synchronization
+
+- **Elimination of Startup Flash Glitch & Low-Balance Home Banners**:
+  - Removed obsolete `_buildLowBalanceBanner()` from `driver_dashboard_screen.dart` entirely. Eliminated the race condition where `DualWallet` stream fallback (₦0.00) flashed a low-balance warning banner before streams resolved.
+  - Driver dispatch allows drivers with low/negative balances to go online, receive pings, and view incoming ride requests normally without intrusive warning banners on the dashboard.
+
+- **Acceptance-Gate Interception Prompt**:
+  - Added `showLowBalanceAcceptancePrompt()` in `sese_ride/lib/features/driver/presentation/widgets/low_balance_dialog.dart`.
+  - Wired into `IncomingOfferSheet`, `OrderCard`, `OrderPoolSheet`, and `driver_overlay_entry.dart`. When a driver with a low or negative balance attempts to tap "Accept", the action is intercepted and displays a clean notification toast and modal dialog stating: *"Your balance is low. Please top up to accept trips."* with an immediate one-tap "Top Up Now" action opening `showTopUpSheet`.
+  - Hardened backend `acceptTrip` in `functions/src/trips.ts` to strictly validate `mainBal < minBalance` against `wallets/{driverId}` (defensively handling non-existent documents as ₦0.00) and throw `"Your balance is low. Please top up to accept trips."`.
+
+- **Synchronous Trip Completion Settlement & Zero-Lag Ledger Posting**:
+  - Extracted core settlement logic into `handleTripCompletion()` in `functions/src/driverStreak.ts`.
+  - Synchronously executed `handleTripCompletion()` inside `advanceTripStatus` (when moving to `COMPLETED`), `verifyDeliveryPin`, and `hubForceCompleteTrip`.
+  - Guaranteed that platform commission fee debits (`wallets/{driverId}/transactions/{tripId}_commission`), wallet balance adjustments (`mainWalletBalance` in Naira and `balance` in Kobo), and trip settlement metadata are written atomically and immediately in the same request before returning `{ ok: true }` to the client app.
+  - Preserved `onTripCompleted` trigger as an idempotent safety net with `isCommissionAlreadySettled` guards.
+  - Idempotent deterministic document IDs configured for `trip_wallet_settlement` (`${tripId}_wallet_settlement`) and customer payment (`${tripId}_payment`).
+
+- **Wallet Ledger Direction & Signed Amount Formatting**:
+  - In `payment_service.dart: WalletTransaction`: Fixed `isCredit` bug where negative amounts (`amountKobo < 0 || amountNaira < 0`) or `trip_escrow_hold` were misclassified as credits, causing `+-₦1,600.00` anomalies in transaction history.
+  - Added clean human display labels for `trip_wallet_settlement`, `trip_escrow_hold`, and `trip_escrow_refund`.
+
+- **Earnings View & Daily Counter Synchronization**:
+  - In `trip_models.dart`: Added `commissionAmount` to `ActiveTrip` parsed directly from `settlement.commissionAmount`.
+  - In `earnings_service.dart: TripEarning.fromTrip`: Prioritizes exact `trip.commissionAmount` over `fareAmount * commissionRate` to prevent floating-point rounding divergence against ledger debit rows.
+  - In `earnings_service.dart: completedTripEarningsStream`: Merges both nested `driver.driverId` and flat `driverId` queries with deduplication, ensuring every completed trip updates the earnings history view and daily counters in real time.
+  - In `earnings_service.dart`: Applied `.toLocal()` timezone normalization across `_sameDay`, `summarizeMonth`, and `summarizeMonthIncentives` to eliminate UTC day rollover mismatches.
+
+- **Verification**:
+  - `flutter analyze` across `sese_ride`, `sese_core`, and `sese_hub`: **0 errors, 0 warnings**.
+  - `npm run build` in `functions`: **Compiled cleanly with 0 TypeScript errors**.
+  - `firebase deploy`: **Fully deployed to `sese-ride` with exit code 0**.
+
+
 ## 2026-10-29 — Rating, Cancellation Feedback & Real Profile Metrics
 
 - **Post-Trip Low-Rating Chip Flow**:

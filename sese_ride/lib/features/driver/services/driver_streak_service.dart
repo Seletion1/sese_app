@@ -125,7 +125,10 @@ class DriverStreakService {
   /// to ensure only the currently active session can accept incoming trips.
   String? activeSessionId;
 
-  DriverStreakService({this._firestore, this._backend});
+  /// The active driver's UID.
+  String? driverId;
+
+  DriverStreakService({this._firestore, this._backend, this.driverId});
 
   FirebaseFirestore? get _db {
     try {

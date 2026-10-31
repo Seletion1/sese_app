@@ -1239,15 +1239,13 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         }
         // Low balance guard: Drivers with balance below minWalletBalanceToOnline (< 1.00) cannot accept trips.
         const walletDoc = await tx.get(db().collection("wallets").doc(driverId));
-        if (walletDoc.exists) {
-            const wData = (_c = walletDoc.data()) !== null && _c !== void 0 ? _c : {};
-            const mainBal = typeof wData.mainWalletBalance === "number"
-                ? wData.mainWalletBalance
-                : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
-            const minBalance = await getMinWalletBalanceToOnline();
-            if (mainBal < minBalance) {
-                throw new https_1.HttpsError("failed-precondition", "Your balance is low. Please top up to accept trips.");
-            }
+        const wData = walletDoc.exists ? ((_c = walletDoc.data()) !== null && _c !== void 0 ? _c : {}) : {};
+        const mainBal = typeof wData.mainWalletBalance === "number"
+            ? wData.mainWalletBalance
+            : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
+        const minBalance = await getMinWalletBalanceToOnline();
+        if (mainBal < minBalance) {
+            throw new https_1.HttpsError("failed-precondition", "Your balance is low. Please top up to accept trips.");
         }
         const data = snap.data();
         const status = String((_d = data.status) !== null && _d !== void 0 ? _d : "");
@@ -1480,6 +1478,19 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
         update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
     }
     await ref.update(update);
+    // Synchronous trip completion settlement: immediately post commission debit,
+    // update wallet balance and trip settlement metadata with zero delay.
+    if (status === "COMPLETED") {
+        try {
+            const snapAfter = await ref.get();
+            if (snapAfter.exists) {
+                await (0, driverStreak_1.handleTripCompletion)(String(tripId), snapAfter.data());
+            }
+        }
+        catch (e) {
+            console.warn(`advanceTripStatus[${tripId}]: synchronous settlement warning: ${e}`);
+        }
+    }
     // Arrival alert: in-app notification + rich FCM push to the customer
     // (also fired for proximity auto-arrivals — same server path).
     if (status === "DRIVER_ARRIVED") {
@@ -2190,6 +2201,15 @@ exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
         verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     await batch.commit();
+    try {
+        const snapAfter = await ref.get();
+        if (snapAfter.exists) {
+            await (0, driverStreak_1.handleTripCompletion)(tripId, snapAfter.data());
+        }
+    }
+    catch (e) {
+        console.warn(`verifyDeliveryPin[${tripId}]: synchronous settlement warning: ${e}`);
+    }
     return { ok: true };
 });
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
@@ -2215,6 +2235,15 @@ exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    try {
+        const snapAfter = await ref.get();
+        if (snapAfter.exists) {
+            await (0, driverStreak_1.handleTripCompletion)(tripId, snapAfter.data());
+        }
+    }
+    catch (e) {
+        console.warn(`hubForceCompleteTrip[${tripId}]: synchronous settlement warning: ${e}`);
+    }
     return { ok: true, tripId };
 });
 /** Driver confirms cash collected from customer for waiting time cancellation */
