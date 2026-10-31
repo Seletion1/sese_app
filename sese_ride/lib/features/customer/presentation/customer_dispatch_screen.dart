@@ -3494,22 +3494,29 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'Wallet Escrow Lock: ₦${walletCoverage.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: isDark
-                                  ? const Color(0xFF34D399)
-                                  : const Color(0xFF059669),
+                          Flexible(
+                            child: Text(
+                              'Wallet Escrow Lock: ₦${walletCoverage.toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? const Color(0xFF34D399)
+                                    : const Color(0xFF059669),
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          Text(
-                            'Cash to Driver: ₦${cashToCollect.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Cash to Driver: ₦${cashToCollect.toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
