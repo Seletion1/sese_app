@@ -397,10 +397,8 @@ class PaymentService {
     }
   }
 
-  /// Opens the Paystack hosted checkout, preferring the external browser and
-  /// falling back to the platform default handler. Returns false when no
-  /// app on the device can open the URL (e.g. no browser / WebView disabled)
-  /// so the caller can say exactly that instead of a generic failure.
+  /// Opens the Paystack hosted checkout, preferring the secure in-app browser view
+  /// and falling back safely if third-party app deep-links throw SecurityExceptions.
   Future<bool> launchCheckout(String authorizationUrl) async {
     final uri = Uri.tryParse(authorizationUrl.trim());
     if (uri == null || !uri.hasScheme) {
@@ -409,18 +407,35 @@ class PaymentService {
     }
     debugPrint(
         'PaymentService.launchCheckout: opening ${uri.host} (scheme ${uri.scheme})');
+
+    // Attempt 1: In-App Browser View / Chrome Custom Tab (bypasses un-exported third-party app intent traps)
     try {
-      if (await canLaunchUrl(uri)) {
-        final ok =
-            await launchUrl(uri, mode: LaunchMode.externalApplication);
-        debugPrint('PaymentService.launchCheckout external: $ok');
-        if (ok) return true;
-      } else {
-        debugPrint('PaymentService.launchCheckout: no handler (canLaunchUrl)');
-      }
+      final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      debugPrint('PaymentService.launchCheckout inAppBrowserView: $ok');
+      if (ok) return true;
     } catch (e) {
-      debugPrint('PaymentService.launchCheckout external error: $e');
+      debugPrint('PaymentService.launchCheckout inAppBrowserView error: $e');
     }
+
+    // Attempt 2: In-App WebView (completely self-contained within app process)
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.inAppWebView);
+      debugPrint('PaymentService.launchCheckout inAppWebView: $ok');
+      if (ok) return true;
+    } catch (e) {
+      debugPrint('PaymentService.launchCheckout inAppWebView error: $e');
+    }
+
+    // Attempt 3: External Application
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      debugPrint('PaymentService.launchCheckout externalApplication: $ok');
+      if (ok) return true;
+    } catch (e) {
+      debugPrint('PaymentService.launchCheckout externalApplication error: $e');
+    }
+
+    // Attempt 4: Platform Default
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
       debugPrint('PaymentService.launchCheckout platformDefault: $ok');
