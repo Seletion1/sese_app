@@ -30,13 +30,11 @@ import { roundToNearest100 } from "./pricing";
 // getDispatchTuning() below (system_settings/dispatch, console-tunable).
 // There are intentionally no module-level timing constants here.
 
-// ── Cascading tiered dispatch ──────────────────────────────────────────────
-// Tier 1: exclusive offer to the single nearest online driver.
-// Tier 2: simultaneous offer to the next N nearest drivers.
-// Tier 3: broadcast (MARKETPLACE_OPEN) to all nearby online drivers.
-// Tier deadlines are stored as `tierExpiresAt` and promoted by the
-// `sweepTripPings` cron (1-minute cadence — promotions run on the first
-// sweep at/after each deadline).
+// ── Streamlined 2-Stage Dispatch Engine ─────────────────────────────────────
+// Stage 1 (Tier 1): sequential 1-on-1 exclusive offer to the nearest online driver.
+// Stage 3 (Tier 3): direct Order Pool Fallback (MARKETPLACE_OPEN) to all nearby online drivers.
+// Stage deadlines are stored as `tierExpiresAt` and promoted by the
+// `sweepTripPings` cron (1-minute cadence).
 //
 // All numeric tunables below are DEFAULTS. The Super Admin Dispatch Console
 // (sese_hub → Dynamic Config → Dispatch) overrides them at runtime via
@@ -1359,8 +1357,7 @@ export const recycleDueOrders = onSchedule("*/25 * * * *", async () => {
 
 /**
  * Eligibility check shared by accept/decline (read outside transactions).
- * Tier 1: caller is the exclusive ping target. Tier 2: caller is one of
- * the simultaneous ping targets. Tier 3 is claimable inside the accept
+ * Tier 1: caller is the current ping target. Tier 3 is claimable inside the accept
  * transaction only (first tap wins atomically).
  */
 function isPingTarget(
@@ -1494,6 +1491,12 @@ export const acceptTrip = onCall(async (request) => {
 
     const data = snap.data()!;
     const status = String(data.status ?? "");
+
+    // Idempotent retry: if this driver has already claimed/accepted this trip,
+    // succeed safely rather than failing due to duplicate network requests.
+    if (data.driverId === driverId || data.driver?.driverId === driverId) {
+      return;
+    }
 
     // Self-assignment guard: drivers cannot accept orders they created as customer
     const orderCustomerId = String(data.customerId ?? data.userId ?? "");
@@ -1748,6 +1751,10 @@ export const advanceTripStatus = onCall(async (request) => {
   }
   const allowed = DRIVER_TRANSITIONS[String(data.status)] ?? [];
   if (!allowed.includes(String(status))) {
+    // Idempotent retry: if already in the target status, return success cleanly
+    if (String(data.status) === String(status)) {
+      return { ok: true, alreadyInStatus: true };
+    }
     throw new HttpsError(
       "failed-precondition",
       `Cannot move from ${data.status} to ${status}.`
@@ -1857,6 +1864,14 @@ export const cancelTrip = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
   if (!LIVE_STATUSES.includes(data.status)) {
+    if (
+      data.status === "CANCELLED" ||
+      data.status === "CANCELLED_BY_CUSTOMER" ||
+      data.status === "CANCELLED_BY_DRIVER" ||
+      data.status === "CANCELLED_WAITING_CASH_SETTLEMENT"
+    ) {
+      return { ok: true, alreadyCancelled: true };
+    }
     throw new HttpsError("failed-precondition", "Trip is already closed.");
   }
 

@@ -108,12 +108,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   // Backend clamps into safe bands; changes apply within ~60s.
   final _radiusCtrl = TextEditingController(text: '10');
   final _tier1RadiusCtrl = TextEditingController(text: '3');
-  final _tier2RadiusCtrl = TextEditingController(text: '6');
   final _tier1TimeoutCtrl = TextEditingController(text: '15');
-  final _tier2TimeoutCtrl = TextEditingController(text: '15');
   final _pingTimeoutCtrl = TextEditingController(text: '60');
   final _repingIntervalCtrl = TextEditingController(text: '30');
-  final _tier2CountCtrl = TextEditingController(text: '2');
   final _candidateLimitCtrl = TextEditingController(text: '25');
   final _recycleWindowCtrl = TextEditingController(text: '25');
   final _maxRecyclesCtrl = TextEditingController(text: '5');
@@ -230,12 +227,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _motorcycleMinCtrl.dispose();
     _radiusCtrl.dispose();
     _tier1RadiusCtrl.dispose();
-    _tier2RadiusCtrl.dispose();
     _tier1TimeoutCtrl.dispose();
-    _tier2TimeoutCtrl.dispose();
     _pingTimeoutCtrl.dispose();
     _repingIntervalCtrl.dispose();
-    _tier2CountCtrl.dispose();
     _candidateLimitCtrl.dispose();
     _recycleWindowCtrl.dispose();
     _maxRecyclesCtrl.dispose();
@@ -349,12 +343,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _maxVisibleBidsCtrl.text = maxBids.toString();
       _radiusCtrl.text = tuning.dispatchRadiusKm.toString();
       _tier1RadiusCtrl.text = tuning.tier1RadiusKm.toString();
-      _tier2RadiusCtrl.text = tuning.tier2RadiusKm.toString();
       _tier1TimeoutCtrl.text = tuning.tier1TimeoutSec.toString();
-      _tier2TimeoutCtrl.text = tuning.tier2TimeoutSec.toString();
       _pingTimeoutCtrl.text = tuning.pingTimeoutSec.toString();
       _repingIntervalCtrl.text = tuning.repingIntervalSec.toString();
-      _tier2CountCtrl.text = tuning.tier2Count.toString();
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
       _recycleWindowCtrl.text = tuning.recycleWindowMin.toString();
       _maxRecyclesCtrl.text = tuning.maxRecycles.toString();
@@ -604,15 +595,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           dispatchRadiusKm: poolRadius,
           tier1RadiusKm:
               double.tryParse(_tier1RadiusCtrl.text.trim()) ?? 3,
-          tier2RadiusKm:
-              double.tryParse(_tier2RadiusCtrl.text.trim()) ?? 6,
           tier3RadiusKm: poolRadius,
           tier1TimeoutSec: int.tryParse(_tier1TimeoutCtrl.text.trim()) ?? 15,
-          tier2TimeoutSec: int.tryParse(_tier2TimeoutCtrl.text.trim()) ?? 15,
           pingTimeoutSec: int.tryParse(_pingTimeoutCtrl.text.trim()) ?? 60,
           repingIntervalSec:
               int.tryParse(_repingIntervalCtrl.text.trim()) ?? 30,
-          tier2Count: int.tryParse(_tier2CountCtrl.text.trim()) ?? 2,
           candidateLimit:
               int.tryParse(_candidateLimitCtrl.text.trim()) ?? 25,
           recycleWindowMin:
@@ -3016,10 +3003,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Live tunables for the cascading dispatch engine '
+              'Live tunables for the streamlined 2-stage dispatch engine '
               '(stored in system_settings/dispatch, applied within ~60s). '
-              'Stage 1 pings the single nearest driver, Stage 2 the next '
-              'group in parallel, Stage 3 broadcasts to the marketplace pool.',
+              'Stage 1 pings the single nearest driver sequentially, then falls '
+              'back directly to the marketplace Order Pool.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -3028,21 +3015,15 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               runSpacing: 12,
               children: [
                 numField(_tier1RadiusCtrl, 'Stage 1 radius', 'km',
-                    'Default 3 (0–3 km). Broadcasts to nearest available driver.'),
-                numField(_tier2RadiusCtrl, 'Stage 2 radius', 'km',
-                    'Default 6 (0–6 km). Expands search on ignore/timeout/reject.'),
-                numField(_radiusCtrl, 'Stage 3 Marketplace pool radius', 'km',
-                    'Default 10 (~10 km). Quick Order / Marketplace open pool.'),
+                    'Default 3 (0–3 km). Ring one driver at a time sequentially.'),
+                numField(_radiusCtrl, 'Order Pool radius', 'km',
+                    'Default 10 (~10 km). Global Order Pool for driver picks.'),
                 numField(_tier1TimeoutCtrl, 'Stage 1 countdown', 'sec',
-                    'Default 15 (5–120). Exclusive offer window.'),
-                numField(_tier2TimeoutCtrl, 'Stage 2 countdown', 'sec',
-                    'Default 15 (5–120). Parallel offer window.'),
+                    'Default 15 (5–120). Sequential ping offer window.'),
                 numField(_pingTimeoutCtrl, 'Ping expiry', 'sec',
                     'Default 60 (10–600).'),
                 numField(_repingIntervalCtrl, 'Re-ping interval', 'sec',
                     'Default 30 (10–600).'),
-                numField(_tier2CountCtrl, 'Stage 2 parallel drivers', 'drivers',
-                    'Default 2 (1–5). Atomic first-wins lock.'),
                 numField(_candidateLimitCtrl, 'Candidate scan limit', 'drivers',
                     'Default 25 (5–100).'),
                 numField(_recycleWindowCtrl, 'Auto-recycle timer', 'min',

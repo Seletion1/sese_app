@@ -645,7 +645,6 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
       widget.onAccepted(widget.trip.tripId);
     } on DriverStreakException catch (e) {
       if (!mounted) return;
-      setState(() => _accepting = false);
       if (e.userMessage.toLowerCase().contains('balance is low') ||
           e.userMessage.toLowerCase().contains('top up')) {
         await showLowBalanceAcceptancePrompt(
@@ -657,13 +656,15 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
           SnackBar(content: Text(e.userMessage)),
         );
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('OrderPoolSheet._acceptNow error: $e');
       if (!mounted) return;
-      setState(() => _accepting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('Could not accept this order. Try another.')),
       );
+    } finally {
+      if (mounted) setState(() => _accepting = false);
     }
   }
 
@@ -697,19 +698,19 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
       );
     } on TripException catch (e) {
       if (!mounted) return;
-      setState(() => _submittingBid = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.userMessage)),
       );
     } catch (e) {
       if (!mounted) return;
       debugPrint('OrderPoolSheet submitBid error: $e');
-      setState(() => _submittingBid = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Unable to submit offer right now. Please try again.'),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _submittingBid = false);
     }
   }
 

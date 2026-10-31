@@ -286,7 +286,7 @@ service cloud.firestore {
     match /orders/{orderId} {
       // PROMPT 71: the customer who placed the order reads live bid state
       // (offered / counter-offered fare) to drive the smart-bidding selector.
-      // Hybrid 3-Tier dispatch: targeted Tier 1 / Tier 2 drivers read their
+      // Streamlined 2-Stage dispatch: targeted Stage 1 drivers read their
       // offer, and any authenticated driver browses MARKETPLACE_OPEN/LIST.
       // Assigned driver (driverId / assignedDriverId) can read the active order.
       allow read: if isAgent() ||
@@ -298,8 +298,6 @@ service cloud.firestore {
         (isAuthenticated() && resource.data.tier1_driver_id == request.auth.uid) ||
         (isAuthenticated() && resource.data.targeted_driver_ids is list &&
           resource.data.targeted_driver_ids.hasAny([request.auth.uid])) ||
-        (isAuthenticated() && resource.data.tier2_driver_ids is list &&
-          resource.data.tier2_driver_ids.hasAny([request.auth.uid])) ||
         (isAuthenticated() &&
           resource.data.status in ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST', 'SEARCHING', 'broadcasted']);
       allow create: if (isAgent() && isNotSuspended()) ||

@@ -7,13 +7,10 @@ void main() {
       const t = DispatchTuning();
       expect(t.dispatchRadiusKm, 10);
       expect(t.tier1RadiusKm, 3);
-      expect(t.tier2RadiusKm, 6);
       expect(t.tier3RadiusKm, 10);
       expect(t.tier1TimeoutSec, 15);
-      expect(t.tier2TimeoutSec, 15);
       expect(t.pingTimeoutSec, 60);
       expect(t.repingIntervalSec, 30);
-      expect(t.tier2Count, 2);
       expect(t.candidateLimit, 25);
       expect(t.recycleWindowMin, 25);
       expect(t.maxRecycles, 5);
@@ -25,10 +22,8 @@ void main() {
       final t = DispatchTuning.fromMap({
         'dispatchRadiusKm': 5,
         'tier1TimeoutSec': 6,
-        'tier2TimeoutSec': 6,
         'pingTimeoutSec': 30,
         'repingIntervalSec': 20,
-        'tier2Count': 3,
         'candidateLimit': 40,
         'recycleWindowMin': 20,
         'maxRecycles': 8,
@@ -53,12 +48,10 @@ void main() {
     test('radiusForTier resolves correct radius per dispatch tier', () {
       const t = DispatchTuning(
         tier1RadiusKm: 2.5,
-        tier2RadiusKm: 5.0,
         tier3RadiusKm: 12.0,
       );
       expect(t.radiusForTier(1), 2.5);
       expect(t.radiusForTier(0), 2.5);
-      expect(t.radiusForTier(2), 5.0);
       expect(t.radiusForTier(3), 12.0);
     });
   });

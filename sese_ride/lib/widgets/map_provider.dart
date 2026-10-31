@@ -833,17 +833,18 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       },
       polylines: {
         for (final r in widget.polylines)
-          gmaps.Polyline(
-            polylineId: gmaps.PolylineId(r.id),
-            points: r.points.map(_toG).toList(),
-            color: r.color,
-            width: r.width < 5 ? 5 : r.width,
-            jointType: gmaps.JointType.round,
-            startCap: gmaps.Cap.roundCap,
-            endCap: gmaps.Cap.roundCap,
-            geodesic: true,
-            zIndex: 5,
-          ),
+          if (r.points.length >= 2)
+            gmaps.Polyline(
+              polylineId: gmaps.PolylineId(r.id),
+              points: r.points.map(_toG).toList(),
+              color: r.color,
+              width: r.width < 5 ? 5 : r.width,
+              jointType: gmaps.JointType.round,
+              startCap: gmaps.Cap.roundCap,
+              endCap: gmaps.Cap.roundCap,
+              geodesic: true,
+              zIndex: 5,
+            ),
       },
       myLocationEnabled: widget.showMyLocation,
       myLocationButtonEnabled: widget.myLocationButtonEnabled,

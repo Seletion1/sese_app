@@ -2,6 +2,7 @@ export 'financial/financial_config.dart';
 export 'financial/financial_config_service.dart';
 export 'financial/exchange_rates.dart';
 export 'financial/exchange_rate_service.dart';
+export 'financial/wallet_calculation_engine.dart';
 export 'widgets/multi_currency_display.dart';
 export 'recommendations/vehicle_recommendation_config.dart';
 export 'recommendations/vehicle_recommendation_engine.dart';

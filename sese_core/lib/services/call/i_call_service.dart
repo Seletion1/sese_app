@@ -219,6 +219,10 @@ abstract interface class ICallService {
   /// Toggles audio output between the device earpiece and loudspeaker.
   Future<void> toggleSpeaker(bool speakerOn);
 
+  /// Cancels active stream subscriptions and clears user session state on sign-out
+  /// without closing broadcast stream controllers.
+  Future<void> clearUserSession();
+
   /// Releases all hardware, network, and signaling resources.
   Future<void> dispose();
 }

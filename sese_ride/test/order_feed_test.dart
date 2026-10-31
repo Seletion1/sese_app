@@ -8,17 +8,13 @@ import 'package:sese_ride/features/driver/presentation/widgets/order_feed.dart';
 import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 
-/// Controllable dispatch backend: canned Tier 1 / Tier 2 / Tier 3 snapshots.
+/// Controllable dispatch backend: canned Tier 1 / Tier 3 snapshots.
 class _FakeDispatchService extends DriverStreakService {
   final _ping = StreamController<ActiveTrip?>.broadcast();
-  final _tier2 = StreamController<List<ActiveTrip>>.broadcast();
   final _market = StreamController<List<ActiveTrip>>.broadcast();
 
   @override
   Stream<ActiveTrip?> pingStream(String driverId) => _ping.stream;
-
-  @override
-  Stream<List<ActiveTrip>> tier2PingStream(String driverId) => _tier2.stream;
 
   @override
   Stream<List<ActiveTrip>> marketplaceStream({
@@ -29,7 +25,6 @@ class _FakeDispatchService extends DriverStreakService {
 
   Future<void> close() async {
     await _ping.close();
-    await _tier2.close();
     await _market.close();
   }
 }
@@ -91,7 +86,7 @@ void main() {
   });
 
   group('OrderFeed cascading dispatch', () {
-    testWidgets('merges Tier 1/2/3 with exclusive offers first', (
+    testWidgets('merges Tier 1/3 with exclusive offers first', (
       tester,
     ) async {
       // Tall viewport so every card lays out (ListView builds lazily).
@@ -103,12 +98,10 @@ void main() {
       await _pumpFeed(tester, svc);
 
       svc._ping.add(_trip('t1', status: TripStatus.waitingForAcceptance));
-      svc._tier2.add([_trip('t2', status: TripStatus.waitingForAcceptance)]);
       svc._market.add([_trip('m1'), _trip('m2')]);
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('order_card_t1')), findsOneWidget);
-      expect(find.byKey(const Key('order_card_t2')), findsOneWidget);
       expect(find.byKey(const Key('order_card_m1')), findsOneWidget);
       expect(find.byKey(const Key('order_card_m2')), findsOneWidget);
 
@@ -126,7 +119,6 @@ void main() {
       await _pumpFeed(tester, svc);
 
       svc._ping.add(null);
-      svc._tier2.add(const []);
       svc._market.add([_trip('m9')]);
       await tester.pumpAndSettle();
 
@@ -146,7 +138,6 @@ void main() {
 
       final initial = List.generate(10, (i) => _trip('m$i'));
       svc._ping.add(null);
-      svc._tier2.add(const []);
       svc._market.add(initial);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('show_new_requests_pill')), findsNothing);
@@ -178,7 +169,6 @@ void main() {
       await _pumpFeed(tester, svc);
 
       svc._ping.add(null);
-      svc._tier2.add(const []);
       svc._market.add(const []);
       // No pumpAndSettle: the radar ripple repeats forever by design.
       await tester.pump();
@@ -195,7 +185,6 @@ void main() {
       await _pumpFeed(tester, svc);
 
       svc._ping.add(null);
-      svc._tier2.add(const []);
       svc._market.add(const []);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));

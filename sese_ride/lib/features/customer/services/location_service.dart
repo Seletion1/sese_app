@@ -668,12 +668,17 @@ class LocationService {
   /// Thin wrapper around [fetchRoute] kept for backward compatibility with
   /// call sites that only need the point list (driver screens, live trip,
   /// proximity trigger service).
+  ///
+  /// Guarantees uninterrupted navigation display: if the routing engine fails
+  /// or returns <2 points, automatically falls back to a straight-line vector
+  /// between [pickup] and [dropoff].
   static Future<List<LatLng>> fetchRoutePolyline(
     LatLng pickup,
     LatLng dropoff,
   ) async {
     final result = await fetchRoute(pickup, dropoff);
-    return result.points;
+    if (result.points.length >= 2) return result.points;
+    return [pickup, dropoff];
   }
 
   /// Queries the OSRM public routing engine for a driving route.

@@ -20,18 +20,21 @@ that is the point of this file.
 ## Commands
 
 ```bash
-# analyze (primary verification gate — see below)
+# analyze
 cd sese_ride && flutter analyze
+
+# test (run when done)
+cd sese_ride && flutter test
+cd sese_core && flutter test
+cd sese_hub && flutter test
 
 # backend
 cd functions && npm run build
 ```
 
-### Do not run the test suite
+### Always test when done
 
-Per explicit user instruction: **verify with `flutter analyze` only. Do not run
-`flutter test`.** The suite is large and slow (full run is several minutes).
-Analyze is the gate. If a test genuinely must be run, ask first.
+Per explicit user instruction (2026-10-31): **"Always run and verify unit/widget tests when code changes are completed."** After completing changes, execute tests (`flutter test` for affected packages or relevant test suites) alongside `flutter analyze` to ensure regression-free stability across the codebase before concluding work.
 
 ### Always deploy when done
 
@@ -40,6 +43,15 @@ backend work, deploy it** (`firestore:rules`, `firestore:indexes`, `functions`
 as applicable) rather than leaving it staged for a later instruction.
 Client (Flutter) changes still ship with the next app builds as usual —
 there is no Firebase deploy path for those.
+
+### Always push git to remote when done
+
+Per explicit user instruction (2026-10-31): **always push git commits to the remote repository**.
+- GitHub Username: `Seletion1`
+- Git Author Name: `Seletion1`
+- Git Author Email: `bamiduromichael1@gmail.com`
+- Remote Repository: `https://github.com/Seletion1/sese_app.git`
+- Credential Storage: macOS Keychain (`osxkeychain`) authenticated as `Seletion1`
 
 ## Conventions
 
@@ -59,6 +71,12 @@ there is no Firebase deploy path for those.
 ---
 
 # Decision log
+
+## 2026-10-31 — Mandatory Testing Protocol Update
+
+- **Always Test When Done**:
+  - Superseded previous instructions restricting test execution with an explicit requirement to **always test when done**.
+  - All subsequent changes, fixes, and refactoring must be verified by running the appropriate test suites (`flutter test` for affected packages in `sese_ride`, `sese_core`, or `sese_hub`) along with `flutter analyze` prior to completion.
 
 ## 2026-10-31 — Low-Balance Acceptance Gate & Real-Time Ledger Earnings Synchronization
 

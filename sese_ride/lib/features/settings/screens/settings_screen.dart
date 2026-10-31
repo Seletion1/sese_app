@@ -230,6 +230,9 @@ class SettingsScreen extends StatelessWidget {
       DriverOverlayService.instance.hide();
       // ignore: discarded_futures
       PushNotificationService.cancelOnlineAlert();
+      // ignore: discarded_futures
+      CallServiceManager.instance.clearUserSession();
+      AwarenessTooltipService.instance.resetSession();
 
       // 2. Clear role controller active trip protection timer.
       RoleController.instance.cancelActiveTripCountdown();

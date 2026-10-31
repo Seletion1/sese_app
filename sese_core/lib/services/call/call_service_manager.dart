@@ -136,12 +136,23 @@ class CallServiceManager {
     await activeService.endCall(reason: reason);
   }
 
-  /// Disposes resources held by the manager and services.
-  Future<void> dispose() async {
+  /// Clears active user state and cancels stream subscriptions on sign-out
+  /// without closing broadcast stream controllers.
+  Future<void> clearUserSession() async {
     await _configSub?.cancel();
     _configSub = null;
+    await _webrtcService.clearUserSession();
+    await _zegoService.clearUserSession();
+    _currentUserId = null;
+    _displayName = null;
+    _avatarUrl = null;
+    _initialized = false;
+  }
+
+  /// Disposes resources held by the manager and services.
+  Future<void> dispose() async {
+    await clearUserSession();
     await _webrtcService.dispose();
     await _zegoService.dispose();
-    _initialized = false;
   }
 }

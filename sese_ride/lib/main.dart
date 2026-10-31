@@ -313,6 +313,10 @@ class _AuthGateState extends State<_AuthGate> {
         if (user == null) {
           _modeRestoreUid = null;
           _modeRestoreFuture = null;
+          // Clear active background call service session and awareness streams when signed out
+          // ignore: discarded_futures
+          CallServiceManager.instance.clearUserSession();
+          AwarenessTooltipService.instance.resetSession();
           return LoginPage(auth: _auth);
         }
 

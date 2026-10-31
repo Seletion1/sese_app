@@ -62,13 +62,11 @@ const pricing_1 = require("./pricing");
 // NOTE: ping/reping/tier timeouts, radii, and recycle bounds live in
 // getDispatchTuning() below (system_settings/dispatch, console-tunable).
 // There are intentionally no module-level timing constants here.
-// ── Cascading tiered dispatch ──────────────────────────────────────────────
-// Tier 1: exclusive offer to the single nearest online driver.
-// Tier 2: simultaneous offer to the next N nearest drivers.
-// Tier 3: broadcast (MARKETPLACE_OPEN) to all nearby online drivers.
-// Tier deadlines are stored as `tierExpiresAt` and promoted by the
-// `sweepTripPings` cron (1-minute cadence — promotions run on the first
-// sweep at/after each deadline).
+// ── Streamlined 2-Stage Dispatch Engine ─────────────────────────────────────
+// Stage 1 (Tier 1): sequential 1-on-1 exclusive offer to the nearest online driver.
+// Stage 3 (Tier 3): direct Order Pool Fallback (MARKETPLACE_OPEN) to all nearby online drivers.
+// Stage deadlines are stored as `tierExpiresAt` and promoted by the
+// `sweepTripPings` cron (1-minute cadence).
 //
 // All numeric tunables below are DEFAULTS. The Super Admin Dispatch Console
 // (sese_hub → Dynamic Config → Dispatch) overrides them at runtime via
@@ -1132,8 +1130,7 @@ exports.recycleDueOrders = (0, scheduler_1.onSchedule)("*/25 * * * *", async () 
 // ── Driver actions ─────────────────────────────────────────────────────────
 /**
  * Eligibility check shared by accept/decline (read outside transactions).
- * Tier 1: caller is the exclusive ping target. Tier 2: caller is one of
- * the simultaneous ping targets. Tier 3 is claimable inside the accept
+ * Tier 1: caller is the current ping target. Tier 3 is claimable inside the accept
  * transaction only (first tap wins atomically).
  */
 function isPingTarget(data, driverId) {
@@ -1218,7 +1215,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("invalid-argument", "tripId is required.");
     const snapshot = await driverSnapshot(driverId);
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
         const ref = db().collection("trips").doc(tripId);
         const snap = await tx.get(ref);
         if (!snap.exists) {
@@ -1249,8 +1246,13 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         }
         const data = snap.data();
         const status = String((_d = data.status) !== null && _d !== void 0 ? _d : "");
+        // Idempotent retry: if this driver has already claimed/accepted this trip,
+        // succeed safely rather than failing due to duplicate network requests.
+        if (data.driverId === driverId || ((_e = data.driver) === null || _e === void 0 ? void 0 : _e.driverId) === driverId) {
+            return;
+        }
         // Self-assignment guard: drivers cannot accept orders they created as customer
-        const orderCustomerId = String((_f = (_e = data.customerId) !== null && _e !== void 0 ? _e : data.userId) !== null && _f !== void 0 ? _f : "");
+        const orderCustomerId = String((_g = (_f = data.customerId) !== null && _f !== void 0 ? _f : data.userId) !== null && _g !== void 0 ? _g : "");
         if (orderCustomerId && orderCustomerId === driverId) {
             throw new https_1.HttpsError("failed-precondition", "You cannot accept an order you created as a customer.");
         }
@@ -1264,14 +1266,14 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         }
         else if (status === "MARKETPLACE_OPEN" || status === "MARKETPLACE_LIST") {
             const driverDoc = await tx.get(db().collection("drivers").doc(driverId));
-            if (!driverDoc.exists || ((_g = driverDoc.data()) === null || _g === void 0 ? void 0 : _g.isOnline) !== true) {
+            if (!driverDoc.exists || ((_h = driverDoc.data()) === null || _h === void 0 ? void 0 : _h.isOnline) !== true) {
                 throw new https_1.HttpsError("failed-precondition", "Go online to claim marketplace requests.");
             }
             // Zero-trust claim gate (mirrors submitBid): online alone is not
             // enough. Verification or the fleet may have been revoked mid-session
             // after goOnline granted, so re-check inside the transaction.
             const claimer = driverDoc.data();
-            const claimerStatus = String((_j = (_h = claimer.verificationStatus) !== null && _h !== void 0 ? _h : claimer.status) !== null && _j !== void 0 ? _j : "").toLowerCase();
+            const claimerStatus = String((_k = (_j = claimer.verificationStatus) !== null && _j !== void 0 ? _j : claimer.status) !== null && _k !== void 0 ? _k : "").toLowerCase();
             const claimerVerified = claimerStatus === "verified" ||
                 claimerStatus === "approved" ||
                 claimerStatus === "active_verified" ||
@@ -1300,7 +1302,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         else {
             throw new https_1.HttpsError("failed-precondition", "This trip is no longer available.");
         }
-        if ((_k = data.driver) === null || _k === void 0 ? void 0 : _k.driverId) {
+        if ((_l = data.driver) === null || _l === void 0 ? void 0 : _l.driverId) {
             throw new https_1.HttpsError("failed-precondition", "Another driver claimed this trip first.");
         }
         // Verify pending bids before assignment: accept the claimer's own
@@ -1327,16 +1329,16 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
-            dispatchTier: (_l = data.dispatchTier) !== null && _l !== void 0 ? _l : null,
+            dispatchTier: (_m = data.dispatchTier) !== null && _m !== void 0 ? _m : null,
             pingDriverId: null,
             pingDriverIds: [],
             pingExpiresAt: null,
             tierExpiresAt: null,
             hasActiveBids: false,
-            biddingCompleted: pendingBids.size > 0 ? true : ((_m = data.biddingCompleted) !== null && _m !== void 0 ? _m : false),
+            biddingCompleted: pendingBids.size > 0 ? true : ((_o = data.biddingCompleted) !== null && _o !== void 0 ? _o : false),
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
-                : ((_o = data.acceptedBidDriverId) !== null && _o !== void 0 ? _o : null),
+                : ((_p = data.acceptedBidDriverId) !== null && _p !== void 0 ? _p : null),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     });
@@ -1464,6 +1466,10 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     }
     const allowed = (_c = DRIVER_TRANSITIONS[String(data.status)]) !== null && _c !== void 0 ? _c : [];
     if (!allowed.includes(String(status))) {
+        // Idempotent retry: if already in the target status, return success cleanly
+        if (String(data.status) === String(status)) {
+            return { ok: true, alreadyInStatus: true };
+        }
         throw new https_1.HttpsError("failed-precondition", `Cannot move from ${data.status} to ${status}.`);
     }
     const update = {
@@ -1561,6 +1567,12 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
     if (!LIVE_STATUSES.includes(data.status)) {
+        if (data.status === "CANCELLED" ||
+            data.status === "CANCELLED_BY_CUSTOMER" ||
+            data.status === "CANCELLED_BY_DRIVER" ||
+            data.status === "CANCELLED_WAITING_CASH_SETTLEMENT") {
+            return { ok: true, alreadyCancelled: true };
+        }
         throw new https_1.HttpsError("failed-precondition", "Trip is already closed.");
     }
     // ── Cancellation reason (audited, allow-listed) ──────────────────────

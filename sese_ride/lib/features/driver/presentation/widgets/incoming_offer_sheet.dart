@@ -152,10 +152,6 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
       if (mounted) Navigator.of(context).pop();
     } on DriverStreakException catch (e) {
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _accepting = false;
-      });
       if (e.userMessage.toLowerCase().contains('balance is low') ||
           e.userMessage.toLowerCase().contains('top up')) {
         await showLowBalanceAcceptancePrompt(
@@ -166,6 +162,22 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
       } else {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      }
+    } catch (e) {
+      debugPrint('IncomingOfferSheet._accept error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to accept trip. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _accepting = false;
+        });
       }
     }
   }
@@ -183,7 +195,17 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.userMessage)));
-      setState(() => _busy = false);
+    } catch (e) {
+      debugPrint('IncomingOfferSheet._skip error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to decline trip. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

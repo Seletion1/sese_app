@@ -679,7 +679,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             if (lat == null || lng == null) continue;
             final pos = LatLng(lat, lng);
 
-            // Distance gate matching active dispatch stage radius (e.g. Stage 1: 0-3km, Stage 2: 0-6km, Stage 3: 0-10km)
+            // Distance gate matching active dispatch stage radius (e.g. Stage 1: 0-3km, Stage 3: Order Pool radius)
             final distKm =
                 const Distance().as(LengthUnit.Kilometer, _pickup, pos);
             if (distKm > stageRadius) continue;

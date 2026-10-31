@@ -79,29 +79,23 @@ class OrderFeedState extends State<OrderFeed> {
     );
   }
 
-  /// Merges Tier 1/2/3 offers, de-duplicates by `tripId`.
+  /// Merges Tier 1 and Tier 3 offers, de-duplicates by `tripId`.
   ///
-  /// Exclusive offers first (Tier 1, then Tier 2), marketplace broadcast
+  /// Exclusive offers first (Tier 1), marketplace broadcast
   /// below — a trip only ever sits in one tier at a time, so later tiers
   /// never overwrite an exclusive ping.
   ///
   /// Marketplace rows are additionally geo-filtered to the 5km outer pool:
   /// the server broadcasts pool-wide, so without this a Lagos driver renders
-  /// Abuja orders. Tier 1/2 pings are server-targeted and never filtered.
+  /// Abuja orders. Tier 1 pings are server-targeted and never filtered.
   /// Trips without coordinates pass through (never hide for missing data).
   List<ActiveTrip> _mergedOffers(
     ActiveTrip? tier1,
-    List<ActiveTrip> tier2,
     List<ActiveTrip> marketplace,
   ) {
     final byId = <String, ActiveTrip>{};
     if (tier1 != null && tier1.customerId != widget.driverId) {
       byId[tier1.tripId] = tier1;
-    }
-    for (final t in tier2) {
-      if (t.customerId != widget.driverId) {
-        byId.putIfAbsent(t.tripId, () => t);
-      }
     }
     for (final t in marketplace) {
       if (t.customerId != widget.driverId && _withinPoolRadius(t)) {
@@ -181,31 +175,25 @@ class OrderFeedState extends State<OrderFeed> {
       stream: widget.streakService.pingStream(widget.driverId),
       builder: (context, pingSnap) {
         return StreamBuilder<List<ActiveTrip>>(
-          stream: widget.streakService.tier2PingStream(widget.driverId),
-          builder: (context, tier2Snap) {
-            return StreamBuilder<List<ActiveTrip>>(
-              stream: widget.streakService.marketplaceStream(),
-              builder: (context, marketSnap) {
-                final offers = _mergedOffers(
-                  pingSnap.data,
-                  tier2Snap.data ?? const [],
-                  marketSnap.data ?? const [],
-                );
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _maybeMarkUnseen(offers.length);
-                });
-                // AnimatedSwitcher cross-fades between the pulsing radar
-                // empty state and the order list, so the first pooled order
-                // renders smoothly in place of the "Searching" widget.
-                return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 350),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  child: offers.isEmpty
-                      ? const OrderEmptyState(key: ValueKey('empty_state'))
-                      : _buildOfferList(offers),
-                );
-              },
+          stream: widget.streakService.marketplaceStream(),
+          builder: (context, marketSnap) {
+            final offers = _mergedOffers(
+              pingSnap.data,
+              marketSnap.data ?? const [],
+            );
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _maybeMarkUnseen(offers.length);
+            });
+            // AnimatedSwitcher cross-fades between the pulsing radar
+            // empty state and the order list, so the first pooled order
+            // renders smoothly in place of the "Searching" widget.
+            return AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: offers.isEmpty
+                  ? const OrderEmptyState(key: ValueKey('empty_state'))
+                  : _buildOfferList(offers),
             );
           },
         );

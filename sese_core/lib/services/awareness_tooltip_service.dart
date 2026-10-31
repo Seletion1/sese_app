@@ -163,7 +163,14 @@ class AwarenessTooltipService extends ChangeNotifier {
             }
           },
           onError: (e) {
-            debugPrint('AwarenessTooltipService snapshots error: $e');
+            final errorMsg = e.toString();
+            if (errorMsg.contains('permission-denied') || errorMsg.contains('PERMISSION_DENIED')) {
+              // Gracefully handle expected permission denied during sign out
+              _configSub?.cancel();
+              _configSub = null;
+            } else {
+              debugPrint('AwarenessTooltipService snapshots error: $e');
+            }
           },
         );
       }
@@ -267,9 +274,15 @@ class AwarenessTooltipService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cancels active Firestore snapshot subscription when user signs out.
+  void resetSession() {
+    _configSub?.cancel();
+    _configSub = null;
+  }
+
   @override
   void dispose() {
-    _configSub?.cancel();
+    resetSession();
     super.dispose();
   }
 }

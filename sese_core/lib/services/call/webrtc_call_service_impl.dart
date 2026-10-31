@@ -597,10 +597,27 @@ class WebRtcCallServiceImpl implements ICallService {
   }
 
   @override
-  Future<void> dispose() async {
+  Future<void> clearUserSession() async {
     await _incomingCallsSub?.cancel();
     _incomingCallsSub = null;
-    await endCall(reason: 'Service disposed');
+    await _callDocSub?.cancel();
+    _callDocSub = null;
+    await _candidatesSub?.cancel();
+    _candidatesSub = null;
+
+    if (_currentState != CallState.idle && _currentState != CallState.ended) {
+      await endCall(reason: 'User signed out');
+    }
+
+    _currentUserId = null;
+    _displayName = null;
+    _avatarUrl = null;
+    _setCallState(CallState.idle);
+  }
+
+  @override
+  Future<void> dispose() async {
+    await clearUserSession();
     await _stateController.close();
     await _durationController.close();
     await _incomingCallController.close();

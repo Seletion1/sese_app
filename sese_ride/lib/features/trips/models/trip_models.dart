@@ -185,10 +185,10 @@ class ActiveTrip {
   /// Driver currently pinged for acceptance (WAITING_FOR_ACCEPTANCE).
   final String pingDriverId;
 
-  /// Simultaneous Tier 2 ping targets (WAITING_FOR_ACCEPTANCE).
+  /// Sequential or pool ping targets (WAITING_FOR_ACCEPTANCE / MARKETPLACE).
   final List<String> pingDriverIds;
 
-  /// Cascade tier that produced this offer (1, 2, or 3 = marketplace).
+  /// Cascade tier that produced this offer (1 = sequential 1-on-1, 3 = marketplace pool).
   final int dispatchTier;
 
   /// Server timestamp recorded when the driver tapped "Arrived".

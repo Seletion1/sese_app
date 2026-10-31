@@ -190,30 +190,6 @@ class DriverStreakService {
         .handleError((Object _) => null);
   }
 
-  /// Tier 2 simultaneous pings for [driverId]. Single-field
-  /// array-contains query (the WAITING status is filtered client-side, same
-  /// as [pingStream]) so no composite index is required. Denied reads end
-  /// as empty.
-  Stream<List<ActiveTrip>> tier2PingStream(String driverId) {
-    final db = _db;
-    if (db == null || driverId.isEmpty) {
-      return Stream.value(const <ActiveTrip>[]);
-    }
-    return db
-        .collection('trips')
-        .where('pingDriverIds', arrayContains: driverId)
-        .limit(10)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-              .where((t) =>
-                  t.status == TripStatus.waitingForAcceptance &&
-                  t.customerId != driverId)
-              .toList(),
-        )
-        .handleError((Object _) => const <ActiveTrip>[]);
-  }
 
   /// Tier 3 marketplace broadcast (open to all nearby online drivers).
   ///

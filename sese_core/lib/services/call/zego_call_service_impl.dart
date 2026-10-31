@@ -258,8 +258,20 @@ class ZegoCallServiceImpl implements ICallService {
   }
 
   @override
+  Future<void> clearUserSession() async {
+    if (_currentState != CallState.idle && _currentState != CallState.ended) {
+      await endCall(reason: 'User signed out');
+    }
+
+    _currentUserId = null;
+    _displayName = null;
+    _avatarUrl = null;
+    _setCallState(CallState.idle);
+  }
+
+  @override
   Future<void> dispose() async {
-    await endCall(reason: 'Service disposed');
+    await clearUserSession();
     await _stateController.close();
     await _durationController.close();
   }
