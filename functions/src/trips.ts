@@ -45,11 +45,8 @@ import { roundToNearest100 } from "./pricing";
 const DEFAULT_PING_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_REPING_INTERVAL_MS = 30 * 1000;
 const DEFAULT_TIER1_TIMEOUT_MS = 15 * 1000;
-const DEFAULT_TIER2_TIMEOUT_MS = 15 * 1000;
-const DEFAULT_TIER2_COUNT = 2;
 const DEFAULT_DISPATCH_RADIUS_KM = 15;
 const DEFAULT_TIER1_RADIUS_KM = 3;
-const DEFAULT_TIER2_RADIUS_KM = 6;
 const DEFAULT_TIER3_RADIUS_KM = 15;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
 const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
@@ -58,13 +55,10 @@ const DEFAULT_MAX_RECYCLES = 5;
 interface DispatchTuning {
   dispatchRadiusKm: number;
   tier1RadiusKm: number;
-  tier2RadiusKm: number;
   tier3RadiusKm: number;
   tier1TimeoutMs: number;
-  tier2TimeoutMs: number;
   pingTimeoutMs: number;
   repingIntervalMs: number;
-  tier2Count: number;
   candidateLimit: number;
   recycleWindowMs: number;
   maxRecycles: number;
@@ -73,13 +67,10 @@ interface DispatchTuning {
 const DEFAULT_TUNING: DispatchTuning = {
   dispatchRadiusKm: DEFAULT_DISPATCH_RADIUS_KM,
   tier1RadiusKm: DEFAULT_TIER1_RADIUS_KM,
-  tier2RadiusKm: DEFAULT_TIER2_RADIUS_KM,
   tier3RadiusKm: DEFAULT_TIER3_RADIUS_KM,
   tier1TimeoutMs: DEFAULT_TIER1_TIMEOUT_MS,
-  tier2TimeoutMs: DEFAULT_TIER2_TIMEOUT_MS,
   pingTimeoutMs: DEFAULT_PING_TIMEOUT_MS,
   repingIntervalMs: DEFAULT_REPING_INTERVAL_MS,
-  tier2Count: DEFAULT_TIER2_COUNT,
   candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
   recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
   maxRecycles: DEFAULT_MAX_RECYCLES,
@@ -114,24 +105,14 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
     );
     const value: DispatchTuning = {
       dispatchRadiusKm: tier3Radius,
-      // Per-stage radii: Tier 1 offers the single nearest driver (~0-3km),
-      // Tier 2 the next group (up to 6km), Tier 3 marketplace pool (~10km).
-      // Both clamp inside the outer dispatchRadiusKm cap so a misconfigured stage
-      // can never out-broadcast the pool. Applied within ~60s via the tuning cache.
       tier1RadiusKm: Math.min(
         num(d.tier1RadiusKm, DEFAULT_TIER1_RADIUS_KM, 1, 50),
         tier3Radius
       ),
-      tier2RadiusKm: Math.min(
-        num(d.tier2RadiusKm, DEFAULT_TIER2_RADIUS_KM, 1, 50),
-        tier3Radius
-      ),
       tier3RadiusKm: tier3Radius,
       tier1TimeoutMs: num(d.tier1TimeoutSec, 15, 5, 120) * 1000,
-      tier2TimeoutMs: num(d.tier2TimeoutSec, 15, 5, 120) * 1000,
       pingTimeoutMs: num(d.pingTimeoutSec, 60, 10, 600) * 1000,
       repingIntervalMs: num(d.repingIntervalSec, 30, 10, 600) * 1000,
-      tier2Count: Math.round(num(d.tier2Count, 2, 1, 5)),
       candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
       recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
       maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
@@ -1129,15 +1110,14 @@ async function startTier1(
           vehicleCategory,
           customerId
         );
-  if (nearest.length === 0) return false; // Nobody online — sweep retries.
+  if (nearest.length === 0) return false; // Nobody online in Stage 1 radius.
 
   await tripRef.update({
     status: "WAITING_FOR_ACCEPTANCE",
     dispatchTier: 1,
     tier1DriverId: nearest[0].id,
-    tier2DriverIds: [],
     pingDriverId: nearest[0].id,
-    pingDriverIds: [],
+    pingDriverIds: [nearest[0].id],
     pingExpiresAt: nowMs() + tuning.pingTimeoutMs,
     tierExpiresAt: nowMs() + tuning.tier1TimeoutMs,
     attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(nearest[0].id),
@@ -1146,51 +1126,7 @@ async function startTier1(
   return true;
 }
 
-/** Tier 2: simultaneous offer to the next N nearest online drivers (≤5km). */
-async function startTier2(
-  tripRef: admin.firestore.DocumentReference,
-  data: admin.firestore.DocumentData,
-  tuning: DispatchTuning
-): Promise<boolean> {
-  const pickup = pickupOf(data);
-  const attempted = attemptedIdsOf(data);
-  const serviceType = String(data.serviceType ?? "ride");
-  const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
-  const customerId = String(data.customerId ?? data.userId ?? "");
-  const nearest =
-    pickup == null
-      ? []
-      : await findNearestDrivers(
-          attempted,
-          serviceType,
-          pickup,
-          tuning.tier2Count,
-          tuning,
-          tuning.tier2RadiusKm,
-          vehicleCategory,
-          customerId
-        );
-  if (nearest.length === 0) {
-    await startTier3(tripRef);
-    return true;
-  }
-  const ids = nearest.map((n) => n.id);
-  await tripRef.update({
-    status: "WAITING_FOR_ACCEPTANCE",
-    dispatchTier: 2,
-    tier2DriverIds: ids,
-    pingDriverId: null,
-    pingDriverIds: ids,
-    pingExpiresAt: nowMs() + tuning.pingTimeoutMs,
-    tierExpiresAt: nowMs() + tuning.tier2TimeoutMs,
-    attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(...ids),
-    declineCount: admin.firestore.FieldValue.increment(1),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-  return true;
-}
-
-/** Tier 3: broadcast to every nearby online driver (marketplace feed). */
+/** Stage 3 Fallback: direct drop into global Order Pool (marketplace feed). */
 async function startTier3(
   tripRef: admin.firestore.DocumentReference
 ): Promise<void> {
@@ -1206,7 +1142,7 @@ async function startTier3(
   });
 }
 
-/** First dispatch fires the moment the trip document lands (Tier 1 -> Tier 2 -> Stage 3 Pool). */
+/** Streamlined 2-Stage Dispatch: Stage 1 (Sequential 1-on-1) -> Direct Order Pool Fallback. */
 export const onTripCreated = onDocumentCreated(
   "trips/{tripId}",
   async (
@@ -1219,10 +1155,8 @@ export const onTripCreated = onDocumentCreated(
     const tuning = await getDispatchTuning();
     const started = await startTier1(snap.ref, data, tuning);
     if (!started) {
-      const started2 = await startTier2(snap.ref, data, tuning);
-      if (!started2) {
-        await startTier3(snap.ref);
-      }
+      // Direct Fallback to Order Pool
+      await startTier3(snap.ref);
     }
   }
 );
@@ -1236,17 +1170,15 @@ async function breakStreakQuiet(driverId: string, reason: string) {
 }
 
 /**
- * Scheduled sweep (every minute): promotes waiting offers through the
- * tiers when their deadlines pass (Tier 1 → Tier 2 → marketplace
- * broadcast), expires ignored pings (streak-breaking, like a decline),
- * and restarts dispatch for long-waiting searches. This keeps dispatch
- * alive while the customer's app is closed.
+ * Scheduled sweep (every minute): promotes waiting offers through Stage 1
+ * sequential pings to Stage 3 Order Pool, expires ignored pings
+ * ("skipped_by_driver"), and restarts dispatch for long-waiting searches.
  */
 export const sweepTripPings = onSchedule("* * * * *", async () => {
   const cutoff = nowMs();
   const tuning = await getDispatchTuning();
 
-  // 1. Promote Tier 1 offers whose deadline passed.
+  // 1. Promote Stage 1 offers whose deadline passed.
   const tier1Due = await db()
     .collection("trips")
     .where("status", "==", "WAITING_FOR_ACCEPTANCE")
@@ -1256,7 +1188,6 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
     .get();
   for (const doc of tier1Due.docs) {
     const data = doc.data();
-    // Ignoring a Tier 1 ping until expiry breaks the streak (same as decline).
     const ignored: string | undefined = data.pingDriverId;
     if (ignored) {
       await breakStreakQuiet(ignored, "ping_expired");
@@ -1273,43 +1204,11 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
     if (!fresh || fresh["status"] !== "WAITING_FOR_ACCEPTANCE") continue;
     const restarted1 = await startTier1(doc.ref, fresh, tuning);
     if (!restarted1) {
-      const restarted2 = await startTier2(doc.ref, fresh, tuning);
-      if (!restarted2) {
-        await startTier3(doc.ref);
-      }
+      await startTier3(doc.ref);
     }
   }
 
-  // 2. Promote Tier 2 offers whose deadline passed → marketplace broadcast.
-  const tier2Due = await db()
-    .collection("trips")
-    .where("status", "==", "WAITING_FOR_ACCEPTANCE")
-    .where("dispatchTier", "==", 2)
-    .where("tierExpiresAt", "<", cutoff)
-    .limit(25)
-    .get();
-  for (const doc of tier2Due.docs) {
-    const data = doc.data();
-    const ignored: string[] = Array.isArray(data.pingDriverIds)
-      ? data.pingDriverIds.map(String)
-      : [];
-    for (const id of ignored) {
-      await breakStreakQuiet(id, "ping_expired");
-      await doc.ref.update({
-        cancellationSource: "skipped_by_driver",
-        rejections: admin.firestore.FieldValue.arrayUnion({
-          driverId: id,
-          action: "skipped",
-          timestamp: cutoff,
-        }),
-      });
-    }
-    const fresh = (await doc.ref.get()).data();
-    if (!fresh || fresh["status"] !== "WAITING_FOR_ACCEPTANCE") continue;
-    await startTier3(doc.ref);
-  }
-
-  // 3. Legacy pings without tier fields (pre-cascade docs): expire them.
+  // 2. Legacy pings without tier fields (pre-cascade docs): expire them.
   const stale = await db()
     .collection("trips")
     .where("status", "==", "WAITING_FOR_ACCEPTANCE")
@@ -1725,11 +1624,9 @@ export const acceptTrip = onCall(async (request) => {
 });
 
 /**
- * Driver declines a Tier 1/2 ping → streak breaks, then dispatch continues
- * immediately instead of waiting for the sweep:
- * - Tier 1 decline → jump straight to Tier 2.
- * - Tier 2 decline → drop the decliner from the ping group; when nobody is
- *   left, jump straight to the Tier 3 broadcast.
+ * Driver declines a Stage 1 ping → streak breaks, then dispatch continues
+ * sequentially to the next nearest Stage 1 driver or falls back directly
+ * to the global Order Pool (Stage 3).
  */
 export const declineTrip = onCall(async (request) => {
   if (!request.auth) {
@@ -1739,8 +1636,6 @@ export const declineTrip = onCall(async (request) => {
   const tripId = String(request.data?.tripId ?? "");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
   const snap = await requirePingedDriver(tripId, driverId);
-  const data = snap.data()!;
-  const tier = typeof data.dispatchTier === "number" ? data.dispatchTier : 1;
 
   // Rejecting an incoming request breaks the streak.
   try {
@@ -1756,46 +1651,25 @@ export const declineTrip = onCall(async (request) => {
     timestamp: nowMs(),
   };
 
-  if (tier === 2) {
-    const remaining: string[] = (Array.isArray(data.pingDriverIds)
-      ? data.pingDriverIds.map(String)
-      : []
-    ).filter((id) => id !== driverId);
-    if (remaining.length > 0) {
-      await snap.ref.update({
-        pingDriverIds: remaining,
-        tier2DriverIds: remaining,
-        attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
-        cancellationSource: "driver_rejected",
-        rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return { ok: true };
-    }
-    await startTier3(snap.ref);
-    return { ok: true };
-  }
-
   await snap.ref.update({
     status: "SEARCHING_DRIVER",
     pingDriverId: null,
+    pingDriverIds: [],
     pingExpiresAt: null,
-    cancellationSource: "driver_rejected",
+    tierExpiresAt: null,
+    cancellationSource: "rejected_by_driver",
     declineCount: admin.firestore.FieldValue.increment(1),
     attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
     rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  // Try remaining Stage 1 drivers sequentially before escalating to Stage 2 / Stage 3.
+  // Try remaining Stage 1 drivers sequentially before escalating to Order Pool (Stage 3).
   const fresh = await snap.ref.get();
   if (fresh.exists && fresh.data()!.status === "SEARCHING_DRIVER") {
     const restarted1 = await startTier1(snap.ref, fresh.data()!, tuning);
     if (!restarted1) {
-      const restarted2 = await startTier2(snap.ref, fresh.data()!, tuning);
-      if (!restarted2) {
-        await startTier3(snap.ref);
-      }
+      await startTier3(snap.ref);
     }
   }
   return { ok: true };

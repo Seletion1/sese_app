@@ -536,6 +536,7 @@ class _StatusChip extends StatelessWidget {
     final isRejected = status == TripStatus.rejected ||
         source == 'driver_declined' ||
         source == 'driver_rejected' ||
+        source == 'rejected_by_driver' ||
         source == 'rejected' ||
         source == 'declined';
 
