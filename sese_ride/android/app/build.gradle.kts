@@ -2,6 +2,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
     // END: FlutterFire Configuration
@@ -96,10 +97,7 @@ android {
     // pre-release QA builds. arm64-v8a covers >95% of 2024+ Android devices.
     splits {
         abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64")
-            isUniversalApk = true // also emit a fat APK as fallback
+            isEnable = false
         }
     }
 
