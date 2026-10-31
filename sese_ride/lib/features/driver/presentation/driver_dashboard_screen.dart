@@ -127,6 +127,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   TripStatus? _lastTrackedStatus;
   LatLng? _tripStartLocation;
   bool _hasAutoCollapsedForTrip = false;
+  bool _isFollowingUser = true;
+  DateTime? _lastPanTime;
   List<LatLng> _activeRoutePoints = [];
   DateTime? _lastRouteFetchTime;
   final Set<String> _ratedTripDocIds = {};
@@ -240,6 +242,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _resolvePosition();
     _startLivePositionTracking();
     _initSessionControl();
+    _mapController.onFollowingChanged = () {
+      if (mounted) {
+        setState(() {
+          _isFollowingUser = _mapController.isFollowingUser;
+          if (!_isFollowingUser) {
+            _lastPanTime = DateTime.now();
+          }
+        });
+      }
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _mapController.move(_driverPosition, 15.0);
     });
@@ -505,6 +517,40 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
   }
 
+  void _recenterMap() {
+    _mapController.recenterTo(_driverPosition, 16.5);
+    if (mounted) {
+      setState(() {
+        _isFollowingUser = true;
+      });
+    }
+  }
+
+  void _checkAutoResumeTracking(Position pos, LatLng newPos) {
+    if (_isFollowingUser) return;
+    final now = DateTime.now();
+    if (_lastPanTime == null ||
+        now.difference(_lastPanTime!) < const Duration(seconds: 6)) {
+      return;
+    }
+
+    bool isMoving = pos.speed > 1.2;
+    if (!isMoving && _tripStartLocation != null) {
+      final movedM = const Distance().as(
+        LengthUnit.Meter,
+        _tripStartLocation!,
+        newPos,
+      );
+      if (movedM > 10.0) {
+        isMoving = true;
+      }
+    }
+
+    if (isMoving || _currentActiveTrip != null) {
+      _recenterMap();
+    }
+  }
+
   /// Continuously follows live GPS movement during active trips and idle positioning.
   /// Detects actual vehicle movement to auto-collapse the bottom action sheet.
   void _startLivePositionTracking() {
@@ -524,8 +570,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           });
 
           // Live map camera follow during active trip or when set to follow
-          if (_currentActiveTrip != null || _mapController.isFollowingUser) {
+          if (_isFollowingUser) {
             _mapController.followTo(newPos);
+          } else {
+            _checkAutoResumeTracking(pos, newPos);
           }
 
           // Evaluate vehicle movement to auto-collapse the bottom sheet
@@ -583,7 +631,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       _activeTripSheetController.animateTo(
-        0.18,
+        0.12,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
       );
@@ -594,7 +642,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       final current = _activeTripSheetController.size;
-      final target = current <= 0.25 ? 0.42 : 0.18;
+      final target = current <= 0.20 ? 0.42 : 0.12;
       _activeTripSheetController.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
@@ -1653,8 +1701,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   // Re-engages GPS follow AND snaps back (see home map).
-                  onTap: () =>
-                      _mapController.recenterTo(_driverPosition, 16.0),
+                  onTap: _recenterMap,
                   child: const Padding(
                     padding: EdgeInsets.all(10),
                     child: Icon(Icons.my_location, size: 22, color: Color(0xFF4285F4)),
@@ -1662,6 +1709,53 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ),
             ),
+
+            // 2. Floating Recenter Pill Button (bottom-center):
+            // Appears when driver manually panned/dragged the map (!_isFollowingUser).
+            if (!_isFollowingUser)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: active != null ? 100 : 130,
+                child: Center(
+                  child: Material(
+                    key: const Key('driver_recenter_pill_button'),
+                    color: isDark ? const Color(0xFF2D2D38) : Colors.white,
+                    elevation: 6,
+                    borderRadius: BorderRadius.circular(28),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: _recenterMap,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Transform.rotate(
+                              angle: -math.pi / 4,
+                              child: const Icon(
+                                Icons.navigation_rounded,
+                                size: 20,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Recenter',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             // 2. (Radar moved into the Order Pool sheet — map stays clean.)
             // 3. Bottom area:
             // When trip is active: full-width DraggableScrollableSheet touching bottom.

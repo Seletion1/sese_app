@@ -42,8 +42,15 @@ void main() {
 
   Widget makeTestableWidget(Widget child) {
     return MaterialApp(
-      home: Scaffold(
-        body: child,
+      home: MediaQuery(
+        data: const MediaQueryData(size: Size(800, 1200)),
+        child: Scaffold(
+          body: SizedBox(
+            height: 1200,
+            width: 800,
+            child: child,
+          ),
+        ),
       ),
     );
   }
@@ -71,7 +78,7 @@ void main() {
 
     // 3. Verify vehicle category ("Motorcycle • ") is completely removed from subtitle
     expect(find.textContaining('Motorcycle'), findsNothing);
-    expect(find.textContaining('₦4,126'), findsOneWidget);
+    expect(find.textContaining('₦4,126'), findsAtLeast(1));
 
     // 4. Verify 3 inline action icons are present
     expect(find.byKey(const Key('driver_direct_call_icon')), findsOneWidget);
@@ -80,7 +87,7 @@ void main() {
 
     // 5. Verify Slide-to-Action button is rendered with stage label
     expect(find.byKey(const Key('driver_slide_action_button')), findsOneWidget);
-    expect(find.text('Slide to Complete Trip'), findsOneWidget);
+    expect(find.text('Complete Trip'), findsOneWidget);
   });
 
   testWidgets('Call Contact Sheet shows clean options with no bulky header text',

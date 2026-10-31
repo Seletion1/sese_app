@@ -1058,12 +1058,40 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
   /// Stage-aware contact block.
   ///
+  String _statusHeaderTitle(ActiveTrip trip) {
+    switch (trip.status) {
+      case TripStatus.driverAccepted:
+      case TripStatus.driverArriving:
+        return 'Sender notified';
+      case TripStatus.driverArrived:
+        return 'Arrived at pickup';
+      case TripStatus.inProgress:
+        return 'Trip in progress';
+      default:
+        return 'Active Trip';
+    }
+  }
+
+  String _statusHeaderSubtitle(ActiveTrip trip) {
+    switch (trip.status) {
+      case TripStatus.driverAccepted:
+      case TripStatus.driverArriving:
+        return 'Drive closer to the pickup location to start the waiting timer';
+      case TripStatus.driverArrived:
+        return 'Waiting at pickup location for customer/package';
+      case TripStatus.inProgress:
+        return 'Head toward destination address';
+      default:
+        return '';
+    }
+  }
+
   void _toggleInternalSheet() {
     final ctrl = widget.sheetController ?? _internalSheetController;
     if (!ctrl.isAttached) return;
     try {
       final current = ctrl.size;
-      final target = current <= 0.25 ? 0.42 : 0.18;
+      final target = current <= 0.20 ? 0.42 : 0.12;
       ctrl.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
@@ -1079,16 +1107,15 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
 
     final controller = widget.sheetController ?? _internalSheetController;
-    final isTripStarted = widget.trip.status == TripStatus.inProgress;
-    final initialSize = isTripStarted ? 0.18 : 0.42;
+    final initialSize = widget.sheetController != null ? 0.12 : 0.88;
 
     return DraggableScrollableSheet(
       controller: controller,
       initialChildSize: initialSize,
-      minChildSize: 0.18,
+      minChildSize: 0.12,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.18, 0.42, 0.88],
+      snapSizes: const [0.12, 0.42, 0.88],
       builder: (context, scrollCtrl) {
         return _buildSheetContent(context, scrollCtrl);
       },
@@ -1146,16 +1173,64 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Center(
-                  child: Container(
-                    width: 48,
-                    height: 5,
-                    margin: const EdgeInsets.only(top: 2, bottom: 8),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(3),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 48,
+                        height: 5,
+                        margin: const EdgeInsets.only(top: 2, bottom: 6),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
                     ),
-                  ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _statusHeaderTitle(trip),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (_statusHeaderSubtitle(trip).isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _statusHeaderSubtitle(trip),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.format_list_bulleted_rounded,
+                            size: 22,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                  ],
                 ),
               ),
             ),

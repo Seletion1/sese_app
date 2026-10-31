@@ -890,7 +890,7 @@ class _BidCarousel extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                height: 148,
+                height: 175,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -951,10 +951,15 @@ class _BidCard extends StatelessWidget {
     final fareLabel = bid.fareFormatted.isNotEmpty
         ? bid.fareFormatted
         : '₦${bid.offeredFare.toStringAsFixed(0)}';
+
+    final vehicleStr = [bid.vehicleModel, bid.plateNumber]
+        .where((s) => s.trim().isNotEmpty)
+        .join(' · ');
+
     return Card(
       margin: EdgeInsets.zero,
       child: SizedBox(
-        width: 160,
+        width: 190,
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Column(
@@ -980,53 +985,68 @@ class _BidCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Flexible(
-                          child: Text(
-                            bid.driverName.split(' ').first,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                bid.driverName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (bid.isVerifiedDriver) ...[
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.verified,
+                                size: 12,
+                                color: Colors.blue,
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (vehicleStr.isNotEmpty)
+                          Text(
+                            vehicleStr,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: cs.onSurfaceVariant,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        if (bid.isVerifiedDriver) ...[
-                          const SizedBox(width: 4),
-                          const Icon(
-                            Icons.verified,
-                            size: 12,
-                            color: Colors.blue,
-                          ),
-                        ],
                       ],
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 4),
-              if (bid.rating > 0)
-                Row(
-                  children: [
+              Row(
+                children: [
+                  if (bid.rating > 0) ...[
                     const Icon(Icons.star, size: 11, color: Colors.amber),
                     const SizedBox(width: 2),
                     Text(
                       bid.rating.toStringAsFixed(1),
                       style: const TextStyle(fontSize: 10),
                     ),
-                    if (bid.etaMinutes != null) ...{
-                      const SizedBox(width: 6),
-                      Text(
-                        '~${bid.etaMinutes} min',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                    },
+                    const SizedBox(width: 6),
                   ],
-                ),
+                  if (bid.etaMinutes != null)
+                    Text(
+                      '~${bid.etaMinutes} min away',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        color: cs.primary,
+                      ),
+                    ),
+                ],
+              ),
               const Spacer(),
               Text(
                 fareLabel,

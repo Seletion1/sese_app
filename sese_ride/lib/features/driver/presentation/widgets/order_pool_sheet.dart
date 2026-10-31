@@ -240,7 +240,9 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                                     textColor: AppColors.seseGold,
                                     onPressed: () {
                                       OrderPoolSession.restore(trip.tripId);
-                                      setState(() {});
+                                      if (mounted) {
+                                        setState(() {});
+                                      }
                                     },
                                   ),
                                 ),

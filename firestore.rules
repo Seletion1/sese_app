@@ -378,6 +378,9 @@ service cloud.firestore {
         (resource.data.keys().hasAll(['pingDriverIds']) &&
           resource.data.pingDriverIds is list &&
           resource.data.pingDriverIds.hasAny([request.auth.uid])) ||
+        (resource.data.keys().hasAll(['attemptedDriverIds']) &&
+          resource.data.attemptedDriverIds is list &&
+          resource.data.attemptedDriverIds.hasAny([request.auth.uid])) ||
         (resource.data.keys().hasAll(['driver']) &&
           resource.data.driver is map &&
           resource.data.driver.keys().hasAll(['driverId']) &&
@@ -449,11 +452,12 @@ service cloud.firestore {
       // the accept/reject transitions; clients may only create/update their
       // own pending bid document, and the trip owner can read all bids.
       match /bids/{driverId} {
-        // Customer (trip owner) may read all bids on their trip; hub
-        // verification staff and admins may read for the Queue Inspector.
+        // Customer (trip owner) may read all bids on their trip; driver may read
+        // their own bid; hub verification staff and admins may read for the Queue Inspector.
         allow read: if isAuthenticated() &&
           (get(/databases/$(database)/documents/trips/$(tripId)).data.customerId
             == request.auth.uid ||
+           driverId == request.auth.uid ||
            isAgent() || isHubStaff() || isAdminAuthClaim());
 
         // Verified online driver may write ONLY their own bid document.

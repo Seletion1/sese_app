@@ -79,10 +79,10 @@ const DEFAULT_REPING_INTERVAL_MS = 30 * 1000;
 const DEFAULT_TIER1_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_TIER2_TIMEOUT_MS = 15 * 1000;
 const DEFAULT_TIER2_COUNT = 2;
-const DEFAULT_DISPATCH_RADIUS_KM = 10;
+const DEFAULT_DISPATCH_RADIUS_KM = 15;
 const DEFAULT_TIER1_RADIUS_KM = 3;
 const DEFAULT_TIER2_RADIUS_KM = 6;
-const DEFAULT_TIER3_RADIUS_KM = 10;
+const DEFAULT_TIER3_RADIUS_KM = 15;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
 const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
 const DEFAULT_MAX_RECYCLES = 5;
@@ -976,7 +976,7 @@ async function startTier3(tripRef) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 }
-/** First dispatch fires the moment the trip document lands (Tier 1). */
+/** First dispatch fires the moment the trip document lands (Tier 1 -> Tier 2 -> Stage 3 Pool). */
 exports.onTripCreated = (0, firestore_1.onDocumentCreated)("trips/{tripId}", async (event) => {
     const snap = event.data;
     if (!snap)
@@ -984,7 +984,14 @@ exports.onTripCreated = (0, firestore_1.onDocumentCreated)("trips/{tripId}", asy
     const data = snap.data();
     if (data.status !== "SEARCHING_DRIVER")
         return;
-    await startTier1(snap.ref, data, await getDispatchTuning());
+    const tuning = await getDispatchTuning();
+    const started = await startTier1(snap.ref, data, tuning);
+    if (!started) {
+        const started2 = await startTier2(snap.ref, data, tuning);
+        if (!started2) {
+            await startTier3(snap.ref);
+        }
+    }
 });
 async function breakStreakQuiet(driverId, reason) {
     try {
@@ -1017,12 +1024,27 @@ exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
         const data = doc.data();
         // Ignoring a Tier 1 ping until expiry breaks the streak (same as decline).
         const ignored = data.pingDriverId;
-        if (ignored)
+        if (ignored) {
             await breakStreakQuiet(ignored, "ping_expired");
+            await doc.ref.update({
+                cancellationSource: "skipped_by_driver",
+                rejections: admin.firestore.FieldValue.arrayUnion({
+                    driverId: ignored,
+                    action: "skipped",
+                    timestamp: cutoff,
+                }),
+            });
+        }
         const fresh = (await doc.ref.get()).data();
         if (!fresh || fresh["status"] !== "WAITING_FOR_ACCEPTANCE")
             continue;
-        await startTier2(doc.ref, fresh, tuning);
+        const restarted1 = await startTier1(doc.ref, fresh, tuning);
+        if (!restarted1) {
+            const restarted2 = await startTier2(doc.ref, fresh, tuning);
+            if (!restarted2) {
+                await startTier3(doc.ref);
+            }
+        }
     }
     // 2. Promote Tier 2 offers whose deadline passed → marketplace broadcast.
     const tier2Due = await db()
@@ -1037,8 +1059,17 @@ exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
         const ignored = Array.isArray(data.pingDriverIds)
             ? data.pingDriverIds.map(String)
             : [];
-        for (const id of ignored)
+        for (const id of ignored) {
             await breakStreakQuiet(id, "ping_expired");
+            await doc.ref.update({
+                cancellationSource: "skipped_by_driver",
+                rejections: admin.firestore.FieldValue.arrayUnion({
+                    driverId: id,
+                    action: "skipped",
+                    timestamp: cutoff,
+                }),
+            });
+        }
         const fresh = (await doc.ref.get()).data();
         if (!fresh || fresh["status"] !== "WAITING_FOR_ACCEPTANCE")
             continue;
@@ -1422,6 +1453,12 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
     catch (e) {
         console.warn(`declineTrip: streak break failed for ${driverId}: ${e}`);
     }
+    const tuning = await getDispatchTuning();
+    const rejectionEntry = {
+        driverId,
+        action: "rejected",
+        timestamp: nowMs(),
+    };
     if (tier === 2) {
         const remaining = (Array.isArray(data.pingDriverIds)
             ? data.pingDriverIds.map(String)
@@ -1431,7 +1468,8 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
                 pingDriverIds: remaining,
                 tier2DriverIds: remaining,
                 attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
-                cancellationSource: "driver_declined",
+                cancellationSource: "driver_rejected",
+                rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             return { ok: true };
@@ -1443,15 +1481,22 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
         status: "SEARCHING_DRIVER",
         pingDriverId: null,
         pingExpiresAt: null,
-        cancellationSource: "driver_declined",
+        cancellationSource: "driver_rejected",
         declineCount: admin.firestore.FieldValue.increment(1),
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
+        rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    // Chain Tier 2 immediately instead of waiting for the sweep.
+    // Try remaining Stage 1 drivers sequentially before escalating to Stage 2 / Stage 3.
     const fresh = await snap.ref.get();
     if (fresh.exists && fresh.data().status === "SEARCHING_DRIVER") {
-        await startTier2(snap.ref, fresh.data(), await getDispatchTuning());
+        const restarted1 = await startTier1(snap.ref, fresh.data(), tuning);
+        if (!restarted1) {
+            const restarted2 = await startTier2(snap.ref, fresh.data(), tuning);
+            if (!restarted2) {
+                await startTier3(snap.ref);
+            }
+        }
     }
     return { ok: true };
 });
@@ -1868,7 +1913,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 /** Driver submits a custom fare bid on an open trip document */
 exports.submitBid = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in to bid.");
     }
@@ -1950,9 +1995,27 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         lastBidAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    const vehicleDetails = [snapshot.vehicleColor, snapshot.vehicleModel]
+        .filter(Boolean)
+        .join(" ");
+    const vehicleStr = snapshot.plateNumber
+        ? `${vehicleDetails} (${snapshot.plateNumber})`.trim()
+        : vehicleDetails;
     // Rich counter-bid alert: in-app notification + FCM push to the customer
-    // with the driver's name and offered fare (best-effort, never fails bid).
-    await notifyCustomer(String((_j = tripData.customerId) !== null && _j !== void 0 ? _j : ""), String(tripId), "New driver offer", `${snapshot.fullName} offered ₦${Number(offeredFare).toLocaleString()} for your trip.`, "driver_counter_bid", { driverId, offeredFare: String(offeredFare) });
+    // with complete driver details, ETA, vehicle info, offered fare, and Accept/Reject payload
+    await notifyCustomer(String((_j = tripData.customerId) !== null && _j !== void 0 ? _j : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
+        driverId,
+        driverName: String(snapshot.fullName),
+        driverPhoto: String((_k = snapshot.photoUrl) !== null && _k !== void 0 ? _k : ""),
+        driverRating: String((_l = snapshot.rating) !== null && _l !== void 0 ? _l : 0),
+        offeredFare: String(roundedOfferedFare),
+        offeredFareFormatted: `₦${Number(roundedOfferedFare).toLocaleString()}`,
+        etaMinutes: String(etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5),
+        vehicleModel: String((_m = snapshot.vehicleModel) !== null && _m !== void 0 ? _m : ""),
+        vehicleColor: String((_o = snapshot.vehicleColor) !== null && _o !== void 0 ? _o : ""),
+        plateNumber: String((_p = snapshot.plateNumber) !== null && _p !== void 0 ? _p : ""),
+        vehicleDetails: vehicleStr,
+    });
     return { ok: true, bidId: driverId };
 });
 /** Customer rejects a driver's bid (driver may re-bid later) */

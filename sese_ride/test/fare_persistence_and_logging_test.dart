@@ -128,7 +128,7 @@ void main() {
       expect(find.text('Cancelled by You'), findsNothing);
     });
 
-    testWidgets('Displays "Rejected" badge for rejected pings/offers', (tester) async {
+    testWidgets('Displays "Rejected by You" badge for rejected pings/offers', (tester) async {
       final trip = ActiveTrip.fromMap('t3', {
         'status': 'REJECTED',
         'customerId': 'cust_1',
@@ -148,10 +148,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Rejected'), findsOneWidget);
+      expect(find.text('Rejected by You'), findsOneWidget);
     });
 
-    testWidgets('Displays "Ignored" badge for expired pings', (tester) async {
+    testWidgets('Displays "Skipped by You" badge for expired pings', (tester) async {
       final trip = ActiveTrip.fromMap('t4', {
         'status': 'IGNORED',
         'customerId': 'cust_1',
@@ -171,7 +171,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Ignored'), findsOneWidget);
+      expect(find.text('Skipped by You'), findsOneWidget);
     });
   });
 }

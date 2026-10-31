@@ -539,17 +539,19 @@ class _StatusChip extends StatelessWidget {
         source == 'rejected' ||
         source == 'declined';
 
-    final isIgnored = status == TripStatus.ignored ||
+    final isSkipped = status == TripStatus.ignored ||
+        source == 'skipped_by_driver' ||
         source == 'ping_expired' ||
         source == 'ignored' ||
+        source == 'skipped' ||
         source == 'timeout';
 
     if (isRejected) {
-      label = 'Rejected';
+      label = isDriver ? 'Rejected by You' : 'Rejected by Driver';
       color = const Color(0xFFD97706);
       bgColor = const Color(0xFFFEF3C7);
-    } else if (isIgnored) {
-      label = 'Ignored';
+    } else if (isSkipped) {
+      label = isDriver ? 'Skipped by You' : 'Skipped by Driver';
       color = const Color(0xFFD97706);
       bgColor = const Color(0xFFFEF3C7);
     } else {
