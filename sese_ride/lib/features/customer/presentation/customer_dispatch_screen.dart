@@ -4769,8 +4769,10 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         },
       );
     } finally {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ctrl.dispose();
+      Future.delayed(const Duration(milliseconds: 500), () {
+        try {
+          ctrl.dispose();
+        } catch (_) {}
       });
     }
   }
