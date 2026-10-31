@@ -1676,7 +1676,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                         ),
                       ),
                       const SizedBox(height: 6),
-                      _buildLowBalanceBanner(),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: VerificationBanner(driverId: widget.driverId),
@@ -2074,68 +2073,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  Widget _buildLowBalanceBanner() {
-    return StreamBuilder<DualWallet>(
-      stream: const SeseCoinService().walletStream(widget.driverId),
-      builder: (context, wSnap) {
-        final wallet = wSnap.data ?? const DualWallet();
-        return StreamBuilder<FinancialConfig>(
-          stream: const FinancialConfigService().configStream(),
-          builder: (context, cSnap) {
-            final config = cSnap.data ?? const FinancialConfig();
-            final lowBalance = wallet.mainWalletBalance < config.minWalletBalanceToOnline;
-            if (!_isOnline || !lowBalance) return const SizedBox.shrink();
-
-            return Container(
-              margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade900,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: const [
-                  BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-                ],
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 24),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Warning: Your wallet balance is below ₦${config.minWalletBalanceToOnline.toStringAsFixed(2)}. '
-                      'You are online, but you will not receive trip requests until you top up your wallet.',
-                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.amber.shade900,
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    ),
-                    onPressed: () {
-                      final u = widget.user ??
-                          AppUser(
-                            uid: widget.driverId,
-                            fullName: 'Driver',
-                            email: '',
-                            phoneNumber: '',
-                            createdAt: DateTime.now(),
-                            role: UserRole.driver,
-                          );
-                      showTopUpSheet(context, PaymentService(), u);
-                    },
-                    child: const Text('Top Up Now', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+  Widget _buildLowBalanceBanner() => const SizedBox.shrink();
 
   /// Floating top banner shown while a driver has an active trip.
   /// Matches the Uber/Lyft/Bolt top navigation indicator:

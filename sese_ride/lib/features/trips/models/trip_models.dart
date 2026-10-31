@@ -195,6 +195,9 @@ class ActiveTrip {
   /// Powers the no-show wait timer in the driver app.
   final DateTime? arrivedAt;
 
+  /// Top-level completion timestamp set when trip enters COMPLETED.
+  final DateTime? completedAt;
+
   /// Backend settlement timestamp (`settlement.settledAt`), then document
   /// `updatedAt`/`createdAt` fallbacks. Drives earnings period bucketing —
   /// for COMPLETED trips this approximates completion time.
@@ -323,6 +326,7 @@ class ActiveTrip {
     this.pingDriverIds = const [],
     this.dispatchTier = 0,
     this.arrivedAt,
+    this.completedAt,
     this.settledAt,
     this.updatedAt,
     this.createdAt,
@@ -384,7 +388,7 @@ class ActiveTrip {
       status != TripStatus.ignored;
 
   /// Best available completion-ish timestamp for earnings bucketing.
-  DateTime? get earningDate => settledAt ?? updatedAt ?? createdAt;
+  DateTime? get earningDate => completedAt ?? settledAt ?? updatedAt ?? createdAt;
 
   factory ActiveTrip.fromMap(String tripId, Map<String, dynamic> map) {
     Map<String, dynamic> sub(dynamic v) =>
@@ -505,6 +509,7 @@ class ActiveTrip {
           const [],
       dispatchTier: (map['dispatchTier'] as num?)?.toInt() ?? 0,
       arrivedAt: dateOf(map['arrivedAt']),
+      completedAt: dateOf(map['completedAt']) ?? dateOf(settlement['commissionSettledAt']),
       settledAt: dateOf(settlement['settledAt']),
       updatedAt: dateOf(map['updatedAt']),
       createdAt: dateOf(map['createdAt']) ?? dateOf(map['requestedAt']),

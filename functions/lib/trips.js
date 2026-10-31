@@ -843,8 +843,7 @@ async function getMinWalletBalanceToOnline() {
     return 1.00;
 }
 async function findNearestDrivers(attempted, serviceType, pickup, count, tuning, radiusKm, vehicleCategory, customerId) {
-    var _a, _b, _c;
-    const minBalance = await getMinWalletBalanceToOnline();
+    var _a, _b;
     const snap = await db()
         .collection("drivers")
         .where("isOnline", "==", true)
@@ -868,19 +867,6 @@ async function findNearestDrivers(attempted, serviceType, pickup, count, tuning,
                 continue;
             }
         }
-        // Dispatch Guard: filter drivers with balance below minWalletBalanceToOnline
-        try {
-            const walletSnap = await db().collection("wallets").doc(doc.id).get();
-            if (walletSnap.exists) {
-                const wData = (_c = walletSnap.data()) !== null && _c !== void 0 ? _c : {};
-                const mainBal = typeof wData.mainWalletBalance === "number"
-                    ? wData.mainWalletBalance
-                    : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
-                if (mainBal < minBalance)
-                    continue;
-            }
-        }
-        catch (_) { }
         const tiers = Array.isArray(data.serviceTiers)
             ? data.serviceTiers.map(String)
             : [];
@@ -1313,7 +1299,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("invalid-argument", "tripId is required.");
     const snapshot = await driverSnapshot(driverId);
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         const ref = db().collection("trips").doc(tripId);
         const snap = await tx.get(ref);
         if (!snap.exists) {
@@ -1332,10 +1318,22 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
                 throw new https_1.HttpsError("failed-precondition", "This session is no longer active. You went online on another device.");
             }
         }
+        // Low balance guard: Drivers with balance below minWalletBalanceToOnline (< 1.00) cannot accept trips.
+        const walletDoc = await tx.get(db().collection("wallets").doc(driverId));
+        if (walletDoc.exists) {
+            const wData = (_c = walletDoc.data()) !== null && _c !== void 0 ? _c : {};
+            const mainBal = typeof wData.mainWalletBalance === "number"
+                ? wData.mainWalletBalance
+                : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
+            const minBalance = await getMinWalletBalanceToOnline();
+            if (mainBal < minBalance) {
+                throw new https_1.HttpsError("failed-precondition", "Your balance is low. Please top up to accept trips.");
+            }
+        }
         const data = snap.data();
-        const status = String((_c = data.status) !== null && _c !== void 0 ? _c : "");
+        const status = String((_d = data.status) !== null && _d !== void 0 ? _d : "");
         // Self-assignment guard: drivers cannot accept orders they created as customer
-        const orderCustomerId = String((_e = (_d = data.customerId) !== null && _d !== void 0 ? _d : data.userId) !== null && _e !== void 0 ? _e : "");
+        const orderCustomerId = String((_f = (_e = data.customerId) !== null && _e !== void 0 ? _e : data.userId) !== null && _f !== void 0 ? _f : "");
         if (orderCustomerId && orderCustomerId === driverId) {
             throw new https_1.HttpsError("failed-precondition", "You cannot accept an order you created as a customer.");
         }
@@ -1349,14 +1347,14 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         }
         else if (status === "MARKETPLACE_OPEN" || status === "MARKETPLACE_LIST") {
             const driverDoc = await tx.get(db().collection("drivers").doc(driverId));
-            if (!driverDoc.exists || ((_f = driverDoc.data()) === null || _f === void 0 ? void 0 : _f.isOnline) !== true) {
+            if (!driverDoc.exists || ((_g = driverDoc.data()) === null || _g === void 0 ? void 0 : _g.isOnline) !== true) {
                 throw new https_1.HttpsError("failed-precondition", "Go online to claim marketplace requests.");
             }
             // Zero-trust claim gate (mirrors submitBid): online alone is not
             // enough. Verification or the fleet may have been revoked mid-session
             // after goOnline granted, so re-check inside the transaction.
             const claimer = driverDoc.data();
-            const claimerStatus = String((_h = (_g = claimer.verificationStatus) !== null && _g !== void 0 ? _g : claimer.status) !== null && _h !== void 0 ? _h : "").toLowerCase();
+            const claimerStatus = String((_j = (_h = claimer.verificationStatus) !== null && _h !== void 0 ? _h : claimer.status) !== null && _j !== void 0 ? _j : "").toLowerCase();
             const claimerVerified = claimerStatus === "verified" ||
                 claimerStatus === "approved" ||
                 claimerStatus === "active_verified" ||
@@ -1385,7 +1383,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         else {
             throw new https_1.HttpsError("failed-precondition", "This trip is no longer available.");
         }
-        if ((_j = data.driver) === null || _j === void 0 ? void 0 : _j.driverId) {
+        if ((_k = data.driver) === null || _k === void 0 ? void 0 : _k.driverId) {
             throw new https_1.HttpsError("failed-precondition", "Another driver claimed this trip first.");
         }
         // Verify pending bids before assignment: accept the claimer's own
@@ -1412,16 +1410,16 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
-            dispatchTier: (_k = data.dispatchTier) !== null && _k !== void 0 ? _k : null,
+            dispatchTier: (_l = data.dispatchTier) !== null && _l !== void 0 ? _l : null,
             pingDriverId: null,
             pingDriverIds: [],
             pingExpiresAt: null,
             tierExpiresAt: null,
             hasActiveBids: false,
-            biddingCompleted: pendingBids.size > 0 ? true : ((_l = data.biddingCompleted) !== null && _l !== void 0 ? _l : false),
+            biddingCompleted: pendingBids.size > 0 ? true : ((_m = data.biddingCompleted) !== null && _m !== void 0 ? _m : false),
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
-                : ((_m = data.acceptedBidDriverId) !== null && _m !== void 0 ? _m : null),
+                : ((_o = data.acceptedBidDriverId) !== null && _o !== void 0 ? _o : null),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     });
@@ -1581,6 +1579,9 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     // Record the timestamp when driver taps "Arrived" for no-show timer tracking
     if (status === "DRIVER_ARRIVED") {
         update["arrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    }
+    else if (status === "COMPLETED") {
+        update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
     }
     await ref.update(update);
     // Arrival alert: in-app notification + rich FCM push to the customer

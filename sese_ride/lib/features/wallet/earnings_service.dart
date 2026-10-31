@@ -36,7 +36,7 @@ class TripEarning {
           trip.serviceType == 'send_item' ? 'Courier' : 'Ride',
       pickupAddress: trip.pickupAddress,
       dropoffAddress: trip.dropoffAddress,
-      completedAt: trip.earningDate,
+      completedAt: trip.completedAt ?? trip.earningDate,
     );
   }
 }
@@ -115,8 +115,11 @@ class EarningsService {
     return da.compareTo(db);
   }
 
-  static bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
+  static bool _sameDay(DateTime a, DateTime b) {
+    final la = a.toLocal();
+    final lb = b.toLocal();
+    return la.year == lb.year && la.month == lb.month && la.day == lb.day;
+  }
 
   /// Totals for a single calendar day + that day's trips (newest first).
   static ({DayEarnings day, List<TripEarning> trips}) summarizeDay(

@@ -111,7 +111,7 @@ class WalletTransaction {
 
   /// Signed, formatted amount for ledger rows (`+₦2,500.00` / `-₦350.00`).
   String get signedAmount =>
-      '${isCredit ? '+' : '-'}${PaymentService.formatNaira(amountNaira)}';
+      '${isCredit ? '+' : '-'}${PaymentService.formatNaira(amountNaira.abs())}';
 
   /// Wallet-ledger incentive types (bonuses, referrals, awards).
   static bool isIncentiveType(String type) => const {

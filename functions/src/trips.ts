@@ -1051,8 +1051,6 @@ async function findNearestDrivers(
   vehicleCategory?: string,
   customerId?: string
 ): Promise<NearbyDriver[]> {
-  const minBalance = await getMinWalletBalanceToOnline();
-
   const snap = await db()
     .collection("drivers")
     .where("isOnline", "==", true)
@@ -1078,18 +1076,6 @@ async function findNearestDrivers(
         continue;
       }
     }
-
-    // Dispatch Guard: filter drivers with balance below minWalletBalanceToOnline
-    try {
-      const walletSnap = await db().collection("wallets").doc(doc.id).get();
-      if (walletSnap.exists) {
-        const wData = walletSnap.data() ?? {};
-        const mainBal = typeof wData.mainWalletBalance === "number"
-          ? wData.mainWalletBalance
-          : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
-        if (mainBal < minBalance) continue;
-      }
-    } catch (_) {}
 
     const tiers: string[] = Array.isArray(data.serviceTiers)
       ? data.serviceTiers.map(String)
@@ -1593,6 +1579,22 @@ export const acceptTrip = onCall(async (request) => {
       }
     }
 
+    // Low balance guard: Drivers with balance below minWalletBalanceToOnline (< 1.00) cannot accept trips.
+    const walletDoc = await tx.get(db().collection("wallets").doc(driverId));
+    if (walletDoc.exists) {
+      const wData = walletDoc.data() ?? {};
+      const mainBal = typeof wData.mainWalletBalance === "number"
+        ? wData.mainWalletBalance
+        : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
+      const minBalance = await getMinWalletBalanceToOnline();
+      if (mainBal < minBalance) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Your balance is low. Please top up to accept trips."
+        );
+      }
+    }
+
     const data = snap.data()!;
     const status = String(data.status ?? "");
 
@@ -1886,6 +1888,8 @@ export const advanceTripStatus = onCall(async (request) => {
   // Record the timestamp when driver taps "Arrived" for no-show timer tracking
   if (status === "DRIVER_ARRIVED") {
     update["arrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
+  } else if (status === "COMPLETED") {
+    update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
   }
   await ref.update(update);
   // Arrival alert: in-app notification + rich FCM push to the customer

@@ -495,9 +495,9 @@ export const onTripCompleted = onDocumentUpdated(
         .doc(`${tripId}_commission`);
       batch.set(commTxRef, {
         type: "platform_commission",
-        amount: commissionDebitKobo,
-        amountKobo: commissionDebitKobo,
-        amountNaira: commissionDebitNaira,
+        amount: -commissionDebitKobo,
+        amountKobo: -commissionDebitKobo,
+        amountNaira: -commissionDebitNaira,
         tripId,
         currency: "NGN",
         note: `Platform commission fee for trip ${tripId}`,
@@ -507,6 +507,7 @@ export const onTripCompleted = onDocumentUpdated(
 
     const tripRef = db().collection("trips").doc(tripId);
     batch.update(tripRef, {
+      completedAt: admin.firestore.FieldValue.serverTimestamp(),
       "settlement.commissionRate": result.commissionRate,
       "settlement.commissionAmount": result.commissionAmount,
       "settlement.commissionSettled": true,
