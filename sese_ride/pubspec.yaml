@@ -12,6 +12,8 @@ dependencies:
     sdk: flutter
   sese_core:
     path: ../sese_core
+  app_launcher:
+    path: ../plugins/app_launcher
 
   firebase_core: ^4.15.0
   firebase_app_check: ^0.4.7

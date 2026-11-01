@@ -22,20 +22,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        try {
-            flutterEngine.plugins?.add(AppLauncherPlugin())
-        } catch (_: Exception) {}
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
-            if (call.method == "bringToForeground") {
-                bringAppToForeground()
-                result.success(true)
-            } else if (call.method == "moveTaskToBack") {
-                this@MainActivity.moveTaskToBack(true)
-                result.success(true)
-            } else {
-                result.notImplemented()
-            }
-        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, GMS_CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "isAvailable") {
                 result.success(isGooglePlayServicesAvailable())
@@ -59,44 +45,6 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-    }
-
-    // Restores sese_ride to the foreground (bubble tap + "SeSe Driver
-    // Active" notification tap path). REORDER_TO_FRONT reuses the existing
-    // singleTop MainActivity instead of stacking a second copy; the unified
-    // tray notification's content PendingIntent is built with
-    // FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE per Android 12+ requirements.
-    private fun bringAppToForeground() {
-        try {
-            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-            }
-            if (launchIntent != null) {
-                startActivity(launchIntent)
-            } else {
-                val intent = Intent(this, MainActivity::class.java).apply {
-                    action = Intent.ACTION_MAIN
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP
-                }
-                startActivity(intent)
-            }
-        } catch (_: Exception) {
-            try {
-                val intent = Intent(this, MainActivity::class.java).apply {
-                    action = Intent.ACTION_MAIN
-                    addCategory(Intent.CATEGORY_LAUNCHER)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                }
-                startActivity(intent)
-            } catch (_: Exception) {}
-        }
     }
 
     // Reports whether Google Play Services is installed and operational on this device.
@@ -166,7 +114,6 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val TAG = "sese_ride"
-        const val CHANNEL = "com.sesetech.sese_ride/app_launcher"
         const val GMS_CHANNEL = "com.sesetech.sese_ride/gms_availability"
         const val APP_CHECK_CHANNEL = "com.sesetech.sese_ride/app_check"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"

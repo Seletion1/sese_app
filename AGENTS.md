@@ -72,6 +72,36 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Kotlin Flutter Plugin for App Launcher & Background Overlay Engine Registration
+
+- **Root Cause & Diagnosis**:
+  - The driver overlay bubble displayed:
+    ```text
+    DriverOverlayService.bringToForeground failed: MissingPluginException(No implementation found for method bringToForeground on channel com.sesetech.sese_ride/app_launcher)
+    ```
+  - `flutter_overlay_window` manages its floating window and background order cards inside an independent Android `OverlayService` which spins up its own dedicated `FlutterEngine`.
+  - When initializing, `OverlayService` calls `GeneratedPluginRegistrant.registerWith(flutterEngine)`.
+  - Because `AppLauncherPlugin` was previously a standalone Kotlin file in the app module (`sese_ride/android/app/.../AppLauncherPlugin.kt`) and manually wired in `MainActivity.kt`, it was never recognized as a Flutter plugin by Flutter tools and was omitted from `GeneratedPluginRegistrant.java`.
+  - When the floating bubble was tapped from the overlay isolate, the background engine received method calls for `com.sesetech.sese_ride/app_launcher` with no handler attached, resulting in `MissingPluginException`.
+
+- **Implementation & Architectural Packaging**:
+  - Created standard local Kotlin Flutter plugin `plugins/app_launcher`:
+    * Declared Android plugin in `plugins/app_launcher/pubspec.yaml` under `com.sesetech.sese_ride.app_launcher.AppLauncherPlugin`.
+    * Implemented `AppLauncherPlugin.kt` in Kotlin implementing `FlutterPlugin`, `MethodCallHandler`, and `ActivityAware`.
+    * Implemented `bringToForeground` using `Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED` with `packageManager.getLaunchIntentForPackage` (operational on both background context and activity).
+    * Implemented `moveTaskToBack` with `ActivityAware` activity reference.
+    * Added channel support for both canonical `com.sesetech.sese_ride/app_launcher` and fallback `app_launcher`.
+  - Linked `app_launcher` as path dependency in `sese_ride/pubspec.yaml` (`../plugins/app_launcher`).
+  - Updated `DriverOverlayService` in `sese_ride` to interface through `AppLauncher` Dart API.
+  - Cleaned up redundant manual channel registration and boilerplate from `MainActivity.kt`.
+  - Removed obsolete standalone `sese_ride/android/app/src/main/kotlin/com/sesetech/sese_ride/AppLauncherPlugin.kt`.
+
+- **Verification**:
+  - Confirmed plugin presence in `sese_ride/.flutter-plugins-dependencies`.
+  - `plugins/app_launcher`: all unit & method channel tests passed (5/5 tests).
+  - `sese_ride`: `flutter analyze` completed with 0 issues.
+  - `sese_ride`: full test suite passed (16/16 tests).
+
 ## 2026-11-01 — Firestore Transaction Read-Before-Write Ordering in `submitTripRating`
 
 - **Root Cause & Diagnosis**:

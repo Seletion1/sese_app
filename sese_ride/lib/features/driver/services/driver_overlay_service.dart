@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:app_launcher/app_launcher.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -95,14 +95,13 @@ class DriverOverlayService {
     }
   }
 
-  static const MethodChannel _appChannel =
-      MethodChannel('com.sesetech.sese_ride/app_launcher');
+  static final AppLauncher _appLauncher = AppLauncher();
 
   /// Brings sese_ride back to the foreground directly via Intent.FLAG_ACTIVITY_REORDER_TO_FRONT.
   Future<void> bringToForeground() async {
     if (!supported) return;
     try {
-      await _appChannel.invokeMethod('bringToForeground');
+      await _appLauncher.bringToForeground();
     } catch (e) {
       debugPrint('DriverOverlayService.bringToForeground failed: $e');
     }
@@ -112,7 +111,7 @@ class DriverOverlayService {
   Future<void> moveTaskToBack() async {
     if (!supported) return;
     try {
-      await _appChannel.invokeMethod('moveTaskToBack');
+      await _appLauncher.moveTaskToBack();
     } catch (e) {
       debugPrint('DriverOverlayService.moveTaskToBack failed: $e');
     }
