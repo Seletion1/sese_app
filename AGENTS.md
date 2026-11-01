@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Driver Cash Settlement State Unlock & Customer Cancellation Cleanup
+
+- **Driver Cancellation & Cash Settlement State Machine Unlock**:
+  - Customer cancellation during paid waiting period in cash settlement mode transitions the trip to `CANCELLED_WAITING_CASH_SETTLEMENT`.
+  - Previously, `_nextStatus` returned `null`, rendering a frozen, unresponsive slider (`> Confirm`) while the top navigation banner persistently instructed `"Now PICKUP - Head towards pickup"`.
+  - Resolved in `DriverActiveTripCard` and `driver_dashboard_screen.dart`:
+    1. Added `CONFIRM_CASH_SETTLEMENT` stage handling with clear action label `Confirm ₦{fee} Collected`.
+    2. Surfaced a prominent Amber Cash Settlement Callout card directly in the bottom sheet with explicit instructions to collect the waiting fee before confirming, accompanied by an instant one-tap confirmation button.
+    3. Updated the active top nav banner to show an amber `TRIP CANCELLED` / `CASH DUE` badge with `Collect ₦{fee} cash waiting fee`.
+    4. Sliding or tapping confirmation triggers `confirmCashCancellation` on `DriverStreakService` (and backend callable `confirmCashCancellation`), which atomically records cash settlement, resets `pendingCashFee: 0`, releases escrow, transitions trip status to `CANCELLED`, and smoothly returns the driver to idle online mode.
+
+- **Customer Map Overlays & Ghost Search Banner Cleanup**:
+  - In `trip_models.dart`: Added `bool get isCustomerLive => isLive && status != TripStatus.cancelledWaitingCashSettlement;`.
+  - In `trip_service.dart`, `customer_home_map_screen.dart`, and `customer_home_shell.dart`:
+    - Updated active trip streams and home banners to filter by `t.isCustomerLive`, completely preventing terminal or waiting-settlement trips from displaying as `"Searching for driver..."` banners or floating pills.
+  - In `live_trip_screen.dart`:
+    - Included `TripStatus.cancelledWaitingCashSettlement` in the cancellation message view with cash payment instructions (`Please pay ₦{fee} cash directly to your driver.`) rather than rendering `_LiveTripBody` with active route polylines and nearby driver listeners.
+    - Properly cancelled the map camera loop initialization timer on dispose to prevent dangling timers in tests.
+
+- **Verification & Deployment**:
+  - `flutter analyze` in `sese_ride`: **0 issues found**.
+  - `flutter test`: `driver_active_trip_card_test.dart`, `driver_full_screen_nav_test.dart`, `trip_rating_test.dart`, and `customer_shell_nav_test.dart` **all passed**.
+  - `functions`: `npm run build` compiled cleanly (`tsc` exit code 0).
+  - `firebase deploy`: `firestore:rules`, `functions:confirmCashCancellation`, and `functions:cancelTrip` deployed successfully.
+
 ## 2026-11-01 — Post-Trip Rating Triggers, Server-Authoritative Cumulative Scoring & Rules Fix
 
 - **Driver Post-Trip Rating Modal Trigger**:

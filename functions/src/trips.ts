@@ -2751,14 +2751,19 @@ export const confirmCashCancellation = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
 
+  await releaseTripEscrow(tripId, data);
+
   await ref.update({
     status: "CANCELLED",
     cashSettlementConfirmed: true,
     cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+    pendingCashFee: 0,
+    pingDriverId: null,
+    pingExpiresAt: null,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  return { ok: true };
+  return { ok: true, tripId };
 });
 
 /** Hub Admin: Cancel trip & refund any held escrow */

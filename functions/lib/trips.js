@@ -2277,13 +2277,17 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
     if (assignedDriverId !== driverId) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
+    await releaseTripEscrow(tripId, data);
     await ref.update({
         status: "CANCELLED",
         cashSettlementConfirmed: true,
         cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        pendingCashFee: 0,
+        pingDriverId: null,
+        pingExpiresAt: null,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    return { ok: true };
+    return { ok: true, tripId };
 });
 /** Hub Admin: Cancel trip & refund any held escrow */
 exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {

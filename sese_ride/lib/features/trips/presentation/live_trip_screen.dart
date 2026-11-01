@@ -110,15 +110,31 @@ class LiveTripScreen extends StatelessWidget {
           if (trip.status == TripStatus.completed) {
             return _CompletedTripView(trip: trip);
           }
-          if (trip.status == TripStatus.cancelled) {
-            final reason = trip.cancellationSource == 'driver'
-                ? 'This trip was cancelled by the driver.'
-                : trip.cancellationSource == 'customer'
-                ? 'You cancelled this trip.'
-                : 'This request is no longer active.';
+          if (trip.status == TripStatus.cancelled ||
+              trip.status == TripStatus.cancelledWaitingCashSettlement) {
+            final isCashWaiting =
+                trip.status == TripStatus.cancelledWaitingCashSettlement;
+            final fee = trip.pendingCashFee > 0
+                ? trip.pendingCashFee
+                : trip.paidWaitingFee;
+            final feeText = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : '';
+            final reason = isCashWaiting
+                ? (feeText.isNotEmpty
+                    ? 'Trip cancelled during waiting period. Please pay $feeText cash directly to your driver.'
+                    : 'Trip cancelled during waiting period. Please pay the cash waiting fee to your driver.')
+                : (trip.cancellationSource == 'driver'
+                    ? 'This trip was cancelled by the driver.'
+                    : trip.cancellationSource == 'customer'
+                        ? 'You cancelled this trip.'
+                        : 'This request is no longer active.');
             return _MessageState(
-              icon: Icons.cancel_outlined,
-              title: 'Trip cancelled',
+              icon: isCashWaiting
+                  ? Icons.payments_outlined
+                  : Icons.cancel_outlined,
+              iconColor: isCashWaiting
+                  ? const Color(0xFFFFB800)
+                  : Colors.redAccent,
+              title: isCashWaiting ? 'Cash Payment Due' : 'Trip cancelled',
               body: reason,
               onClose: () => _navigateBackToBookingOrPop(context, trip),
             );
@@ -485,6 +501,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
   /// Dynamic map camera animation loop timer.
   Timer? _cameraLoopTimer;
+  Timer? _cameraLoopInitTimer;
 
   /// Dynamic dispatch tuning & map camera animation settings from Firestore `system_settings/dispatch`.
   DispatchTuning _dispatchTuning = const DispatchTuning();
@@ -507,7 +524,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     _initNearbyDrivers();
     if (_isSearching) {
       // Delay slightly after initial layout so the camera loop smoothly engages
-      Future.delayed(const Duration(milliseconds: 1500), () {
+      _cameraLoopInitTimer = Timer(const Duration(milliseconds: 1500), () {
         if (mounted && _isSearching) {
           _startCameraLoop();
         }
@@ -543,6 +560,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
   @override
   void dispose() {
+    _cameraLoopInitTimer?.cancel();
     _stopCameraLoop();
     _nearbyDriversSub?.cancel();
     _dispatchTuningSub?.cancel();

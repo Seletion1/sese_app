@@ -198,7 +198,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
                           stream: _tripRepo.activeTripsStream(widget.user!.uid),
                           builder: (context, snapshot) {
                             final activeTrips =
-                                (snapshot.data ?? []).where((t) => t.isLive).toList();
+                                (snapshot.data ?? []).where((t) => t.isCustomerLive).toList();
                             if (activeTrips.isEmpty) return const SizedBox.shrink();
                             if (activeTrips.length > 1) {
                               return _buildMultiActiveTripFloatingPills(activeTrips);
@@ -322,6 +322,10 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
       case TripStatus.needsCustomerAction:
         statusText = 'Action Needed: Boost Fare';
         badgeColor = Colors.orange.shade800;
+        break;
+      case TripStatus.cancelledWaitingCashSettlement:
+        statusText = 'Trip Cancelled • Cash Due';
+        badgeColor = Colors.red.shade700;
         break;
       case TripStatus.searchingDriver:
       default:

@@ -48,6 +48,9 @@ abstract class TripRepository {
   /// hourly spam-cancel rate limit. Null/unknown codes land as `other`.
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false});
 
+  /// Driver confirms cash collected from customer for waiting time cancellation.
+  Future<void> confirmCashCancellation(String tripId) async {}
+
   // ── Bidding API ────────────────────────────────────────────────────────────
 
   /// Driver submits a custom-fare bid. [offeredFare] must be ≥ baseline.
@@ -124,14 +127,14 @@ class FirestoreTripRepository implements TripRepository {
   Stream<List<ActiveTrip>> activeTripsStream(String customerId) {
     if (customerId.isEmpty) return Stream.value(const []);
     // Single-field query on purpose: no composite index required.
-    // Terminal states are filtered client-side via [ActiveTrip.isLive].
+    // Terminal and cancelled states are filtered client-side via [ActiveTrip.isCustomerLive].
     return _db
         .collection('trips')
         .where('customerId', isEqualTo: customerId)
         .snapshots()
         .map((snap) => snap.docs
             .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-            .where((t) => t.isLive)
+            .where((t) => t.isCustomerLive)
             .toList());
   }
 
@@ -269,6 +272,15 @@ class FirestoreTripRepository implements TripRepository {
         if (reason != null && reason.isNotEmpty) 'reason': reason,
         if (useCashSettlement) 'useCashSettlement': true,
       });
+    } on FirebaseFunctionsException catch (e) {
+      throw TripException(e.code, _mapError(e.code, e.message));
+    }
+  }
+
+  @override
+  Future<void> confirmCashCancellation(String tripId) async {
+    try {
+      await _fn.httpsCallable('confirmCashCancellation').call({'tripId': tripId});
     } on FirebaseFunctionsException catch (e) {
       throw TripException(e.code, _mapError(e.code, e.message));
     }

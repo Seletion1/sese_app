@@ -34,6 +34,9 @@ class _FakeTripRepository implements TripRepository {
     cancelReason = reason;
   }
 
+  @override
+  Future<void> confirmCashCancellation(String tripId) async {}
+
   String? cancelReason;
 
   @override

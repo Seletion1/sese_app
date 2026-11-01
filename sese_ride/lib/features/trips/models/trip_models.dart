@@ -275,6 +275,9 @@ class ActiveTrip {
   /// Accumulated paid waiting fee billed to customer / credited to driver.
   final double paidWaitingFee;
 
+  /// Pending cash fee owed from cash settlement waiting cancellation.
+  final double pendingCashFee;
+
   /// Outstanding negative balance from previous unpaid cancellation / paid waiting
   /// included in this trip's total fare for cumulative cash collection.
   final double outstandingBalanceIncluded;
@@ -356,6 +359,7 @@ class ActiveTrip {
     this.deliveryPinVerified = false,
     this.enableWaitingTimeBilling = true,
     this.paidWaitingFee = 0.0,
+    this.pendingCashFee = 0.0,
     this.outstandingBalanceIncluded = 0.0,
     this.walletCoverageAmount = 0.0,
     this.cashToCollect = 0.0,
@@ -388,6 +392,12 @@ class ActiveTrip {
       status != TripStatus.cancelled &&
       status != TripStatus.rejected &&
       status != TripStatus.ignored;
+
+  /// True while a trip is active from the customer's perspective.
+  /// When a customer cancels during paid waiting in cash settlement mode,
+  /// the trip is closed for the customer while the driver confirms cash.
+  bool get isCustomerLive =>
+      isLive && status != TripStatus.cancelledWaitingCashSettlement;
 
   /// Best available completion-ish timestamp for earnings bucketing.
   DateTime? get earningDate => completedAt ?? settledAt ?? updatedAt ?? createdAt;
@@ -558,6 +568,9 @@ class ActiveTrip {
           map['deliveryPinSkipped'] == true,
       enableWaitingTimeBilling: map['enableWaitingTimeBilling'] != false,
       paidWaitingFee: (map['paidWaitingFee'] as num?)?.toDouble() ?? 0.0,
+      pendingCashFee: (map['pendingCashFee'] as num?)?.toDouble() ??
+          (map['paidWaitingFee'] as num?)?.toDouble() ??
+          0.0,
       outstandingBalanceIncluded:
           (map['outstandingBalanceIncluded'] as num?)?.toDouble() ?? 0.0,
       walletCoverageAmount: (map['walletCoverageAmount'] as num?)?.toDouble() ??

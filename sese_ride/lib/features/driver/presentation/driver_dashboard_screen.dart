@@ -1603,6 +1603,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _lastActiveTripForRating = active;
           if (active.status == TripStatus.completed) {
             _checkAndShowPostTripRating(active);
+          } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
+            if (_activeRoutePoints.isNotEmpty) {
+              _activeRoutePoints = [];
+            }
           } else {
             _fetchActiveTripRoute(active);
           }
@@ -1620,6 +1624,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             } else if (active.status == TripStatus.inProgress &&
                 _lastTrackedStatus != TripStatus.inProgress) {
               _tripStartLocation = _driverPosition;
+            } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
+              _expandActiveTripSheetToStandard();
             }
             _trackedTripId = active.tripId;
             _lastTrackedStatus = active.status;
@@ -1628,7 +1634,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           if (_lastActiveTripForRating != null) {
             final tripToRate = _lastActiveTripForRating!;
             _lastActiveTripForRating = null;
-            _checkAndShowPostTripRating(tripToRate);
+            if (tripToRate.status == TripStatus.completed) {
+              _checkAndShowPostTripRating(tripToRate);
+            }
           }
           if (_activeRoutePoints.isNotEmpty) {
             _activeRoutePoints = [];
@@ -2129,14 +2137,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// guidance instruction, and quick actions to open in-app navigation
   /// cockpit or toggle voice guidance.
   Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
+    final isCashSettlement =
+        active.status == TripStatus.cancelledWaitingCashSettlement;
     final isPickup = active.status != TripStatus.inProgress;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fee = active.pendingCashFee > 0
+        ? active.pendingCashFee
+        : active.paidWaitingFee;
+    final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'fee';
 
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF252530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: isDark ? Border.all(color: const Color(0xFF3A3A46)) : null,
+        border: isDark
+            ? Border.all(
+                color: isCashSettlement
+                    ? const Color(0xFFF59E0B)
+                    : const Color(0xFF3A3A46),
+                width: isCashSettlement ? 1.5 : 1.0,
+              )
+            : (isCashSettlement
+                ? Border.all(color: const Color(0xFFF59E0B), width: 1.5)
+                : null),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.12),
@@ -2152,12 +2175,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFF10B981),
+              color: isCashSettlement
+                  ? const Color(0xFFF59E0B)
+                  : const Color(0xFF10B981),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Center(
+            child: Center(
               child: Icon(
-                Icons.navigation,
+                isCashSettlement ? Icons.payments_rounded : Icons.navigation,
                 color: Colors.white,
                 size: 22,
               ),
@@ -2169,53 +2194,105 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Now',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF064E3B).withValues(alpha: 0.3)
-                            : const Color(0xFFD1FAE5),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        isPickup ? 'PICKUP' : 'DROPOFF',
+                if (isCashSettlement) ...[
+                  Row(
+                    children: [
+                      Text(
+                        'Cancelled',
                         style: TextStyle(
-                          fontSize: 10,
                           fontWeight: FontWeight.bold,
+                          fontSize: 13,
                           color: isDark
-                              ? const Color(0xFFA7F3D0)
-                              : const Color(0xFF047857),
-                          letterSpacing: 0.5,
+                              ? const Color(0xFFFCA5A5)
+                              : Colors.red.shade700,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  isPickup
-                      ? 'Head towards pickup'
-                      : 'Head towards destination',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
-                    fontWeight: FontWeight.w500,
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                              : const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'CASH DUE',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? const Color(0xFFFDE68A)
+                                : const Color(0xFF92400E),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Collect $feeStr cash waiting fee',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Text(
+                        'Now',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF064E3B).withValues(alpha: 0.3)
+                              : const Color(0xFFD1FAE5),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          isPickup ? 'PICKUP' : 'DROPOFF',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? const Color(0xFFA7F3D0)
+                                : const Color(0xFF047857),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isPickup
+                        ? 'Head towards pickup'
+                        : 'Head towards destination',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),

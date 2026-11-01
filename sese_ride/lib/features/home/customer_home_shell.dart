@@ -184,7 +184,9 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
               stream: (widget.tripRepository ?? FirestoreTripRepository())
                   .activeTripsStream(widget.user.uid),
               builder: (context, snapshot) {
-                final activeTrips = snapshot.data ?? [];
+                final activeTrips = (snapshot.data ?? [])
+                    .where((t) => t.isCustomerLive)
+                    .toList();
                 if (activeTrips.isEmpty) return const SizedBox.shrink();
                 return _MultiBookingBanner(
                   activeTrips: activeTrips,
@@ -484,6 +486,8 @@ class _ActiveTripCardBanner extends StatelessWidget {
       statusText = 'Trip in progress';
     } else if (trip.status == TripStatus.needsCustomerAction) {
       statusText = 'Action Needed: Boost Fare';
+    } else if (trip.status == TripStatus.cancelledWaitingCashSettlement) {
+      statusText = 'Trip cancelled • Cash settlement';
     } else {
       statusText = 'Searching for driver...';
     }

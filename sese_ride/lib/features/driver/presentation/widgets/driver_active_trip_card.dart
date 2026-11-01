@@ -266,6 +266,11 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   /// Advances the trip, running role-based payment collection checks at pickup
   /// and drop-off, and requiring the delivery PIN for completion.
   Future<void> _advanceOrPin(ActiveTrip trip, String next) async {
+    if (next == 'CONFIRM_CASH_SETTLEMENT') {
+      await _confirmCashSettlement(trip);
+      return;
+    }
+
     final mode = trip.paymentMode.toLowerCase();
     final isReceiverPays = mode == 'receiver_pays';
     final hasWallet = trip.walletCoverageAmount > 0;
@@ -306,6 +311,51 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     );
     if (success && next == 'COMPLETED') {
       _promptPostTripRating(trip);
+    }
+  }
+
+  /// Confirms cash settlement for a customer-cancelled trip during paid waiting.
+  Future<void> _confirmCashSettlement(ActiveTrip trip) async {
+    final fee = trip.pendingCashFee > 0
+        ? trip.pendingCashFee
+        : trip.paidWaitingFee;
+    final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'cash waiting fee';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Cash Settlement'),
+        content: Text(
+          'Have you collected $feeStr cash from the customer for the waiting fee cancellation?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Not Yet'),
+          ),
+          FilledButton(
+            key: const Key('confirm_cash_received_button'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Yes, Cash Received'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final success = await _run(
+      () => widget.streakService.confirmCashCancellation(trip.tripId),
+      'Could not confirm cash settlement.',
+    );
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cash settlement of $feeStr confirmed. Trip closed.'),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
     }
   }
 
@@ -709,6 +759,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         return 'IN_PROGRESS';
       case TripStatus.inProgress:
         return 'COMPLETED';
+      case TripStatus.cancelledWaitingCashSettlement:
+        return 'CONFIRM_CASH_SETTLEMENT';
       default:
         return null;
     }
@@ -726,6 +778,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         return 'Start Ride';
       case 'COMPLETED':
         return 'Complete Trip';
+      case 'CONFIRM_CASH_SETTLEMENT':
+        final fee = widget.trip.pendingCashFee > 0
+            ? widget.trip.pendingCashFee
+            : widget.trip.paidWaitingFee;
+        final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'Cash';
+        return 'Confirm $feeStr Collected';
       default:
         return 'Confirm';
     }
@@ -1101,6 +1159,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         return 'Arrived at pickup';
       case TripStatus.inProgress:
         return 'Trip in progress';
+      case TripStatus.cancelledWaitingCashSettlement:
+        return 'Customer Cancelled';
       default:
         return 'Active Trip';
     }
@@ -1115,6 +1175,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         return 'Waiting at pickup location for customer/package';
       case TripStatus.inProgress:
         return 'Head toward destination address';
+      case TripStatus.cancelledWaitingCashSettlement:
+        final fee = trip.pendingCashFee > 0
+            ? trip.pendingCashFee
+            : trip.paidWaitingFee;
+        final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'waiting fee';
+        return 'Collect $feeStr cash waiting fee from customer';
       default:
         return '';
     }
@@ -1273,6 +1339,76 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 ),
               ),
             ),
+
+            if (trip.status == TripStatus.cancelledWaitingCashSettlement) ...[
+              Builder(builder: (context) {
+                final fee = trip.pendingCashFee > 0
+                    ? trip.pendingCashFee
+                    : trip.paidWaitingFee;
+                final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'Cash';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF78350F).withValues(alpha: 0.35)
+                        : const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFFF59E0B),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.payments_rounded,
+                              color: Color(0xFFD97706), size: 24),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Cash Settlement Due: $feeStr',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: isDark
+                                    ? const Color(0xFFFDE68A)
+                                    : const Color(0xFF92400E),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Customer cancelled during paid waiting time. Please collect $feeStr cash before completing cancellation.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: isDark
+                              ? Colors.grey.shade300
+                              : const Color(0xFF78350F),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        key: const Key('driver_confirm_cash_collected_button'),
+                        icon: const Icon(Icons.check_circle_outline, size: 18),
+                        label: Text(_busy ? 'Confirming...' : 'Confirm $feeStr Cash Collected'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFE5A93C),
+                          foregroundColor: Colors.black87,
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                        onPressed: _busy ? null : () => _confirmCashSettlement(trip),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
 
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(

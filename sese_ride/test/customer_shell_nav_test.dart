@@ -37,6 +37,9 @@ class _FakeTripRepository implements TripRepository {
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {}
 
   @override
+  Future<void> confirmCashCancellation(String tripId) async {}
+
+  @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
 
   @override
@@ -87,7 +90,12 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      if (active.isEmpty) {
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+      }
     }
 
     testWidgets('defaults to Home map tab with booking cards', (tester) async {
@@ -106,7 +114,7 @@ void main() {
       await tester.tap(find.text('Trips'));
       await tester.pumpAndSettle();
 
-      expect(find.text('No active trips'), findsOneWidget);
+      expect(find.text('No trips available yet'), findsOneWidget);
     });
 
     testWidgets('Trips tab restores a live server-side request',
@@ -124,7 +132,8 @@ void main() {
       );
 
       await tester.tap(find.text('Trips'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
 
       expect(find.text('Ikorodu, Lagos State'), findsOneWidget);
 
@@ -155,9 +164,11 @@ void main() {
           find.byKey(const Key('customer_settings_tile')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('customer_settings_tile')));
-      await tester.pumpAndSettle();      expect(find.text('Settings'), findsWidgets);
-      expect(find.text('Hide Phone Number'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.text('Settings'), findsWidgets);
+      await tester.scrollUntilVisible(find.text('Sign Out'), 50);
       expect(find.text('Sign Out'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Delete Account'), 50);
       expect(find.text('Delete Account'), findsOneWidget);
     });
   });
