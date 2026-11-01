@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
 /// Service managing post-trip 1-to-5 star ratings and atomic cumulative
@@ -15,10 +15,21 @@ import 'package:flutter/foundation.dart';
 /// For drivers the same fields are mirrored to `drivers/{uid}` so the
 /// live-trip driver sheet can read the rating without a cross-collection join.
 class TripRatingService {
-  final FirebaseFirestore _db;
+  final FirebaseFirestore? firestore;
+  FirebaseFirestore? _resolvedDb;
 
-  TripRatingService({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+  TripRatingService({this.firestore});
+
+  FirebaseFirestore? get _db {
+    if (firestore != null) return firestore;
+    if (_resolvedDb != null) return _resolvedDb;
+    try {
+      _resolvedDb = FirebaseFirestore.instance;
+      return _resolvedDb;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Saves a review record and atomically updates the rated user's profile.
   ///
@@ -38,10 +49,33 @@ class TripRatingService {
     }
 
     final ratingDocId = '${tripId}_$raterId';
-    final ratingRef = _db.collection('ratings').doc(ratingDocId);
-    final userRef = _db.collection('users').doc(ratedUserId);
+
+    // 1. Primary path: Server-authoritative atomic rating submission via Cloud Functions.
+    try {
+      final callable =
+          FirebaseFunctions.instance.httpsCallable('submitTripRating');
+      await callable.call<Map<String, dynamic>>({
+        'tripId': tripId,
+        'raterId': raterId,
+        'ratedUserId': ratedUserId,
+        'rating': rating,
+        'comment': (comment ?? '').trim(),
+        'isRatedUserDriver': isRatedUserDriver,
+        'lowRatingReasons': lowRatingReasons,
+      });
+      return;
+    } catch (fnErr) {
+      debugPrint(
+          'TripRatingService.submitRating callable failed: $fnErr; falling back to direct write');
+    }
+
+    // 2. Fallback path: Direct Firestore write to ratings/{ratingDocId}.
+    final db = _db;
+    if (db == null) return;
+    final ratingRef = db.collection('ratings').doc(ratingDocId);
+    final userRef = db.collection('users').doc(ratedUserId);
     final driverRef =
-        isRatedUserDriver ? _db.collection('drivers').doc(ratedUserId) : null;
+        isRatedUserDriver ? db.collection('drivers').doc(ratedUserId) : null;
 
     final ratingData = <String, dynamic>{
       'ratingId': ratingDocId,
@@ -56,59 +90,8 @@ class TripRatingService {
     };
 
     try {
-      // Ensure fresh auth token so the Firestore security rule read succeeds.
+      await ratingRef.set(ratingData, SetOptions(merge: true));
       try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      } catch (_) {}
-
-      await _db.runTransaction((tx) async {
-        final existing = await tx.get(ratingRef);
-        if (existing.exists) return; // idempotent — no double-counting
-
-        // 1. Write the rating document.
-        tx.set(ratingRef, ratingData);
-
-        // 2. Read current cumulative totals from users/{ratedUserId}.
-        final userSnap = await tx.get(userRef);
-        final userData = userSnap.exists ? (userSnap.data() ?? {}) : {};
-        final currentSum = (userData['totalRatingSum'] as num?)?.toInt() ?? 0;
-        final currentCount =
-            (userData['totalRatingCount'] as num?)?.toInt() ?? 0;
-
-        final newSum = currentSum + rating;
-        final newCount = currentCount + 1;
-        final newAverage = newSum / newCount;
-
-        // 3. Atomically update users/{ratedUserId}.
-        tx.set(
-          userRef,
-          {
-            'totalRatingSum': FieldValue.increment(rating),
-            'totalRatingCount': FieldValue.increment(1),
-            'averageRating': newAverage,
-          },
-          SetOptions(merge: true),
-        );
-
-        // 4. Mirror to drivers/{ratedUserId} when the rated party is a driver.
-        if (driverRef != null) {
-          tx.set(
-            driverRef,
-            {
-              'totalRatingSum': FieldValue.increment(rating),
-              'totalRatingCount': FieldValue.increment(1),
-              'averageRating': newAverage,
-              'rating': newAverage,
-            },
-            SetOptions(merge: true),
-          );
-        }
-      });
-    } catch (e) {
-      debugPrint(
-          'TripRatingService.submitRating transaction failed: $e; falling back to direct write');
-      try {
-        await ratingRef.set(ratingData, SetOptions(merge: true));
         await userRef.set({
           'totalRatingSum': FieldValue.increment(rating),
           'totalRatingCount': FieldValue.increment(1),
@@ -119,18 +102,20 @@ class TripRatingService {
             'totalRatingCount': FieldValue.increment(1),
           }, SetOptions(merge: true));
         }
-      } catch (inner) {
-        debugPrint('TripRatingService.submitRating fallback error: $inner');
-        rethrow;
-      }
+      } catch (_) {}
+    } catch (inner) {
+      debugPrint('TripRatingService.submitRating fallback error: $inner');
+      rethrow;
     }
   }
 
   /// Returns true if [raterId] has already submitted a rating for [tripId].
   Future<bool> hasRated(String tripId, String raterId) async {
+    final db = _db;
+    if (db == null) return false;
     try {
       final doc =
-          await _db.collection('ratings').doc('${tripId}_$raterId').get();
+          await db.collection('ratings').doc('${tripId}_$raterId').get();
       return doc.exists;
     } catch (_) {
       return false;
@@ -150,8 +135,10 @@ class TripRatingService {
     String detail = '',
   }) async {
     if (tripId.isEmpty || userId.isEmpty || reason.isEmpty) return;
+    final db = _db;
+    if (db == null) return;
     try {
-      await _db
+      await db
           .collection('cancellation_feedback')
           .doc('${tripId}_$userId')
           .set({

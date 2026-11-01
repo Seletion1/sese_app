@@ -122,9 +122,10 @@ class MutualProfileModal extends StatelessWidget {
             20,
             24 + MediaQuery.of(context).padding.bottom,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               // Top drag bar handle
               Center(
                 child: Container(
@@ -324,9 +325,10 @@ class MutualProfileModal extends StatelessWidget {
               ),
             ],
           ),
-        );
-      },
-    );
+        ),
+      );
+    },
+  );
   }
 }
 

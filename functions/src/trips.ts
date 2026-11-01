@@ -2862,6 +2862,102 @@ export const submitCancellationFeedback = onCall(async (request) => {
 });
 
 /**
+ * Submit post-trip star rating and update rated user's cumulative profile metrics.
+ *
+ * Atomically writes to `ratings/{tripId}_{raterId}` and updates:
+ * - `users/{ratedUserId}`: totalRatingSum, totalRatingCount, averageRating
+ * - `drivers/{ratedUserId}`: (if isRatedUserDriver) totalRatingSum, totalRatingCount, averageRating, rating
+ */
+export const submitTripRating = onCall(async (request) => {
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const raterId = String(request.auth?.uid ?? request.data?.raterId ?? "").trim();
+  const ratedUserId = String(request.data?.ratedUserId ?? "").trim();
+  const rating = Number(request.data?.rating);
+  const comment = String(request.data?.comment ?? "").trim();
+  const isRatedUserDriver = Boolean(request.data?.isRatedUserDriver);
+  const lowRatingReasons = Array.isArray(request.data?.lowRatingReasons)
+    ? request.data.lowRatingReasons.map((r: any) => String(r).trim()).filter(Boolean)
+    : [];
+
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
+  if (!raterId) throw new HttpsError("unauthenticated", "User must be authenticated.");
+  if (!ratedUserId) throw new HttpsError("invalid-argument", "ratedUserId is required.");
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    throw new HttpsError("invalid-argument", "rating must be an integer between 1 and 5.");
+  }
+  if (comment.length > 500) {
+    throw new HttpsError("invalid-argument", "comment must be at most 500 characters.");
+  }
+
+  const ratingDocId = `${tripId}_${raterId}`;
+  const ratingRef = db().collection("ratings").doc(ratingDocId);
+  const userRef = db().collection("users").doc(ratedUserId);
+  const driverRef = isRatedUserDriver ? db().collection("drivers").doc(ratedUserId) : null;
+
+  try {
+    await db().runTransaction(async (tx) => {
+      const existing = await tx.get(ratingRef);
+      if (existing.exists) {
+        return; // Idempotent — no double-counting
+      }
+
+      // 1. Write the rating record
+      tx.set(ratingRef, {
+        ratingId: ratingDocId,
+        tripId,
+        raterId,
+        ratedUserId,
+        rating,
+        comment,
+        lowRatingReasons,
+        isLowRating: rating <= 3,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 2. Read existing totals from users/{ratedUserId}
+      const userSnap = await tx.get(userRef);
+      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+      const currentSum = Number(userData.totalRatingSum || 0);
+      const currentCount = Number(userData.totalRatingCount || 0);
+
+      const newSum = currentSum + rating;
+      const newCount = currentCount + 1;
+      const newAverage = Math.round((newSum / newCount) * 10) / 10;
+
+      // 3. Update users/{ratedUserId}
+      tx.set(
+        userRef,
+        {
+          totalRatingSum: admin.firestore.FieldValue.increment(rating),
+          totalRatingCount: admin.firestore.FieldValue.increment(1),
+          averageRating: newAverage,
+        },
+        { merge: true }
+      );
+
+      // 4. Mirror to drivers/{ratedUserId} if rated party is a driver
+      if (driverRef) {
+        tx.set(
+          driverRef,
+          {
+            totalRatingSum: admin.firestore.FieldValue.increment(rating),
+            totalRatingCount: admin.firestore.FieldValue.increment(1),
+            averageRating: newAverage,
+            rating: newAverage,
+          },
+          { merge: true }
+        );
+      }
+    });
+
+    return { ok: true, ratingDocId };
+  } catch (err: any) {
+    console.error(`submitTripRating[${ratingDocId}] error:`, err);
+    throw new HttpsError("internal", "Failed to submit rating.");
+  }
+});
+
+/**
  * Callable: driver skips the 4-digit delivery PIN after the recipient is
  * unreachable for 10 minutes at the drop-off location.
  *

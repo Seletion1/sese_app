@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.skipDeliveryPin = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
+exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
 exports.releaseTripEscrow = releaseTripEscrow;
@@ -2379,6 +2379,89 @@ exports.submitCancellationFeedback = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("internal", "Unable to save feedback.");
     }
     return { ok: true };
+});
+/**
+ * Submit post-trip star rating and update rated user's cumulative profile metrics.
+ *
+ * Atomically writes to `ratings/{tripId}_{raterId}` and updates:
+ * - `users/{ratedUserId}`: totalRatingSum, totalRatingCount, averageRating
+ * - `drivers/{ratedUserId}`: (if isRatedUserDriver) totalRatingSum, totalRatingCount, averageRating, rating
+ */
+exports.submitTripRating = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+    const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
+    const raterId = String((_f = (_d = (_c = request.auth) === null || _c === void 0 ? void 0 : _c.uid) !== null && _d !== void 0 ? _d : (_e = request.data) === null || _e === void 0 ? void 0 : _e.raterId) !== null && _f !== void 0 ? _f : "").trim();
+    const ratedUserId = String((_h = (_g = request.data) === null || _g === void 0 ? void 0 : _g.ratedUserId) !== null && _h !== void 0 ? _h : "").trim();
+    const rating = Number((_j = request.data) === null || _j === void 0 ? void 0 : _j.rating);
+    const comment = String((_l = (_k = request.data) === null || _k === void 0 ? void 0 : _k.comment) !== null && _l !== void 0 ? _l : "").trim();
+    const isRatedUserDriver = Boolean((_m = request.data) === null || _m === void 0 ? void 0 : _m.isRatedUserDriver);
+    const lowRatingReasons = Array.isArray((_o = request.data) === null || _o === void 0 ? void 0 : _o.lowRatingReasons)
+        ? request.data.lowRatingReasons.map((r) => String(r).trim()).filter(Boolean)
+        : [];
+    if (!tripId)
+        throw new https_1.HttpsError("invalid-argument", "tripId is required.");
+    if (!raterId)
+        throw new https_1.HttpsError("unauthenticated", "User must be authenticated.");
+    if (!ratedUserId)
+        throw new https_1.HttpsError("invalid-argument", "ratedUserId is required.");
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        throw new https_1.HttpsError("invalid-argument", "rating must be an integer between 1 and 5.");
+    }
+    if (comment.length > 500) {
+        throw new https_1.HttpsError("invalid-argument", "comment must be at most 500 characters.");
+    }
+    const ratingDocId = `${tripId}_${raterId}`;
+    const ratingRef = db().collection("ratings").doc(ratingDocId);
+    const userRef = db().collection("users").doc(ratedUserId);
+    const driverRef = isRatedUserDriver ? db().collection("drivers").doc(ratedUserId) : null;
+    try {
+        await db().runTransaction(async (tx) => {
+            const existing = await tx.get(ratingRef);
+            if (existing.exists) {
+                return; // Idempotent — no double-counting
+            }
+            // 1. Write the rating record
+            tx.set(ratingRef, {
+                ratingId: ratingDocId,
+                tripId,
+                raterId,
+                ratedUserId,
+                rating,
+                comment,
+                lowRatingReasons,
+                isLowRating: rating <= 3,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            // 2. Read existing totals from users/{ratedUserId}
+            const userSnap = await tx.get(userRef);
+            const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+            const currentSum = Number(userData.totalRatingSum || 0);
+            const currentCount = Number(userData.totalRatingCount || 0);
+            const newSum = currentSum + rating;
+            const newCount = currentCount + 1;
+            const newAverage = Math.round((newSum / newCount) * 10) / 10;
+            // 3. Update users/{ratedUserId}
+            tx.set(userRef, {
+                totalRatingSum: admin.firestore.FieldValue.increment(rating),
+                totalRatingCount: admin.firestore.FieldValue.increment(1),
+                averageRating: newAverage,
+            }, { merge: true });
+            // 4. Mirror to drivers/{ratedUserId} if rated party is a driver
+            if (driverRef) {
+                tx.set(driverRef, {
+                    totalRatingSum: admin.firestore.FieldValue.increment(rating),
+                    totalRatingCount: admin.firestore.FieldValue.increment(1),
+                    averageRating: newAverage,
+                    rating: newAverage,
+                }, { merge: true });
+            }
+        });
+        return { ok: true, ratingDocId };
+    }
+    catch (err) {
+        console.error(`submitTripRating[${ratingDocId}] error:`, err);
+        throw new https_1.HttpsError("internal", "Failed to submit rating.");
+    }
 });
 /**
  * Callable: driver skips the 4-digit delivery PIN after the recipient is

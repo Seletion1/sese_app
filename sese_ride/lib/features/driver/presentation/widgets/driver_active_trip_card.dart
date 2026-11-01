@@ -9,6 +9,8 @@ import '../../../../core/services/call_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/presentation/mutual_profile_modal.dart';
 import '../../../trips/presentation/trip_chat_screen.dart';
+import '../../../trips/presentation/trip_rating_dialog.dart';
+import '../../../trips/services/trip_rating_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../services/proximity_trigger_service.dart';
 
@@ -220,22 +222,45 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  Future<void> _run(Future<void> Function() action, String failFallback) async {
-    if (_busy) return;
+  Future<bool> _run(Future<void> Function() action, String failFallback) async {
+    if (_busy) return false;
     setState(() => _busy = true);
     try {
       await action();
+      return true;
     } on DriverStreakException catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      return false;
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(failFallback)));
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _promptPostTripRating(ActiveTrip trip) {
+    if (!mounted) return;
+    final customerId =
+        trip.customerId.isNotEmpty ? trip.customerId : 'customer';
+    final customerName =
+        trip.customerName.isNotEmpty ? trip.customerName : 'Customer';
+
+    unawaited(
+      TripRatingDialog.show(
+        context,
+        tripId: trip.tripId,
+        raterId: widget.driverId,
+        ratedUserId: customerId,
+        ratedUserName: customerName,
+        isRatedUserDriver: false,
+        ratingService: TripRatingService(),
+      ),
+    );
   }
 
   /// Advances the trip, running role-based payment collection checks at pickup
@@ -275,10 +300,13 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       }
     }
 
-    await _run(
+    final success = await _run(
       () => widget.streakService.advanceTripStatus(trip.tripId, next),
       'Could not update trip status.',
     );
+    if (success && next == 'COMPLETED') {
+      _promptPostTripRating(trip);
+    }
   }
 
   Future<bool?> _showPickupCashCheckDialog(ActiveTrip trip) {
@@ -536,17 +564,23 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         ),
       );
       if (confirmed != true || !mounted) return;
-      await _run(
+      final skipSuccess = await _run(
         () => widget.streakService.skipDeliveryPin(trip.tripId),
         'Unable to skip the delivery PIN. Please try again.',
       );
+      if (skipSuccess) {
+        _promptPostTripRating(trip);
+      }
       return;
     }
 
-    await _run(
+    final verifySuccess = await _run(
       () => widget.streakService.verifyDeliveryPin(trip.tripId, pin),
       'Could not complete delivery.',
     );
+    if (verifySuccess) {
+      _promptPostTripRating(trip);
+    }
   }
 
   /// Returns true when enough time has elapsed in IN_PROGRESS for the driver

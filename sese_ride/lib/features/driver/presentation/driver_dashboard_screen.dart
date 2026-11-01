@@ -123,6 +123,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   /// State tracking for auto-collapsing the active trip card on movement.
   ActiveTrip? _currentActiveTrip;
+  ActiveTrip? _lastActiveTripForRating;
   String? _trackedTripId;
   TripStatus? _lastTrackedStatus;
   LatLng? _tripStartLocation;
@@ -1599,6 +1600,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         final active = tripSnap.data;
         _currentActiveTrip = active;
         if (active != null) {
+          _lastActiveTripForRating = active;
           if (active.status == TripStatus.completed) {
             _checkAndShowPostTripRating(active);
           } else {
@@ -1622,8 +1624,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             _trackedTripId = active.tripId;
             _lastTrackedStatus = active.status;
           }
-        } else if (_activeRoutePoints.isNotEmpty) {
-          _activeRoutePoints = [];
+        } else {
+          if (_lastActiveTripForRating != null) {
+            final tripToRate = _lastActiveTripForRating!;
+            _lastActiveTripForRating = null;
+            _checkAndShowPostTripRating(tripToRate);
+          }
+          if (_activeRoutePoints.isNotEmpty) {
+            _activeRoutePoints = [];
+          }
         }
         final isDark = Theme.of(context).brightness == Brightness.dark;
         return Stack(

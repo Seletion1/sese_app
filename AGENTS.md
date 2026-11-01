@@ -72,6 +72,35 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Post-Trip Rating Triggers, Server-Authoritative Cumulative Scoring & Rules Fix
+
+- **Driver Post-Trip Rating Modal Trigger**:
+  - `driver_streak_service.dart: activeTripStream` strictly streams active trips where `trip.isLive == true`, causing completed trips to emit `null`. Because of this, previous listeners expecting `active.status == TripStatus.completed` never fired.
+  - Resolved by:
+    1. Direct completion triggers in `DriverActiveTripCard`: immediately prompts `TripRatingDialog.show(...)` on successful completion slide (`next == 'COMPLETED'`), delivery PIN verification (`verifyDeliveryPin`), or delivery PIN skip (`skipDeliveryPin`).
+    2. Fallback stream listener in `driver_dashboard_screen.dart`: caches `_lastActiveTripForRating` during active states. When the active trip stream transitions from active to `null`, `_checkAndShowPostTripRating` prompts the driver to rate the customer (guarded against duplicate showings via `_ratedTripDocIds` and `hasRated()`).
+
+- **Server-Authoritative Rating Callable (`submitTripRating`) & Permission Fix**:
+  - Root collection `ratings/` had no rules in `firestore.rules`, causing client rating submissions to fail with `PERMISSION_DENIED: Missing or insufficient permissions.`. Furthermore, client updates directly targeting `users/{ratedUserId}` were rejected by user privacy rules.
+  - Implemented `submitTripRating` Cloud Function (`functions/src/trips.ts`) using Firebase Admin SDK:
+    - Atomically writes `ratings/{tripId}_{raterId}`.
+    - Atomically updates `users/{ratedUserId}` with updated `totalRatingSum`, `totalRatingCount`, and re-computes `averageRating` (`Math.round((newSum / newCount) * 10) / 10`).
+    - Mirrors rating stats to `drivers/{ratedUserId}` when the rated party is a driver.
+  - Updated `firestore.rules`:
+    - Added `match /ratings/{ratingId}`: authenticated users can read ratings and create records for trips they participated in; modifications restricted to superadmins.
+    - Added `match /cancellation_feedback/{feedbackId}`: authenticated users can submit cancellation feedback.
+    - Updated `match /users/{userId}`: allowed authenticated reads so mutual profile rating counters, name, and photo display correctly on mutual profile cards and ratings dialogs.
+
+- **Graceful Client Degradation in Tests & UI Fixes**:
+  - Updated `TripRatingService` to lazily access `FirebaseFirestore.instance` and `FirebaseFunctions.instance` within try-catch handlers to gracefully degrade in widget test environments where Firebase is uninitialized.
+  - Wrapped `MutualProfileModal` sheet in `SingleChildScrollView` to prevent RenderFlex overflow (122px) on smaller screens or multi-window displays.
+
+- **Verification & Deployment**:
+  - `flutter analyze` in `sese_ride`: **0 issues found**.
+  - `flutter test`: `trip_rating_test.dart`, `driver_active_trip_card_test.dart`, and `driver_full_screen_nav_test.dart` **all passed**.
+  - `functions`: `npm run build` compiled cleanly (`tsc` exit code 0).
+  - `firebase deploy`: `firestore:rules` and `submitTripRating` deployed successfully.
+
 ## 2026-10-31 — Immersive Full-Screen Active Navigation, Sleek Bottom Sheet Auto-Collapse & Recenter Controls
 
 - **Auto-Collapse Bottom Sheet on Active Trip**:

@@ -50,6 +50,8 @@ export {
   hubCancelRefundTrip,
   hubManualPinBypass,
   onTripChatMessage,
+  submitTripRating,
+  submitCancellationFeedback,
 } from "./trips";
 
 export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
