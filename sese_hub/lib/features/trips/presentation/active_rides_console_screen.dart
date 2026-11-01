@@ -505,10 +505,18 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final pickup = (data['pickupAddress'] ?? 'Pickup').toString();
     final dropoff = (data['dropoffAddress'] ?? 'Dropoff').toString();
 
+    final cancelSource = (data['cancellationSource'] ?? '').toString();
+    final bool isSkippedByDriver = cancelSource == 'skipped_by_driver';
+    final bool isRejectedByDriver = cancelSource == 'rejected_by_driver';
+
     Color statusColor = Colors.orange;
     if (status.toLowerCase().contains('completed')) statusColor = Colors.green;
     if (status.toLowerCase().contains('transit') || status.toLowerCase().contains('progress')) statusColor = Colors.blue;
-    if (status.toLowerCase().contains('cancel')) statusColor = Colors.red;
+    if (isSkippedByDriver || isRejectedByDriver) {
+      statusColor = Colors.amber.shade900;
+    } else if (status.toLowerCase().contains('cancel')) {
+      statusColor = Colors.red;
+    }
     if (isScheduled) statusColor = Colors.deepPurple;
 
     return Card(
@@ -529,9 +537,13 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    isScheduled && !status.toUpperCase().contains('SCHEDULED')
-                        ? 'SCHEDULED (${status.toUpperCase().replaceAll("_", " ")})'
-                        : status.toUpperCase().replaceAll('_', ' '),
+                    isSkippedByDriver
+                        ? 'SKIPPED BY DRIVER'
+                        : isRejectedByDriver
+                            ? 'REJECTED BY DRIVER'
+                            : isScheduled && !status.toUpperCase().contains('SCHEDULED')
+                                ? 'SCHEDULED (${status.toUpperCase().replaceAll("_", " ")})'
+                                : status.toUpperCase().replaceAll('_', ' '),
                     style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11),
                   ),
                 ),
@@ -911,6 +923,50 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   ),
                 ),
               ),
+              if (data['rejections'] is List && (data['rejections'] as List).isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('4. Dispatch Rejection & Skip Audit Trail',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        const SizedBox(height: 8),
+                        ...((data['rejections'] as List).map((r) {
+                          final rMap = r is Map ? r : {};
+                          final action = rMap['action'] == 'skipped'
+                              ? 'Skipped by Driver'
+                              : 'Rejected by Driver';
+                          final dId = rMap['driverId']?.toString() ?? 'Unknown';
+                          final ts = _parseDate(rMap['timestamp']);
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  rMap['action'] == 'skipped' ? Icons.skip_next : Icons.close,
+                                  size: 16,
+                                  color: Colors.orange.shade800,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text('Driver $dId: $action',
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                                ),
+                                if (ts != null)
+                                  Text(_formatDateTime(ts),
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              ],
+                            ),
+                          );
+                        })),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
 
               // Hub Action Overrides

@@ -194,13 +194,10 @@ async function notifyCustomer(customerId, tripId, title, body, type, extra = {},
                 .collection("users")
                 .doc(customerId)
                 .collection("notifications")
-                .add({
-                title,
+                .add(Object.assign(Object.assign({ title,
                 body,
                 tripId,
-                type,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+                type }, extra), { createdAt: admin.firestore.FieldValue.serverTimestamp() }));
         }
         catch (e) {
             console.warn(`notifyCustomer: in-app write failed for ${customerId}: ${e}`);
@@ -990,14 +987,16 @@ exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
         if (typeof data.dispatchTier === "number")
             continue; // handled above
         const ignoredDriverId = data.pingDriverId;
-        await doc.ref.update({
-            status: "SEARCHING_DRIVER",
-            pingDriverId: null,
-            pingExpiresAt: null,
-            cancellationSource: "ping_expired",
-            declineCount: admin.firestore.FieldValue.increment(1),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        await doc.ref.update(Object.assign(Object.assign({ status: "SEARCHING_DRIVER", pingDriverId: null, pingExpiresAt: null, cancellationSource: "skipped_by_driver", declineCount: admin.firestore.FieldValue.increment(1) }, (ignoredDriverId
+            ? {
+                attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(ignoredDriverId),
+                rejections: admin.firestore.FieldValue.arrayUnion({
+                    driverId: ignoredDriverId,
+                    action: "skipped",
+                    timestamp: cutoff,
+                }),
+            }
+            : {})), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
         if (ignoredDriverId)
             await breakStreakQuiet(ignoredDriverId, "ping_expired");
     }
@@ -1195,7 +1194,7 @@ async function driverSnapshot(driverId) {
  *
  * Atomic first-wins claim inside a Firestore transaction
  * (claimOrderAtomic semantics):
- * - Tier 1/2: caller must be a current ping target.
+ * - Tier 1: caller must be a current ping target.
  * - Tier 3 (MARKETPLACE_OPEN / MARKETPLACE_LIST): any online driver may
  *   claim; the transaction aborts for losers once `driver` is set, so
  *   double assignment is impossible even when two drivers tap the same
@@ -1350,7 +1349,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
  * to the global Order Pool (Stage 3).
  */
 exports.declineTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
@@ -1367,9 +1366,13 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
         console.warn(`declineTrip: streak break failed for ${driverId}: ${e}`);
     }
     const tuning = await getDispatchTuning();
+    const rawAction = String((_f = (_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.action) !== null && _d !== void 0 ? _d : (_e = request.data) === null || _e === void 0 ? void 0 : _e.reason) !== null && _f !== void 0 ? _f : "").toLowerCase();
+    const isSkip = rawAction.includes("skip");
+    const action = isSkip ? "skipped" : "rejected";
+    const cancellationSource = isSkip ? "skipped_by_driver" : "rejected_by_driver";
     const rejectionEntry = {
         driverId,
-        action: "rejected",
+        action,
         timestamp: nowMs(),
     };
     await snap.ref.update({
@@ -1378,7 +1381,7 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
         pingDriverIds: [],
         pingExpiresAt: null,
         tierExpiresAt: null,
-        cancellationSource: "rejected_by_driver",
+        cancellationSource,
         declineCount: admin.firestore.FieldValue.increment(1),
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
         rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
@@ -1427,7 +1430,7 @@ exports.updateDriverLocation = (0, https_1.onCall)(async (request) => {
         driverLocation: { lat, lng, updatedAt: nowMs() },
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    // Mirror the fix onto the driver doc so Tier 1/2 nearest-driver ranking
+    // Mirror the fix onto the driver doc so Tier 1 nearest-driver ranking
     // uses a fresh position (best-effort; trip tracking stays authoritative).
     try {
         await db().collection("drivers").doc(request.auth.uid).set({

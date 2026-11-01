@@ -189,7 +189,7 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
     try {
-      await widget.streakService.declineTrip(widget.trip.tripId);
+      await widget.streakService.declineTrip(widget.trip.tripId, action: 'skipped');
       if (mounted) Navigator.of(context).pop();
     } on DriverStreakException catch (e) {
       if (!mounted) return;

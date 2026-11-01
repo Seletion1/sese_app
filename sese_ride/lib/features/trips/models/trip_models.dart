@@ -300,6 +300,16 @@ class ActiveTrip {
   /// Whether the customer's wallet balance is locked into active trip escrow.
   final bool escrowLocked;
 
+  /// Audit log of rejections and skips by drivers.
+  /// Each entry is a map: `{'driverId': string, 'action': 'skipped'|'rejected', 'timestamp': int}`.
+  final List<Map<String, dynamic>> rejections;
+
+  /// List of driver UIDs that have been attempted for dispatch on this trip.
+  final List<String> attemptedDriverIds;
+
+  /// True when drivers have submitted custom fare offers/bids on this trip.
+  final bool hasActiveBids;
+
   const ActiveTrip({
     required this.tripId,
     required this.status,
@@ -366,7 +376,22 @@ class ActiveTrip {
     this.collectAt = 'pickup',
     this.payerRole = 'sender',
     this.escrowLocked = false,
+    this.rejections = const [],
+    this.attemptedDriverIds = const [],
+    this.hasActiveBids = false,
   });
+
+  /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
+  /// or null if no rejection entry exists for that driver.
+  String? driverRejectionAction(String driverId) {
+    if (rejections.isEmpty) return null;
+    for (final r in rejections.reversed) {
+      if (r['driverId']?.toString() == driverId) {
+        return r['action']?.toString();
+      }
+    }
+    return null;
+  }
 
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
   /// trips must never auto-start (departure protection).
@@ -593,6 +618,15 @@ class ActiveTrip {
           .toString(),
       escrowLocked: map['escrowLocked'] == true ||
           map['paymentBreakdown']?['escrowLocked'] == true,
+      rejections: (map['rejections'] as List<dynamic>?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          const [],
+      attemptedDriverIds: (map['attemptedDriverIds'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      hasActiveBids: map['hasActiveBids'] == true,
     );
   }
 }

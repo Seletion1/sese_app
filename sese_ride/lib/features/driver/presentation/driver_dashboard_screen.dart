@@ -96,7 +96,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   // ── Driver Resting Break (Module 4) ────────────────────────────────────────
   /// True while the driver is on a deliberate rest break. Auto-push pings
-  /// (Stage 1 & Stage 2 exclusive offers) are suppressed but the Quick-Order
+  /// (Stage 1 exclusive offers) are suppressed but the Quick-Order
   /// pool badge stays visible so the driver can manually accept pool orders.
   bool _isOnBreak = false;
 
@@ -2475,7 +2475,7 @@ class _PingListener extends StatefulWidget {
   /// True while the activity is backgrounded (overlay owns the UI).
   final bool Function() isAppPaused;
 
-  /// True while the driver is on a rest break. When true, Stage 1 & Stage 2
+  /// True while the driver is on a rest break. When true, Stage 1
   /// exclusive pings are suppressed so the driver is not interrupted. The
   /// Quick-Order pool (Tier 3) remains visible and manually browseable.
   final bool Function() isOnBreak;

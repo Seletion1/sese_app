@@ -72,6 +72,43 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Streamlined 2-Stage Sequential Dispatch, Order Pool Fallback, Rejection Logging & Real-Time Bidding
+
+- **Streamlined Two-Stage Dispatch & Pool Fallback Architecture**:
+  - Completely stripped out and retired all code, states, and logic associated with "Stage 2" (which previously pinged two drivers across a 0–6 km window).
+  - Dispatch engine now operates in direct, streamlined sequence:
+    1. **Stage 1 (Configured Radius, 0–3 km)**: Pings exactly one driver at a time sequentially among nearest eligible drivers.
+    2. **Direct Pool Fallback (`MARKETPLACE_OPEN` / Global Pool Radius up to 15 km)**: If all Stage 1 drivers skip or reject, or if zero drivers are available initially within Stage 1, the engine immediately drops the order directly into the global Order Pool where all drivers within the Hub-configured radius (up to 15 km via `RemoteConfigKeys.orderPoolRadiusKm`) can view and accept or counter-bid.
+
+- **Accurate Skip & Rejection Status Logging**:
+  - In `functions/src/trips.ts`:
+    - Updated `declineTrip` callable to accept `action: 'skipped' | 'rejected'`.
+    - Automatically marks `cancellationSource: isSkip ? 'skipped_by_driver' : 'rejected_by_driver'`.
+    - Atomically appends `{ driverId, action, timestamp }` to the trip's `rejections` array audit log.
+    - Updated `sweepTripPings` to ensure ping timeouts/expirations set `cancellationSource: 'skipped_by_driver'` and log `{ driverId, action: 'skipped', timestamp }`.
+  - In `sese_ride`:
+    - Updated `IncomingOfferSheet`, `driver_overlay_entry.dart`, and `DriverStreakService.declineTrip` to differentiate manual rejections (`action: 'rejected'`) from explicit skips and timeouts (`action: 'skipped'`).
+    - Updated `CustomerTripsScreen`: displays `"Skipped by Driver"` or `"Rejected by Driver"` in history cards and renders a Dispatch Audit Log in the trip details sheet.
+  - In `sese_hub`:
+    - Updated `ActiveRidesConsoleScreen`: added status badges for `SKIPPED BY DRIVER` / `REJECTED BY DRIVER` and an audit inspection section displaying full driver IDs, actions, and timestamps.
+
+- **Real-Time Counter-Offer & Bidding Pipeline**:
+  - In `functions/src/trips.ts`:
+    - Enhanced `notifyCustomer` to persist complete extra payload fields (`tripId`, `driverId`, `driverName`, `driverPhoto`, `driverRating`, `offeredFare`, `offeredFareFormatted`, `etaMinutes`, `vehicleDetails`) into `users/{customerId}/notifications`.
+    - Ensured that submitting a counter-bid sets `hasActiveBids: true` while preserving `status` (`MARKETPLACE_OPEN`), keeping the order completely visible to all pool drivers until explicit acceptance.
+  - In `sese_ride`:
+    - Enhanced `OrderCard` with a prominent `BIDS ACTIVE` badge.
+    - Updated `DriverStreakService.marketplaceStream` to include orders with active bids.
+    - Updated `CustomerHomeShell`: surfaced proactive banner `'New driver offers available • Tap to review'`.
+    - Enhanced `NotificationInboxScreen`: `_NotificationDetailSheet` renders a rich driver counter-bid modal with Driver Avatar, Rating, ETA, Vehicle Details, and direct one-tap "Accept Offer" and "Reject" buttons wired to callable functions.
+
+- **Verification & Deployment**:
+  - `flutter analyze`: **0 issues found** across `sese_core`, `sese_ride`, and `sese_hub`.
+  - `flutter test`: All targeted test suites passed (18 tests in `sese_ride`, 94 tests in `sese_core`).
+  - `npm run build`: Compiled with 0 TypeScript errors (`tsc` exit code 0).
+  - `firebase deploy`: All Cloud Functions, Firestore rules, and Firestore indexes deployed successfully to `sese-ride`.
+
+
 ## 2026-11-01 — Driver Cash Settlement State Unlock & Customer Cancellation Cleanup
 
 - **Driver Cancellation & Cash Settlement State Machine Unlock**:

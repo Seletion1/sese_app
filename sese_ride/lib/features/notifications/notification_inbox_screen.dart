@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../trips/presentation/live_trip_screen.dart';
+import '../trips/services/trip_service.dart';
+
 /// Notification types that are **inbox-worthy** (sensitive or actionable).
 ///
 /// Mirrors the server-side `INBOX_TYPES` set in `functions/src/trips.ts`.
@@ -67,6 +70,18 @@ class InboxNotification {
   final String title;
   final String body;
   final String type;
+  final String? tripId;
+  final String? driverId;
+  final String? driverName;
+  final String? driverPhoto;
+  final double? driverRating;
+  final String? offeredFare;
+  final String? offeredFareFormatted;
+  final String? etaMinutes;
+  final String? vehicleModel;
+  final String? vehicleColor;
+  final String? plateNumber;
+  final String? vehicleDetails;
   final bool isRead;
   final DateTime? createdAt;
 
@@ -75,6 +90,18 @@ class InboxNotification {
     required this.title,
     required this.body,
     required this.type,
+    this.tripId,
+    this.driverId,
+    this.driverName,
+    this.driverPhoto,
+    this.driverRating,
+    this.offeredFare,
+    this.offeredFareFormatted,
+    this.etaMinutes,
+    this.vehicleModel,
+    this.vehicleColor,
+    this.plateNumber,
+    this.vehicleDetails,
     required this.isRead,
     required this.createdAt,
   });
@@ -93,6 +120,19 @@ class InboxNotification {
       title: (data['title'] ?? '').toString(),
       body: (data['body'] ?? '').toString(),
       type: (data['type'] ?? 'broadcast').toString(),
+      tripId: data['tripId']?.toString(),
+      driverId: data['driverId']?.toString(),
+      driverName: data['driverName']?.toString(),
+      driverPhoto: data['driverPhoto']?.toString(),
+      driverRating: (data['driverRating'] as num?)?.toDouble() ??
+          double.tryParse(data['driverRating']?.toString() ?? ''),
+      offeredFare: data['offeredFare']?.toString(),
+      offeredFareFormatted: data['offeredFareFormatted']?.toString(),
+      etaMinutes: data['etaMinutes']?.toString(),
+      vehicleModel: data['vehicleModel']?.toString(),
+      vehicleColor: data['vehicleColor']?.toString(),
+      plateNumber: data['plateNumber']?.toString(),
+      vehicleDetails: data['vehicleDetails']?.toString(),
       isRead: data['isRead'] == true,
       createdAt: at,
     );
@@ -252,13 +292,77 @@ class NotificationInboxScreen extends StatelessWidget {
 }
 
 /// Full message detail: title, timestamp, and the complete body text.
-class _NotificationDetailSheet extends StatelessWidget {
+class _NotificationDetailSheet extends StatefulWidget {
   final InboxNotification item;
 
   const _NotificationDetailSheet({required this.item});
 
   @override
+  State<_NotificationDetailSheet> createState() =>
+      _NotificationDetailSheetState();
+}
+
+class _NotificationDetailSheetState extends State<_NotificationDetailSheet> {
+  bool _busy = false;
+
+  Future<void> _acceptBid() async {
+    final tripId = widget.item.tripId;
+    final driverId = widget.item.driverId;
+    if (tripId == null || driverId == null) return;
+    setState(() => _busy = true);
+    try {
+      await FirestoreTripRepository().acceptBid(tripId, driverId);
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Offer accepted! Driver has been dispatched.'),
+            backgroundColor: Color(0xFF059669),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to accept offer right now. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _rejectBid() async {
+    final tripId = widget.item.tripId;
+    final driverId = widget.item.driverId;
+    if (tripId == null || driverId == null) return;
+    setState(() => _busy = true);
+    try {
+      await FirestoreTripRepository().rejectBid(tripId, driverId);
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Offer declined.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to decline offer right now. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     final at = item.createdAt;
     final when = at == null
         ? ''
@@ -305,6 +409,161 @@ class _NotificationDetailSheet extends StatelessWidget {
                 ),
               ),
             ),
+            if (item.type == 'driver_counter_bid' &&
+                item.tripId != null &&
+                item.driverId != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        UserAvatar(
+                          displayName: item.driverName ?? 'Driver',
+                          photoUrl: item.driverPhoto,
+                          radius: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.driverName ?? 'Driver',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  if ((item.driverRating ?? 0) > 0) ...[
+                                    const Icon(Icons.star,
+                                        size: 12, color: Colors.amber),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      item.driverRating!.toStringAsFixed(1),
+                                      style: const TextStyle(
+                                          fontSize: 11, color: Colors.grey),
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                  Text(
+                                    '~${item.etaMinutes ?? 5} min away',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          item.offeredFareFormatted ??
+                              '₦${item.offeredFare ?? ""}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (item.vehicleDetails != null &&
+                        item.vehicleDetails!.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.directions_car,
+                              size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              item.vehicleDetails!,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.grey),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: _busy
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.check, size: 18),
+                            label: const Text('Accept Offer'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.green.shade700,
+                              minimumSize: const Size.fromHeight(42),
+                            ),
+                            onPressed: _busy ? null : _acceptBid,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.close, size: 18),
+                            label: const Text('Reject'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size.fromHeight(42),
+                            ),
+                            onPressed: _busy ? null : _rejectBid,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('View Live Trip on Map'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => LiveTripScreen(
+                          tripId: item.tripId!,
+                          repository: FirestoreTripRepository(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ],
         ),
       ),

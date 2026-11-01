@@ -113,6 +113,7 @@ class CustomerTripsScreen extends StatelessWidget {
                 return _TripFeedCard(
                   trip: trip,
                   isDriver: isDriver,
+                  currentUserId: customerId,
                   repository: _repo,
                 );
               },
@@ -127,11 +128,13 @@ class CustomerTripsScreen extends StatelessWidget {
 class _TripFeedCard extends StatelessWidget {
   final ActiveTrip trip;
   final bool isDriver;
+  final String currentUserId;
   final TripRepository repository;
 
   const _TripFeedCard({
     required this.trip,
     this.isDriver = false,
+    required this.currentUserId,
     required this.repository,
   });
 
@@ -294,6 +297,7 @@ class _TripFeedCard extends StatelessWidget {
                     status: trip.status,
                     source: trip.cancellationSource,
                     isDriver: isDriver,
+                    driverAction: isDriver ? trip.driverRejectionAction(currentUserId) : null,
                   ),
                   if (trip.isLive)
                     const Row(
@@ -385,6 +389,7 @@ class _TripFeedCard extends StatelessWidget {
                     status: trip.status,
                     source: trip.cancellationSource,
                     isDriver: isDriver,
+                    driverAction: isDriver ? trip.driverRejectionAction(currentUserId) : null,
                   ),
                 ],
               ),
@@ -484,6 +489,52 @@ class _TripFeedCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (trip.rejections.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Dispatch Audit Log',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                      const SizedBox(height: 6),
+                      ...trip.rejections.map((r) {
+                        final action = r['action'] == 'skipped'
+                            ? 'Skipped by Driver'
+                            : 'Rejected by Driver';
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            children: [
+                              Icon(
+                                r['action'] == 'skipped' ? Icons.skip_next : Icons.close,
+                                size: 14,
+                                color: Colors.orange.shade800,
+                              ),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  action,
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
@@ -521,10 +572,14 @@ class _StatusChip extends StatelessWidget {
   /// Whether the active viewer is a driver or customer account.
   final bool isDriver;
 
+  /// Specific action recorded for the current driver, if applicable.
+  final String? driverAction;
+
   const _StatusChip({
     required this.status,
     this.source,
     this.isDriver = false,
+    this.driverAction,
   });
 
   @override
@@ -538,21 +593,23 @@ class _StatusChip extends StatelessWidget {
         source == 'driver_rejected' ||
         source == 'rejected_by_driver' ||
         source == 'rejected' ||
-        source == 'declined';
+        source == 'declined' ||
+        driverAction == 'rejected';
 
     final isSkipped = status == TripStatus.ignored ||
         source == 'skipped_by_driver' ||
         source == 'ping_expired' ||
         source == 'ignored' ||
         source == 'skipped' ||
-        source == 'timeout';
+        source == 'timeout' ||
+        driverAction == 'skipped';
 
     if (isRejected) {
-      label = isDriver ? 'Rejected by You' : 'Rejected by Driver';
+      label = isDriver ? 'Rejected by Driver' : 'Rejected by Driver';
       color = const Color(0xFFD97706);
       bgColor = const Color(0xFFFEF3C7);
     } else if (isSkipped) {
-      label = isDriver ? 'Skipped by You' : 'Skipped by Driver';
+      label = isDriver ? 'Skipped by Driver' : 'Skipped by Driver';
       color = const Color(0xFFD97706);
       bgColor = const Color(0xFFFEF3C7);
     } else {

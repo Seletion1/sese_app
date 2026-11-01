@@ -38,7 +38,7 @@ class DispatchTuning {
   /// Resolves the driver search radius (in kilometers) for a given trip dispatch tier (1, 3).
   ///
   /// - Tier 1: Nearest single driver sequential ring (0 to [tier1RadiusKm] km, default ~3 km).
-  /// - Tier 3: Marketplace open pool (0 to [tier3RadiusKm] km, default ~10 km).
+  /// - Tier 3: Marketplace open pool (0 to [tier3RadiusKm] km, default ~15 km).
   double radiusForTier(int tier) {
     switch (tier) {
       case 3:

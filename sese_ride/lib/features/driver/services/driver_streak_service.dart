@@ -20,7 +20,7 @@ class DriverStreakException implements Exception {
 /// Transport seam for driver trip-action callables (unit-testable).
 abstract class DriverStreakBackend {
   Future<Map<String, dynamic>> callAcceptTrip(String tripId, {String? sessionId});
-  Future<Map<String, dynamic>> callDeclineTrip(String tripId);
+  Future<Map<String, dynamic>> callDeclineTrip(String tripId, {String action = 'rejected'});
   Future<Map<String, dynamic>> callAdvanceTripStatus(
     String tripId,
     String status,
@@ -66,8 +66,8 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
       });
 
   @override
-  Future<Map<String, dynamic>> callDeclineTrip(String tripId) =>
-      _call('declineTrip', {'tripId': tripId});
+  Future<Map<String, dynamic>> callDeclineTrip(String tripId, {String action = 'rejected'}) =>
+      _call('declineTrip', {'tripId': tripId, 'action': action});
 
   @override
   Future<Map<String, dynamic>> callAdvanceTripStatus(
@@ -213,7 +213,7 @@ class DriverStreakService {
         .collection('trips')
         .where(
           'status',
-          whereIn: const ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST'],
+          whereIn: const ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST', 'bidding'],
         )
         .limit(limit)
         .snapshots()
@@ -277,9 +277,9 @@ class DriverStreakService {
   Future<void> acceptTrip(String tripId, {String? sessionId}) =>
       _guard(() => _ops.callAcceptTrip(tripId, sessionId: sessionId ?? activeSessionId));
 
-  /// Rejecting an incoming request breaks the streak (server-enforced).
-  Future<void> declineTrip(String tripId) =>
-      _guard(() => _ops.callDeclineTrip(tripId));
+  /// Rejecting or skipping an incoming request breaks the streak (server-enforced).
+  Future<void> declineTrip(String tripId, {String action = 'rejected'}) =>
+      _guard(() => _ops.callDeclineTrip(tripId, action: action));
 
   /// Advances DRIVER_ACCEPTED → DRIVER_ARRIVING → DRIVER_ARRIVED →
   /// IN_PROGRESS → COMPLETED along the server chain.

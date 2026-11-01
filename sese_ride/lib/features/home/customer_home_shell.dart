@@ -488,6 +488,8 @@ class _ActiveTripCardBanner extends StatelessWidget {
       statusText = 'Action Needed: Boost Fare';
     } else if (trip.status == TripStatus.cancelledWaitingCashSettlement) {
       statusText = 'Trip cancelled • Cash settlement';
+    } else if (trip.hasActiveBids || trip.status == TripStatus.bidding) {
+      statusText = 'New driver offers available • Tap to review';
     } else {
       statusText = 'Searching for driver...';
     }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/services/remote_config_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../services/driver_streak_service.dart';
 import 'order_card.dart';
@@ -11,8 +12,8 @@ import 'order_empty_state.dart';
 /// Vertical feed of incoming ride offers on the driver Home tab.
 ///
 /// Fills the space between the GO ONLINE pill and the streak banner:
-/// - Merges Tier 1 (exclusive ping) + Tier 2 (2-driver ping group) +
-///   Tier 3 (marketplace broadcast) offers into one scrollable list.
+/// - Merges Tier 1 (exclusive ping) + Tier 3 (Order Pool broadcast)
+///   offers into one scrollable list.
 /// - Inserts each new trip at the **top** of the feed so older offers stay
 ///   discoverable below.
 /// - Floating "Show new requests" pill appears only when new trips arrive
@@ -106,8 +107,8 @@ class OrderFeedState extends State<OrderFeed> {
   }
 
   /// True when the trip pickup is within the marketplace outer pool
-  /// (5km) of the driver, or when either side lacks coordinates.
-  static const double poolRadiusKm = 5.0;
+  /// (up to 15km Hub-configured radius) of the driver, or when either side lacks coordinates.
+  static const double poolRadiusKm = 15.0;
 
   /// Shared by the feed merge and the pool badge so both agree on the count.
   static bool withinPoolRadius(ActiveTrip trip, LatLng driverPosition) {
@@ -116,7 +117,10 @@ class OrderFeedState extends State<OrderFeed> {
     final dlat = driverPosition.latitude;
     final dlng = driverPosition.longitude;
     if ((plat == 0 && plng == 0) || (dlat == 0 && dlng == 0)) return true;
-    return haversineKm(dlat, dlng, plat, plng) <= poolRadiusKm;
+    final radius = RemoteConfigService.orderPoolRadiusKm > 0
+        ? RemoteConfigService.orderPoolRadiusKm
+        : poolRadiusKm;
+    return haversineKm(dlat, dlng, plat, plng) <= radius;
   }
 
   bool _withinPoolRadius(ActiveTrip trip) =>

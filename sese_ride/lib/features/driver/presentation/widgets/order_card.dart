@@ -510,6 +510,34 @@ class _OrderCardState extends State<OrderCard> {
                     ),
                   ),
                 ),
+                if (trip.hasActiveBids) ...[
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.purple.shade700,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.gavel, size: 12, color: Colors.white),
+                          SizedBox(width: 4),
+                          Text(
+                            'BIDS ACTIVE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             if (_buildPaymentBadge(trip) != null) ...[

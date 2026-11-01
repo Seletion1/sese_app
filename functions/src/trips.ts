@@ -211,6 +211,7 @@ async function notifyCustomer(
           body,
           tripId,
           type,
+          ...extra,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
     } catch (e) {
@@ -1221,8 +1222,18 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
       status: "SEARCHING_DRIVER",
       pingDriverId: null,
       pingExpiresAt: null,
-      cancellationSource: "ping_expired",
+      cancellationSource: "skipped_by_driver",
       declineCount: admin.firestore.FieldValue.increment(1),
+      ...(ignoredDriverId
+        ? {
+            attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(ignoredDriverId),
+            rejections: admin.firestore.FieldValue.arrayUnion({
+              driverId: ignoredDriverId,
+              action: "skipped",
+              timestamp: cutoff,
+            }),
+          }
+        : {}),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     if (ignoredDriverId) await breakStreakQuiet(ignoredDriverId, "ping_expired");
@@ -1430,7 +1441,7 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
  *
  * Atomic first-wins claim inside a Firestore transaction
  * (claimOrderAtomic semantics):
- * - Tier 1/2: caller must be a current ping target.
+ * - Tier 1: caller must be a current ping target.
  * - Tier 3 (MARKETPLACE_OPEN / MARKETPLACE_LIST): any online driver may
  *   claim; the transaction aborts for losers once `driver` is set, so
  *   double assignment is impossible even when two drivers tap the same
@@ -1646,9 +1657,14 @@ export const declineTrip = onCall(async (request) => {
   }
 
   const tuning = await getDispatchTuning();
+  const rawAction = String(request.data?.action ?? request.data?.reason ?? "").toLowerCase();
+  const isSkip = rawAction.includes("skip");
+  const action = isSkip ? "skipped" : "rejected";
+  const cancellationSource = isSkip ? "skipped_by_driver" : "rejected_by_driver";
+
   const rejectionEntry = {
     driverId,
-    action: "rejected",
+    action,
     timestamp: nowMs(),
   };
 
@@ -1658,7 +1674,7 @@ export const declineTrip = onCall(async (request) => {
     pingDriverIds: [],
     pingExpiresAt: null,
     tierExpiresAt: null,
-    cancellationSource: "rejected_by_driver",
+    cancellationSource,
     declineCount: admin.firestore.FieldValue.increment(1),
     attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
     rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
@@ -1710,7 +1726,7 @@ export const updateDriverLocation = onCall(async (request) => {
     driverLocation: { lat, lng, updatedAt: nowMs() },
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
-  // Mirror the fix onto the driver doc so Tier 1/2 nearest-driver ranking
+  // Mirror the fix onto the driver doc so Tier 1 nearest-driver ranking
   // uses a fresh position (best-effort; trip tracking stays authoritative).
   try {
     await db().collection("drivers").doc(request.auth.uid).set(

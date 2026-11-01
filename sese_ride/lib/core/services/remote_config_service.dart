@@ -16,9 +16,10 @@ abstract final class RemoteConfigKeys {
   static const String driverCommissionRate = 'driver_commission_rate';
   static const String maxCancellationLimit = 'max_cancellation_limit';
 
-  // Stage 1 countdown ring duration
+  // Stage 1 countdown ring duration & Order Pool Fallback radius
   static const String stage1OfferCountdownSeconds =
       'stage1_offer_countdown_seconds';
+  static const String orderPoolRadiusKm = 'order_pool_radius_km';
 
   // KYC & onboarding flags
   static const String autoSyncDriverKycToCustomer =
@@ -53,6 +54,7 @@ class RemoteConfigService {
     // Driver & ride rules
     RemoteConfigKeys.requireMultiVehicleSnapshot: true,
     RemoteConfigKeys.stage1OfferCountdownSeconds: 20,
+    RemoteConfigKeys.orderPoolRadiusKm: 15.0,
     RemoteConfigKeys.driverCommissionRate: 0.15,
     RemoteConfigKeys.maxCancellationLimit: 3,
     // KYC & onboarding flags
@@ -221,6 +223,10 @@ class RemoteConfigService {
   /// Dynamic Stage 1 offer countdown duration in seconds (default: 20s).
   static int get stage1OfferCountdownSeconds =>
       _int(RemoteConfigKeys.stage1OfferCountdownSeconds);
+
+  /// Dynamic Order Pool Fallback radius in kilometers (default: 15 km).
+  static double get orderPoolRadiusKm =>
+      _double(RemoteConfigKeys.orderPoolRadiusKm);
 
   /// Platform commission rate as a fraction of fare (0.15 == 15%).
   ///

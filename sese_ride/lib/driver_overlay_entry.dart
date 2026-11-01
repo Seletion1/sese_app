@@ -231,6 +231,13 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
   Future<void> _expire() async {
     _stopAlerts();
     await _share({'action': 'expired', 'tripId': _tripId});
+    try {
+      if (widget.firebaseReady()) {
+        await FirebaseFunctions.instance
+            .httpsCallable('declineTrip')
+            .call({'tripId': _tripId, 'action': 'skipped'});
+      }
+    } catch (_) {}
     await _close();
   }
 
@@ -244,7 +251,7 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
       }
       await FirebaseFunctions.instance
           .httpsCallable(callable)
-          .call({'tripId': _tripId});
+          .call({'tripId': _tripId, 'action': action});
       await _share({'action': action, 'tripId': _tripId});
       // Bring app to full foreground immediately on both Accept and Reject per spec
       await DriverOverlayService.instance.bringToForeground();
