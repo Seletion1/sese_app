@@ -321,6 +321,7 @@ service cloud.firestore {
         (isNotSuspended() && resource.data.status == 'unassigned' &&
          request.resource.data.driverId == request.auth.uid &&
          request.resource.data.status == 'assigned' &&
+         request.resource.data.get('fareMinor', 0) == resource.data.get('fareMinor', 0) &&
          request.resource.data.diff(resource.data).affectedKeys()
            .hasOnly(['driverId', 'acceptedBidId', 'fareMinor', 'assignedAt', 'updatedAt', 'status']));
       allow delete: if isSuperAdmin();
@@ -453,7 +454,7 @@ service cloud.firestore {
         // Customer (trip owner) may read all bids on their trip; driver may read
         // their own bid; hub verification staff and admins may read for the Queue Inspector.
         allow read: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/trips/$(tripId)).data.customerId
+          (get(/databases/$(database)/documents/trips/$(tripId)).data.get('customerId', '')
             == request.auth.uid ||
            driverId == request.auth.uid ||
            isAgent() || isHubStaff() || isAdminAuthClaim());
@@ -465,7 +466,7 @@ service cloud.firestore {
           request.resource.data.status == 'pending' &&
           request.resource.data.offeredFare is number &&
           request.resource.data.offeredFare >=
-            get(/databases/$(database)/documents/trips/$(tripId)).data.baselineFare;
+            get(/databases/$(database)/documents/trips/$(tripId)).data.get('baselineFare', get(/databases/$(database)/documents/trips/$(tripId)).data.get('fareAmount', 0));
 
         // Only Cloud Functions (Admin SDK) may delete or reject bids.
         allow delete: if false;
@@ -1015,17 +1016,58 @@ service cloud.firestore {
     // calleeCandidates subcollections.
 
     match /calls/{callId} {
-      allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated() && isNotSuspended();
+      function isCallParticipant() {
+        return isAuthenticated() && (
+          resource.data.callerId == request.auth.uid ||
+          resource.data.receiverId == request.auth.uid ||
+          resource.data.get('targetUserId', '') == request.auth.uid
+        );
+      }
+
+      // Only the caller, receiver, or administrative staff may read call signaling
+      allow read: if isAuthenticated() && (
+        isCallParticipant() ||
+        isSuperAdmin() ||
+        isHubStaff() ||
+        isOperationsAdmin()
+      );
+
+      // Caller can initiate call invitation
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        request.resource.data.callerId == request.auth.uid &&
+        (request.resource.data.keys().hasAny(['receiverId', 'targetUserId'])) &&
+        request.resource.data.get('status', 'ringing') in ['ringing', 'connecting', 'idle'];
+
+      // Only caller or receiver can update call signaling state (e.g. answer, reject, end)
+      allow update: if isAuthenticated() && isNotSuspended() && (
+        resource.data.callerId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid ||
+        resource.data.get('targetUserId', '') == request.auth.uid
+      );
+
       allow delete: if isSuperAdmin();
 
+      function isParentCallParticipant(cId) {
+        return isAuthenticated() && (
+          get(/databases/$(database)/documents/calls/$(cId)).data.get('callerId', '') == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(cId)).data.get('receiverId', '') == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(cId)).data.get('targetUserId', '') == request.auth.uid
+        );
+      }
+
       match /callerCandidates/{candidateId} {
-        allow read, create: if isAuthenticated() && isNotSuspended();
+        allow read: if isParentCallParticipant(callId) || isSuperAdmin() || isHubStaff();
+        allow create: if isAuthenticated() && isNotSuspended() &&
+          get(/databases/$(database)/documents/calls/$(callId)).data.get('callerId', '') == request.auth.uid;
         allow update, delete: if false;
       }
 
       match /calleeCandidates/{candidateId} {
-        allow read, create: if isAuthenticated() && isNotSuspended();
+        allow read: if isParentCallParticipant(callId) || isSuperAdmin() || isHubStaff();
+        allow create: if isAuthenticated() && isNotSuspended() && (
+          get(/databases/$(database)/documents/calls/$(callId)).data.get('receiverId', '') == request.auth.uid ||
+          get(/databases/$(database)/documents/calls/$(callId)).data.get('targetUserId', '') == request.auth.uid
+        );
         allow update, delete: if false;
       }
     }
@@ -1476,15 +1518,21 @@ service cloud.firestore {
     // Cloud Functions (admin SDK), which bypasses these rules.
     function isZeroBalanceWalletCreate() {
       return request.resource.data.keys().hasOnly([
-        'userId', 'currency', 'balance', 'availableBalance',
-        'escrowHold', 'createdAt', 'updatedAt',
+        'userId', 'currency', 'balance', 'mainWalletBalance', 'availableBalance',
+        'escrowHold', 'escrowBalance', 'seseCoinBalance', 'createdAt', 'updatedAt',
       ]) &&
         (!request.resource.data.keys().hasAny(['balance']) ||
          request.resource.data.balance == 0) &&
+        (!request.resource.data.keys().hasAny(['mainWalletBalance']) ||
+         request.resource.data.mainWalletBalance == 0) &&
         (!request.resource.data.keys().hasAny(['availableBalance']) ||
          request.resource.data.availableBalance == 0) &&
         (!request.resource.data.keys().hasAny(['escrowHold']) ||
          request.resource.data.escrowHold == 0) &&
+        (!request.resource.data.keys().hasAny(['escrowBalance']) ||
+         request.resource.data.escrowBalance == 0) &&
+        (!request.resource.data.keys().hasAny(['seseCoinBalance']) ||
+         request.resource.data.seseCoinBalance == 0) &&
         request.resource.data.userId == request.auth.uid;
     }
 

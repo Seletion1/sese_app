@@ -154,6 +154,18 @@ async function evaluateAndGrantStreakRewards(userId, role, tripId, countryCode =
     return await db().runTransaction(async (tx) => {
         const progressSnap = await tx.get(progressRef);
         const existing = progressSnap.exists ? progressSnap.data() : {};
+        const processedTripIds = Array.isArray(existing.processedTripIds)
+            ? [...existing.processedTripIds]
+            : [];
+        if (processedTripIds.includes(tripId) || existing.lastTripId === tripId) {
+            console.log(`evaluateAndGrantStreakRewards[${tripId}]: already evaluated for ${role} ${userId}, skipping`);
+            return {
+                completedTrips: Number(existing.completedTrips) || 0,
+                awardedMilestones: Array.isArray(existing.awardedMilestones) ? existing.awardedMilestones : [],
+                grandAwardClaimed: Boolean(existing.grandAwardClaimed),
+                totalAwardNaira: 0,
+            };
+        }
         const currentTrips = Number(existing.completedTrips) || 0;
         const awardedMilestones = Array.isArray(existing.awardedMilestones)
             ? [...existing.awardedMilestones]
@@ -186,11 +198,17 @@ async function evaluateAndGrantStreakRewards(userId, role, tripId, countryCode =
         }
         if (totalAwardNaira > 0) {
             const totalAwardKobo = (0, driverStreak_1.nairaToKobo)(totalAwardNaira);
-            tx.set(walletRef, { balance: admin.firestore.FieldValue.increment(totalAwardKobo) }, { merge: true });
-            // Append milestone transactions
+            tx.set(walletRef, {
+                balance: admin.firestore.FieldValue.increment(totalAwardKobo),
+                mainWalletBalance: admin.firestore.FieldValue.increment(totalAwardNaira),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            // Append milestone transactions with deterministic trip-scoped doc IDs
             for (const tier of newUnlockedTiers) {
                 const tierKobo = (0, driverStreak_1.nairaToKobo)(tier.bonusPayout);
-                const txDocRef = walletRef.collection("transactions").doc();
+                const txDocRef = walletRef
+                    .collection("transactions")
+                    .doc(`${tripId}_${role}_milestone_${tier.completedTripsTrigger}`);
                 tx.set(txDocRef, {
                     type: `${role}_streak_milestone_bonus`,
                     amount: tierKobo,
@@ -204,10 +222,12 @@ async function evaluateAndGrantStreakRewards(userId, role, tripId, countryCode =
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             }
-            // Append grand award transaction
+            // Append grand award transaction with deterministic trip-scoped doc ID
             if (triggerGrand) {
                 const grandKobo = (0, driverStreak_1.nairaToKobo)(cfg.grandCompletionCashAward);
-                const grandTxDocRef = walletRef.collection("transactions").doc();
+                const grandTxDocRef = walletRef
+                    .collection("transactions")
+                    .doc(`${tripId}_${role}_grand_award`);
                 tx.set(grandTxDocRef, {
                     type: `${role}_streak_grand_award`,
                     amount: grandKobo,
@@ -232,6 +252,7 @@ async function evaluateAndGrantStreakRewards(userId, role, tripId, countryCode =
             awardedMilestones,
             grandAwardClaimed,
             lastTripId: tripId,
+            processedTripIds: admin.firestore.FieldValue.arrayUnion(tripId),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
         return {

@@ -72,6 +72,34 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Hardened Settlement Concurrency, Zero-Trust Dispatch Transitions & Rules Lockdown
+
+- **Canonical Idempotent Trip Settlement Architecture**:
+  - `handleTripCompletion` in `functions/src/driverStreak.ts`: unified commission deduction, streak bonuses/cashback, grand awards, completed trips counters, and virtual wallet escrow settlement inside a single atomic Firestore transaction (`db().runTransaction`).
+  - Strict idempotency gate checks `trip.settlement?.settled === true || trip.settlement?.commissionSettled === true`, aborting duplicate runs with zero double-debit or double-credit risk.
+  - Consistent dual-currency math: every mutation synchronizes both Naira (`mainWalletBalance`) and Kobo (`balance`), eliminating unit mismatches.
+  - Deterministic trip-scoped transaction doc IDs: `${tripId}_commission`, `${tripId}_bonus`, `${tripId}_grand_award`, `${tripId}_payment`, `${tripId}_wallet_settlement`.
+  - Referral commissions (`processReferralCommissions`): guarded by `trip.settlement.referralsSettled`, with deterministic doc IDs `${tripId}_ref_${type}_${refereeId}` and existence checks before awarding coins or cash auto-sweeps.
+  - Dynamic streak rewards (`evaluateAndGrantStreakRewards`): tracks `processedTripIds` to prevent duplicate evaluation, synchronizes both Naira and Kobo balances, and uses deterministic milestone and grand award transaction doc IDs.
+
+- **Zero-Trust Dispatch & Status State Machine**:
+  - `advanceTripStatus` in `functions/src/trips.ts`: wrapped status verification and transition in an atomic Firestore transaction. Prevents race conditions with concurrent cancellations or stale status overwrites.
+  - `acceptBid`: wrapped in a Firestore transaction with all query reads executed before writes. Enforces valid open bidding status checks, guards against re-assignment, rejects all competing bids atomically, and adjusts `cashToCollect` dynamically against accepted bids.
+  - `releaseTripEscrow` & `cancelTrip`: transaction-safe escrow refunds with deterministic `${tripId}_escrow_refund` document keys and synchronized Naira/Kobo waiting fee debit/credit ledgers (`${tripId}_waiting_fee_paid`, `${tripId}_waiting_fee_credited`).
+  - `createTrip`: writes deterministic `${tripId}_escrow_hold` ledger entries linked directly to the trip ID.
+
+- **Firestore Rules Hardening**:
+  - `calls/{callId}`: replaced overly permissive read/write rules with strict participant-only access (`callerId == auth.uid || receiverId == auth.uid || isHubStaff()`), and isolated ICE candidates (`callerCandidates` / `calleeCandidates`) strictly to the respective call parties.
+  - `trips/{tripId}`: confirmed strict server-only update/delete policy (`allow update, delete: if false;`). Hardened CEL expressions with `.get('baselineFare', ...)` to prevent runtime evaluation crashes on missing optional fields.
+  - `wallets/{walletId}`: enforced server-only updates and writes on wallets and transaction subcollections. Updated `isZeroBalanceWalletCreate` to accommodate modern wallet schema fields while enforcing strict zero-balance initialization.
+  - `orders/{orderId}`: closed loopholes allowing drivers to arbitrarily mutate `fareMinor` during unassigned claims.
+
+- **Verification & Deployment**:
+  - `flutter analyze` in `sese_ride`: **0 issues found** (clean pass).
+  - `flutter test`: All 94 tests in `sese_core` passed; targeted test suite in `sese_ride` (10/10 tests) passed.
+  - `functions`: TypeScript compiled with 0 errors (`tsc` exit code 0).
+  - `firebase deploy`: `firestore:rules` and all affected Cloud Functions (`acceptTrip`, `advanceTripStatus`, `cancelTrip`, `confirmCashCancellation`, `acceptBid`, `onTripCompleted`) deployed successfully to production `sese-ride`.
+
 ## 2026-11-01 — Refined Split-Payment Cash Collection Workflow, Smart Timing & Logistics Messaging
 
 - **Smart Stage-Based Cash Collection & Complete En-Route Hiding**:

@@ -461,27 +461,50 @@ export async function handleTripCompletion(
 
   const result = computeCommission(streak, fareAmount, cfg);
 
-  const isCommissionAlreadySettled = after["settlement"]?.["commissionSettled"] === true;
+  const tripRef = db().collection("trips").doc(tripId);
+  const driverWalletRef = db().collection("wallets").doc(driverId);
+  const streakRef = db().collection("driver_streaks").doc(driverId);
+  const customerId = String(after["customerId"] ?? after["userId"] ?? "");
+  const custWalletRef = customerId ? db().collection("wallets").doc(customerId) : null;
+  const driverUserRef = db().collection("users").doc(driverId);
+  const custUserRef = customerId ? db().collection("users").doc(customerId) : null;
 
-  if (!isCommissionAlreadySettled) {
-    // Build the Firestore write batch
-    const batch = db().batch();
+  // ── Step 1: Canonical Atomic Settlement Transaction ───────────────────────
+  let shouldProceedWithReferralsAndRewards = false;
 
-    // 1. Persist updated streak state (both history keys for compat)
-    const streakRef = db().collection("driver_streaks").doc(driverId);
-    batch.set(streakRef, streakToMap(result.newState, driverId), { merge: true });
+  await db().runTransaction(async (tx) => {
+    const liveTripSnap = await tx.get(tripRef);
+    if (!liveTripSnap.exists) {
+      console.warn(`handleTripCompletion[${tripId}]: trip not found in transaction`);
+      return;
+    }
+    const liveTrip = liveTripSnap.data()!;
 
-    // 2. Deduct platform commission fee from driver wallet ledger & annotate trip
+    // Idempotency check: if commission or full settlement is already complete, abort safely
+    if (
+      liveTrip.settlement?.settled === true ||
+      liveTrip.settlement?.commissionSettled === true
+    ) {
+      console.log(`handleTripCompletion[${tripId}]: already settled, skipping duplicate run`);
+      return;
+    }
+
+    shouldProceedWithReferralsAndRewards = true;
+
+    // 1. Streak State
+    tx.set(streakRef, streakToMap(result.newState, driverId), { merge: true });
+
+    // 2. Platform Commission Debit from driver wallet ledger & trip annotation
     const commissionDebitNaira = result.commissionAmount;
     const commissionDebitKobo = nairaToKobo(commissionDebitNaira);
 
     if (commissionDebitKobo > 0) {
-      const driverWalletRef = db().collection("wallets").doc(driverId);
-      batch.set(
+      tx.set(
         driverWalletRef,
         {
           balance: admin.firestore.FieldValue.increment(-commissionDebitKobo),
           mainWalletBalance: admin.firestore.FieldValue.increment(-commissionDebitNaira),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -489,7 +512,7 @@ export async function handleTripCompletion(
       const commTxRef = driverWalletRef
         .collection("transactions")
         .doc(`${tripId}_commission`);
-      batch.set(commTxRef, {
+      tx.set(commTxRef, {
         type: "platform_commission",
         amount: -commissionDebitKobo,
         amountKobo: -commissionDebitKobo,
@@ -501,42 +524,25 @@ export async function handleTripCompletion(
       });
     }
 
-    const tripRef = db().collection("trips").doc(tripId);
-    const tripUpdate: Record<string, any> = {
-      "settlement.commissionRate": result.commissionRate,
-      "settlement.commissionAmount": result.commissionAmount,
-      "settlement.commissionSettled": true,
-      "settlement.commissionSettledAt": admin.firestore.FieldValue.serverTimestamp(),
-      "settlement.cashBackAmount": result.cashBackAmount,
-      "settlement.cashBonusAmount": result.cashBonusAmount,
-      "settlement.streakLevel": streak.currentLevel,
-      "settlement.streakStep": streak.currentStep,
-      "settlement.settledAt": admin.firestore.FieldValue.serverTimestamp(),
-    };
-    if (!after["completedAt"]) {
-      tripUpdate["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
-    }
-    batch.update(tripRef, tripUpdate);
-
     // 3. Credit cash-back / bonus to driver wallet (Level 2 & 3)
     const walletCreditNaira = result.cashBackAmount + result.cashBonusAmount;
     const walletCreditKobo = nairaToKobo(walletCreditNaira);
     if (walletCreditKobo > 0) {
-      const walletRef = db().collection("wallets").doc(driverId);
-      batch.set(
-        walletRef,
+      tx.set(
+        driverWalletRef,
         {
           balance: admin.firestore.FieldValue.increment(walletCreditKobo),
           mainWalletBalance: admin.firestore.FieldValue.increment(walletCreditNaira),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
       // Wallet transaction record
-      const txRef = walletRef.collection("transactions").doc(`${tripId}_bonus`);
+      const txRef = driverWalletRef.collection("transactions").doc(`${tripId}_bonus`);
       const txType = result.cashBonusAmount > 0
         ? "streak_level3_bonus"
         : "streak_level2_cashback";
-      batch.set(txRef, {
+      tx.set(txRef, {
         type: txType,
         amount: walletCreditKobo,
         amountKobo: walletCreditKobo,
@@ -551,17 +557,17 @@ export async function handleTripCompletion(
     // 4. Grand Award: credit extra wallet payout + set celebration flag on trip
     if (result.grandAwardTriggered && cfg.completionCashAward > 0) {
       const grandAwardKobo = nairaToKobo(cfg.completionCashAward);
-      const walletRef = db().collection("wallets").doc(driverId);
-      batch.set(
-        walletRef,
+      tx.set(
+        driverWalletRef,
         {
           balance: admin.firestore.FieldValue.increment(grandAwardKobo),
           mainWalletBalance: admin.firestore.FieldValue.increment(cfg.completionCashAward),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
-      const awardTxRef = walletRef.collection("transactions").doc(`${tripId}_grand_award`);
-      batch.set(awardTxRef, {
+      const awardTxRef = driverWalletRef.collection("transactions").doc(`${tripId}_grand_award`);
+      tx.set(awardTxRef, {
         type: "streak_grand_award",
         amount: grandAwardKobo,
         amountKobo: grandAwardKobo,
@@ -569,56 +575,46 @@ export async function handleTripCompletion(
         tripId,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      // Flag the trip so the driver app shows the celebration modal
-      batch.update(tripRef, {
-        "settlement.grandAwardTriggered": true,
-        "settlement.grandAwardAmount": cfg.completionCashAward,
-      });
     }
 
-    await batch.commit();
-
-    // 4a-post. Atomically increment completedTrips counter for both driver and customer
-    const custIdForTrips = String(after["customerId"] ?? after["userId"] ?? "");
-    try {
-      const driverUserRef = db().collection("users").doc(driverId);
-      await driverUserRef.set(
+    // 5. Atomically increment completedTrips counter for both driver and customer
+    tx.set(
+      driverUserRef,
+      { completedTrips: admin.firestore.FieldValue.increment(1) },
+      { merge: true }
+    );
+    if (custUserRef) {
+      tx.set(
+        custUserRef,
         { completedTrips: admin.firestore.FieldValue.increment(1) },
         { merge: true }
       );
-      if (custIdForTrips) {
-        const custUserRef = db().collection("users").doc(custIdForTrips);
-        await custUserRef.set(
-          { completedTrips: admin.firestore.FieldValue.increment(1) },
-          { merge: true }
-        );
-      }
-    } catch (e) {
-      console.warn(`handleTripCompletion[${tripId}]: completedTrips increment warning: ${e}`);
     }
-  }
 
-  // 4b. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
-  try {
+    // 6. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
     const walletCoverage = Number(
+      liveTrip.walletCoverageAmount ??
+      liveTrip.paymentBreakdown?.walletCoverageAmount ??
       after["walletCoverageAmount"] ??
-      after["paymentBreakdown"]?.["walletCoverageAmount"] ??
       0
     );
-    if (walletCoverage > 0 && !after["walletSettledAt"]) {
-      const customerId = String(after["customerId"] ?? after["userId"] ?? "");
+    if (walletCoverage > 0 && !liveTrip.walletSettledAt) {
       const coverageKobo = nairaToKobo(walletCoverage);
 
-      // 1. Finalize debit on customer's wallet (deduct from main balance, clear escrow)
-      if (customerId) {
-        const custWalletRef = db().collection("wallets").doc(customerId);
-        await custWalletRef.set({
-          mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-          balance: admin.firestore.FieldValue.increment(-coverageKobo),
-          escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-        }, { merge: true });
+      // Finalize debit on customer's wallet (deduct from main balance, clear escrow)
+      if (custWalletRef) {
+        tx.set(
+          custWalletRef,
+          {
+            mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+            balance: admin.firestore.FieldValue.increment(-coverageKobo),
+            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
 
-        await custWalletRef.collection("transactions").doc(`${tripId}_payment`).set({
+        tx.set(custWalletRef.collection("transactions").doc(`${tripId}_payment`), {
           type: "trip_payment",
           amountNaira: -walletCoverage,
           amountKobo: -coverageKobo,
@@ -630,14 +626,18 @@ export async function handleTripCompletion(
         });
       }
 
-      // 2. Credit the wallet portion to the driver's virtual wallet upon trip completion
-      const driverWalletRef = db().collection("wallets").doc(driverId);
-      await driverWalletRef.set({
-        mainWalletBalance: admin.firestore.FieldValue.increment(walletCoverage),
-        balance: admin.firestore.FieldValue.increment(coverageKobo),
-      }, { merge: true });
+      // Credit the wallet portion to the driver's virtual wallet upon trip completion
+      tx.set(
+        driverWalletRef,
+        {
+          mainWalletBalance: admin.firestore.FieldValue.increment(walletCoverage),
+          balance: admin.firestore.FieldValue.increment(coverageKobo),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
 
-      await driverWalletRef.collection("transactions").doc(`${tripId}_wallet_settlement`).set({
+      tx.set(driverWalletRef.collection("transactions").doc(`${tripId}_wallet_settlement`), {
         type: "trip_wallet_settlement",
         amountNaira: walletCoverage,
         amountKobo: coverageKobo,
@@ -647,17 +647,40 @@ export async function handleTripCompletion(
         note: `Wallet fare portion credited for trip ${tripId}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      await db().collection("trips").doc(tripId).update({
-        walletSettledAt: admin.firestore.FieldValue.serverTimestamp(),
-        "paymentBreakdown.walletSettled": true,
-      });
     }
-  } catch (e) {
-    console.warn(`handleTripCompletion[${tripId}]: wallet escrow settlement warning: ${e}`);
+
+    // 7. Canonical Trip Settlement Metadata
+    const tripUpdate: Record<string, any> = {
+      "settlement.settled": true,
+      "settlement.commissionRate": result.commissionRate,
+      "settlement.commissionAmount": result.commissionAmount,
+      "settlement.commissionSettled": true,
+      "settlement.commissionSettledAt": admin.firestore.FieldValue.serverTimestamp(),
+      "settlement.cashBackAmount": result.cashBackAmount,
+      "settlement.cashBonusAmount": result.cashBonusAmount,
+      "settlement.streakLevel": streak.currentLevel,
+      "settlement.streakStep": streak.currentStep,
+      "settlement.settledAt": admin.firestore.FieldValue.serverTimestamp(),
+      "settlement.walletSettled": true,
+      walletSettledAt: admin.firestore.FieldValue.serverTimestamp(),
+      "paymentBreakdown.walletSettled": true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (result.grandAwardTriggered && cfg.completionCashAward > 0) {
+      tripUpdate["settlement.grandAwardTriggered"] = true;
+      tripUpdate["settlement.grandAwardAmount"] = cfg.completionCashAward;
+    }
+    if (!liveTrip.completedAt && !after["completedAt"]) {
+      tripUpdate["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    }
+    tx.update(tripRef, tripUpdate);
+  });
+
+  if (!shouldProceedWithReferralsAndRewards) {
+    return;
   }
 
-  // 5. Automated Residual Referral Commission Split Engine
+  // 5. Automated Residual Referral Commission Split Engine (Idempotent)
   try {
     const customerId = String(after["customerId"] ?? after["userId"] ?? "");
     const driverName = String(driverData["fullName"] ?? driverData["displayName"] ?? "Driver");
@@ -675,6 +698,8 @@ export async function handleTripCompletion(
       "settlement.customerReferrerCutNaira": refSplits.customerReferrerCutNaira,
       "settlement.netPlatformProfitNaira": refSplits.netPlatformProfitNaira,
       "settlement.netDriverPayoutNaira": refSplits.netDriverPayoutNaira,
+      "settlement.referralsSettled": true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (e) {
     console.warn(`handleTripCompletion[${tripId}]: referral commission processing warning: ${e}`);
@@ -951,15 +976,23 @@ async function processReferralCommissions(
       }
     } catch (_) {}
 
+    const txDocId = `${tripId}_ref_${type}_${refereeId}`;
     const wRef = db().collection("wallets").doc(targetUid);
-    const txRef = wRef.collection("transactions").doc();
-    const auditRef = db().collection("wallet_transactions").doc();
-    const earnRef = db().collection("referral_earnings").doc();
+    const txRef = wRef.collection("transactions").doc(txDocId);
+    const auditRef = db().collection("wallet_transactions").doc(txDocId);
+    const earnRef = db().collection("referral_earnings").doc(txDocId);
 
     const tripTag = isFirstTrip ? " (First Qualifying Trip)" : "";
     const note = `+₦${cutNaira.toFixed(2)} referral bonus received from ${refereeName || 'Referred User'} for Order #${tripId}${tripTag}`;
 
     await db().runTransaction(async (tx) => {
+      // Idempotency check: if transaction already committed for this trip & referee, skip
+      const existingTx = await tx.get(txRef);
+      if (existingTx.exists) {
+        console.log(`creditReferrerCoins[${tripId}]: already credited for ${txDocId}, skipping`);
+        return;
+      }
+
       // Mark referee doc with first qualifying trip milestone
       if (isFirstTrip) {
         tx.set(
@@ -980,11 +1013,13 @@ async function processReferralCommissions(
 
       // Auto-Sweep check
       if (newCoins >= finCfg.maxBonusThreshold) {
+        const newCoinsKobo = nairaToKobo(newCoins);
         tx.set(
           wRef,
           {
             seseCoinBalance: 0,
             mainWalletBalance: admin.firestore.FieldValue.increment(newCoins),
+            balance: admin.firestore.FieldValue.increment(newCoinsKobo),
             updatedAt: now,
           },
           { merge: true }
@@ -993,10 +1028,15 @@ async function processReferralCommissions(
         tx.set(txRef, {
           type: "sese_coin_auto_sweep",
           amountNaira: newCoins,
+          amountKobo: newCoinsKobo,
+          amount: newCoinsKobo,
+          tripId,
+          refereeId,
           note: `Auto-swept ₦${newCoins.toFixed(2)} in SeSe Coins to withdrawable wallet cash.`,
           createdAt: now,
         });
       } else {
+        const cutKobo = nairaToKobo(cutNaira);
         tx.set(
           wRef,
           {
@@ -1009,6 +1049,8 @@ async function processReferralCommissions(
         tx.set(txRef, {
           type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
           amountNaira: cutNaira,
+          amountKobo: cutKobo,
+          amount: cutKobo,
           note,
           tripId,
           refereeId,
@@ -1023,6 +1065,8 @@ async function processReferralCommissions(
         refereeId,
         tripId,
         amountNaira: cutNaira,
+        amountKobo: nairaToKobo(cutNaira),
+        amount: nairaToKobo(cutNaira),
         isFirstTrip,
         createdAt: now,
       });
