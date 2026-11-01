@@ -3034,12 +3034,24 @@ export const submitTripRating = onCall(async (request) => {
 
   try {
     await db().runTransaction(async (tx) => {
+      // 1. ALL READS MUST PRECEDE ALL WRITES in Firestore transactions
       const existing = await tx.get(ratingRef);
       if (existing.exists) {
         return; // Idempotent — no double-counting
       }
 
-      // 1. Write the rating record
+      const userSnap = await tx.get(userRef);
+      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+
+      // 2. Compute updated aggregates
+      const currentSum = Number(userData.totalRatingSum || 0);
+      const currentCount = Number(userData.totalRatingCount || 0);
+
+      const newSum = currentSum + rating;
+      const newCount = currentCount + 1;
+      const newAverage = Math.round((newSum / newCount) * 10) / 10;
+
+      // 3. ALL WRITES AFTER ALL READS
       tx.set(ratingRef, {
         ratingId: ratingDocId,
         tripId,
@@ -3052,17 +3064,6 @@ export const submitTripRating = onCall(async (request) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // 2. Read existing totals from users/{ratedUserId}
-      const userSnap = await tx.get(userRef);
-      const userData = userSnap.exists ? (userSnap.data() || {}) : {};
-      const currentSum = Number(userData.totalRatingSum || 0);
-      const currentCount = Number(userData.totalRatingCount || 0);
-
-      const newSum = currentSum + rating;
-      const newCount = currentCount + 1;
-      const newAverage = Math.round((newSum / newCount) * 10) / 10;
-
-      // 3. Update users/{ratedUserId}
       tx.set(
         userRef,
         {
@@ -3073,7 +3074,7 @@ export const submitTripRating = onCall(async (request) => {
         { merge: true }
       );
 
-      // 4. Mirror to drivers/{ratedUserId} if rated party is a driver
+      // Mirror to drivers/{ratedUserId} if rated party is a driver
       if (driverRef) {
         tx.set(
           driverRef,

@@ -72,6 +72,25 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Firestore Transaction Read-Before-Write Ordering in `submitTripRating`
+
+- **Root Cause & Diagnosis**:
+  - The device logs revealed:
+    ```text
+    TripRatingService.submitRating callable failed: [firebase_functions/internal] Failed to submit rating.
+    ... falling back to direct write
+    Write failed at users/{uid}: Status{code=PERMISSION_DENIED, description=Missing or insufficient permissions.}
+    ```
+  - In `functions/src/trips.ts: submitTripRating`, `db().runTransaction` wrote `tx.set(ratingRef, ...)` *before* executing `await tx.get(userRef)`.
+  - Cloud Firestore strictly enforces that **all reads must precede all writes** in a transaction. Violating this ordering threw `Error: Firestore transactions require all reads to be executed before all writes`, which was caught and mapped to HTTP 500 (`internal`).
+  - When the client's fallback attempted direct mutation of `users/{ratedUserId}`, Firestore security rules rejected the unauthorized write with `PERMISSION_DENIED`.
+
+- **Implementation & Fix**:
+  - Reordered the transaction block in `submitTripRating`: both `tx.get(ratingRef)` and `tx.get(userRef)` are executed first.
+  - Aggregates (`totalRatingSum`, `totalRatingCount`, `averageRating`) are calculated from snapshot data in-memory before issuing writes.
+  - Sequenced all mutations (`tx.set(ratingRef, ...)`, `tx.set(userRef, ...)`, and conditional `tx.set(driverRef, ...)`) strictly after all reads.
+  - Tested and deployed `submitTripRating` function to production `sese-ride`. Verified clean pass in `sese_ride/test/trip_rating_test.dart` (3/3 tests passed).
+
 ## 2026-11-01 — Android Platform View Hybrid Composition, Cold-Start Touch Unlock & Marker Deduplication
 
 - **Cold-Start Map Touch Freeze & Render Stall Resolution**:
