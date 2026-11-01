@@ -389,6 +389,37 @@ export function applyStreakBreak(streak: DriverStreakDoc): DriverStreakDoc {
   return { ...streak, currentLevel: 1, currentStep: 0 };
 }
 
+// ─── Structured Logging for Money & State Machine ─────────────────────────
+
+export interface FinancialMutationLog {
+  tripId: string;
+  type: string;
+  accountId: string;
+  amountNaira: number;
+  amountKobo: number;
+  currency: string;
+  note?: string;
+  timestamp: number;
+}
+
+export function logFinancialMutation(log: FinancialMutationLog): void {
+  console.log(`[FINANCIAL_MUTATION] ${JSON.stringify(log)}`);
+}
+
+export interface TripTransitionLog {
+  tripId: string;
+  from: string;
+  to: string;
+  actor: string;
+  role: string;
+  timestamp: number;
+  reason?: string;
+}
+
+export function logTripTransition(log: TripTransitionLog): void {
+  console.log(`[TRIP_TRANSITION] ${JSON.stringify(log)}`);
+}
+
 // ─── Cloud Function & Core Settlement: onTripCompleted / handleTripCompletion ──
 
 /**
@@ -473,6 +504,7 @@ export async function handleTripCompletion(
   let shouldProceedWithReferralsAndRewards = false;
 
   await db().runTransaction(async (tx) => {
+    // STRICT ORDERING: All reads executed first
     const liveTripSnap = await tx.get(tripRef);
     if (!liveTripSnap.exists) {
       console.warn(`handleTripCompletion[${tripId}]: trip not found in transaction`);
@@ -488,6 +520,9 @@ export async function handleTripCompletion(
       console.log(`handleTripCompletion[${tripId}]: already settled, skipping duplicate run`);
       return;
     }
+
+    const custWalletSnap = custWalletRef ? await tx.get(custWalletRef) : null;
+    await tx.get(driverWalletRef);
 
     shouldProceedWithReferralsAndRewards = true;
 
@@ -522,6 +557,17 @@ export async function handleTripCompletion(
         note: `Platform commission fee for trip ${tripId}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      logFinancialMutation({
+        tripId,
+        type: "platform_commission_debit",
+        accountId: driverId,
+        amountNaira: -commissionDebitNaira,
+        amountKobo: -commissionDebitKobo,
+        currency: "NGN",
+        note: `Platform commission fee for trip ${tripId}`,
+        timestamp: Date.now(),
+      });
     }
 
     // 3. Credit cash-back / bonus to driver wallet (Level 2 & 3)
@@ -552,6 +598,17 @@ export async function handleTripCompletion(
         streakStep: streak.currentStep,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+
+      logFinancialMutation({
+        tripId,
+        type: txType,
+        accountId: driverId,
+        amountNaira: walletCreditNaira,
+        amountKobo: walletCreditKobo,
+        currency: "NGN",
+        note: `Streak bonus/cashback for trip ${tripId}`,
+        timestamp: Date.now(),
+      });
     }
 
     // 4. Grand Award: credit extra wallet payout + set celebration flag on trip
@@ -574,6 +631,17 @@ export async function handleTripCompletion(
         amountNaira: cfg.completionCashAward,
         tripId,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      logFinancialMutation({
+        tripId,
+        type: "streak_grand_award",
+        accountId: driverId,
+        amountNaira: cfg.completionCashAward,
+        amountKobo: grandAwardKobo,
+        currency: "NGN",
+        note: `Grand award payout for trip ${tripId}`,
+        timestamp: Date.now(),
       });
     }
 
@@ -600,15 +668,18 @@ export async function handleTripCompletion(
     );
     if (walletCoverage > 0 && !liveTrip.walletSettledAt) {
       const coverageKobo = nairaToKobo(walletCoverage);
+      const custWData = custWalletSnap?.exists ? custWalletSnap.data()! : {};
+      const currentCustEscrow = Number(custWData["escrowBalance"] ?? walletCoverage);
+      const newCustEscrow = Math.max(0, currentCustEscrow - walletCoverage);
 
-      // Finalize debit on customer's wallet (deduct from main balance, clear escrow)
+      // Finalize debit on customer's wallet (deduct from main balance, clear escrow safely)
       if (custWalletRef) {
         tx.set(
           custWalletRef,
           {
             mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
             balance: admin.firestore.FieldValue.increment(-coverageKobo),
-            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
+            escrowBalance: newCustEscrow,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -623,6 +694,17 @@ export async function handleTripCompletion(
           currency: "NGN",
           note: `Payment for trip ${tripId}`,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        logFinancialMutation({
+          tripId,
+          type: "trip_escrow_settled_debit",
+          accountId: customerId,
+          amountNaira: -walletCoverage,
+          amountKobo: -coverageKobo,
+          currency: "NGN",
+          note: `Customer trip payment settled for trip ${tripId}`,
+          timestamp: Date.now(),
         });
       }
 
@@ -646,6 +728,17 @@ export async function handleTripCompletion(
         currency: "NGN",
         note: `Wallet fare portion credited for trip ${tripId}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      logFinancialMutation({
+        tripId,
+        type: "trip_wallet_fare_credit",
+        accountId: driverId,
+        amountNaira: walletCoverage,
+        amountKobo: coverageKobo,
+        currency: "NGN",
+        note: `Driver fare credited for trip ${tripId}`,
+        timestamp: Date.now(),
       });
     }
 

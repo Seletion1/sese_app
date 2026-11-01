@@ -5007,3 +5007,58 @@ Implemented the full lifecycle cancellation rule-set, 10-minute waiting fee enfo
 - Committed as `988b518`, pushed to `origin main`.
 
 > **ACTION REQUIRED**: Run `firebase login --reauth` then `firebase deploy --only functions --project sese-ride` to deploy the new `skipDeliveryPin` callable.
+
+## 2026-11-01 — Financial Settlement Concurrency, State Machine Invariants, Rules Lockdown & Observability
+
+- **Money Flow & Settlement Integrity**:
+  - `handleTripCompletion` in `functions/src/driverStreak.ts`:
+    * Enforced strict read-before-write ordering in the atomic settlement transaction (`tx.get(tripRef)`, `tx.get(custWalletRef)`, `tx.get(driverWalletRef)` all executed first).
+    * Clamped customer escrow clearance to prevent negative escrow balances (`Math.max(0, currentEscrow - walletCoverage)`).
+    * Maintained deterministic transaction doc IDs (`${tripId}_commission`, `${tripId}_bonus`, `${tripId}_grand_award`, `${tripId}_payment`, `${tripId}_wallet_settlement`) preventing duplicate ledger writes.
+    * Integrated structured financial mutation logging (`[FINANCIAL_MUTATION]`).
+  - `createTrip` in `functions/src/trips.ts`:
+    * Wrapped escrow check, clamping, and hold creation in an atomic transaction verifying `realAvailable >= coverage` to prevent balance drift or race conditions.
+  - `releaseTripEscrow` in `functions/src/trips.ts`:
+    * Hardened against race conditions and double refunds by verifying `!escrowRefundedAt && escrowLocked !== false`, safely clamping escrow balance, and writing deterministic `${tripId}_escrow_refund` logs.
+  - `cancelTrip` in `functions/src/trips.ts`:
+    * Unified paid waiting fee customer debit, driver credit, and trusted customer negative debt allocation in an atomic Firestore transaction with all reads executed first.
+
+- **Trip State Machine Lockdown**:
+  - `advanceTripStatus`:
+    * Enforced strict state transitions (`DRIVER_TRANSITIONS`) and caller verification.
+    * Added `statusHistory` array tracking (`from`, `to`, `actor`, `role`, `timestamp`) on every state transition.
+    * Emitted structured transition logs (`[TRIP_TRANSITION]`).
+  - `acceptTrip`:
+    * Transaction-safe claim validation rejecting competing drivers and safely resolving pending bids. Recorded `statusHistory` and transition logs.
+  - `declineTrip`:
+    * Audited skip vs reject logging with `statusHistory` and structured transition logs.
+  - `confirmCashCancellation`:
+    * Guaranteed idempotency and state validation (requires `CANCELLED_WAITING_CASH_SETTLEMENT`).
+  - `hubForceCompleteTrip` & `hubCancelRefundTrip`:
+    * State guards preventing resurrection of cancelled trips or double-completion of closed trips.
+  - `sese_hub`:
+    * Refactored `ActiveRidesConsoleScreen` administrative action buttons from raw Firestore mutations to audited backend callables (`hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`).
+
+- **Firestore Rules Lockdown**:
+  - `trips/{tripId}`:
+    * Server-only writes enforced: `allow create, update, delete: if false;`.
+  - `drivers/{userId}`:
+    * Closed privilege escalation vector: blocked drivers from modifying `verificationStatus`, `isVerified`, `rating`, `completedTrips`, or `safetyBlocked`.
+  - `users/{userId}`:
+    * Closed privilege escalation vector: blocked users from modifying `outstandingNegativeBalance` (debt wiping), `isSuspended` (self-unsuspend), `role`, or `completedTrips`.
+
+- **Automated Verification**:
+  - Created `sese_ride/test/trip_state_machine_and_money_flow_test.dart` with 8 comprehensive unit tests covering:
+    1. Single trip acceptance & competing driver claim rejection
+    2. Idempotent trip cancellation without double charging
+    3. Bounded driver reassignment loop (max 3 before `needs_customer_action`)
+    4. Atomic competing bid rejection on order acceptance
+    5. Single wallet escrow release with non-negative clamping
+    6. Single commission deduction via idempotency gate
+    7. Distinct deterministic transaction doc IDs
+    8. Non-negative balance protection on cancellation waiting fee paths
+  - `flutter test`: All 16 tests in targeted test suite passed.
+  - `flutter analyze`: **0 issues found** across `sese_ride` and `sese_hub`.
+  - `npm run build`: Functions TypeScript compiled cleanly (`tsc` exit code 0).
+  - `firebase deploy`: Updated Firestore security rules and all 13 Cloud Functions deployed successfully to production `sese-ride`.
+

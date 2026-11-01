@@ -397,14 +397,8 @@ service cloud.firestore {
         isOperationsAdmin()
       );
       // All trip writes go through Cloud Functions (Admin SDK bypasses
-      // rules). Direct client writes stay denied; the create rule below is
-      // belt-and-braces for the owning customer with contact phones present.
-      allow create: if isAuthenticated() && isNotSuspended() &&
-        request.resource.data.customerId == request.auth.uid &&
-        request.resource.data.pickupPhone is string &&
-        request.resource.data.dropoffPhone is string &&
-        request.resource.data.status == 'SEARCHING_DRIVER';
-      allow update, delete: if false;
+      // rules). Direct client writes (create, update, delete) stay denied.
+      allow create, update, delete: if false;
 
       // ── Trip Chat & Receipt Authorization Helpers ────────────────────────
       // Safely resolves customer or driver identity across both flat `driverId`
@@ -511,10 +505,26 @@ service cloud.firestore {
 
     // ===== DRIVERS — onboarding owner write + admin queue read + admin approve =====
     match /drivers/{userId} {
-      // Driver can read and write their own document
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      // Hub admins/staff can read and update all drivers
-      allow read, update: if request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin());
+      function isValidDriverProfileUpdate() {
+        return isAuthenticated() && isNotSuspended() &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny([
+              'verificationStatus', 'isVerified', 'isProfileVerified',
+              'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
+              'totalRatingCount', 'completedTrips', 'safetyBlocked'
+            ]);
+      }
+
+      // Driver can read their own document; public/active drivers can be read for matchmaking
+      allow read: if isAuthenticated();
+      // On creation, driver cannot pre-seed approved verification or inflated trip stats
+      allow create: if isAuthenticated() && request.auth.uid == userId && isNotSuspended() &&
+        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING']) &&
+        (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
+        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0);
+      // Owner may update their profile, but cannot self-approve verification or alter safety/ratings
+      allow update: if (isAuthenticated() && request.auth.uid == userId && isValidDriverProfileUpdate()) ||
+        (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
       allow delete: if isSuperAdmin();
     }
 
@@ -630,12 +640,22 @@ service cloud.firestore {
 
     // ===== USERS & DRIVERS — onboarding merge writes (authenticated owner) + admin queue read/approve =====
     match /users/{userId} {
+      function isValidUserProfileUpdate() {
+        return isAuthenticated() && isNotSuspended() &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['isSuspended', 'role', 'completedTrips', 'completedTripCount', 'outstandingNegativeBalance']);
+      }
+
       // Authenticated users can read public profile (name, avatar, ratings, completedTrips)
       allow read: if isAuthenticated();
-      // User can write their own document
-      allow write: if request.auth != null && request.auth.uid == userId;
-      // Hub admins/staff can read and update all users
-      allow read, update: if request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin());
+      // On creation, users cannot pre-seed debt, un-suspended state bypass, or elevated role
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
+        (!request.resource.data.keys().hasAny(['isSuspended']) || request.resource.data.isSuspended == false) &&
+        (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
+        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0);
+      // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
+      allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
+        (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
       allow delete: if isSuperAdmin();
 
       // Reviews / ratings subcollection (consumed by ratings_breakdown_card)

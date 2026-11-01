@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
@@ -981,10 +982,16 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     icon: const Icon(Icons.check_circle_outline),
                     label: const Text('Force Complete Trip'),
                     onPressed: () async {
-                      await _db.collection('trips').doc(tripId).update({'status': 'completed'});
-                      if (context.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip force completed.')));
+                      try {
+                        await FirebaseFunctions.instance.httpsCallable('hubForceCompleteTrip').call({'tripId': tripId});
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip force completed.')));
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
                       }
                     },
                   ),
@@ -993,10 +1000,16 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     icon: const Icon(Icons.cancel_outlined),
                     label: const Text('Cancel & Refund Escrow'),
                     onPressed: () async {
-                      await _db.collection('trips').doc(tripId).update({'status': 'cancelled', 'cancelledBy': 'admin'});
-                      if (context.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip cancelled and escrow refunded.')));
+                      try {
+                        await FirebaseFunctions.instance.httpsCallable('hubCancelRefundTrip').call({'tripId': tripId, 'reason': 'Cancelled by Hub admin'});
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip cancelled and escrow refunded.')));
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
                       }
                     },
                   ),
@@ -1004,10 +1017,16 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     icon: const Icon(Icons.lock_open),
                     label: const Text('Manual PIN Bypass'),
                     onPressed: () async {
-                      await _db.collection('trips').doc(tripId).update({'pinVerified': true, 'pinBypassedByAdmin': true});
-                      if (context.mounted) {
-                        Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery PIN bypassed by agent.')));
+                      try {
+                        await FirebaseFunctions.instance.httpsCallable('hubManualPinBypass').call({'tripId': tripId});
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery PIN bypassed by agent.')));
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                        }
                       }
                     },
                   ),

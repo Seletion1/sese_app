@@ -716,32 +716,73 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     }
     const ref = db().collection("trips").doc();
     const tripId = ref.id;
-    // Lock available wallet balance into active escrow hold
+    // Lock available wallet balance into active escrow hold atomically
     if (escrowLocked && walletCoverageAmount > 0) {
         try {
             const coverageKobo = (0, driverStreak_1.nairaToKobo)(walletCoverageAmount);
-            await custWalletRef.set({
-                escrowBalance: admin.firestore.FieldValue.increment(walletCoverageAmount),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
-            await custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`).set({
+            await db().runTransaction(async (tx) => {
+                const wSnap = await tx.get(custWalletRef);
+                const wData = wSnap.exists ? wSnap.data() : {};
+                const mainBal = typeof wData.mainWalletBalance === "number"
+                    ? wData.mainWalletBalance
+                    : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+                const currentEscrow = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+                const realAvailable = Math.max(0, mainBal - currentEscrow);
+                // Clamp coverage to prevent over-locking
+                const actualCoverage = Math.min(walletCoverageAmount, realAvailable);
+                const actualCoverageKobo = (0, driverStreak_1.nairaToKobo)(actualCoverage);
+                if (actualCoverage > 0) {
+                    tx.set(custWalletRef, {
+                        escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                    tx.set(custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`), {
+                        type: "trip_escrow_hold",
+                        amountNaira: -actualCoverage,
+                        amountKobo: -actualCoverageKobo,
+                        amount: -actualCoverageKobo,
+                        tripId,
+                        currency: "NGN",
+                        note: `Locked in escrow for active trip ${tripId}`,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                }
+            });
+            (0, driverStreak_1.logFinancialMutation)({
+                tripId,
                 type: "trip_escrow_hold",
+                accountId: customerId,
                 amountNaira: -walletCoverageAmount,
                 amountKobo: -coverageKobo,
-                amount: -coverageKobo,
-                tripId,
                 currency: "NGN",
                 note: `Locked in escrow for active trip ${tripId}`,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: Date.now(),
             });
         }
         catch (e) {
             console.warn(`createTrip: escrow lock warning: ${e}`);
         }
     }
+    const initialStatusHistory = [
+        {
+            from: "none",
+            to: "SEARCHING_DRIVER",
+            actor: customerId,
+            role: "customer",
+            timestamp: nowMs(),
+        },
+    ];
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: "none",
+        to: "SEARCHING_DRIVER",
+        actor: customerId,
+        role: "customer",
+        timestamp: nowMs(),
+    });
     await ref.set(Object.assign(Object.assign(Object.assign(Object.assign({ customerId,
         customerName,
-        customerPhone, 
+        customerPhone, statusHistory: initialStatusHistory, 
         // Permanent trip booker profile snapshot (retained even if contacts change)
         tripBooker: {
             uid: customerId,
@@ -1342,8 +1383,23 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
                 : ((_p = data.acceptedBidDriverId) !== null && _p !== void 0 ? _p : null),
+            statusHistory: admin.firestore.FieldValue.arrayUnion({
+                from: status,
+                to: "DRIVER_ACCEPTED",
+                actor: driverId,
+                role: "driver",
+                timestamp: nowMs(),
+            }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: "WAITING_FOR_ACCEPTANCE",
+        to: "DRIVER_ACCEPTED",
+        actor: driverId,
+        role: "driver",
+        timestamp: nowMs(),
     });
     return { ok: true };
 });
@@ -1353,7 +1409,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
  * to the global Order Pool (Stage 3).
  */
 exports.declineTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
@@ -1389,7 +1445,24 @@ exports.declineTrip = (0, https_1.onCall)(async (request) => {
         declineCount: admin.firestore.FieldValue.increment(1),
         attemptedDriverIds: admin.firestore.FieldValue.arrayUnion(driverId),
         rejections: admin.firestore.FieldValue.arrayUnion(rejectionEntry),
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: (_h = (_g = snap.data()) === null || _g === void 0 ? void 0 : _g.status) !== null && _h !== void 0 ? _h : "WAITING_FOR_ACCEPTANCE",
+            to: "SEARCHING_DRIVER",
+            actor: driverId,
+            role: "driver",
+            reason: action,
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: (_k = (_j = snap.data()) === null || _j === void 0 ? void 0 : _j.status) !== null && _k !== void 0 ? _k : "WAITING_FOR_ACCEPTANCE",
+        to: "SEARCHING_DRIVER",
+        actor: driverId,
+        role: "driver",
+        reason: action,
+        timestamp: nowMs(),
     });
     // Try remaining Stage 1 drivers sequentially before escalating to Order Pool (Stage 3).
     const fresh = await snap.ref.get();
@@ -1465,6 +1538,7 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     }
     const ref = db().collection("trips").doc(String(tripId));
     let alreadyInStatus = false;
+    let fromStatus = "";
     let snapAfterData = null;
     await db().runTransaction(async (tx) => {
         var _a, _b, _c, _d;
@@ -1477,6 +1551,7 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
             throw new https_1.HttpsError("permission-denied", "Not your trip.");
         }
         const currentStatus = String(data.status);
+        fromStatus = currentStatus;
         if (currentStatus === String(status)) {
             alreadyInStatus = true;
             snapAfterData = data;
@@ -1488,6 +1563,13 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
         }
         const update = {
             status,
+            statusHistory: admin.firestore.FieldValue.arrayUnion({
+                from: currentStatus,
+                to: status,
+                actor: driverId,
+                role: "driver",
+                timestamp: nowMs(),
+            }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         // Record the timestamp when driver taps "Arrived" for no-show timer tracking
@@ -1506,6 +1588,14 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     if (alreadyInStatus) {
         return { ok: true, alreadyInStatus: true };
     }
+    (0, driverStreak_1.logTripTransition)({
+        tripId: String(tripId),
+        from: fromStatus || "UNKNOWN",
+        to: String(status),
+        actor: String(request.auth.uid),
+        role: "driver",
+        timestamp: nowMs(),
+    });
     // Synchronous trip completion settlement: immediately post commission debit,
     // update wallet balance and trip settlement metadata with zero delay.
     if (status === "COMPLETED" && snapAfterData) {
@@ -1539,11 +1629,11 @@ async function releaseTripEscrow(tripId, tripData, passedTx) {
     const custWalletRef = db().collection("wallets").doc(customerId);
     const refundTxRef = custWalletRef.collection("transactions").doc(`${tripId}_escrow_refund`);
     const tripRef = db().collection("trips").doc(tripId);
-    const applyRefund = (tx) => {
-        tx.set(custWalletRef, {
-            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
+    const applyRefund = (tx, currentEscrow) => {
+        const newEscrow = currentEscrow != null ? Math.max(0, currentEscrow - walletCoverage) : undefined;
+        tx.set(custWalletRef, Object.assign(Object.assign({}, (newEscrow != null
+            ? { escrowBalance: newEscrow }
+            : { escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage) })), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
         tx.set(refundTxRef, {
             type: "trip_escrow_refund",
             amountNaira: walletCoverage,
@@ -1561,25 +1651,38 @@ async function releaseTripEscrow(tripId, tripData, passedTx) {
             "paymentBreakdown.escrowRefunded": true,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        (0, driverStreak_1.logFinancialMutation)({
+            tripId,
+            type: "trip_escrow_refund",
+            accountId: customerId,
+            amountNaira: walletCoverage,
+            amountKobo: coverageKobo,
+            currency: "NGN",
+            note: `Escrow hold released for cancelled trip ${tripId}`,
+            timestamp: Date.now(),
+        });
     };
     if (passedTx) {
         applyRefund(passedTx);
     }
     else {
         await db().runTransaction(async (tx) => {
+            var _a, _b;
             const snap = await tx.get(tripRef);
             if (!snap.exists)
                 return;
             const t = snap.data();
             if (t["escrowRefundedAt"] || t["escrowLocked"] === false)
                 return;
-            applyRefund(tx);
+            const wSnap = await tx.get(custWalletRef);
+            const currentEscrow = wSnap.exists ? Number((_b = (_a = wSnap.data()) === null || _a === void 0 ? void 0 : _a.escrowBalance) !== null && _b !== void 0 ? _b : walletCoverage) : walletCoverage;
+            applyRefund(tx, currentEscrow);
         });
     }
 }
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
 exports.cancelTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -1681,35 +1784,56 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 pendingCashFee: paidWaitingFee,
                 pingDriverId: null,
                 pingExpiresAt: null,
+                statusHistory: admin.firestore.FieldValue.arrayUnion({
+                    from: String((_o = data.status) !== null && _o !== void 0 ? _o : ""),
+                    to: "CANCELLED_WAITING_CASH_SETTLEMENT",
+                    actor: callerId,
+                    role: "customer",
+                    reason,
+                    timestamp: nowMs(),
+                }),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
-            const assignedDriverId = String((_q = (_p = (_o = data.driver) === null || _o === void 0 ? void 0 : _o.driverId) !== null && _p !== void 0 ? _p : data.driverId) !== null && _q !== void 0 ? _q : "");
+            (0, driverStreak_1.logTripTransition)({
+                tripId,
+                from: String((_p = data.status) !== null && _p !== void 0 ? _p : ""),
+                to: "CANCELLED_WAITING_CASH_SETTLEMENT",
+                actor: callerId,
+                role: "customer",
+                reason,
+                timestamp: nowMs(),
+            });
+            const assignedDriverId = String((_s = (_r = (_q = data.driver) === null || _q === void 0 ? void 0 : _q.driverId) !== null && _r !== void 0 ? _r : data.driverId) !== null && _s !== void 0 ? _s : "");
             if (assignedDriverId) {
                 await notifyCustomer(assignedDriverId, tripId, "Cash Settlement Requested", `Customer cancelled during paid waiting. Collect ₦${paidWaitingFee} cash from customer and tap "Accept Cash & Cancel".`, "cash_settlement_requested", {}, `driver_${assignedDriverId}`);
             }
             return { ok: true, cancelledBy: "customer", cashSettlement: true, fee: paidWaitingFee };
         }
         if (paidWaitingFee > 0) {
-            // Wallet settlement
-            const custUserSnap = await db().collection("users").doc(customerId).get();
-            const custUserData = (_r = custUserSnap.data()) !== null && _r !== void 0 ? _r : {};
-            const completedTripCount = Number((_s = custUserData.completedTripCount) !== null && _s !== void 0 ? _s : 0);
-            const isTrustedCustomer = completedTripCount >= 5;
+            // Atomic wallet settlement with all reads executed first
             const walletRef = db().collection("wallets").doc(customerId);
-            const walletSnap = await walletRef.get();
-            const walletData = (_t = walletSnap.data()) !== null && _t !== void 0 ? _t : {};
-            const currentBalance = typeof walletData.mainWalletBalance === "number"
-                ? walletData.mainWalletBalance
-                : (typeof walletData.balance === "number" ? walletData.balance / 100 : 0);
-            if (currentBalance < paidWaitingFee && !isTrustedCustomer) {
-                throw new https_1.HttpsError("failed-precondition", `INSUFFICIENT_FUNDS: Your wallet balance (₦${currentBalance}) is insufficient for the ₦${paidWaitingFee} paid waiting fee. Please top up your wallet or select Cash Settlement.`, { currentBalance, paidWaitingFee, isTrustedCustomer });
-            }
-            // Deduct wallet / record negative balance for trusted customers
+            const userRefDoc = db().collection("users").doc(customerId);
+            const assignedDriverId = String((_v = (_u = (_t = data.driver) === null || _t === void 0 ? void 0 : _t.driverId) !== null && _u !== void 0 ? _u : data.driverId) !== null && _v !== void 0 ? _v : "");
+            const driverWalletRef = assignedDriverId ? db().collection("wallets").doc(assignedDriverId) : null;
             const feeKobo = (0, driverStreak_1.nairaToKobo)(paidWaitingFee);
-            if (currentBalance >= paidWaitingFee) {
-                // Direct wallet deduction
-                await db().runTransaction(async (wTx) => {
-                    var _a, _b, _c;
+            await db().runTransaction(async (wTx) => {
+                var _a;
+                const liveWalletSnap = await wTx.get(walletRef);
+                const liveUserSnap = await wTx.get(userRefDoc);
+                if (driverWalletRef) {
+                    await wTx.get(driverWalletRef);
+                }
+                const wData = liveWalletSnap.exists ? liveWalletSnap.data() : {};
+                const uData = liveUserSnap.exists ? liveUserSnap.data() : {};
+                const currentBalance = typeof wData.mainWalletBalance === "number"
+                    ? wData.mainWalletBalance
+                    : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+                const isTrustedCustomer = Number((_a = uData.completedTripCount) !== null && _a !== void 0 ? _a : 0) >= 5;
+                if (currentBalance < paidWaitingFee && !isTrustedCustomer) {
+                    throw new https_1.HttpsError("failed-precondition", `INSUFFICIENT_FUNDS: Your wallet balance (₦${currentBalance}) is insufficient for the ₦${paidWaitingFee} paid waiting fee. Please top up your wallet or select Cash Settlement.`, { currentBalance, paidWaitingFee, isTrustedCustomer });
+                }
+                if (currentBalance >= paidWaitingFee) {
+                    // Direct wallet deduction
                     wTx.set(walletRef, {
                         mainWalletBalance: admin.firestore.FieldValue.increment(-paidWaitingFee),
                         balance: admin.firestore.FieldValue.increment(-feeKobo),
@@ -1725,58 +1849,38 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                         note: `Paid waiting fee for trip ${tripId}`,
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     });
-                    const assignedDriverId = String((_c = (_b = (_a = data.driver) === null || _a === void 0 ? void 0 : _a.driverId) !== null && _b !== void 0 ? _b : data.driverId) !== null && _c !== void 0 ? _c : "");
-                    if (assignedDriverId) {
-                        const driverWalletRef = db().collection("wallets").doc(assignedDriverId);
-                        wTx.set(driverWalletRef, {
-                            mainWalletBalance: admin.firestore.FieldValue.increment(paidWaitingFee),
-                            balance: admin.firestore.FieldValue.increment(feeKobo),
+                }
+                else {
+                    // Trusted Customer Exception: record debt on user doc and deduct available
+                    const shortage = paidWaitingFee - Math.max(0, currentBalance);
+                    wTx.set(userRefDoc, {
+                        outstandingNegativeBalance: admin.firestore.FieldValue.increment(shortage),
+                    }, { merge: true });
+                    if (currentBalance > 0) {
+                        wTx.set(walletRef, {
+                            mainWalletBalance: 0,
+                            balance: 0,
                             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                         }, { merge: true });
-                        wTx.set(driverWalletRef.collection("transactions").doc(`${tripId}_waiting_fee_credited`), {
-                            type: "waiting_fee_credited",
-                            amountNaira: paidWaitingFee,
-                            amountKobo: feeKobo,
-                            amount: feeKobo,
+                        wTx.set(walletRef.collection("transactions").doc(`${tripId}_waiting_fee_paid`), {
+                            type: "waiting_fee_paid",
+                            amountNaira: -currentBalance,
+                            amountKobo: -(0, driverStreak_1.nairaToKobo)(currentBalance),
+                            amount: -(0, driverStreak_1.nairaToKobo)(currentBalance),
                             tripId,
                             currency: "NGN",
-                            note: `Paid waiting fee credited for trip ${tripId}`,
+                            note: `Partial waiting fee paid for trip ${tripId} (remainder ₦${shortage} added to debt)`,
                             createdAt: admin.firestore.FieldValue.serverTimestamp(),
                         });
                     }
-                });
-            }
-            else {
-                // Trusted Customer Exception: record outstanding negative balance
-                const shortage = paidWaitingFee - Math.max(0, currentBalance);
-                await db().collection("users").doc(customerId).set({
-                    outstandingNegativeBalance: admin.firestore.FieldValue.increment(shortage),
-                }, { merge: true });
-                if (currentBalance > 0) {
-                    await walletRef.set({
-                        mainWalletBalance: 0,
-                        balance: 0,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    }, { merge: true });
-                    await walletRef.collection("transactions").doc(`${tripId}_waiting_fee_paid`).set({
-                        type: "waiting_fee_paid",
-                        amountNaira: -currentBalance,
-                        amountKobo: -(0, driverStreak_1.nairaToKobo)(currentBalance),
-                        amount: -(0, driverStreak_1.nairaToKobo)(currentBalance),
-                        tripId,
-                        currency: "NGN",
-                        note: `Partial waiting fee paid for trip ${tripId} (remainder ₦${shortage} added to debt)`,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
                 }
-                const assignedDriverId = String((_w = (_v = (_u = data.driver) === null || _u === void 0 ? void 0 : _u.driverId) !== null && _v !== void 0 ? _v : data.driverId) !== null && _w !== void 0 ? _w : "");
-                if (assignedDriverId) {
-                    await db().collection("wallets").doc(assignedDriverId).set({
+                if (driverWalletRef) {
+                    wTx.set(driverWalletRef, {
                         mainWalletBalance: admin.firestore.FieldValue.increment(paidWaitingFee),
                         balance: admin.firestore.FieldValue.increment(feeKobo),
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                     }, { merge: true });
-                    await db().collection("wallets").doc(assignedDriverId).collection("transactions").doc(`${tripId}_waiting_fee_credited`).set({
+                    wTx.set(driverWalletRef.collection("transactions").doc(`${tripId}_waiting_fee_credited`), {
                         type: "waiting_fee_credited",
                         amountNaira: paidWaitingFee,
                         amountKobo: feeKobo,
@@ -1787,6 +1891,28 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     });
                 }
+            });
+            (0, driverStreak_1.logFinancialMutation)({
+                tripId,
+                type: "waiting_fee_paid",
+                accountId: customerId,
+                amountNaira: -paidWaitingFee,
+                amountKobo: -feeKobo,
+                currency: "NGN",
+                note: `Customer paid waiting fee for cancelled trip ${tripId}`,
+                timestamp: Date.now(),
+            });
+            if (assignedDriverId) {
+                (0, driverStreak_1.logFinancialMutation)({
+                    tripId,
+                    type: "waiting_fee_credited",
+                    accountId: assignedDriverId,
+                    amountNaira: paidWaitingFee,
+                    amountKobo: feeKobo,
+                    currency: "NGN",
+                    note: `Driver credited waiting fee for cancelled trip ${tripId}`,
+                    timestamp: Date.now(),
+                });
             }
         }
         await releaseTripEscrow(tripId, data);
@@ -1797,16 +1923,33 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             paidWaitingFee,
             pingDriverId: null,
             pingExpiresAt: null,
+            statusHistory: admin.firestore.FieldValue.arrayUnion({
+                from: String((_w = data.status) !== null && _w !== void 0 ? _w : ""),
+                to: "CANCELLED",
+                actor: callerId,
+                role: "customer",
+                reason,
+                timestamp: nowMs(),
+            }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        (0, driverStreak_1.logTripTransition)({
+            tripId,
+            from: String((_x = data.status) !== null && _x !== void 0 ? _x : ""),
+            to: "CANCELLED",
+            actor: callerId,
+            role: "customer",
+            reason,
+            timestamp: nowMs(),
         });
         return { ok: true, cancelledBy: "customer", paidWaitingFee };
     }
     // Driver cancellation logic
     let cancellationSource = "unknown";
     if (data.status === "DRIVER_ARRIVED") {
-        const arrivedAt = (_z = (_y = (_x = data.arrivedAt) === null || _x === void 0 ? void 0 : _x.toMillis) === null || _y === void 0 ? void 0 : _y.call(_x)) !== null && _z !== void 0 ? _z : 0;
+        const arrivedAt = (_0 = (_z = (_y = data.arrivedAt) === null || _y === void 0 ? void 0 : _y.toMillis) === null || _z === void 0 ? void 0 : _z.call(_y)) !== null && _0 !== void 0 ? _0 : 0;
         const waitedMs = nowMs() - arrivedAt;
-        const noShowWaitMs = ((_0 = data["noShowWaitMinutes"]) !== null && _0 !== void 0 ? _0 : 10) * 60 * 1000;
+        const noShowWaitMs = ((_1 = data["noShowWaitMinutes"]) !== null && _1 !== void 0 ? _1 : 10) * 60 * 1000;
         cancellationSource =
             waitedMs >= noShowWaitMs ? "driver_no_show" : "driver_before_arrival";
     }
@@ -1823,7 +1966,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         "IN_PROGRESS",
     ].includes(String(data.status));
     if (isDriverActiveStatus) {
-        const currentCount = Number((_1 = data.reassignmentCount) !== null && _1 !== void 0 ? _1 : 0);
+        const currentCount = Number((_2 = data.reassignmentCount) !== null && _2 !== void 0 ? _2 : 0);
         const nextCount = currentCount + 1;
         const history = Array.isArray(data.reassignmentHistory)
             ? [...data.reassignmentHistory, { driverId: callerId, cancelledAt: nowMs(), reason }]
@@ -1842,7 +1985,25 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationSource: "driver_cancelled_reassigning",
                 cancellationReason: reason,
                 statusMessage: `Driver had to cancel. Finding you another nearby driver (Attempt ${nextCount} of 3)...`,
+                statusHistory: admin.firestore.FieldValue.arrayUnion({
+                    from: String((_3 = data.status) !== null && _3 !== void 0 ? _3 : ""),
+                    to: "SEARCHING_DRIVER",
+                    actor: callerId,
+                    role: "driver",
+                    reason,
+                    attempt: nextCount,
+                    timestamp: nowMs(),
+                }),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            (0, driverStreak_1.logTripTransition)({
+                tripId,
+                from: String((_4 = data.status) !== null && _4 !== void 0 ? _4 : ""),
+                to: "SEARCHING_DRIVER",
+                actor: callerId,
+                role: "driver",
+                reason: `driver_cancelled_reassigning_attempt_${nextCount}`,
+                timestamp: nowMs(),
             });
             // Chain next nearest dispatch
             const freshSnap = await ref.get();
@@ -1872,7 +2033,25 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationSource: "driver_cancelled_max_reached",
                 cancellationReason: reason,
                 statusMessage: "All drivers are busy right now. Keep searching or wait?",
+                statusHistory: admin.firestore.FieldValue.arrayUnion({
+                    from: String((_5 = data.status) !== null && _5 !== void 0 ? _5 : ""),
+                    to: "needs_customer_action",
+                    actor: callerId,
+                    role: "driver",
+                    reason: "max_reassignments_reached",
+                    attempt: nextCount,
+                    timestamp: nowMs(),
+                }),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            (0, driverStreak_1.logTripTransition)({
+                tripId,
+                from: String((_6 = data.status) !== null && _6 !== void 0 ? _6 : ""),
+                to: "needs_customer_action",
+                actor: callerId,
+                role: "driver",
+                reason: "driver_cancelled_max_reached",
+                timestamp: nowMs(),
             });
             // Notify customer
             try {
@@ -1888,7 +2067,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             }
-            catch (_2) {
+            catch (_9) {
                 /* best-effort */
             }
             return { ok: true, needsCustomerAction: true };
@@ -1902,7 +2081,24 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         cancellationReason: reason,
         pingDriverId: null,
         pingExpiresAt: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: String((_7 = data.status) !== null && _7 !== void 0 ? _7 : ""),
+            to: "CANCELLED",
+            actor: callerId,
+            role: "driver",
+            reason,
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: String((_8 = data.status) !== null && _8 !== void 0 ? _8 : ""),
+        to: "CANCELLED",
+        actor: callerId,
+        role: "driver",
+        reason,
+        timestamp: nowMs(),
     });
     return { ok: true };
 });
@@ -2055,7 +2251,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
     const tripRef = db().collection("trips").doc(String(tripId));
     const bidRef = tripRef.collection("bids").doc(String(driverId));
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c;
+        var _a, _b, _c, _d;
         const tripSnap = await tx.get(tripRef);
         if (!tripSnap.exists) {
             throw new https_1.HttpsError("not-found", "Trip not found.");
@@ -2126,6 +2322,14 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
             pingDriverIds: [],
             pingExpiresAt: null,
             tierExpiresAt: null,
+            statusHistory: admin.firestore.FieldValue.arrayUnion({
+                from: (_d = tripData.status) !== null && _d !== void 0 ? _d : "MARKETPLACE_OPEN",
+                to: "DRIVER_ACCEPTED",
+                actor: customerId,
+                role: "customer",
+                reason: "accepted_driver_bid",
+                timestamp: nowMs(),
+            }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         for (const b of otherBids.docs) {
@@ -2137,6 +2341,15 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
                 });
             }
         }
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId: String(tripId),
+        from: "MARKETPLACE_OPEN",
+        to: "DRIVER_ACCEPTED",
+        actor: customerId,
+        role: "customer",
+        reason: "accepted_driver_bid",
+        timestamp: nowMs(),
     });
     return { ok: true };
 });
@@ -2207,7 +2420,7 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
  * Resets reassignmentCount and restarts matchmaking without dropping the order or escrow.
  */
 exports.keepSearchingTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const customerId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!customerId) {
         throw new https_1.HttpsError("unauthenticated", "Must be logged in.");
@@ -2239,7 +2452,24 @@ exports.keepSearchingTrip = (0, https_1.onCall)(async (request) => {
         pingDriverIds: [],
         pingExpiresAt: null,
         tierExpiresAt: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: (_c = tripData.status) !== null && _c !== void 0 ? _c : "needs_customer_action",
+            to: "SEARCHING_DRIVER",
+            actor: customerId,
+            role: "customer",
+            reason: "keep_searching",
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: (_d = tripData.status) !== null && _d !== void 0 ? _d : "needs_customer_action",
+        to: "SEARCHING_DRIVER",
+        actor: customerId,
+        role: "customer",
+        reason: "keep_searching",
+        timestamp: nowMs(),
     });
     const fresh = (await tripRef.get()).data();
     const restarted = await startTier1(tripRef, fresh, await getDispatchTuning());
@@ -2263,7 +2493,7 @@ exports.keepSearchingTrip = (0, https_1.onCall)(async (request) => {
  * lockout would let anyone deny a delivery by spamming guesses.
  */
 exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
@@ -2301,6 +2531,14 @@ exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
         deliveryPinVerifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: "COMPLETED",
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: String((_k = data.status) !== null && _k !== void 0 ? _k : ""),
+            to: "COMPLETED",
+            actor: driverId,
+            role: "driver",
+            reason: "pin_verified",
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     batch.update(pinSnap.ref, {
@@ -2308,6 +2546,15 @@ exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
         verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     await batch.commit();
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: String((_l = data.status) !== null && _l !== void 0 ? _l : ""),
+        to: "COMPLETED",
+        actor: driverId,
+        role: "driver",
+        reason: "pin_verified",
+        timestamp: nowMs(),
+    });
     try {
         const snapAfter = await ref.get();
         if (snapAfter.exists) {
@@ -2322,7 +2569,7 @@ exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
 /** Hub Admin: Force Complete a trip during live support/dispute resolution */
 exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+    var _a, _b, _c;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Hub authentication required.");
     }
@@ -2334,13 +2581,36 @@ exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
     const snap = await ref.get();
     if (!snap.exists)
         throw new https_1.HttpsError("not-found", "Trip not found.");
+    const data = snap.data();
+    const currentStatus = String((_c = data.status) !== null && _c !== void 0 ? _c : "");
+    if (currentStatus === "COMPLETED") {
+        return { ok: true, alreadyCompleted: true, tripId };
+    }
+    if (!LIVE_STATUSES.includes(currentStatus)) {
+        throw new https_1.HttpsError("failed-precondition", `Cannot force complete trip with closed status ${currentStatus}.`);
+    }
     await ref.update({
         status: "COMPLETED",
         deliveryPinVerified: true,
         forceCompletedBy: adminUid,
         forceCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: currentStatus,
+            to: "COMPLETED",
+            actor: adminUid,
+            role: "hub_admin",
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: currentStatus,
+        to: "COMPLETED",
+        actor: adminUid,
+        role: "hub_admin",
+        timestamp: nowMs(),
     });
     try {
         const snapAfter = await ref.get();
@@ -2355,7 +2625,7 @@ exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
 });
 /** Driver confirms cash collected from customer for waiting time cancellation */
 exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
@@ -2372,6 +2642,13 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
     if (assignedDriverId !== driverId) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
+    const currentStatus = String((_f = data.status) !== null && _f !== void 0 ? _f : "");
+    if (currentStatus === "CANCELLED" && data.cashSettlementConfirmed === true) {
+        return { ok: true, alreadyConfirmed: true, tripId };
+    }
+    if (currentStatus !== "CANCELLED_WAITING_CASH_SETTLEMENT") {
+        throw new https_1.HttpsError("failed-precondition", `Cannot confirm cash cancellation for trip in status ${currentStatus}.`);
+    }
     await releaseTripEscrow(tripId, data);
     await ref.update({
         status: "CANCELLED",
@@ -2380,13 +2657,30 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
         pendingCashFee: 0,
         pingDriverId: null,
         pingExpiresAt: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: currentStatus,
+            to: "CANCELLED",
+            actor: driverId,
+            role: "driver",
+            reason: "cash_waiting_fee_collected",
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: currentStatus,
+        to: "CANCELLED",
+        actor: driverId,
+        role: "driver",
+        reason: "cash_waiting_fee_collected",
+        timestamp: nowMs(),
     });
     return { ok: true, tripId };
 });
 /** Hub Admin: Cancel trip & refund any held escrow */
 exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Hub authentication required.");
     }
@@ -2399,13 +2693,37 @@ exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {
     const snap = await ref.get();
     if (!snap.exists)
         throw new https_1.HttpsError("not-found", "Trip not found.");
+    const currentStatus = String((_f = (_e = snap.data()) === null || _e === void 0 ? void 0 : _e.status) !== null && _f !== void 0 ? _f : "");
+    if (currentStatus === "CANCELLED" || currentStatus === "CANCELLED_BY_CUSTOMER" || currentStatus === "CANCELLED_BY_DRIVER") {
+        return { ok: true, alreadyCancelled: true, tripId };
+    }
+    if (currentStatus === "COMPLETED") {
+        throw new https_1.HttpsError("failed-precondition", "Cannot cancel an already completed trip.");
+    }
     await releaseTripEscrow(tripId, snap.data());
     await ref.update({
         status: "CANCELLED",
         cancellationSource: "admin_hub",
         cancellationReason: reason,
         cancelledByAdmin: adminUid,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: currentStatus,
+            to: "CANCELLED",
+            actor: adminUid,
+            role: "hub_admin",
+            reason,
+            timestamp: nowMs(),
+        }),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    (0, driverStreak_1.logTripTransition)({
+        tripId,
+        from: currentStatus,
+        to: "CANCELLED",
+        actor: adminUid,
+        role: "hub_admin",
+        reason,
+        timestamp: nowMs(),
     });
     return { ok: true, tripId };
 });
