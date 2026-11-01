@@ -5,6 +5,8 @@
 /// owns every status transition; the client only renders snapshots.
 library;
 
+import 'dart:math' as math;
+
 /// Lifecycle states of a customer trip / delivery request.
 ///
 /// Wire values match the Firestore `trips/{tripId}.status` field exactly.
@@ -407,6 +409,68 @@ class ActiveTrip {
         return false;
     }
   }
+
+  /// Whether this trip involves split-fare payment.
+  bool get isSplitTrip =>
+      splitEnabled ||
+      paymentMode.toLowerCase() == 'split' ||
+      paymentMethod.toLowerCase() == 'split';
+
+  /// Calculated cash amount strictly due from the sender at pickup.
+  ///
+  /// Returns 0.0 if:
+  /// - The trip is 100% prepaid (card, wallet, paystack, etc.)
+  /// - Payment mode is receiver_pays or collectAt is 'dropoff'
+  /// - Sender's share is fully covered by wallet/escrow
+  double get cashDueAtPickup {
+    if (isPrepaidTrip) return 0.0;
+    final mode = paymentMode.toLowerCase();
+    if (mode == 'receiver_pays' || collectAt == 'dropoff') {
+      return 0.0;
+    }
+    if (isSplitTrip) {
+      final senderShare = senderShareAmount ?? (fareAmount / 2);
+      final senderWallet = math.min(senderShare, walletCoverageAmount);
+      final due = senderShare - senderWallet;
+      return due > 0 ? due : 0.0;
+    }
+    // Standard trip (sender pays)
+    if (walletCoverageAmount > 0) {
+      final due = cashToCollect > 0
+          ? cashToCollect
+          : (fareAmount - walletCoverageAmount);
+      return due > 0 ? due : 0.0;
+    }
+    return cashToCollect > 0 ? cashToCollect : fareAmount;
+  }
+
+  /// Calculated cash amount strictly due from the receiver at drop-off.
+  ///
+  /// Returns 0.0 if:
+  /// - The trip is 100% prepaid
+  /// - Payment was fully collected from the sender at pickup (standard trip)
+  double get cashDueAtDropoff {
+    if (isPrepaidTrip) return 0.0;
+    final mode = paymentMode.toLowerCase();
+    if (mode == 'receiver_pays') {
+      return cashToCollect > 0 ? cashToCollect : fareAmount;
+    }
+    if (isSplitTrip) {
+      final senderShare = senderShareAmount ?? (fareAmount / 2);
+      final receiverShare = receiverShareAmount ?? (fareAmount - senderShare);
+      return receiverShare > 0 ? receiverShare : 0.0;
+    }
+    if (collectAt == 'dropoff') {
+      return cashToCollect > 0 ? cashToCollect : fareAmount;
+    }
+    return 0.0;
+  }
+
+  /// True if cash must be collected from the sender at pickup.
+  bool get hasCashDueAtPickup => cashDueAtPickup > 0;
+
+  /// True if cash must be collected from the receiver at drop-off.
+  bool get hasCashDueAtDropoff => cashDueAtDropoff > 0;
 
   /// True while the trip still needs live tracking / re-entry restore.
   /// [needsCustomerAction], [bidding], and [cancelledWaitingCashSettlement]

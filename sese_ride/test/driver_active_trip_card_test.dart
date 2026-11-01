@@ -142,4 +142,208 @@ void main() {
     expect(fakeStreak.lastAdvancedTripId, 'trip_123');
     expect(fakeStreak.lastAdvancedNextStatus, 'COMPLETED');
   });
+
+  testWidgets(
+      'En route to pickup hides specific cash collection card and shows clean total fare subtitle',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+    final splitTrip = ActiveTrip(
+      tripId: 'split_1',
+      status: TripStatus.driverAccepted,
+      customerId: 'cust_1',
+      customerName: 'Bamiduro',
+      pickupAddress: 'Pickup Address',
+      dropoffAddress: 'Dropoff Address',
+      fareAmount: 6000,
+      fareFormatted: '₦6,000',
+      paymentMode: 'split',
+      splitEnabled: true,
+      walletCoverageAmount: 1000,
+      cashToCollect: 5000,
+      senderShareAmount: 6000,
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: splitTrip,
+          streakService: fakeStreak,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Total fare ₦6,000 is visible
+    expect(find.textContaining('₦6,000'), findsAtLeastNWidgets(1));
+    // Subtitle shows clean mode label without breaking down cash
+    expect(find.text('₦6,000 • Split Payment'), findsOneWidget);
+    // Specific collection breakdown card is completely hidden
+    expect(find.textContaining('Collect cash from sender'), findsNothing);
+    expect(find.textContaining('credited to your wallet upon completion'), findsNothing);
+  });
+
+  testWidgets(
+      'Arrived at pickup reveals collection card and verification dialog when cash is due from sender',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+    final splitTrip = ActiveTrip(
+      tripId: 'split_2',
+      status: TripStatus.driverArrived,
+      customerId: 'cust_2',
+      customerName: 'Bamiduro',
+      pickupAddress: 'Pickup Address',
+      dropoffAddress: 'Dropoff Address',
+      fareAmount: 6000,
+      fareFormatted: '₦6,000',
+      paymentMode: 'split',
+      splitEnabled: true,
+      walletCoverageAmount: 1000,
+      cashToCollect: 5000,
+      senderShareAmount: 6000,
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: splitTrip,
+          streakService: fakeStreak,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Subtitle indicates cash due at pickup
+    expect(find.text('₦6,000 • Collect ₦5000 Cash'), findsOneWidget);
+    // Cash collection card is revealed with professional wording
+    expect(
+      find.text('Collect cash from sender before leaving pickup (₦5000).'),
+      findsOneWidget,
+    );
+
+    // Slide to Start Ride
+    await tester.drag(
+      find.byKey(const Key('slide_to_action_track')),
+      const Offset(700, 0),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify verification dialog appears with exact professional wording
+    expect(find.text('Pickup Cash Check'), findsOneWidget);
+    expect(
+      find.text('Collect ₦5000 cash from sender before leaving pickup.'),
+      findsOneWidget,
+    );
+
+    // Tap confirm
+    await tester.tap(find.text('Confirm Cash Collected'));
+    await tester.pumpAndSettle();
+
+    expect(fakeStreak.lastAdvancedTripId, 'split_2');
+    expect(fakeStreak.lastAdvancedNextStatus, 'IN_PROGRESS');
+  });
+
+  testWidgets(
+      'Arrived at pickup does NOT show cash collection prompt when receiver pays at drop-off',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+    final receiverPaysTrip = ActiveTrip(
+      tripId: 'receiver_1',
+      status: TripStatus.driverArrived,
+      customerId: 'cust_3',
+      customerName: 'Bamiduro',
+      pickupAddress: 'Pickup Address',
+      dropoffAddress: 'Dropoff Address',
+      fareAmount: 6000,
+      fareFormatted: '₦6,000',
+      paymentMode: 'receiver_pays',
+      collectAt: 'dropoff',
+      cashToCollect: 6000,
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: receiverPaysTrip,
+          streakService: fakeStreak,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Subtitle indicates receiver pays at drop-off
+    expect(find.text('₦6,000 • Receiver Pays at Drop-off'), findsOneWidget);
+    // Pickup cash collection card is NOT shown
+    expect(find.textContaining('Collect cash from sender'), findsNothing);
+
+    // Slide to Start Ride
+    await tester.drag(
+      find.byKey(const Key('slide_to_action_track')),
+      const Offset(700, 0),
+    );
+    await tester.pumpAndSettle();
+
+    // No cash check dialog appears at pickup — advances directly!
+    expect(find.text('Pickup Cash Check'), findsNothing);
+    expect(fakeStreak.lastAdvancedTripId, 'receiver_1');
+    expect(fakeStreak.lastAdvancedNextStatus, 'IN_PROGRESS');
+  });
+
+  testWidgets(
+      'In progress reveals drop-off cash collection prompt when receiver pays cash',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+    final receiverPaysTrip = ActiveTrip(
+      tripId: 'receiver_2',
+      status: TripStatus.inProgress,
+      customerId: 'cust_4',
+      customerName: 'Bamiduro',
+      pickupAddress: 'Pickup Address',
+      dropoffAddress: 'Dropoff Address',
+      fareAmount: 6000,
+      fareFormatted: '₦6,000',
+      paymentMode: 'receiver_pays',
+      collectAt: 'dropoff',
+      cashToCollect: 6000,
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: receiverPaysTrip,
+          streakService: fakeStreak,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Drop-off collection card is revealed
+    expect(
+      find.text('Collect ₦6000 cash from passenger before ending ride.'),
+      findsOneWidget,
+    );
+
+    // Slide to Complete Trip
+    await tester.drag(
+      find.byKey(const Key('slide_to_action_track')),
+      const Offset(700, 0),
+    );
+    await tester.pumpAndSettle();
+
+    // Drop-off cash check dialog appears
+    expect(find.text('Drop-off Cash Check'), findsOneWidget);
+    expect(
+      find.text('Collect ₦6000 cash from passenger before ending ride.'),
+      findsAtLeastNWidgets(1),
+    );
+
+    await tester.tap(find.text('Confirm Cash Collected'));
+    await tester.pumpAndSettle();
+
+    expect(fakeStreak.lastAdvancedTripId, 'receiver_2');
+    expect(fakeStreak.lastAdvancedNextStatus, 'COMPLETED');
+  });
 }

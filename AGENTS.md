@@ -72,6 +72,33 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Refined Split-Payment Cash Collection Workflow, Smart Timing & Logistics Messaging
+
+- **Smart Stage-Based Cash Collection & Complete En-Route Hiding**:
+  - En route to pickup (`driverAccepted` / `driverArriving`):
+    - Ensured the full trip fare (e.g. ₦6,000) remains visible in identity rows and headers.
+    - Completely hide all specific cash collection breakdown cards (`_PaymentCollectionCard`) and escrow notes while en route to pickup.
+    - Refactored `_formatTripPaymentSubtitle` to display clean high-level payment mode labels (`$fareStr • Split Payment`, `$fareStr • Cash Payment`, `$fareStr • Receiver Pays at Drop-off`) without premature cash amounts.
+  - Arrived at pickup (`driverArrived`):
+    - Added mathematical evaluation getters `trip.cashDueAtPickup` and `trip.hasCashDueAtPickup` on `ActiveTrip`:
+      * Accounts for prepaid trips, receiver-pays modes, split-payment sender/receiver allocations, and wallet/escrow coverage.
+    - If cash is actually due from the sender at pickup:
+      * Reveals the collection card and verification prompt reframed with professional logistics wording: **"Collect cash from sender before leaving pickup"**.
+      * Shows `_showPickupCashCheckDialog` on sliding to start ride with the exact same professional wording and escrow note.
+    - If no cash is due at pickup (e.g. receiver pays cash at drop-off or sender's share is 100% wallet/escrow covered):
+      * Hides the cash collection card completely at pickup.
+      * Skips the pickup cash check dialog on sliding to start ride, advancing directly to `IN_PROGRESS`.
+  - In Progress & Drop-Off Completion (`inProgress`):
+    - Added `trip.cashDueAtDropoff` and `trip.hasCashDueAtDropoff`.
+    - If cash is due from the receiver at drop-off (e.g. receiver pays or split share):
+      * Displays the drop-off collection card: `"Collect ₦{amount} cash from receiver before completing delivery"`.
+      * Prompts `_showDropoffCashCheckDialog` on slide to complete trip.
+
+- **Verification**:
+  - `flutter analyze`: **0 issues found** across `sese_core`, `sese_ride`, and `sese_hub`.
+  - `flutter test`: All 94 tests in `sese_core` and 7/7 tests in `driver_active_trip_card_test.dart` passed.
+
+
 ## 2026-11-01 — Streamlined 2-Stage Sequential Dispatch, Order Pool Fallback, Rejection Logging & Real-Time Bidding
 
 - **Streamlined Two-Stage Dispatch & Pool Fallback Architecture**:
