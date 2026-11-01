@@ -519,13 +519,6 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                   'Mapbox unavailable. Using CartoDB tiles.';
             }
 
-            if (OsmMapView.debugTileProviderOverride != null) {
-              return Container(
-                color:
-                    isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E3DF),
-              );
-            }
-
             final currentEngine = targetProvider.name;
             final providerKey = targetProvider == MapProvider.googleMaps
                 ? 'google_maps_${mapConfig.normalizedProvider}'
@@ -550,8 +543,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               return true;
             }).toList();
 
-            // ignore: deprecated_member_use
-            if (targetProvider == MapProvider.googleMaps) {
+            if (OsmMapView.debugTileProviderOverride != null) {
+              mapCanvas = Container(
+                color:
+                    isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E3DF),
+              );
+            } else if (targetProvider == MapProvider.googleMaps) {
               mapCanvas = _GoogleMapBranch(
                 key: ValueKey('map_branch_$providerKey'),
                 providerKey: providerKey,
@@ -589,7 +586,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               }
 
               mapCanvas = OsmMapView(
-                key: ValueKey('map_raster_${currentEngine}_${tileUrl.hashCode}'),
+                key: ValueKey('map_raster_$currentEngine'),
                 providerKey: currentEngine,
                 mapController: widget.mapController,
                 initialCenter: widget.initialCenter,
@@ -661,10 +658,11 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                   ),
 
                 // ── Google-style center blue dot ─────────────────────────────
-                // Fixed positional indicator (not the GPS dot). Renders on
-                // every engine — native Google branch included — for one
-                // visual standard across providers.
-                if (widget.showCenterBlueDot)
+                // Fixed positional indicator (not the GPS dot).
+                // Guard: Only render when showCenterBlueDot is explicitly requested
+                // AND showMyLocation is false, preventing duplicate overlapping blue dots
+                // with the authoritative GPS tracking dot.
+                if (widget.showCenterBlueDot && !widget.showMyLocation)
                   const IgnorePointer(
                     child: GoogleStyleMapOverlay(),
                   ),
@@ -755,20 +753,19 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
   @override
   void didUpdateWidget(covariant _GoogleMapBranch oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if ((widget.initialCenter.latitude != oldWidget.initialCenter.latitude ||
-            widget.initialCenter.longitude != oldWidget.initialCenter.longitude) &&
-        widget.mapController.isFollowingUser) {
-      widget.mapController.move(widget.initialCenter, widget.initialZoom);
-    }
+    // Note: Live camera tracking is managed authoritatively by [SeseUniversalMapState]
+    // via [followTo] to avoid redundant method channel calls and animation queue collisions.
   }
 
   /// Configures Android Platform View composition mode.
-  /// Uses Texture Layer Hybrid Composition (TLHC) to minimize memory allocations
-  /// and avoid Scudo memory allocator exhaustion on entry-level Android devices.
+  /// Uses AndroidViewSurface (Hybrid Composition) on Android so Google Maps renders
+  /// directly through Android's window surface compositor. This eliminates OpenGL
+  /// dequeueBuffer timeouts (-110) on Kirin/Mali devices (e.g. Huawei Mate 20 Pro),
+  /// guarantees touch event delivery on the very first frame, and prevents cold-start UI freezes.
   void _ensureAndroidHybridComposition() {
     final mapsPlatform = GoogleMapsFlutterPlatform.instance;
     if (mapsPlatform is GoogleMapsFlutterAndroid) {
-      mapsPlatform.useAndroidViewSurface = false;
+      mapsPlatform.useAndroidViewSurface = true;
     }
   }
 
@@ -782,25 +779,21 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
     return HSVColor.fromColor(color).hue;
   }
 
-  Future<void> _logMapCreated(gmaps.GoogleMapController controller) async {
+  void _logMapCreated(gmaps.GoogleMapController controller) {
     widget.mapController.attachGoogle(controller);
-    try {
-      debugPrint(
-        'SeseUniversalMap: Google map created '
-        '(${widget.initialCenter.latitude.toStringAsFixed(4)}, '
-        '${widget.initialCenter.longitude.toStringAsFixed(4)}) '
-        'zoom ${widget.initialZoom}',
-      );
-      await widget.mapController.move(
-        widget.initialCenter,
-        widget.initialZoom.clamp(3.0, 21.0),
-      );
-    } catch (e) {
-      debugPrint('SeseUniversalMap: map init nudge failed: $e');
-      MapConfigController.instance.triggerGoogleFallback(
-        reason: 'Google Maps renderer failed to initialize.',
-      );
-    }
+    debugPrint(
+      'SeseUniversalMap: Google map created '
+      '(${widget.initialCenter.latitude.toStringAsFixed(4)}, '
+      '${widget.initialCenter.longitude.toStringAsFixed(4)}) '
+      'zoom ${widget.initialZoom}',
+    );
+    // Mark controller ready on post-frame once the native view layout has resolved,
+    // avoiding premature method channel calls that could stall the native render thread.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.mapController.markReady();
+      }
+    });
   }
 
   static gmaps.LatLng _toG(LatLng point) =>

@@ -54,11 +54,12 @@ void main() {
       await pumpHome(tester);
 
       await tester.tap(find.text('Book Ride'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
 
       // Focused ride page: Title is 'Book a Ride', Step 1 is active.
       expect(find.text('Book a Ride'), findsOneWidget);
-      expect(find.text('Enter Locations'), findsOneWidget);
+      expect(find.text('Step 1: Locations'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
     });
@@ -67,10 +68,11 @@ void main() {
       await pumpHome(tester);
 
       await tester.tap(find.text('Send Item'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.widgetWithText(AppBar, 'Send Item'), findsOneWidget);
-      expect(find.text('Enter Locations'), findsOneWidget);
+      expect(find.text('Step 1: Locations'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
       expect(find.text('Ride-Hailing'), findsNothing);
@@ -80,10 +82,11 @@ void main() {
       await pumpHome(tester);
 
       await tester.tap(find.text('Receive Item'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.widgetWithText(AppBar, 'Receive Item'), findsOneWidget);
-      expect(find.text('Enter Locations'), findsOneWidget);
+      expect(find.text('Step 1: Locations'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
       expect(find.text('Ride-Hailing'), findsNothing);
@@ -99,7 +102,8 @@ void main() {
       await tester.pumpWidget(
         const MaterialApp(home: CustomerDispatchScreen()),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
 
       // Drop-off hint text
       expect(find.text('Where to?'), findsOneWidget);
@@ -112,6 +116,7 @@ void main() {
       await tester.enterText(pickupField, '14 Olafiranye street, Isawo, Lagos');
       await tester.pump();
       expect(find.text('14 Olafiranye street, Isawo, Lagos'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 300));
     });
   });
 }

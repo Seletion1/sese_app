@@ -32,13 +32,15 @@ import 'widgets/map_provider.dart' show GmsAvailability;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Use Texture Layer Hybrid Composition (TLHC) so native Google Maps renders
-  // directly through Flutter's lightweight texture pipeline without creating
-  // separate heavy Android window surfaces or triggering ANR onLayout stalls.
+  // Use AndroidViewSurface (Hybrid Composition) so native Google Maps renders
+  // directly through Android's window surface composition. This completely avoids
+  // OpenGL dequeueBuffer timeouts (-110) and GPU texture synchronization deadlocks
+  // on Kirin/Mali devices (e.g. Huawei Mate 20 Pro), and ensures touch events register
+  // immediately on cold-start without requiring a mode switch to unblock gesture dispatch.
   final GoogleMapsFlutterPlatform mapsImplementation =
       GoogleMapsFlutterPlatform.instance;
   if (mapsImplementation is GoogleMapsFlutterAndroid) {
-    mapsImplementation.useAndroidViewSurface = false;
+    mapsImplementation.useAndroidViewSurface = true;
   }
 
   // Prime GMS availability check so map surfaces have synchronous 0ms resolution.

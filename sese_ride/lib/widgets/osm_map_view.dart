@@ -135,11 +135,8 @@ class _OsmMapViewState extends State<OsmMapView> {
   @override
   void didUpdateWidget(covariant OsmMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if ((widget.initialCenter.latitude != oldWidget.initialCenter.latitude ||
-            widget.initialCenter.longitude != oldWidget.initialCenter.longitude) &&
-        widget.mapController.isFollowingUser) {
-      widget.mapController.move(widget.initialCenter, widget.initialZoom);
-    }
+    // Note: Live camera tracking is managed authoritatively by [SeseUniversalMapState]
+    // via [followTo] to avoid redundant method calls and animation queue collisions.
   }
 
   @override
@@ -193,7 +190,7 @@ class _OsmMapViewState extends State<OsmMapView> {
         (tileUrl.contains('mapbox') ? 'mapbox' : 'cartodb');
 
     return fm.FlutterMap(
-      key: ValueKey('flutter_map_${effectiveKey}_${tileUrl.hashCode}'),
+      key: ValueKey('flutter_map_$effectiveKey'),
       mapController: widget.mapController.native,
       options: fm.MapOptions(
         initialCenter: _toFm(widget.initialCenter),

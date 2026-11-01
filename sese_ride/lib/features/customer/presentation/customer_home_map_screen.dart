@@ -54,9 +54,12 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
   @override
   void initState() {
     super.initState();
-    _position =
-        widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
-    _resolvePosition();
+    if (widget.initialPosition != null) {
+      _position = widget.initialPosition!;
+    } else {
+      _position = const LatLng(6.5244, 3.3792); // Lagos
+      _resolvePosition();
+    }
   }
 
   @override
@@ -172,9 +175,9 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
                     showMyLocation: true,
                     myLocationButtonEnabled: false,
                     showRecenterFab: true,
-                    // Google-style overlay standard: fixed center dot +
-                    // bottom-right target button on every engine.
-                    showCenterBlueDot: true,
+                    // Use the authoritative live GPS tracking blue dot (showMyLocation)
+                    // without drawing a duplicate static center blue dot overlay.
+                    showCenterBlueDot: false,
                     recenterBottom: 16,
                     recenterRight: 16,
                     // Re-engages GPS follow AND snaps back (bare move() would

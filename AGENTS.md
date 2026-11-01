@@ -72,6 +72,26 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-01 — Android Platform View Hybrid Composition, Cold-Start Touch Unlock & Marker Deduplication
+
+- **Cold-Start Map Touch Freeze & Render Stall Resolution**:
+  - **AndroidViewSurface (Hybrid Composition)**: In `main.dart` and `map_provider.dart: _ensureAndroidHybridComposition()`, re-enabled `useAndroidViewSurface = true`. Replaced Texture Layer Hybrid Composition (TLHC / `SurfaceProducer`), which caused EGL buffer deadlocks (`dequeueBuffer failed, error = -110; switching to fallback`, `reserveNext failed, error = -2147483648`, 912ms Davey UI thread freeze) on ARM Mali/Kirin chipsets (e.g. Huawei Mate 20 Pro running EMUI).
+  - Hybrid Composition integrates the native `MapView` directly into Android's window view hierarchy, providing immediate first-frame touch event dispatch via Android's `dispatchTouchEvent` without waiting for mode-switching layout invalidations.
+  - **Budget Hardware Graceful Fallback (`MainActivity.kt`)**: Enhanced `isGooglePlayServicesAvailable()` to check `ActivityManager.isLowRamDevice` and memory thresholds (<=3.2GB or budget devices like Nokia G20). Budget hardware automatically routes to pure Dart raster tiles (CartoDB / Mapbox via `flutter_map`), avoiding Scudo OOM allocations while allowing standard and flagship devices (e.g. Huawei Mate 20 Pro with 6GB RAM) to leverage hardware-accelerated Google Maps.
+  - **Camera Initialization & Post-Frame Controller Readying**: Eliminated premature camera animation nudges in `_GoogleMapBranchState._logMapCreated` that collided with initial view layout passes. Marked the map controller ready inside a post-frame callback (`WidgetsBinding.instance.addPostFrameCallback`), ensuring native geometry is established before camera commands.
+  - **De-duplicated Camera Tracking Lifecycle**: Removed redundant `widget.mapController.move()` calls in `_GoogleMapBranchState.didUpdateWidget` and `OsmMapViewState.didUpdateWidget`. Live GPS follow movements are now managed exclusively and authoritatively by `SeseUniversalMapState.didUpdateWidget` via `followTo()`.
+  - **Seamless Tile Provider Layer Switching**: In `SeseUniversalMapState` and `OsmMapView`, updated widget keys to avoid destroying `FlutterMap` on raster tile template changes. Only `fm.TileLayer` updates its key/URL, preventing UI thread stalls and preserved touch gesture arenas during layer transitions.
+
+- **Dual-Dot Marker Overlap & Location Clarity**:
+  - **Root Cause**: `customer_home_map_screen.dart` was passing `showCenterBlueDot: true`, superimposing a static overlay blue dot (`GoogleStyleMapOverlay._CenterBlueDot`) on top of the live GPS location blue dot (`showMyLocation: true`). On panning, the live GPS dot moved with ground coordinates while the static dot remained frozen in the viewport center.
+  - **Authoritative Single GPS Indicator**: Disabled `showCenterBlueDot` in `CustomerHomeMapScreen`. Added defensive mutual exclusion in `SeseUniversalMap`: `showCenterBlueDot` is suppressed whenever `showMyLocation` is active (`if (widget.showCenterBlueDot && !widget.showMyLocation)`).
+  - Clarified map overlays so center crosshairs/pins (`showCenterPin`) are explicitly reserved for location picker modes with distinctive location pin glyphs and labels, completely eliminating duplicate blue dots on the browsing map.
+
+- **Verification**:
+  - `flutter analyze` on `sese_ride`: **No issues found (0 warnings, 0 errors)**.
+  - `flutter test test/customer_home_map_test.dart`: **5/5 tests passed**.
+  - `flutter test test/driver_full_screen_nav_test.dart test/driver_active_trip_card_test.dart`: **8/8 tests passed**.
+
 ## 2026-11-01 — Hardened Settlement Concurrency, Zero-Trust Dispatch Transitions & Rules Lockdown
 
 - **Canonical Idempotent Trip Settlement Architecture**:
