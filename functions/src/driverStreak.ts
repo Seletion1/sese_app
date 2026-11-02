@@ -1391,6 +1391,19 @@ async function processReferralCommissions(
   netPlatformProfitNaira: number;
   netDriverPayoutNaira: number;
 }> {
+  const tripSnap = await db().collection("trips").doc(tripId).get();
+  if (tripSnap.exists && tripSnap.data()?.settlement?.referralsSettled === true) {
+    console.log(`processReferralCommissions[${tripId}]: referrals already settled, skipping`);
+    const s = tripSnap.data()!.settlement ?? {};
+    return {
+      platformFeeNaira: Number(s.platformFeeNaira ?? 0),
+      driverReferrerCutNaira: Number(s.driverReferrerCutNaira ?? 0),
+      customerReferrerCutNaira: Number(s.customerReferrerCutNaira ?? 0),
+      netPlatformProfitNaira: Number(s.netPlatformProfitNaira ?? 0),
+      netDriverPayoutNaira: Number(s.netDriverPayoutNaira ?? 0),
+    };
+  }
+
   const finCfg = await getBackendFinancialConfig();
   const settings = await getReferralSettings();
   const platformFeeNaira = totalFareNaira * (settings.platformBaseCommissionRate / 100);
@@ -1715,7 +1728,7 @@ export const onTripCancelled = onDocumentUpdated(
       return;
     }
 
-    // Release active escrow if not already released
+    // Release active escrow if not already released (transactionally & idempotently)
     const walletCoverage = Number(
       after["walletCoverageAmount"] ??
       after["paymentBreakdown"]?.["walletCoverageAmount"] ??
@@ -1727,26 +1740,60 @@ export const onTripCancelled = onDocumentUpdated(
         try {
           const custWalletRef = db().collection("wallets").doc(customerId);
           const coverageKobo = nairaToKobo(walletCoverage);
-          await custWalletRef.set({
-            escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-          }, { merge: true });
+          const tripRef = event.data?.after?.ref;
+          if (!tripRef) return;
 
-          await custWalletRef.collection("transactions").add({
-            type: "trip_escrow_refund",
-            amountNaira: walletCoverage,
-            amountKobo: coverageKobo,
-            amount: coverageKobo,
-            tripId: event.params.tripId,
-            currency: "NGN",
-            note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          await db().runTransaction(async (tx) => {
+            const snap = await tx.get(tripRef);
+            if (!snap.exists) return;
+            const t = snap.data()!;
+            if (t["escrowRefundedAt"] || t["escrowLocked"] === false) return;
 
-          await event.data?.after?.ref.update({
-            escrowLocked: false,
-            escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
-            "paymentBreakdown.escrowLocked": false,
-            "paymentBreakdown.escrowRefunded": true,
+            const wSnap = await tx.get(custWalletRef);
+            const currentEscrow = wSnap.exists ? Number(wSnap.data()?.escrowBalance ?? walletCoverage) : walletCoverage;
+            const newEscrow = Math.max(0, currentEscrow - walletCoverage);
+
+            tx.set(
+              custWalletRef,
+              {
+                escrowBalance: newEscrow,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+
+            const refundTxRef = custWalletRef.collection("transactions").doc(`${event.params.tripId}_escrow_refund`);
+            tx.set(refundTxRef, {
+              type: "trip_escrow_refund",
+              amountNaira: walletCoverage,
+              amountKobo: coverageKobo,
+              amount: coverageKobo,
+              tripId: event.params.tripId,
+              currency: "NGN",
+              note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            tx.update(tripRef, {
+              escrowLocked: false,
+              escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+              "paymentBreakdown.escrowLocked": false,
+              "paymentBreakdown.escrowRefunded": true,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            persistFinancialAuditLogInTx(tx, {
+              tripId: event.params.tripId,
+              type: "trip_escrow_refund",
+              accountId: customerId,
+              amountNaira: walletCoverage,
+              amountKobo: coverageKobo,
+              currency: "NGN",
+              note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+              timestamp: Date.now(),
+              stage: "trigger_cancellation",
+              invariantsChecked: true,
+            });
           });
         } catch (e) {
           console.warn(`onTripCancelled[${event.params.tripId}]: escrow release warning: ${e}`);

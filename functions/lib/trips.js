@@ -717,54 +717,6 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     }
     const ref = db().collection("trips").doc();
     const tripId = ref.id;
-    // Lock available wallet balance into active escrow hold atomically
-    if (escrowLocked && walletCoverageAmount > 0) {
-        try {
-            await db().runTransaction(async (tx) => {
-                const wSnap = await tx.get(custWalletRef);
-                const wData = wSnap.exists ? wSnap.data() : {};
-                const mainBal = typeof wData.mainWalletBalance === "number"
-                    ? wData.mainWalletBalance
-                    : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
-                const currentEscrow = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
-                const realAvailable = Math.max(0, mainBal - currentEscrow);
-                // Clamp coverage to prevent over-locking
-                const actualCoverage = Math.min(walletCoverageAmount, realAvailable);
-                const actualCoverageKobo = (0, driverStreak_1.nairaToKobo)(actualCoverage);
-                if (actualCoverage > 0) {
-                    tx.set(custWalletRef, {
-                        escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    }, { merge: true });
-                    tx.set(custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`), {
-                        type: "trip_escrow_hold",
-                        amountNaira: -actualCoverage,
-                        amountKobo: -actualCoverageKobo,
-                        amount: -actualCoverageKobo,
-                        tripId,
-                        currency: "NGN",
-                        note: `Locked in escrow for active trip ${tripId}`,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    (0, driverStreak_1.persistFinancialAuditLogInTx)(tx, {
-                        tripId,
-                        type: "escrow_lock",
-                        accountId: customerId,
-                        amountNaira: -actualCoverage,
-                        amountKobo: -actualCoverageKobo,
-                        currency: "NGN",
-                        note: `Locked in escrow for active trip ${tripId}`,
-                        timestamp: Date.now(),
-                        stage: "creation",
-                        invariantsChecked: true,
-                    });
-                }
-            });
-        }
-        catch (e) {
-            console.warn(`createTrip: escrow lock warning: ${e}`);
-        }
-    }
     const initialStatusHistory = [
         {
             from: "none",
@@ -774,19 +726,11 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             timestamp: nowMs(),
         },
     ];
-    (0, driverStreak_1.logTripTransition)({
-        tripId,
-        from: "none",
-        to: "SEARCHING_DRIVER",
-        actor: customerId,
-        role: "customer",
-        timestamp: nowMs(),
-    });
-    await ref.set(Object.assign(Object.assign(Object.assign(Object.assign({ customerId,
+    const isVerifiedCust = await isVerifiedCustomer(customerId);
+    const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
+    const tripDocPayload = Object.assign(Object.assign(Object.assign(Object.assign({ customerId,
         customerName,
-        customerPhone, statusHistory: initialStatusHistory, 
-        // Permanent trip booker profile snapshot (retained even if contacts change)
-        tripBooker: {
+        customerPhone, statusHistory: initialStatusHistory, tripBooker: {
             uid: customerId,
             customerId,
             name: customerName,
@@ -798,11 +742,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             name: customerName,
             fullName: customerName,
             phone: customerPhone,
-        }, serviceType, status: "SEARCHING_DRIVER", 
-        // Server-resolved (never trust the client flag): verified customers
-        // broadcast `isVerifiedCustomer: true` so drivers see a
-        // [Verified Customer] badge on the incoming request.
-        isVerifiedCustomer: await isVerifiedCustomer(customerId) }, (await maskedPhones(customerId, pickupPhone, dropoffPhone, d))), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, deliveryPin: pinCode, order: {
+        }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, deliveryPin: pinCode, order: {
             deliveryPin: pinCode,
             requireDeliveryPin: isPinRequired,
         } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_1 = (_0 = d.vehicleCategory) !== null && _0 !== void 0 ? _0 : d.category) !== null && _1 !== void 0 ? _1 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
@@ -826,7 +766,60 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             ? Number(d.senderShareAmount)
             : (splitPaymentData ? Number(splitPaymentData.senderShare) : null), receiverShareAmount: d.receiverShareAmount != null
             ? Number(d.receiverShareAmount)
-            : (splitPaymentData ? Number(splitPaymentData.receiverShare) : null), customTierFares, distanceKm: verified.distanceKm, durationMins: verified.durationMins, declineCount: 0, reassignmentCount: 0, reassignmentHistory: [], idlePromptSent: false, attemptedDriverIds: [], pingDriverId: null, pingExpiresAt: null, driver: null, driverLocation: null, createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() }));
+            : (splitPaymentData ? Number(splitPaymentData.receiverShare) : null), customTierFares, distanceKm: verified.distanceKm, durationMins: verified.durationMins, declineCount: 0, reassignmentCount: 0, reassignmentHistory: [], idlePromptSent: false, attemptedDriverIds: [], pingDriverId: null, pingExpiresAt: null, driver: null, driverLocation: null, createdAt: admin.firestore.FieldValue.serverTimestamp(), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    // Atomic transaction: locks available wallet balance into active escrow hold AND mints the trip doc
+    await db().runTransaction(async (tx) => {
+        let actualCoverage = 0;
+        let actualCoverageKobo = 0;
+        if (escrowLocked && walletCoverageAmount > 0) {
+            const wSnap = await tx.get(custWalletRef);
+            const wData = wSnap.exists ? wSnap.data() : {};
+            const mainBal = typeof wData.mainWalletBalance === "number"
+                ? wData.mainWalletBalance
+                : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+            const currentEscrow = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+            const realAvailable = Math.max(0, mainBal - currentEscrow);
+            actualCoverage = Math.min(walletCoverageAmount, realAvailable);
+            actualCoverageKobo = (0, driverStreak_1.nairaToKobo)(actualCoverage);
+            if (actualCoverage > 0) {
+                tx.set(custWalletRef, {
+                    escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                tx.set(custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`), {
+                    type: "trip_escrow_hold",
+                    amountNaira: -actualCoverage,
+                    amountKobo: -actualCoverageKobo,
+                    amount: -actualCoverageKobo,
+                    tripId,
+                    currency: "NGN",
+                    note: `Locked in escrow for active trip ${tripId}`,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                (0, driverStreak_1.persistFinancialAuditLogInTx)(tx, {
+                    tripId,
+                    type: "escrow_lock",
+                    accountId: customerId,
+                    amountNaira: -actualCoverage,
+                    amountKobo: -actualCoverageKobo,
+                    currency: "NGN",
+                    note: `Locked in escrow for active trip ${tripId}`,
+                    timestamp: Date.now(),
+                    stage: "creation",
+                    invariantsChecked: true,
+                });
+            }
+        }
+        tx.set(ref, tripDocPayload);
+        (0, driverStreak_1.persistTripChangeLogInTx)(tx, {
+            tripId,
+            from: "none",
+            to: "SEARCHING_DRIVER",
+            actor: customerId,
+            role: "customer",
+            timestamp: Date.now(),
+        });
+    });
     // Save PIN doc for secure driver verification
     if (isPinRequired && pinCode != null) {
         try {
@@ -1393,6 +1386,14 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
                 timestamp: nowMs(),
             }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        (0, driverStreak_1.persistTripChangeLogInTx)(tx, {
+            tripId,
+            from: status,
+            to: "DRIVER_ACCEPTED",
+            actor: driverId,
+            role: "driver",
+            timestamp: nowMs(),
         });
     });
     (0, driverStreak_1.logTripTransition)({

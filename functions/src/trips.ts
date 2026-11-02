@@ -865,65 +865,6 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
   const ref = db().collection("trips").doc();
   const tripId = ref.id;
 
-  // Lock available wallet balance into active escrow hold atomically
-  if (escrowLocked && walletCoverageAmount > 0) {
-    try {
-      await db().runTransaction(async (tx) => {
-        const wSnap = await tx.get(custWalletRef);
-        const wData = wSnap.exists ? wSnap.data()! : {};
-        const mainBal = typeof wData.mainWalletBalance === "number"
-          ? wData.mainWalletBalance
-          : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
-        const currentEscrow = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
-        const realAvailable = Math.max(0, mainBal - currentEscrow);
-
-        // Clamp coverage to prevent over-locking
-        const actualCoverage = Math.min(walletCoverageAmount, realAvailable);
-        const actualCoverageKobo = nairaToKobo(actualCoverage);
-
-        if (actualCoverage > 0) {
-          tx.set(
-            custWalletRef,
-            {
-              escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
-
-          tx.set(
-            custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`),
-            {
-              type: "trip_escrow_hold",
-              amountNaira: -actualCoverage,
-              amountKobo: -actualCoverageKobo,
-              amount: -actualCoverageKobo,
-              tripId,
-              currency: "NGN",
-              note: `Locked in escrow for active trip ${tripId}`,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            }
-          );
-
-          persistFinancialAuditLogInTx(tx, {
-            tripId,
-            type: "escrow_lock",
-            accountId: customerId,
-            amountNaira: -actualCoverage,
-            amountKobo: -actualCoverageKobo,
-            currency: "NGN",
-            note: `Locked in escrow for active trip ${tripId}`,
-            timestamp: Date.now(),
-            stage: "creation",
-            invariantsChecked: true,
-          });
-        }
-      });
-    } catch (e) {
-      console.warn(`createTrip: escrow lock warning: ${e}`);
-    }
-  }
-
   const initialStatusHistory = [
     {
       from: "none",
@@ -934,21 +875,14 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     },
   ];
 
-  logTripTransition({
-    tripId,
-    from: "none",
-    to: "SEARCHING_DRIVER",
-    actor: customerId,
-    role: "customer",
-    timestamp: nowMs(),
-  });
+  const isVerifiedCust = await isVerifiedCustomer(customerId);
+  const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
 
-  await ref.set({
+  const tripDocPayload: Record<string, any> = {
     customerId,
     customerName,
     customerPhone,
     statusHistory: initialStatusHistory,
-    // Permanent trip booker profile snapshot (retained even if contacts change)
     tripBooker: {
       uid: customerId,
       customerId,
@@ -965,12 +899,8 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     },
     serviceType,
     status: "SEARCHING_DRIVER",
-    // Server-resolved (never trust the client flag): verified customers
-    // broadcast `isVerifiedCustomer: true` so drivers see a
-    // [Verified Customer] badge on the incoming request.
-    isVerifiedCustomer: await isVerifiedCustomer(customerId),
-    // Owner-side privacy enforcement
-    ...(await maskedPhones(customerId, pickupPhone, dropoffPhone, d)),
+    isVerifiedCustomer: isVerifiedCust,
+    ...maskedPhoneMap,
     deliveryPinRequired: isPinRequired,
     deliveryPinVerified: !isPinRequired,
     deliveryPin: pinCode,
@@ -1029,6 +959,74 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     driverLocation: null,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Atomic transaction: locks available wallet balance into active escrow hold AND mints the trip doc
+  await db().runTransaction(async (tx) => {
+    let actualCoverage = 0;
+    let actualCoverageKobo = 0;
+
+    if (escrowLocked && walletCoverageAmount > 0) {
+      const wSnap = await tx.get(custWalletRef);
+      const wData = wSnap.exists ? wSnap.data()! : {};
+      const mainBal = typeof wData.mainWalletBalance === "number"
+        ? wData.mainWalletBalance
+        : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
+      const currentEscrow = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+      const realAvailable = Math.max(0, mainBal - currentEscrow);
+
+      actualCoverage = Math.min(walletCoverageAmount, realAvailable);
+      actualCoverageKobo = nairaToKobo(actualCoverage);
+
+      if (actualCoverage > 0) {
+        tx.set(
+          custWalletRef,
+          {
+            escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        tx.set(
+          custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`),
+          {
+            type: "trip_escrow_hold",
+            amountNaira: -actualCoverage,
+            amountKobo: -actualCoverageKobo,
+            amount: -actualCoverageKobo,
+            tripId,
+            currency: "NGN",
+            note: `Locked in escrow for active trip ${tripId}`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          }
+        );
+
+        persistFinancialAuditLogInTx(tx, {
+          tripId,
+          type: "escrow_lock",
+          accountId: customerId,
+          amountNaira: -actualCoverage,
+          amountKobo: -actualCoverageKobo,
+          currency: "NGN",
+          note: `Locked in escrow for active trip ${tripId}`,
+          timestamp: Date.now(),
+          stage: "creation",
+          invariantsChecked: true,
+        });
+      }
+    }
+
+    tx.set(ref, tripDocPayload);
+
+    persistTripChangeLogInTx(tx, {
+      tripId,
+      from: "none",
+      to: "SEARCHING_DRIVER",
+      actor: customerId,
+      role: "customer",
+      timestamp: Date.now(),
+    });
   });
 
   // Save PIN doc for secure driver verification
@@ -1706,6 +1704,15 @@ export const acceptTrip = onCall(async (request) => {
         timestamp: nowMs(),
       }),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    persistTripChangeLogInTx(tx, {
+      tripId,
+      from: status,
+      to: "DRIVER_ACCEPTED",
+      actor: driverId,
+      role: "driver",
+      timestamp: nowMs(),
     });
   });
 

@@ -1065,7 +1065,19 @@ async function getReferralSettings() {
     };
 }
 async function processReferralCommissions(tripId, customerId, driverId, driverName, totalFareNaira) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v;
+    const tripSnap = await db().collection("trips").doc(tripId).get();
+    if (tripSnap.exists && ((_b = (_a = tripSnap.data()) === null || _a === void 0 ? void 0 : _a.settlement) === null || _b === void 0 ? void 0 : _b.referralsSettled) === true) {
+        console.log(`processReferralCommissions[${tripId}]: referrals already settled, skipping`);
+        const s = (_c = tripSnap.data().settlement) !== null && _c !== void 0 ? _c : {};
+        return {
+            platformFeeNaira: Number((_d = s.platformFeeNaira) !== null && _d !== void 0 ? _d : 0),
+            driverReferrerCutNaira: Number((_e = s.driverReferrerCutNaira) !== null && _e !== void 0 ? _e : 0),
+            customerReferrerCutNaira: Number((_f = s.customerReferrerCutNaira) !== null && _f !== void 0 ? _f : 0),
+            netPlatformProfitNaira: Number((_g = s.netPlatformProfitNaira) !== null && _g !== void 0 ? _g : 0),
+            netDriverPayoutNaira: Number((_h = s.netDriverPayoutNaira) !== null && _h !== void 0 ? _h : 0),
+        };
+    }
     const finCfg = await getBackendFinancialConfig();
     const settings = await getReferralSettings();
     const platformFeeNaira = totalFareNaira * (settings.platformBaseCommissionRate / 100);
@@ -1252,10 +1264,10 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
             const driverSnap = await db().collection("drivers").doc(driverId).get();
             if (driverSnap.exists) {
                 const dData = driverSnap.data();
-                const referrerId = String((_c = (_b = (_a = dData.referredBy) !== null && _a !== void 0 ? _a : dData.referred_by_code) !== null && _b !== void 0 ? _b : dData.referrerId) !== null && _c !== void 0 ? _c : "");
+                const referrerId = String((_l = (_k = (_j = dData.referredBy) !== null && _j !== void 0 ? _j : dData.referred_by_code) !== null && _k !== void 0 ? _k : dData.referrerId) !== null && _l !== void 0 ? _l : "");
                 if (referrerId && referrerId !== driverId) {
-                    const refereeName = String((_e = (_d = dData.fullName) !== null && _d !== void 0 ? _d : driverName) !== null && _e !== void 0 ? _e : "Driver");
-                    const signupTs = (_f = dData.referralSignupAt) !== null && _f !== void 0 ? _f : dData.createdAt;
+                    const refereeName = String((_o = (_m = dData.fullName) !== null && _m !== void 0 ? _m : driverName) !== null && _o !== void 0 ? _o : "Driver");
+                    const signupTs = (_p = dData.referralSignupAt) !== null && _p !== void 0 ? _p : dData.createdAt;
                     driverReferrerCutNaira = await creditReferrerCoins(referrerId, driverId, refereeName, signupTs, "driver");
                 }
             }
@@ -1270,10 +1282,10 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
             const customerSnap = await db().collection("users").doc(customerId).get();
             if (customerSnap.exists) {
                 const cData = customerSnap.data();
-                const referrerId = String((_j = (_h = (_g = cData.referredBy) !== null && _g !== void 0 ? _g : cData.referred_by_code) !== null && _h !== void 0 ? _h : cData.referrerId) !== null && _j !== void 0 ? _j : "");
+                const referrerId = String((_s = (_r = (_q = cData.referredBy) !== null && _q !== void 0 ? _q : cData.referred_by_code) !== null && _r !== void 0 ? _r : cData.referrerId) !== null && _s !== void 0 ? _s : "");
                 if (referrerId && referrerId !== customerId) {
-                    const refereeName = String((_l = (_k = cData.fullName) !== null && _k !== void 0 ? _k : cData.displayName) !== null && _l !== void 0 ? _l : "Customer");
-                    const signupTs = (_m = cData.referralSignupAt) !== null && _m !== void 0 ? _m : cData.createdAt;
+                    const refereeName = String((_u = (_t = cData.fullName) !== null && _t !== void 0 ? _t : cData.displayName) !== null && _u !== void 0 ? _u : "Customer");
+                    const signupTs = (_v = cData.referralSignupAt) !== null && _v !== void 0 ? _v : cData.createdAt;
                     customerReferrerCutNaira = await creditReferrerCoins(referrerId, customerId, refereeName, signupTs, "customer");
                 }
             }
@@ -1337,7 +1349,7 @@ exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
     if (before["status"] === "CANCELLED" || after["status"] !== "CANCELLED") {
         return;
     }
-    // Release active escrow if not already released
+    // Release active escrow if not already released (transactionally & idempotently)
     const walletCoverage = Number((_g = (_e = after["walletCoverageAmount"]) !== null && _e !== void 0 ? _e : (_f = after["paymentBreakdown"]) === null || _f === void 0 ? void 0 : _f["walletCoverageAmount"]) !== null && _g !== void 0 ? _g : 0);
     if (walletCoverage > 0 && after["escrowLocked"] === true && !after["escrowRefundedAt"]) {
         const customerId = String((_h = after["customerId"]) !== null && _h !== void 0 ? _h : "");
@@ -1345,25 +1357,55 @@ exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
             try {
                 const custWalletRef = db().collection("wallets").doc(customerId);
                 const coverageKobo = nairaToKobo(walletCoverage);
-                await custWalletRef.set({
-                    escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-                }, { merge: true });
-                await custWalletRef.collection("transactions").add({
-                    type: "trip_escrow_refund",
-                    amountNaira: walletCoverage,
-                    amountKobo: coverageKobo,
-                    amount: coverageKobo,
-                    tripId: event.params.tripId,
-                    currency: "NGN",
-                    note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                const tripRef = (_k = (_j = event.data) === null || _j === void 0 ? void 0 : _j.after) === null || _k === void 0 ? void 0 : _k.ref;
+                if (!tripRef)
+                    return;
+                await db().runTransaction(async (tx) => {
+                    var _a, _b;
+                    const snap = await tx.get(tripRef);
+                    if (!snap.exists)
+                        return;
+                    const t = snap.data();
+                    if (t["escrowRefundedAt"] || t["escrowLocked"] === false)
+                        return;
+                    const wSnap = await tx.get(custWalletRef);
+                    const currentEscrow = wSnap.exists ? Number((_b = (_a = wSnap.data()) === null || _a === void 0 ? void 0 : _a.escrowBalance) !== null && _b !== void 0 ? _b : walletCoverage) : walletCoverage;
+                    const newEscrow = Math.max(0, currentEscrow - walletCoverage);
+                    tx.set(custWalletRef, {
+                        escrowBalance: newEscrow,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    }, { merge: true });
+                    const refundTxRef = custWalletRef.collection("transactions").doc(`${event.params.tripId}_escrow_refund`);
+                    tx.set(refundTxRef, {
+                        type: "trip_escrow_refund",
+                        amountNaira: walletCoverage,
+                        amountKobo: coverageKobo,
+                        amount: coverageKobo,
+                        tripId: event.params.tripId,
+                        currency: "NGN",
+                        note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    tx.update(tripRef, {
+                        escrowLocked: false,
+                        escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        "paymentBreakdown.escrowLocked": false,
+                        "paymentBreakdown.escrowRefunded": true,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    persistFinancialAuditLogInTx(tx, {
+                        tripId: event.params.tripId,
+                        type: "trip_escrow_refund",
+                        accountId: customerId,
+                        amountNaira: walletCoverage,
+                        amountKobo: coverageKobo,
+                        currency: "NGN",
+                        note: `Escrow hold released for cancelled trip ${event.params.tripId}`,
+                        timestamp: Date.now(),
+                        stage: "trigger_cancellation",
+                        invariantsChecked: true,
+                    });
                 });
-                await ((_k = (_j = event.data) === null || _j === void 0 ? void 0 : _j.after) === null || _k === void 0 ? void 0 : _k.ref.update({
-                    escrowLocked: false,
-                    escrowRefundedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    "paymentBreakdown.escrowLocked": false,
-                    "paymentBreakdown.escrowRefunded": true,
-                }));
             }
             catch (e) {
                 console.warn(`onTripCancelled[${event.params.tripId}]: escrow release warning: ${e}`);
