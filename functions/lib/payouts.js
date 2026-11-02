@@ -308,6 +308,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         }
         tx.update(walletRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
+            mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.set(ledgerRef, {
@@ -394,6 +395,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         await db().runTransaction(async (tx) => {
             tx.update(walletRef, {
                 balance: admin.firestore.FieldValue.increment(amountKobo),
+                mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             tx.set(walletRef.collection("transactions").doc(`${requestId}_refund`), {
@@ -454,6 +456,7 @@ async function settleTransfer(reference, outcome, reason) {
         if (amountKobo > 0) {
             tx.update(walletRef, {
                 balance: admin.firestore.FieldValue.increment(amountKobo),
+                mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             tx.set(walletRef.collection("transactions").doc(`${reference}_refund`), {

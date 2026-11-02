@@ -429,6 +429,7 @@ export const transferWalletFunds = onCall<WalletTransferData>(
 
       tx.update(senderRef, {
         balance: admin.firestore.FieldValue.increment(-amountKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       tx.set(
@@ -436,6 +437,7 @@ export const transferWalletFunds = onCall<WalletTransferData>(
         {
           userId: recipientId,
           balance: admin.firestore.FieldValue.increment(amountKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
           currency: "NGN",
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },

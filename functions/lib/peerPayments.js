@@ -384,11 +384,13 @@ exports.transferWalletFunds = (0, https_1.onCall)(async (request) => {
         }
         tx.update(senderRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
+            mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.set(recipientRef, {
             userId: recipientId,
             balance: admin.firestore.FieldValue.increment(amountKobo),
+            mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
             currency: "NGN",
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });

@@ -390,6 +390,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
       tx.update(walletRef, {
         balance: admin.firestore.FieldValue.increment(-amountKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -492,6 +493,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       await db().runTransaction(async (tx) => {
         tx.update(walletRef, {
           balance: admin.firestore.FieldValue.increment(amountKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.set(
@@ -559,6 +561,7 @@ export async function settleTransfer(
     if (amountKobo > 0) {
       tx.update(walletRef, {
         balance: admin.firestore.FieldValue.increment(amountKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       tx.set(

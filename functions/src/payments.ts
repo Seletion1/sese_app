@@ -501,8 +501,6 @@ export const paystackWebhook = onRequest(async (req, res) => {
     res.status(200).send("ok");
   } catch (e) {
     console.error(`paystackWebhook settlement failed: ${e}`);
-    // Return 200 anyway for unknown references so Paystack stops retrying
-    // poison events; real mismatches are already logged above.
-    res.status(200).send("ok");
+    res.status(500).send("Internal settlement error");
   }
 });

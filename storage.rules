@@ -175,11 +175,9 @@ service firebase.storage {
       allow write: if request.auth != null && request.auth.token.admin == true;
     }
 
-    // ── Default: block all other unauthenticated or unexpected writes ─────────
+    // ── Default: block all unlisted paths by default ───────────
     match /{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-                   && request.auth.token.admin == true;
+      allow read, write: if false;
     }
   }
 }
