@@ -32,9 +32,10 @@ val localProps = Properties().also { props ->
     }
 }
 val googleMapsSdkKey: String = localProps.getProperty("GOOGLE_MAPS_SDK_KEY")?.takeIf { it.isNotBlank() }
-    ?: "AIzaSyAN5bY0G6qglEcaImzxHoxMq8EsslYIPtw"
+    ?: System.getenv("GOOGLE_MAPS_SDK_KEY")?.takeIf { it.isNotBlank() }
+    ?: ""
 if (googleMapsSdkKey.isEmpty()) {
-    logger.warn("⚠️  GOOGLE_MAPS_SDK_KEY is missing from local.properties. Add GOOGLE_MAPS_SDK_KEY=AIza<your-key> to android/local.properties for native map rendering.")
+    logger.warn("⚠️  GOOGLE_MAPS_SDK_KEY is missing from local.properties and environment. Add GOOGLE_MAPS_SDK_KEY=AIza<your-key> to android/local.properties or export GOOGLE_MAPS_SDK_KEY for native map rendering.")
 }
 
 android {
