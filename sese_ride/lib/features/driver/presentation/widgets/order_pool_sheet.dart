@@ -13,24 +13,115 @@ import '../../../../widgets/map_provider.dart';
 import 'low_balance_dialog.dart';
 import 'order_feed.dart';
 
+/// Snapshot of a trip recorded when a driver hides/dismisses an order.
+///
+/// Used to track whether a hidden order has been modified by the customer
+/// (e.g. fare update/boost or route parameter changes).
+class DismissedTripState {
+  final String tripId;
+  final double fareAmount;
+  final double pickupLat;
+  final double pickupLng;
+  final String pickupAddress;
+  final double dropoffLat;
+  final double dropoffLng;
+  final String dropoffAddress;
+  final DateTime? updatedAt;
+  final bool fareBoosted;
+  final int boostPercent;
+
+  const DismissedTripState({
+    required this.tripId,
+    required this.fareAmount,
+    required this.pickupLat,
+    required this.pickupLng,
+    required this.pickupAddress,
+    required this.dropoffLat,
+    required this.dropoffLng,
+    required this.dropoffAddress,
+    this.updatedAt,
+    required this.fareBoosted,
+    required this.boostPercent,
+  });
+
+  factory DismissedTripState.fromTrip(ActiveTrip trip) {
+    return DismissedTripState(
+      tripId: trip.tripId,
+      fareAmount: trip.fareAmount,
+      pickupLat: trip.pickupLat,
+      pickupLng: trip.pickupLng,
+      pickupAddress: trip.pickupAddress,
+      dropoffLat: trip.dropoffLat,
+      dropoffLng: trip.dropoffLng,
+      dropoffAddress: trip.dropoffAddress,
+      updatedAt: trip.updatedAt,
+      fareBoosted: trip.fareBoosted,
+      boostPercent: trip.boostPercent,
+    );
+  }
+
+  /// Returns true if the customer has actively modified the trip details.
+  bool isModifiedByCustomer(ActiveTrip trip) {
+    if (trip.tripId != tripId) return false;
+    if (trip.fareAmount != fareAmount) return true;
+    if (trip.pickupLat != pickupLat || trip.pickupLng != pickupLng) return true;
+    if (trip.dropoffLat != dropoffLat || trip.dropoffLng != dropoffLng) return true;
+    if (trip.pickupAddress != pickupAddress || trip.dropoffAddress != dropoffAddress) return true;
+    if (trip.fareBoosted != fareBoosted || trip.boostPercent != boostPercent) return true;
+    if (updatedAt != null &&
+        trip.updatedAt != null &&
+        trip.updatedAt!.isAfter(updatedAt!)) {
+      return true;
+    }
+    return false;
+  }
+}
+
 /// Persistent session cache for Order Pool dismissals.
 /// Once a driver swipes away or hides an order, it stays permanently filtered out
-/// for the remainder of the app session, preventing stream refreshes from ghosting it back.
+/// for the remainder of the app session UNLESS the customer actively modifies
+/// the order details (such as updating/boosting the offer fare or changing route parameters).
 abstract final class OrderPoolSession {
   static final Set<String> _dismissedOrderIds = <String>{};
+  static final Map<String, DismissedTripState> _dismissedStates =
+      <String, DismissedTripState>{};
 
-  static bool isDismissed(String tripId) => _dismissedOrderIds.contains(tripId);
-
-  static void dismiss(String tripId) {
-    _dismissedOrderIds.add(tripId);
+  /// True if [tripId] (or [trip]) is currently dismissed for this session.
+  /// If [trip] is provided and customer modifications are detected, the order is
+  /// automatically restored and returns false so it re-appears in the driver pool.
+  static bool isDismissed(String tripId, [ActiveTrip? trip]) {
+    if (!_dismissedOrderIds.contains(tripId)) return false;
+    if (trip != null) {
+      final state = _dismissedStates[tripId];
+      if (state != null && state.isModifiedByCustomer(trip)) {
+        restore(tripId);
+        return false;
+      }
+    }
+    return true;
   }
+
+  /// Helper specifically taking an [ActiveTrip].
+  static bool isDismissedTrip(ActiveTrip trip) =>
+      isDismissed(trip.tripId, trip);
+
+  static void dismiss(String tripId, [ActiveTrip? trip]) {
+    _dismissedOrderIds.add(tripId);
+    if (trip != null) {
+      _dismissedStates[tripId] = DismissedTripState.fromTrip(trip);
+    }
+  }
+
+  static void dismissTrip(ActiveTrip trip) => dismiss(trip.tripId, trip);
 
   static void restore(String tripId) {
     _dismissedOrderIds.remove(tripId);
+    _dismissedStates.remove(tripId);
   }
 
   static void clear() {
     _dismissedOrderIds.clear();
+    _dismissedStates.clear();
   }
 }
 
@@ -131,7 +222,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
             final trips = (snap.data ?? const <ActiveTrip>[])
                 .where((t) => OrderFeedState.withinPoolRadius(
                     t, widget.driverPosition))
-                .where((t) => !OrderPoolSession.isDismissed(t.tripId))
+                .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
                 .toList();
             // Opaque sheet surface: the modal opens with a transparent
             // barrier background, so the content must carry its own
@@ -228,14 +319,18 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                               ),
                             ),
                             onDismissed: (_) {
-                              OrderPoolSession.dismiss(trip.tripId);
-                              ScaffoldMessenger.of(context)
-                                  .removeCurrentSnackBar();
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              OrderPoolSession.dismiss(trip.tripId, trip);
+                              final messenger = ScaffoldMessenger.of(context);
+                              messenger.hideCurrentSnackBar();
+                              messenger.showSnackBar(
                                 SnackBar(
+                                  behavior: SnackBarBehavior.floating,
+                                  margin: const EdgeInsets.only(
+                                      bottom: 80, left: 16, right: 16),
+                                  duration:
+                                      const Duration(milliseconds: 1500),
                                   content: const Text(
                                       'Order hidden for this session.'),
-                                  duration: const Duration(seconds: 3),
                                   action: SnackBarAction(
                                     label: 'Undo',
                                     textColor: AppColors.seseGold,

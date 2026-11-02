@@ -8,6 +8,7 @@ import '../../../trips/models/trip_models.dart';
 import '../../services/driver_streak_service.dart';
 import 'order_card.dart';
 import 'order_empty_state.dart';
+import 'order_pool_sheet.dart';
 
 /// Vertical feed of incoming ride offers on the driver Home tab.
 ///
@@ -99,7 +100,9 @@ class OrderFeedState extends State<OrderFeed> {
       byId[tier1.tripId] = tier1;
     }
     for (final t in marketplace) {
-      if (t.customerId != widget.driverId && _withinPoolRadius(t)) {
+      if (t.customerId != widget.driverId &&
+          _withinPoolRadius(t) &&
+          !OrderPoolSession.isDismissed(t.tripId, t)) {
         byId.putIfAbsent(t.tripId, () => t);
       }
     }
@@ -331,6 +334,7 @@ class _PoolBadgeState extends State<PoolBadge>
         final count = trips
             .where((t) => OrderFeedState.withinPoolRadius(
                 t, widget.driverPosition))
+            .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
             .length;
         final active = count > 0;
 
