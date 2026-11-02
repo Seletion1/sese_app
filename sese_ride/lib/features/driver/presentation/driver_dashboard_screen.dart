@@ -130,10 +130,35 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   LatLng? _panOriginPosition;
   bool _hasAutoCollapsedForTrip = false;
   bool _isFollowingUser = true;
+  bool _isMapInteracting = false;
+  Timer? _mapInactivityTimer;
   DateTime? _lastPanTime;
   List<LatLng> _activeRoutePoints = [];
   DateTime? _lastRouteFetchTime;
   final Set<String> _ratedTripDocIds = {};
+
+  void _handleMapGestureStarted() {
+    _mapInactivityTimer?.cancel();
+    if (!_isMapInteracting) {
+      if (mounted) {
+        setState(() {
+          _isMapInteracting = true;
+        });
+      }
+    }
+    _scheduleMapInactivityTimer();
+  }
+
+  void _scheduleMapInactivityTimer() {
+    _mapInactivityTimer?.cancel();
+    _mapInactivityTimer = Timer(const Duration(milliseconds: 3000), () {
+      if (mounted && _isMapInteracting) {
+        setState(() {
+          _isMapInteracting = false;
+        });
+      }
+    });
+  }
 
   void _checkAndShowPostTripRating(ActiveTrip trip) async {
     final ratedDocId = '${trip.tripId}_${widget.driverId}';
@@ -252,6 +277,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           if (!_isFollowingUser) {
             _lastPanTime = DateTime.now();
             _panOriginPosition = _driverPosition;
+            _handleMapGestureStarted();
           }
         });
       }
@@ -381,6 +407,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   @override
   void dispose() {
+    _mapInactivityTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _statusSubscription?.cancel();
     _livePositionSubscription?.cancel();
@@ -522,16 +549,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _recenterMap() {
+    _mapInactivityTimer?.cancel();
     _mapController.recenterTo(_driverPosition, 16.5);
     if (mounted) {
       setState(() {
         _isFollowingUser = true;
+        _isMapInteracting = false;
       });
     }
   }
 
   void _checkAutoResumeTracking(Position pos, LatLng newPos) {
-    if (_isFollowingUser) return;
+    if (_isFollowingUser) {
+      if (_isMapInteracting) {
+        _mapInactivityTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _isMapInteracting = false;
+          });
+        }
+      }
+      return;
+    }
     final now = DateTime.now();
     if (_lastPanTime == null) return;
 
@@ -1646,10 +1685,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         return Stack(
           fit: StackFit.expand,
           children: [
-            // 0. Map canvas base. Context flips to realtime tracking while
-            // a trip is live so the policy pins the OSM renderer even after
-            // Google Maps is provisioned for idle browsing.
-            Positioned.fill(child: _buildMapBase(active)),
+            // 0. Map canvas base wrapped in gesture listener to toggle immersive full-screen map mode.
+            Positioned.fill(
+              child: Listener(
+                onPointerDown: (_) => _handleMapGestureStarted(),
+                onPointerMove: (_) => _handleMapGestureStarted(),
+                onPointerUp: (_) => _scheduleMapInactivityTimer(),
+                onPointerCancel: (_) => _scheduleMapInactivityTimer(),
+                child: _buildMapBase(active),
+              ),
+            ),
             // Zero-size listeners: incoming-offer page + grand-award
             // celebration modal (dialogs driven by Firestore streams).
             Positioned(
@@ -1690,87 +1735,82 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 enabled: _isOnline && active == null,
               ),
             ),
+            // Top Header Overlay (Wallet, Status Bar, Bell, Banners)
             Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: SafeArea(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_sessionOverriddenOnOtherDevice) ...[
-                      _buildSessionTerminatedBanner(),
-                    ],
-                    const SizedBox(height: 8),
-                    if (active != null) ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: _buildActiveTripTopNavBanner(active),
-                      ),
-                    ] else ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: _buildOnlineHeader(),
-                      ),
-                      const SizedBox(height: 6),
-                      // Notification bell: positioned directly beneath the GO ONLINE / status banner.
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Material(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .surface
-                                  .withValues(alpha: 0.9),
-                              shape: const CircleBorder(),
-                              elevation: 2,
-                              child: NotificationBellButton(
-                                  uid: widget.driverId),
-                            ),
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                offset: _isMapInteracting ? const Offset(0, -0.3) : Offset.zero,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity: _isMapInteracting ? 0.0 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: _isMapInteracting,
+                    child: SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_sessionOverriddenOnOtherDevice) ...[
+                            _buildSessionTerminatedBanner(),
                           ],
-                        ),
+                          const SizedBox(height: 8),
+                          if (active != null) ...[
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: _buildActiveTripTopNavBanner(active),
+                            ),
+                          ] else ...[
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              child: _buildOnlineHeader(),
+                            ),
+                            const SizedBox(height: 6),
+                            // Notification bell: positioned directly beneath the GO ONLINE / status banner.
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Material(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surface
+                                        .withValues(alpha: 0.9),
+                                    shape: const CircleBorder(),
+                                    elevation: 2,
+                                    child: NotificationBellButton(
+                                        uid: widget.driverId),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              child:
+                                  VerificationBanner(driverId: widget.driverId),
+                            ),
+                            _DocExpiryBanner(driverId: widget.driverId),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: 6),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: VerificationBanner(driverId: widget.driverId),
-                      ),
-                      _DocExpiryBanner(driverId: widget.driverId),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            // 1. Recenter FAB (Module 1): bottom-right — above the bottom card
-            // while ONLINE, near the edge while OFFLINE (no bottom card).
-            // Shown in both states so the driver can always recenter on GPS.
-            Positioned(
-              right: 16,
-              bottom: active != null
-                  ? 94
-                  : (_isOnline ? 210 : 16),
-              child: Material(
-                key: const Key('driver_recenter_fab'),
-                color: Theme.of(context).colorScheme.surface,
-                elevation: 4,
-                shape: const CircleBorder(),
-                child: InkWell(
-                  customBorder: const CircleBorder(),
-                  // Re-engages GPS follow AND snaps back (see home map).
-                  onTap: _recenterMap,
-                  child: const Padding(
-                    padding: EdgeInsets.all(10),
-                    child: Icon(Icons.my_location, size: 22, color: Color(0xFF4285F4)),
+                    ),
                   ),
                 ),
               ),
             ),
 
-            // 2. Floating Recenter Pill Button (bottom-center):
-            // Appears when driver manually panned/dragged the map (!_isFollowingUser).
-            if (!_isFollowingUser)
+            // Primary Floating Recenter Pill Button (bottom-center):
+            // The sole, standardized recenter control for optimal thumb accessibility.
+            // Retained during map interaction so driver can always snap back.
+            if (!_isFollowingUser || _isMapInteracting)
               Positioned(
                 left: 0,
                 right: 0,
@@ -1786,7 +1826,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       borderRadius: BorderRadius.circular(28),
                       onTap: _recenterMap,
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 12),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -1795,7 +1836,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                               child: Icon(
                                 Icons.navigation_rounded,
                                 size: 20,
-                                color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                color: isDark
+                                    ? Colors.white
+                                    : const Color(0xFF1E293B),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1804,7 +1847,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 15,
-                                color: isDark ? Colors.white : const Color(0xFF1E293B),
+                                color: isDark
+                                    ? Colors.white
+                                    : const Color(0xFF1E293B),
                                 letterSpacing: 0.2,
                               ),
                             ),
@@ -1815,10 +1860,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   ),
                 ),
               ),
-            // 2. (Radar moved into the Order Pool sheet — map stays clean.)
-            // 3. Bottom area:
-            // When trip is active: full-width DraggableScrollableSheet touching bottom.
-            // When idle/online: floating streak banner + pool badge.
+
+            // Bottom Area (Active Trip Sheet or Idle Streak Slot + Quick Order Badge)
             if (active != null) ...[
               if (MapProviderPolicy.resolve(MapContext.realtimeTracking) !=
                   MapProvider.googleMaps)
@@ -1828,36 +1871,66 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   child: _RasterCredit(),
                 ),
               // Full-width draggable bottom action sheet extending directly above the bottom nav bar
-              _buildActiveTripCard(active),
+              AnimatedSlide(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                offset: _isMapInteracting ? const Offset(0, 0.3) : Offset.zero,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity: _isMapInteracting ? 0.0 : 1.0,
+                  child: IgnorePointer(
+                    ignoring: _isMapInteracting,
+                    child: _buildActiveTripCard(active),
+                  ),
+                ),
+              ),
             ] else if (_isOnline) ...[
               Positioned(
                 left: 12,
                 right: 12,
                 bottom: 12,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (MapProviderPolicy.resolve(MapContext.idlePositioning) !=
-                        MapProvider.googleMaps)
-                      const Align(
-                        alignment: Alignment.centerRight,
-                        child: _RasterCredit(),
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  offset:
+                      _isMapInteracting ? const Offset(0, 0.3) : Offset.zero,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 250),
+                    opacity: _isMapInteracting ? 0.0 : 1.0,
+                    child: IgnorePointer(
+                      ignoring: _isMapInteracting,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (MapProviderPolicy.resolve(
+                                  MapContext.idlePositioning) !=
+                              MapProvider.googleMaps)
+                            const Align(
+                              alignment: Alignment.centerRight,
+                              child: _RasterCredit(),
+                            ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Flexible(child: _buildBottomStreakSlot()),
+                              const SizedBox(width: 10),
+                              PoolBadge(
+                                streakService: _streaks,
+                                driverPosition: _driverPosition,
+                                onTap: _openPoolSheet,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(child: _buildBottomStreakSlot()),
-                        const SizedBox(width: 10),
-                        PoolBadge(
-                          streakService: _streaks,
-                          driverPosition: _driverPosition,
-                          onTap: _openPoolSheet,
-                        ),
-                      ],
                     ),
+                  ),
+                ),
+              ),
+            ],
                   ],
                 ),
               ),
