@@ -317,7 +317,8 @@ service cloud.firestore {
              : 'cancelled')) ||
         (isNotSuspended() && resource.data.driverId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys()
-           .hasOnly(['cashCheckpoints', 'deliveryPinVerified', 'status', 'updatedAt'])) ||
+           .hasOnly(['cashCheckpoints', 'deliveryPinVerified', 'status', 'updatedAt']) &&
+         request.resource.data.status in ['ARRIVED', 'PICKED_UP', 'IN_TRANSIT', 'COMPLETED', resource.data.status]) ||
         (isNotSuspended() && resource.data.status == 'unassigned' &&
          request.resource.data.driverId == request.auth.uid &&
          request.resource.data.status == 'assigned' &&
@@ -503,6 +504,27 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ===== FINANCIAL AUDIT LOGS (immutable, server-written) ─────────────
+    match /financial_audit_logs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource.data.accountId == request.auth.uid ||
+        resource.data.actor == request.auth.uid ||
+        isAgent() || isHubStaff() || isAdminAuthClaim() ||
+        isOperationsAdmin() || isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
+    // ===== TRIP CHANGE LOGS (immutable, server-written) ─────────────────
+    match /trip_change_logs/{logId} {
+      allow read: if isAuthenticated() && (
+        resource.data.actor == request.auth.uid ||
+        isAgent() || isHubStaff() || isAdminAuthClaim() ||
+        isOperationsAdmin() || isSuperAdmin()
+      );
+      allow write: if false;
+    }
+
     // ===== DRIVERS — onboarding owner write + admin queue read + admin approve =====
     match /drivers/{userId} {
       function isValidDriverProfileUpdate() {
@@ -511,7 +533,8 @@ service cloud.firestore {
             .hasAny([
               'verificationStatus', 'isVerified', 'isProfileVerified',
               'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
-              'totalRatingCount', 'completedTrips', 'safetyBlocked'
+              'totalRatingCount', 'completedTrips', 'safetyBlocked',
+              'status', 'isSuspended', 'streak', 'currentLevel', 'currentStep'
             ]);
       }
 
@@ -643,7 +666,12 @@ service cloud.firestore {
       function isValidUserProfileUpdate() {
         return isAuthenticated() && isNotSuspended() &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['isSuspended', 'role', 'completedTrips', 'completedTripCount', 'outstandingNegativeBalance']);
+            .hasAny([
+              'isSuspended', 'role', 'completedTrips', 'completedTripCount',
+              'outstandingNegativeBalance', 'cancelStats', 'rating',
+              'averageRating', 'totalRatings', 'totalRatingSum',
+              'totalRatingCount', 'seseCoinBalance', 'balance', 'mainWalletBalance'
+            ]);
       }
 
       // Authenticated users can read public profile (name, avatar, ratings, completedTrips)
@@ -652,7 +680,8 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.auth.uid == userId &&
         (!request.resource.data.keys().hasAny(['isSuspended']) || request.resource.data.isSuspended == false) &&
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
-        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0);
+        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
+        (!request.resource.data.keys().hasAny(['role', 'cancelStats', 'seseCoinBalance', 'balance', 'mainWalletBalance']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
