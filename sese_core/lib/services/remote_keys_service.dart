@@ -4,9 +4,16 @@ import 'package:flutter/foundation.dart';
 import '../maps/global_map_config.dart';
 
 /// Dynamic Remote Keys & API Configuration stored in `/system_config/remote_keys`.
+///
+/// SECURITY: Only PUBLIC/publishable credentials belong here.
+/// Paystack SECRET keys (`sk_test_…` / `sk_live_…`) are **server-only**:
+/// they live in Cloud Functions environment variables (`PAYSTACK_API_KEY`) or
+/// Firestore `system_config/remote_keys.paystackSecretKey` which is readable
+/// only by service-account-authenticated Cloud Functions — never by clients.
+/// The [paystackSecretKey] field has been intentionally removed; any legacy
+/// Firestore document field with that name is ignored on the client.
 class RemoteKeysConfig {
   final String paystackPublicKey;
-  final String paystackSecretKey;
   final String googleMapsApiKey;
 
   /// Mapbox public access token (`pk.eyJ1…`). Empty when not configured.
@@ -52,7 +59,6 @@ class RemoteKeysConfig {
 
   const RemoteKeysConfig({
     this.paystackPublicKey = '',
-    this.paystackSecretKey = '',
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
@@ -88,19 +94,22 @@ class RemoteKeysConfig {
             '')
         .toString()
         .trim();
-    if (pubKey.isEmpty || (!pubKey.startsWith('pk_test_') && !pubKey.startsWith('pk_live_'))) {
-      pubKey = 'pk_test_07354be9dc28e79ca4cb7d2cc4818d81ebfd696b';
+    // Accept only valid publishable-key prefixes; never fall back to a
+    // hardcoded key — an empty string surfaces as "payment not configured"
+    // in the UI, prompting ops to set the key via the Hub config screen.
+    if (!pubKey.startsWith('pk_test_') && !pubKey.startsWith('pk_live_')) {
+      pubKey = '';
     }
 
-    String secKey = (map['paystackSecretKey'] ??
-            map['paystack_secret_key'] ??
-            map['secret_key'] ??
-            '')
-        .toString()
-        .trim();
-    if (secKey.isEmpty || (!secKey.startsWith('sk_test_') && !secKey.startsWith('sk_live_'))) {
-      secKey = 'sk_test_4e0edebfb09041155f816f2e8cff7cfb5bbfac98';
-    }
+    // ── SECRET KEY IS SERVER-ONLY ──────────────────────────────────────────
+    // The Paystack secret key (`sk_test_…` / `sk_live_…`) must NEVER be
+    // embedded in client-side Dart code or bundled into the compiled binary.
+    // It is consumed exclusively by Cloud Functions via the
+    // `PAYSTACK_API_KEY` environment variable (functions/.env, git-ignored).
+    // Any `paystackSecretKey` field present in the Firestore document is
+    // ignored here to prevent accidental secret leakage through the SDK
+    // client cache or device storage.
+    // ──────────────────────────────────────────────────────────────────────
 
     int intOf(dynamic v, int fallback) {
       if (v is num) return v.toInt();
@@ -162,7 +171,6 @@ class RemoteKeysConfig {
 
     return RemoteKeysConfig(
       paystackPublicKey: pubKey,
-      paystackSecretKey: secKey,
       googleMapsApiKey: rawGoogleKey.isNotEmpty
           ? rawGoogleKey
           : GlobalMapConfig.defaultGoogleMapsApiKey,
@@ -257,6 +265,15 @@ class RemoteKeysConfig {
     return {
       'paystackPublicKey': paystackPublicKey.trim(),
       'paystack_public_key': paystackPublicKey.trim(),
+      // ── SECURITY: paystackSecretKey is intentionally OMITTED ──────────
+      // The Paystack secret key must NEVER be written by the Flutter client
+      // to Firestore. The Hub config screen reads it back for display, but
+      // persists it only via the `saveRemoteKeys` server path which applies
+      // field-level Firestore rules restricting secret-key writes to
+      // Hub-role service accounts. Emitting it here would cause every
+      // client SDK write (including customer devices) to inadvertently
+      // echo the secret back into Firestore.
+      // ──────────────────────────────────────────────────────────────────
       'googleMapsApiKey': googleMapsApiKey.trim(),
       'mapApiKey': googleMapsApiKey.trim(),
       'apiKey': googleMapsApiKey.trim(),

@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -290,6 +291,10 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       throw new HttpsError("unauthenticated", "You must sign in.");
     }
     const uid = request.auth.uid;
+
+    // ── Security gates ──────────────────────────────────────────────────────
+    enforceAppCheck(request);
+    await requireAccountActive(uid, "customer");
     const secret = paystackSecret();
 
     // Transaction-PIN gate FIRST: verified server-side before the balance

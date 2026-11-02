@@ -4,6 +4,7 @@ import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 
 import { settleTransfer } from "./payouts";
 import { requireValidPin } from "./transactionPin";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
@@ -146,6 +147,13 @@ export const initializePayment = onCall<InitializePaymentData>(
       throw new HttpsError("unauthenticated", "You must sign in to pay.");
     }
     const uid = request.auth.uid;
+
+    // ── Security gates (must run before any business logic) ───────────────
+    // App Check: rejects calls from non-genuine app builds / scripts.
+    enforceAppCheck(request);
+    // Suspension gate: banned/suspended users cannot initiate payments even
+    // when Firestore rules have not yet propagated to all SDK caches.
+    await requireAccountActive(uid, "customer");
 
     // Transaction-PIN gate: verified server-side before initializing Paystack payment intent.
     await requireValidPin(uid, request.data?.transactionPin);
@@ -386,6 +394,9 @@ export const verifyPayment = onCall<VerifyPaymentData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "customer");
   const reference = String(request.data?.reference ?? "").trim();
   if (!reference) {
     throw new HttpsError("invalid-argument", "reference is required.");

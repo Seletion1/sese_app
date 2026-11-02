@@ -37,6 +37,7 @@ exports.convertSeseCoins = exports.settleSplitPayment = exports.respondSplitPaym
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const transactionPin_1 = require("./transactionPin");
+const accountGuard_1 = require("./accountGuard");
 /**
  * P2P wallet-to-wallet transfers + split-payment intents.
  *
@@ -268,6 +269,9 @@ exports.transferWalletFunds = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
     const senderId = request.auth.uid;
+    // ── Security gates ──────────────────────────────────────────────────────
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(senderId, "customer");
     // Transaction-PIN gate FIRST: no verified PIN, no money movement. A
     // hostile client cannot skip the prompt — verification is server-side,
     // before any balance or recipient state is even read (no oracle).

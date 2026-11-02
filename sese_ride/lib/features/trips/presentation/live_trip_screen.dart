@@ -2545,50 +2545,53 @@ void _showBoostFareDialog(
             Text('Boost Offer Fare'),
           ],
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Increase your offer to attract nearby drivers faster. Decreases below current fare (${trip.fareFormatted.isNotEmpty ? trip.fareFormatted : "₦${trip.fareAmount.toStringAsFixed(0)}"}) are prohibited.',
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [5, 10, 20].map((pct) {
-                final base = trip.fareAmount;
-                final boosted = (base * (100 + pct) / 100).round();
-                return OutlinedButton(
-                  onPressed: loading
-                      ? null
-                      : () => setDlg(() {
-                            controller.text = boosted.toString();
-                            error = null;
-                          }),
-                  child: Text('+$pct%'),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
-              ],
-              decoration: InputDecoration(
-                labelText: 'New Offer Amount (₦)',
-                prefixText: '₦ ',
-                border: const OutlineInputBorder(),
-                errorText: error,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Increase your offer to attract nearby drivers faster. Decreases below current fare (${trip.fareFormatted.isNotEmpty ? trip.fareFormatted : "₦${trip.fareAmount.toStringAsFixed(0)}"}) are prohibited.',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              onChanged: (_) {
-                if (error != null) setDlg(() => error = null);
-              },
-            ),
-          ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: [5, 10, 20].map((pct) {
+                  final base = trip.fareAmount;
+                  final boosted = (base * (100 + pct) / 100).round();
+                  return OutlinedButton(
+                    onPressed: loading
+                        ? null
+                        : () => setDlg(() {
+                              controller.text = boosted.toString();
+                              error = null;
+                            }),
+                    child: Text('+$pct%'),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
+                ],
+                decoration: InputDecoration(
+                  labelText: 'New Offer Amount (₦)',
+                  prefixText: '₦ ',
+                  border: const OutlineInputBorder(),
+                  errorText: error,
+                  errorMaxLines: 2,
+                ),
+                onChanged: (_) {
+                  if (error != null) setDlg(() => error = null);
+                },
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

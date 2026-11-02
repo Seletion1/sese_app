@@ -8,6 +8,7 @@ import '../../../../core/services/remote_config_service.dart';
 import '../../../../widgets/map_provider.dart';
 import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
+import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
 import 'low_balance_dialog.dart';
@@ -108,21 +109,21 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     _mapController.fitPoints(_pickup, _dropoff, padding: 72);
   }
 
-  String get _fareLabel {
-    if (widget.trip.fareFormatted.isNotEmpty) return widget.trip.fareFormatted;
-    return '${widget.currencySymbol}${_withSeparators(widget.trip.fareAmount)}';
+  String _fareLabel(ActiveTrip trip) {
+    if (trip.fareFormatted.isNotEmpty) return trip.fareFormatted;
+    return '${widget.currencySymbol}${_withSeparators(trip.fareAmount)}';
   }
 
-  String get _perKmLabel {
-    final dist = widget.trip.distanceKm;
+  String _perKmLabel(ActiveTrip trip) {
+    final dist = trip.distanceKm;
     if (dist <= 0) return '';
-    final perKm = widget.trip.fareAmount / dist;
+    final perKm = trip.fareAmount / dist;
     return '${widget.currencySymbol}${_withSeparators(perKm)}/km ~${dist.toStringAsFixed(1)} km';
   }
 
-  String get _timeDistanceLabel {
-    final mins = widget.trip.durationMins;
-    final km = widget.trip.distanceKm;
+  String _timeDistanceLabel(ActiveTrip trip) {
+    final mins = trip.durationMins;
+    final km = trip.distanceKm;
     if (mins <= 0 && km <= 0) return '';
     return '${mins.toStringAsFixed(0)} min · ${km.toStringAsFixed(1)} km';
   }
@@ -211,301 +212,307 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
 
   @override
   Widget build(BuildContext context) {
-    final trip = widget.trip;
-    return Scaffold(
-      body: Column(
-        children: [
-          // Route map (A → B + driver leg) with overlay controls.
-          Expanded(
-            flex: 5,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: SeSeMapView(
-                    // Offer route preview (pre-accept browsing): Google Maps.
-                    mapContext: MapContext.browsing,
-                    mapController: _mapController,
-                    initialCenter: _pickup,
-                    initialZoom: 13.0,
-                    showMyLocation: true,
-                    markers: [
-                      SeSeMapView.pin(
-                          point: _pickup, color: Colors.blue, label: 'A'),
-                      SeSeMapView.pin(
-                          point: _dropoff, color: Colors.green, label: 'B'),
-                      SeSeMapView.pin(
-                          point: widget.driverPosition, color: Colors.amber),
-                    ],
-                    polylines: [
-                      if (_routePoints.isNotEmpty)
-                        SeSeMapView.route(
-                          points: _routePoints,
-                          color: Colors.green.shade700,
-                          width: 5,
-                          id: 'offer-route',
-                        ),
-                      if (_driverLegPoints.isNotEmpty)
-                        SeSeMapView.route(
-                          points: _driverLegPoints,
-                          color: Colors.blue,
-                          width: 4,
-                          id: 'driver-leg',
-                        ),
-                    ],
-                  ),
-                ),
-                // Top-left: skip this offer.
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: SafeArea(
-                    bottom: false,
-                    child: Material(
-                      borderRadius: BorderRadius.circular(24),
-                      elevation: 4,
-                      child: InkWell(
-                        key: const Key('skip_offer_button'),
-                        borderRadius: BorderRadius.circular(24),
-                        onTap: _busy ? null : _skip,
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.close, size: 18),
-                              SizedBox(width: 6),
-                              Text('Skip offer',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Top-center: trip time/distance pill.
-                if (_timeDistanceLabel.isNotEmpty)
-                  Positioned(
-                    top: 12,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      bottom: false,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.green.shade700,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _timeDistanceLabel,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                // Right: custom zoom controls (OSM tiles have no SDK buttons).
-                Positioned(
-                  right: 12,
-                  top: 110,
-                  child: Column(
-                    children: [
-                      _ZoomButton(
-                        icon: Icons.add,
-                        onTap: () => _mapController.zoomBy(1),
-                      ),
-                      const SizedBox(height: 8),
-                      _ZoomButton(
-                        icon: Icons.remove,
-                        onTap: () => _mapController.zoomBy(-1),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Offer details + streak tag + Sticky Accept CTA.
-          Expanded(
-            flex: 4,
-            child: Column(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _OfferCountdown(controller: _countdown),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).brightness == Brightness.dark
-                                ? const Color(0xFF78350F).withValues(alpha: 0.3)
-                                : AppColors.seseGoldLight,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            widget.streakTag,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                                color: Theme.of(context).brightness == Brightness.dark
-                                    ? const Color(0xFFFBBF24)
-                                    : Colors.black87),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _AddressRow(
-                          dotColor: Colors.blue,
-                          badge: 'A',
-                          label: 'Pickup',
-                          value: trip.pickupAddress.isEmpty
-                              ? 'Pickup location (see map)'
-                              : trip.pickupAddress,
-                        ),
-                        if (trip.isVerifiedCustomer) ...[
-                          const SizedBox(height: 8),
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: VerifiedCustomerBadge(),
-                          ),
+    return StreamBuilder<ActiveTrip?>(
+      stream: FirestoreTripRepository().tripStream(widget.trip.tripId),
+      builder: (context, snap) {
+        final trip = snap.data ?? widget.trip;
+        final fareLabel = _fareLabel(trip);
+        final perKmLabel = _perKmLabel(trip);
+        final timeDistanceLabel = _timeDistanceLabel(trip);
+
+        return Scaffold(
+          body: Column(
+            children: [
+              // Route map (A → B + driver leg) with overlay controls.
+              Expanded(
+                flex: 5,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: SeSeMapView(
+                        // Offer route preview (pre-accept browsing): Google Maps.
+                        mapContext: MapContext.browsing,
+                        mapController: _mapController,
+                        initialCenter: _pickup,
+                        initialZoom: 13.0,
+                        showMyLocation: true,
+                        markers: [
+                          SeSeMapView.pin(
+                              point: _pickup, color: Colors.blue, label: 'A'),
+                          SeSeMapView.pin(
+                              point: _dropoff, color: Colors.green, label: 'B'),
+                          SeSeMapView.pin(
+                              point: widget.driverPosition, color: Colors.amber),
                         ],
-                        const SizedBox(height: 8),
-                        _AddressRow(
-                          dotColor: Colors.green,
-                          badge: 'B',
-                          label: 'Drop-off',
-                          value: trip.dropoffAddress.isEmpty
-                              ? 'Drop-off location (see map)'
-                              : trip.dropoffAddress,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                UserAvatar(
-                                  // Use the real customer first name so the
-                                  // avatar initials match the actual person
-                                  // rather than the generic 'RI' placeholder.
-                                  displayName: trip.customerName.isNotEmpty
-                                      ? trip.customerName.trim().split(RegExp(r'\s+')).first
-                                      : 'Customer',
-                                  radius: 20,
-                                ),
-                                if (trip.isVerifiedCustomer) ...[
-                                  const SizedBox(height: 2),
-                                  const VerifiedBadge(
-                                      variant: VerifiedBadgeVariant.customer),
-                                ],
-                              ],
+                        polylines: [
+                          if (_routePoints.isNotEmpty)
+                            SeSeMapView.route(
+                              points: _routePoints,
+                              color: Colors.green.shade700,
+                              width: 5,
+                              id: 'offer-route',
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          if (_driverLegPoints.isNotEmpty)
+                            SeSeMapView.route(
+                              points: _driverLegPoints,
+                              color: Colors.blue,
+                              width: 4,
+                              id: 'driver-leg',
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Top-left: skip this offer.
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Material(
+                          borderRadius: BorderRadius.circular(24),
+                          elevation: 4,
+                          child: InkWell(
+                            key: const Key('skip_offer_button'),
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _busy ? null : _skip,
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 10),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    _fareLabel,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18),
-                                  ),
-                                  if (_perKmLabel.isNotEmpty)
-                                    Text(
-                                      _perKmLabel,
-                                      style: const TextStyle(
-                                          color: Colors.grey, fontSize: 12),
-                                    ),
+                                  Icon(Icons.close, size: 18),
+                                  SizedBox(width: 6),
+                                  Text('Skip offer',
+                                      style:
+                                          TextStyle(fontWeight: FontWeight.w600)),
                                 ],
                               ),
                             ),
-                            Chip(
-                              label: Text(
-                                trip.serviceType == 'send_item'
-                                    ? 'Courier'
-                                    : 'Ride',
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Top-center: trip time/distance pill.
+                    if (timeDistanceLabel.isNotEmpty)
+                      Positioned(
+                        top: 12,
+                        left: 0,
+                        right: 0,
+                        child: SafeArea(
+                          bottom: false,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade700,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                timeDistanceLabel,
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 12),
                               ),
-                              backgroundColor: Colors.blue,
-                              side: BorderSide.none,
-                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Right: custom zoom controls (OSM tiles have no SDK buttons).
+                    Positioned(
+                      right: 12,
+                      top: 110,
+                      child: Column(
+                        children: [
+                          _ZoomButton(
+                            icon: Icons.add,
+                            onTap: () => _mapController.zoomBy(1),
+                          ),
+                          const SizedBox(height: 8),
+                          _ZoomButton(
+                            icon: Icons.remove,
+                            onTap: () => _mapController.zoomBy(-1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Offer details + streak tag + Sticky Accept CTA.
+              Expanded(
+                flex: 4,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _OfferCountdown(controller: _countdown),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                                    : AppColors.seseGoldLight,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                widget.streakTag,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Theme.of(context).brightness == Brightness.dark
+                                        ? const Color(0xFFFBBF24)
+                                        : Colors.black87),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _AddressRow(
+                              dotColor: Colors.blue,
+                              badge: 'A',
+                              label: 'Pickup',
+                              value: trip.pickupAddress.isEmpty
+                                  ? 'Pickup location (see map)'
+                                  : trip.pickupAddress,
+                            ),
+                            if (trip.isVerifiedCustomer) ...[
+                              const SizedBox(height: 8),
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: VerifiedCustomerBadge(),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            _AddressRow(
+                              dotColor: Colors.green,
+                              badge: 'B',
+                              label: 'Drop-off',
+                              value: trip.dropoffAddress.isEmpty
+                                  ? 'Drop-off location (see map)'
+                                  : trip.dropoffAddress,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    UserAvatar(
+                                      displayName: trip.customerName.isNotEmpty
+                                          ? trip.customerName.trim().split(RegExp(r'\s+')).first
+                                          : 'Customer',
+                                      radius: 20,
+                                    ),
+                                    if (trip.isVerifiedCustomer) ...[
+                                      const SizedBox(height: 2),
+                                      const VerifiedBadge(
+                                          variant: VerifiedBadgeVariant.customer),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        fareLabel,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18),
+                                      ),
+                                      if (perKmLabel.isNotEmpty)
+                                        Text(
+                                          perKmLabel,
+                                          style: const TextStyle(
+                                              color: Colors.grey, fontSize: 12),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                Chip(
+                                  label: Text(
+                                    trip.serviceType == 'send_item'
+                                        ? 'Courier'
+                                        : 'Ride',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12),
+                                  ),
+                                  backgroundColor: Colors.blue,
+                                  side: BorderSide.none,
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            _buildPaymentBreakdownBanner(trip),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Skipping, or letting this expire, breaks your daily streak.',
+                              textAlign: TextAlign.center,
+                              style:
+                                  TextStyle(fontSize: 12, color: Colors.redAccent),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        _buildPaymentBreakdownBanner(trip),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Skipping, or letting this expire, breaks your daily streak.',
-                          textAlign: TextAlign.center,
-                          style:
-                              TextStyle(fontSize: 12, color: Colors.redAccent),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                // Pinned sticky bottom container with system navigation bar clearance
-                SafeArea(
-                  top: false,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).scaffoldBackgroundColor,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          offset: const Offset(0, -3),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        key: const Key('accept_offer_button'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.seseGold,
-                          foregroundColor: Colors.black,
-                          minimumSize: const Size.fromHeight(54),
-                          textStyle: const TextStyle(
-                              fontSize: 17, fontWeight: FontWeight.bold),
-                        ),
-                        onPressed: _busy ? null : _accept,
-                        child: _accepting
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.black),
-                              )
-                            : Text('Accept for $_fareLabel'),
                       ),
                     ),
-                  ),
+                    // Pinned sticky bottom container with system navigation bar clearance
+                    SafeArea(
+                      top: false,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.08),
+                              offset: const Offset(0, -3),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            key: const Key('accept_offer_button'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.seseGold,
+                              foregroundColor: Colors.black,
+                              minimumSize: const Size.fromHeight(54),
+                              textStyle: const TextStyle(
+                                  fontSize: 17, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: _busy ? null : _accept,
+                            child: _accepting
+                                ? const SizedBox(
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.black),
+                                  )
+                                : Text('Accept for $fareLabel'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
   Widget _buildPaymentBreakdownBanner(ActiveTrip trip) {

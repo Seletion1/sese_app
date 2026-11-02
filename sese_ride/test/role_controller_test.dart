@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/home/active_trip_countdown_banner.dart';
 import 'package:sese_ride/features/settings/role_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   setUp(() {
@@ -25,6 +26,24 @@ void main() {
 
     test('setCurrentRole switches modes', () {
       RoleController.instance.setCurrentRole(UserRole.driver);
+      expect(RoleController.instance.currentRole, UserRole.driver);
+    });
+
+    test('activateMode persists driver role and restoreSession recovers local preference', () async {
+      SharedPreferences.setMockInitialValues({});
+      await RoleController.instance.activateMode('user_123', UserRole.driver);
+      expect(RoleController.instance.currentRole, UserRole.driver);
+
+      // Simulate app restart by resetting currentRole to customer fallback
+      RoleController.instance.setCurrentRole(UserRole.customer);
+
+      final restoredRole = await RoleController.instance.restoreSession(
+        userId: 'user_123',
+        fallbackRole: UserRole.customer,
+        onProtectionExpired: () {},
+      );
+
+      expect(restoredRole, UserRole.driver);
       expect(RoleController.instance.currentRole, UserRole.driver);
     });
   });

@@ -213,7 +213,15 @@ class DriverStreakService {
         .collection('trips')
         .where(
           'status',
-          whereIn: const ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST', 'bidding'],
+          whereIn: const [
+            'MARKETPLACE_OPEN',
+            'MARKETPLACE_LIST',
+            'bidding',
+            'SEARCHING_DRIVER',
+            'searching_driver',
+            'WAITING_FOR_ACCEPTANCE',
+            'waiting_for_acceptance',
+          ],
         )
         .limit(limit)
         .snapshots()

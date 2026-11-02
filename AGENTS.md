@@ -72,6 +72,35 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-02 — Elimination of Client Paystack Secret Key, Server-Side App Check & Suspension Hardening
+
+- **Hardcoded Secret Key Elimination (C2)**:
+  - **Root Cause & Vulnerability**: `sese_core/lib/services/remote_keys_service.dart` contained a fallback test secret key (`sk_test_4e0edebfb09041155f816f2e8cff7cfb5bbfac98`) around line 102 embedded in the Dart binary.
+  - **Remediation**:
+    - Completely removed `paystackSecretKey` property and fallback string constants from `RemoteKeysConfig` and `RemoteKeysService` in `sese_core`.
+    - Any legacy `paystackSecretKey` document fields read from Firestore on customer/driver apps are ignored to prevent local device caching of sensitive keys.
+    - Updated `toMap()` in `RemoteKeysConfig` to omit secret keys from Firestore write payloads, preventing client SDK writes from echoing secrets back to Firestore.
+    - In `sese_hub/global_config_screen.dart`, transformed the Paystack Secret Key input into a write-only administrative field that is never pre-populated or loaded back into client memory, and only merges to Firestore on explicit admin entry.
+    - Confirmed secret key consumption is strictly isolated on the backend (`functions/src/payments.ts`) via `process.env.PAYSTACK_API_KEY` (or Google Cloud Secret Manager).
+
+- **Server-Side App Check & Account Suspension Gates (H2 & H3)**:
+  - **Shared Security Layer (`functions/src/accountGuard.ts`)**:
+    - Created `enforceAppCheck(request)`: Validates that requests originate from legitimate, non-tampered app binaries attested by Firebase App Check. In production environments (`NODE_ENV === 'production'` or `ENFORCE_APP_CHECK === 'true'`), missing or expired App Check tokens reject immediately with `unauthenticated`.
+    - Created `requireAccountActive(uid, role)`: Strictly validates that the authenticated caller is not banned, suspended, deactivated, or disabled in Firestore (`users/{uid}` and `drivers/{uid}`), blocking suspended users from calling backend endpoints even if client-side rule caches are stale.
+  - **Function Hardening**:
+    - Gated all sensitive financial and trip operations: `initializePayment`, `verifyPayment`, `processWalletWithdrawal`, `transferWalletFunds`, `createTrip`, `acceptTrip`, `declineTrip`, `advanceTripStatus`, `cancelTrip`, and `submitBid`.
+
+- **API Key & Environment Security**:
+  - Verified Android `com.google.android.geo.API_KEY` in `AndroidManifest.xml` is resolved dynamically at build time (`${GOOGLE_MAPS_SDK_KEY}`) from build configuration / `local.properties`.
+  - Confirmed web and iOS Maps keys are scoped strictly to the client bundle ID / package name + SHA-1 fingerprints, while web service operations (Directions, Distance Matrix, Geocoding) are proxied exclusively through server-side `googleMapsProxy` without exposing server keys.
+
+- **Verification & Deployment**:
+  - `functions`: `npm run build` compiled cleanly; 35/35 backend invariant tests passed.
+  - `sese_core`: `flutter analyze` 0 issues; all 94 unit/engine tests passed.
+  - `sese_hub`: `flutter analyze` 0 issues.
+  - `sese_ride`: `flutter analyze` 0 issues; 39/39 payment & wallet tests passed.
+  - `firebase deploy`: 10 updated Cloud Functions deployed successfully to production `sese-ride`.
+
 ## 2026-11-01 — Kotlin Flutter Plugin for App Launcher & Background Overlay Engine Registration
 
 - **Root Cause & Diagnosis**:

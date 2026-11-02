@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 /**
  * P2P wallet-to-wallet transfers + split-payment intents.
@@ -276,6 +277,10 @@ export const transferWalletFunds = onCall<WalletTransferData>(
       throw new HttpsError("unauthenticated", "You must sign in.");
     }
     const senderId = request.auth.uid;
+
+    // ── Security gates ──────────────────────────────────────────────────────
+    enforceAppCheck(request);
+    await requireAccountActive(senderId, "customer");
 
     // Transaction-PIN gate FIRST: no verified PIN, no money movement. A
     // hostile client cannot skip the prompt — verification is server-side,

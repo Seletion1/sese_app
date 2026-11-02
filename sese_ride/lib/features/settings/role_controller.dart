@@ -79,12 +79,21 @@ class RoleController extends ChangeNotifier {
     int? localProtectionExpiryMs;
     try {
       final prefs = await SharedPreferences.getInstance();
-      localMode = prefs.getString(_localModeKey(userId));
-      localUpdatedAtMs = prefs.getInt(_localModeUpdatedAtKey(userId)) ?? 0;
+      localMode = prefs.getString(_localModeKey(userId)) ??
+          prefs.getString(_fallbackLocalModeKey);
+      localUpdatedAtMs = prefs.getInt(_localModeUpdatedAtKey(userId)) ??
+          prefs.getInt(_fallbackLocalModeUpdatedAtKey) ??
+          0;
       localProtectionExpiryMs =
           prefs.getInt(_localProtectionExpiryKey(userId));
     } catch (e) {
       debugPrint('RoleController.restoreSession local state failed: $e');
+    }
+
+    // Instantly apply locally cached mode if available so UI restores immediately
+    final initialLocalRole = _modeFromString(localMode);
+    if (initialLocalRole != null) {
+      setCurrentRole(initialLocalRole);
     }
 
     String? serverMode;
@@ -107,11 +116,11 @@ class RoleController extends ChangeNotifier {
       debugPrint('RoleController.restoreSession server state unavailable: $e');
     }
 
-    final useServer = serverUpdatedAtMs >= localUpdatedAtMs &&
-        _modeFromString(serverMode) != null;
-    final restoredRole = useServer
-        ? _modeFromString(serverMode)!
-        : _modeFromString(localMode) ?? fallbackRole;
+    final parsedServerMode = _modeFromString(serverMode);
+    final useServer = parsedServerMode != null &&
+        (serverUpdatedAtMs > localUpdatedAtMs || initialLocalRole == null);
+    final restoredRole =
+        useServer ? parsedServerMode : (initialLocalRole ?? fallbackRole);
     setCurrentRole(restoredRole);
 
     if (restoredRole == UserRole.customer) {
@@ -160,6 +169,8 @@ class RoleController extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_localModeKey(userId), role.name);
       await prefs.setInt(_localModeUpdatedAtKey(userId), updatedAtMs);
+      await prefs.setString(_fallbackLocalModeKey, role.name);
+      await prefs.setInt(_fallbackLocalModeUpdatedAtKey, updatedAtMs);
       if (role == UserRole.driver) {
         await prefs.remove(_localProtectionExpiryKey(userId));
       }
@@ -409,6 +420,9 @@ class RoleController extends ChangeNotifier {
   static String _localModeKey(String userId) => 'active_mode_$userId';
   static String _localModeUpdatedAtKey(String userId) =>
       'active_mode_updated_at_$userId';
+  static const String _fallbackLocalModeKey = 'active_mode_last';
+  static const String _fallbackLocalModeUpdatedAtKey =
+      'active_mode_last_updated_at';
   static String _localProtectionExpiryKey(String userId) =>
       'active_trip_protection_expires_at_$userId';
 

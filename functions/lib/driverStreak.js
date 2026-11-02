@@ -463,7 +463,7 @@ async function handleTripCompletion(tripId, after) {
     // ── Step 1: Canonical Atomic Settlement Transaction ───────────────────────
     let shouldProceedWithReferralsAndRewards = false;
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         // STRICT ORDERING: All reads executed first
         const liveTripSnap = await tx.get(tripRef);
         if (!liveTripSnap.exists) {
@@ -471,10 +471,16 @@ async function handleTripCompletion(tripId, after) {
             return;
         }
         const liveTrip = liveTripSnap.data();
-        // Idempotency check: if commission or full settlement is already complete, abort safely
-        if (((_a = liveTrip.settlement) === null || _a === void 0 ? void 0 : _a.settled) === true ||
-            ((_b = liveTrip.settlement) === null || _b === void 0 ? void 0 : _b.commissionSettled) === true) {
-            console.log(`handleTripCompletion[${tripId}]: already settled, skipping duplicate run`);
+        // Idempotency & status guard: trip must be COMPLETED and not already settled or cancelled
+        const tripStatus = String((_a = liveTrip.status) !== null && _a !== void 0 ? _a : "");
+        if (tripStatus !== "COMPLETED") {
+            console.warn(`handleTripCompletion[${tripId}]: status is '${tripStatus}', not 'COMPLETED'. Aborting settlement.`);
+            return;
+        }
+        if (((_b = liveTrip.settlement) === null || _b === void 0 ? void 0 : _b.settled) === true ||
+            ((_c = liveTrip.settlement) === null || _c === void 0 ? void 0 : _c.commissionSettled) === true ||
+            ((_d = liveTrip.settlement) === null || _d === void 0 ? void 0 : _d.cancellationSettled) === true) {
+            console.log(`handleTripCompletion[${tripId}]: already settled or cancelled, skipping duplicate run`);
             return;
         }
         const custWalletSnap = custWalletRef ? await tx.get(custWalletRef) : null;
@@ -587,11 +593,11 @@ async function handleTripCompletion(tripId, after) {
             tx.set(custUserRef, { completedTrips: admin.firestore.FieldValue.increment(1) }, { merge: true });
         }
         // 6. Settle Trip Wallet Escrow & Credit Driver Virtual Wallet
-        const walletCoverage = Number((_f = (_e = (_c = liveTrip.walletCoverageAmount) !== null && _c !== void 0 ? _c : (_d = liveTrip.paymentBreakdown) === null || _d === void 0 ? void 0 : _d.walletCoverageAmount) !== null && _e !== void 0 ? _e : after["walletCoverageAmount"]) !== null && _f !== void 0 ? _f : 0);
+        const walletCoverage = Number((_h = (_g = (_e = liveTrip.walletCoverageAmount) !== null && _e !== void 0 ? _e : (_f = liveTrip.paymentBreakdown) === null || _f === void 0 ? void 0 : _f.walletCoverageAmount) !== null && _g !== void 0 ? _g : after["walletCoverageAmount"]) !== null && _h !== void 0 ? _h : 0);
         if (walletCoverage > 0 && !liveTrip.walletSettledAt) {
             const coverageKobo = nairaToKobo(walletCoverage);
             const custWData = (custWalletSnap === null || custWalletSnap === void 0 ? void 0 : custWalletSnap.exists) ? custWalletSnap.data() : {};
-            const currentCustEscrow = Number((_g = custWData["escrowBalance"]) !== null && _g !== void 0 ? _g : walletCoverage);
+            const currentCustEscrow = Number((_j = custWData["escrowBalance"]) !== null && _j !== void 0 ? _j : walletCoverage);
             const newCustEscrow = Math.max(0, currentCustEscrow - walletCoverage);
             // Finalize debit on customer's wallet (deduct from main balance, clear escrow safely)
             if (custWalletRef) {
@@ -678,7 +684,7 @@ async function handleTripCompletion(tripId, after) {
         tx.update(tripRef, tripUpdate);
         persistTripChangeLogInTx(tx, {
             tripId,
-            from: String((_h = liveTrip.status) !== null && _h !== void 0 ? _h : "IN_PROGRESS"),
+            from: String((_k = liveTrip.status) !== null && _k !== void 0 ? _k : "IN_PROGRESS"),
             to: "COMPLETED",
             actor: driverId,
             role: "driver",
@@ -766,7 +772,7 @@ async function handleTripCancellationSettlement(params) {
     const { tripId, cancelledBy, actorId, role, reason, paidWaitingFee, useCashSettlement } = params;
     const tripRef = db().collection("trips").doc(tripId);
     return await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
         // 1. ALL READS FIRST (Firestore transaction invariant)
         const tripSnap = await tx.get(tripRef);
         if (!tripSnap.exists) {
@@ -774,25 +780,28 @@ async function handleTripCancellationSettlement(params) {
         }
         const trip = tripSnap.data();
         const currentStatus = String((_a = trip.status) !== null && _a !== void 0 ? _a : "");
-        // Terminal completion guard
-        if (currentStatus === "COMPLETED") {
-            throw new https_1.HttpsError("failed-precondition", "Cannot cancel an already completed trip.");
+        // Terminal completion / completion settlement guard
+        if (currentStatus === "COMPLETED" ||
+            ((_b = trip.settlement) === null || _b === void 0 ? void 0 : _b.commissionSettled) === true ||
+            (((_c = trip.settlement) === null || _c === void 0 ? void 0 : _c.settled) === true && !((_d = trip.settlement) === null || _d === void 0 ? void 0 : _d.cancellationSettled))) {
+            throw new https_1.HttpsError("failed-precondition", "Cannot cancel an already completed or settled trip.");
         }
         // Idempotency check: if already cancelled and settled, return safely
         if ((currentStatus === "CANCELLED" ||
             currentStatus === "CANCELLED_BY_CUSTOMER" ||
-            currentStatus === "CANCELLED_BY_DRIVER") &&
-            ((_b = trip.settlement) === null || _b === void 0 ? void 0 : _b.cancellationSettled) === true) {
+            currentStatus === "CANCELLED_BY_DRIVER" ||
+            currentStatus === "CANCELLED_WAITING_CASH_SETTLEMENT") &&
+            ((_e = trip.settlement) === null || _e === void 0 ? void 0 : _e.cancellationSettled) === true) {
             return {
                 ok: true,
                 alreadyCancelled: true,
                 status: currentStatus,
-                paidWaitingFee: Number((_c = trip.paidWaitingFee) !== null && _c !== void 0 ? _c : 0),
+                paidWaitingFee: Number((_f = trip.paidWaitingFee) !== null && _f !== void 0 ? _f : 0),
                 escrowRefunded: 0,
             };
         }
-        const customerId = String((_e = (_d = trip.customerId) !== null && _d !== void 0 ? _d : trip.userId) !== null && _e !== void 0 ? _e : "");
-        const driverId = String((_h = (_g = (_f = trip.driver) === null || _f === void 0 ? void 0 : _f.driverId) !== null && _g !== void 0 ? _g : trip.driverId) !== null && _h !== void 0 ? _h : "");
+        const customerId = String((_h = (_g = trip.customerId) !== null && _g !== void 0 ? _g : trip.userId) !== null && _h !== void 0 ? _h : "");
+        const driverId = String((_l = (_k = (_j = trip.driver) === null || _j === void 0 ? void 0 : _j.driverId) !== null && _k !== void 0 ? _k : trip.driverId) !== null && _l !== void 0 ? _l : "");
         const custWalletRef = customerId ? db().collection("wallets").doc(customerId) : null;
         const driverWalletRef = driverId ? db().collection("wallets").doc(driverId) : null;
         const custUserRef = customerId ? db().collection("users").doc(customerId) : null;
@@ -801,9 +810,9 @@ async function handleTripCancellationSettlement(params) {
             await tx.get(driverWalletRef);
         const custUserSnap = custUserRef ? await tx.get(custUserRef) : null;
         // 2. FINANCIAL CALCULATIONS & INVARIANT CHECKS
-        const walletCoverage = Number((_l = (_j = trip.walletCoverageAmount) !== null && _j !== void 0 ? _j : (_k = trip.paymentBreakdown) === null || _k === void 0 ? void 0 : _k.walletCoverageAmount) !== null && _l !== void 0 ? _l : 0);
+        const walletCoverage = Number((_p = (_m = trip.walletCoverageAmount) !== null && _m !== void 0 ? _m : (_o = trip.paymentBreakdown) === null || _o === void 0 ? void 0 : _o.walletCoverageAmount) !== null && _p !== void 0 ? _p : 0);
         const isEscrowLocked = trip.escrowLocked !== false && !trip.escrowRefundedAt;
-        const currentCustEscrow = Number((_o = (_m = custWalletSnap === null || custWalletSnap === void 0 ? void 0 : custWalletSnap.data()) === null || _m === void 0 ? void 0 : _m.escrowBalance) !== null && _o !== void 0 ? _o : walletCoverage);
+        const currentCustEscrow = Number((_r = (_q = custWalletSnap === null || custWalletSnap === void 0 ? void 0 : custWalletSnap.data()) === null || _q === void 0 ? void 0 : _q.escrowBalance) !== null && _r !== void 0 ? _r : walletCoverage);
         const refundAmount = (isEscrowLocked && walletCoverage > 0) ? walletCoverage : 0;
         const newCustEscrow = Math.max(0, currentCustEscrow - refundAmount); // Invariant: no negative escrow
         const waitingFee = Math.max(0, Number(paidWaitingFee !== null && paidWaitingFee !== void 0 ? paidWaitingFee : 0));
@@ -820,7 +829,7 @@ async function handleTripCancellationSettlement(params) {
             const currentBalance = typeof wData.mainWalletBalance === "number"
                 ? wData.mainWalletBalance
                 : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
-            const isTrustedCustomer = Number((_p = uData.completedTripCount) !== null && _p !== void 0 ? _p : 0) >= 5;
+            const isTrustedCustomer = Number((_s = uData.completedTripCount) !== null && _s !== void 0 ? _s : 0) >= 5;
             if (currentBalance < waitingFee && !isTrustedCustomer) {
                 throw new https_1.HttpsError("failed-precondition", `INSUFFICIENT_FUNDS: Your wallet balance (₦${currentBalance}) is insufficient for the ₦${waitingFee} paid waiting fee.`);
             }

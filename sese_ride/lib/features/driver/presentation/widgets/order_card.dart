@@ -64,7 +64,10 @@ class _OrderCardState extends State<OrderCard> {
   @override
   void didUpdateWidget(covariant OrderCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trip.pickupLat != widget.trip.pickupLat ||
+    if (oldWidget.trip.fareAmount != widget.trip.fareAmount ||
+        oldWidget.trip.fareFormatted != widget.trip.fareFormatted ||
+        oldWidget.trip.fareBoosted != widget.trip.fareBoosted ||
+        oldWidget.trip.pickupLat != widget.trip.pickupLat ||
         oldWidget.trip.pickupLng != widget.trip.pickupLng ||
         oldWidget.trip.dropoffLat != widget.trip.dropoffLat ||
         oldWidget.trip.dropoffLng != widget.trip.dropoffLng ||

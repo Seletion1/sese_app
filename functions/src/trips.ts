@@ -18,6 +18,7 @@ import {
   persistTripChangeLogInTx,
 } from "./driverStreak";
 import { roundToNearest100 } from "./pricing";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 /**
  * Live dispatch state machine (server-authoritative).
@@ -585,6 +586,14 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     throw new HttpsError("unauthenticated", "You must sign in to book.");
   }
   const customerId = request.auth.uid;
+
+  // ── Security gates (run before all booking logic) ─────────────────────────
+  // App Check: reject calls from scripts / re-signed APKs lacking a valid
+  // attestation token so that the callable cannot be used as an open booking API.
+  enforceAppCheck(request);
+  // Suspension gate: banned customers cannot create trips even when SDK-cached
+  // Firestore rules have not yet propagated.
+  await requireAccountActive(customerId, "customer");
   const d = request.data ?? {};
 
   const pickupPhone = normalizePhone(d.pickupPhone ?? d.pickup?.phone);
@@ -1525,6 +1534,13 @@ export const acceptTrip = onCall(async (request) => {
   const tripId = String(request.data?.tripId ?? "");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
 
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  // The driver-record suspension check happens inside the transaction below
+  // (verification status), but we also gate on the shared user record here
+  // so a banned driver with a still-valid driver doc cannot slip through.
+  await requireAccountActive(driverId, "driver");
+
   const snapshot = await driverSnapshot(driverId);
   await db().runTransaction(async (tx) => {
     const ref = db().collection("trips").doc(tripId);
@@ -1741,6 +1757,10 @@ export const declineTrip = onCall(async (request) => {
   const tripId = String(request.data?.tripId ?? "");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
 
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  await requireAccountActive(driverId, "driver");
+
   const tripRef = db().collection("trips").doc(tripId);
   const tuning = await getDispatchTuning();
   const rawAction = String(request.data?.action ?? request.data?.reason ?? "").toLowerCase();
@@ -1888,6 +1908,9 @@ export const advanceTripStatus = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "driver");
   const { tripId, status, expectedStatus } = request.data ?? {};
   if (!tripId || typeof status !== "string") {
     throw new HttpsError("invalid-argument", "tripId + status required.");
@@ -2093,6 +2116,11 @@ export const cancelTrip = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
+  // ── Security gates ────────────────────────────────────────────────────────
+  // Cancelation can have financial consequences (waiting-fee settlement),
+  // so App Check + suspension gate apply.
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid);
   const tripId = String(request.data?.tripId ?? "");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
   const ref = db().collection("trips").doc(tripId);
@@ -2385,6 +2413,10 @@ export const submitBid = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Drivers must sign in to bid.");
   }
   const driverId = request.auth.uid;
+
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  await requireAccountActive(driverId, "driver");
   const { tripId, offeredFare, etaMinutes } = request.data ?? {};
   if (!tripId || typeof offeredFare !== "number" || offeredFare <= 0) {
     throw new HttpsError(

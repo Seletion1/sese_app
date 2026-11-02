@@ -716,27 +716,30 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final trip = widget.trip;
-    final baseline = trip.fareAmount;
-    final plus5Val = _roundTo100(baseline * 1.05);
-    final plus10Val = _roundTo100(baseline * 1.10);
+    return StreamBuilder<ActiveTrip?>(
+      stream: FirestoreTripRepository().tripStream(widget.trip.tripId),
+      builder: (context, snap) {
+        final trip = snap.data ?? widget.trip;
+        final scheme = Theme.of(context).colorScheme;
+        final baseline = trip.fareAmount;
+        final plus5Val = _roundTo100(baseline * 1.05);
+        final plus10Val = _roundTo100(baseline * 1.10);
 
-    const distanceCalc = Distance();
-    final pickupKm =
-        distanceCalc.as(LengthUnit.Kilometer, widget.driverPosition, _pickup);
-    final pickupEtaMins = ((pickupKm / 30.0) * 60).round().clamp(1, 120);
-    final tripDurationMins = trip.durationMins > 0
-        ? trip.durationMins
-        : ((trip.distanceKm / 30.0) * 60).round().clamp(2, 240);
+        const distanceCalc = Distance();
+        final pickupKm =
+            distanceCalc.as(LengthUnit.Kilometer, widget.driverPosition, _pickup);
+        final pickupEtaMins = ((pickupKm / 30.0) * 60).round().clamp(1, 120);
+        final tripDurationMins = trip.durationMins > 0
+            ? trip.durationMins
+            : ((trip.distanceKm / 30.0) * 60).round().clamp(2, 240);
 
-    final senderName =
-        trip.customerName.isNotEmpty ? trip.customerName : 'Sender';
-    final fareLabel = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '${widget.currencySymbol}${_formatAmount(baseline)}';
+        final senderName =
+            trip.customerName.isNotEmpty ? trip.customerName : 'Sender';
+        final fareLabel = trip.fareFormatted.isNotEmpty
+            ? trip.fareFormatted
+            : '${widget.currencySymbol}${_formatAmount(baseline)}';
 
-    return SizedBox(
+        return SizedBox(
       height: MediaQuery.of(context).size.height,
       width: MediaQuery.of(context).size.width,
       child: Stack(
@@ -1293,6 +1296,8 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
           ),
         ],
       ),
+    );
+      },
     );
   }
 }

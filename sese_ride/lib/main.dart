@@ -369,32 +369,37 @@ class _AuthGateState extends State<_AuthGate> {
               if (modeSnapshot.connectionState != ConnectionState.done) {
                 return const Scaffold(body: SizedBox.shrink());
               }
-              final activeRole = modeSnapshot.data ?? user.role;
-              switch (activeRole) {
-                case UserRole.customer:
-                  return PermissionOnboardingGate.wrap(
-                    user: user,
-                    role: UserRole.customer,
-                    auth: _auth,
-                    child: CustomerHomeShell(user: user, auth: _auth),
-                  );
-                case UserRole.driver:
-                  return PermissionOnboardingGate.wrap(
-                    user: user,
-                    role: UserRole.driver,
-                    auth: _auth,
-                    child: DriverHomeShell(user: user, auth: _auth),
-                  );
-                case UserRole.admin:
-                case UserRole.superRole:
-                case UserRole.agent:
-                  return PermissionOnboardingGate.wrap(
-                    user: user,
-                    role: UserRole.customer,
-                    auth: _auth,
-                    child: CustomerHomeShell(user: user, auth: _auth),
-                  );
-              }
+              return ListenableBuilder(
+                listenable: RoleController.instance,
+                builder: (context, _) {
+                  final activeRole = RoleController.instance.currentRole;
+                  switch (activeRole) {
+                    case UserRole.customer:
+                      return PermissionOnboardingGate.wrap(
+                        user: user,
+                        role: UserRole.customer,
+                        auth: _auth,
+                        child: CustomerHomeShell(user: user, auth: _auth),
+                      );
+                    case UserRole.driver:
+                      return PermissionOnboardingGate.wrap(
+                        user: user,
+                        role: UserRole.driver,
+                        auth: _auth,
+                        child: DriverHomeShell(user: user, auth: _auth),
+                      );
+                    case UserRole.admin:
+                    case UserRole.superRole:
+                    case UserRole.agent:
+                      return PermissionOnboardingGate.wrap(
+                        user: user,
+                        role: UserRole.customer,
+                        auth: _auth,
+                        child: CustomerHomeShell(user: user, auth: _auth),
+                      );
+                  }
+                },
+              );
             },
           );
         }

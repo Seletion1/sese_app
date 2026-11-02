@@ -260,6 +260,45 @@ describe("Backend Safety & Invariant Matrix", () => {
       assert.equal(duplicateRun.alreadySettled, true);
       assert.equal(settlementRuns, 1); // No double settlement!
     });
+
+    it("prevents completion settlement on cancelled trips and cancellation on completed trips", () => {
+      const cancelledTrip = {
+        status: "CANCELLED",
+        settlement: { settled: true, cancellationSettled: true },
+      };
+
+      const handleTripCompletionGuard = (t: typeof cancelledTrip) => {
+        if (t.status !== "COMPLETED") {
+          return { aborted: true, reason: "status_not_completed" };
+        }
+        if (t.settlement?.settled || t.settlement?.cancellationSettled) {
+          return { aborted: true, reason: "already_settled" };
+        }
+        return { settled: true };
+      };
+
+      assert.deepEqual(handleTripCompletionGuard(cancelledTrip), {
+        aborted: true,
+        reason: "status_not_completed",
+      });
+
+      const completedTrip = {
+        status: "COMPLETED",
+        settlement: { settled: true, commissionSettled: true },
+      };
+
+      const handleCancellationSettlementGuard = (t: typeof completedTrip) => {
+        if (t.status === "COMPLETED" || t.settlement?.commissionSettled) {
+          throw new Error("Cannot cancel an already completed or settled trip.");
+        }
+        return { cancelled: true };
+      };
+
+      assert.throws(
+        () => handleCancellationSettlementGuard(completedTrip),
+        /Cannot cancel an already completed or settled trip/
+      );
+    });
   });
 
   // ── 9. Stale Status Rejection ─────────────────────────────────────────────

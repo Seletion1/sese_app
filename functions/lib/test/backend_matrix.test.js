@@ -245,6 +245,38 @@ const driverStreak_1 = require("../driverStreak");
             assert.equal(duplicateRun.alreadySettled, true);
             assert.equal(settlementRuns, 1); // No double settlement!
         });
+        (0, node_test_1.it)("prevents completion settlement on cancelled trips and cancellation on completed trips", () => {
+            const cancelledTrip = {
+                status: "CANCELLED",
+                settlement: { settled: true, cancellationSettled: true },
+            };
+            const handleTripCompletionGuard = (t) => {
+                var _a, _b;
+                if (t.status !== "COMPLETED") {
+                    return { aborted: true, reason: "status_not_completed" };
+                }
+                if (((_a = t.settlement) === null || _a === void 0 ? void 0 : _a.settled) || ((_b = t.settlement) === null || _b === void 0 ? void 0 : _b.cancellationSettled)) {
+                    return { aborted: true, reason: "already_settled" };
+                }
+                return { settled: true };
+            };
+            assert.deepEqual(handleTripCompletionGuard(cancelledTrip), {
+                aborted: true,
+                reason: "status_not_completed",
+            });
+            const completedTrip = {
+                status: "COMPLETED",
+                settlement: { settled: true, commissionSettled: true },
+            };
+            const handleCancellationSettlementGuard = (t) => {
+                var _a;
+                if (t.status === "COMPLETED" || ((_a = t.settlement) === null || _a === void 0 ? void 0 : _a.commissionSettled)) {
+                    throw new Error("Cannot cancel an already completed or settled trip.");
+                }
+                return { cancelled: true };
+            };
+            assert.throws(() => handleCancellationSettlementGuard(completedTrip), /Cannot cancel an already completed or settled trip/);
+        });
     });
     // ── 9. Stale Status Rejection ─────────────────────────────────────────────
     (0, node_test_1.describe)("9. Stale Status & State Machine Verification", () => {

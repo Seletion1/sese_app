@@ -286,40 +286,7 @@ class FirestoreTripRepository implements TripRepository {
     }
   }
 
-  // ── Bidding ────────────────────────────────────────────────────────────────
-
-  @override
-  Future<void> submitBid(
-    String tripId,
-    double offeredFare, {
-    int? etaMinutes,
-  }) async {
-    await _ensureFreshAuthToken();
-    try {
-      final payload = <String, dynamic>{
-        'tripId': tripId,
-        'offeredFare': offeredFare,
-      };
-      if (etaMinutes != null) payload['etaMinutes'] = etaMinutes;
-      await _fn.httpsCallable('submitBid').call(payload);
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
-  }
-
-  @override
-  Future<void> rejectBid(String tripId, String driverId) async {
-    try {
-      await _fn.httpsCallable('rejectBid').call({
-        'tripId': tripId,
-        'driverId': driverId,
-      });
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
-  }
-
-  Future<void> _ensureFreshAuthToken() async {
+  Future<T> _callWithAuthRetry<T>(Future<T> Function() callable) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       throw const TripException(
@@ -328,57 +295,74 @@ class FirestoreTripRepository implements TripRepository {
       );
     }
     try {
-      // Refresh token if needed
-      await user.getIdToken();
-    } catch (_) {
-      try {
-        await user.getIdToken(true);
-      } catch (e) {
-        debugPrint('FirestoreTripRepository token refresh failure: $e');
-        throw const TripException(
-          'unauthenticated',
-          'Your session has expired. Please sign in again.',
-        );
+      return await callable();
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'unauthenticated') {
+        debugPrint('FirestoreTripRepository: unauthenticated response, refreshing token and retrying...');
+        try {
+          await user.getIdToken(true);
+          return await callable();
+        } catch (retryErr) {
+          debugPrint('FirestoreTripRepository: token refresh retry failed: $retryErr');
+          throw TripException('unauthenticated', _mapError('unauthenticated', e.message));
+        }
       }
+      throw TripException(e.code, _mapError(e.code, e.message));
+    } catch (e) {
+      if (e is TripException) rethrow;
+      debugPrint('FirestoreTripRepository call error: $e');
+      throw const TripException(
+        'network-error',
+        'Could not reach the dispatch server. Check your connection and try again.',
+      );
     }
+  }
+
+  // ── Bidding ────────────────────────────────────────────────────────────────
+
+  @override
+  Future<void> submitBid(
+    String tripId,
+    double offeredFare, {
+    int? etaMinutes,
+  }) async {
+    final payload = <String, dynamic>{
+      'tripId': tripId,
+      'offeredFare': offeredFare,
+    };
+    if (etaMinutes != null) payload['etaMinutes'] = etaMinutes;
+    await _callWithAuthRetry(() => _fn.httpsCallable('submitBid').call(payload));
+  }
+
+  @override
+  Future<void> rejectBid(String tripId, String driverId) async {
+    await _callWithAuthRetry(() => _fn.httpsCallable('rejectBid').call({
+      'tripId': tripId,
+      'driverId': driverId,
+    }));
   }
 
   @override
   Future<void> acceptBid(String tripId, String driverId) async {
-    await _ensureFreshAuthToken();
-    try {
-      await _fn.httpsCallable('acceptBid').call({
-        'tripId': tripId,
-        'driverId': driverId,
-      });
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
+    await _callWithAuthRetry(() => _fn.httpsCallable('acceptBid').call({
+      'tripId': tripId,
+      'driverId': driverId,
+    }));
   }
 
   @override
   Future<void> increaseTripFare(String tripId, double newFare) async {
-    await _ensureFreshAuthToken();
-    try {
-      await _fn.httpsCallable('increaseTripFare').call({
-        'tripId': tripId,
-        'newFare': newFare,
-      });
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
+    await _callWithAuthRetry(() => _fn.httpsCallable('increaseTripFare').call({
+      'tripId': tripId,
+      'newFare': newFare,
+    }));
   }
 
   @override
   Future<void> keepSearchingTrip(String tripId) async {
-    await _ensureFreshAuthToken();
-    try {
-      await _fn.httpsCallable('keepSearchingTrip').call({
-        'tripId': tripId,
-      });
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
+    await _callWithAuthRetry(() => _fn.httpsCallable('keepSearchingTrip').call({
+      'tripId': tripId,
+    }));
   }
 
   @override

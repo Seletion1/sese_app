@@ -604,12 +604,20 @@ export async function handleTripCompletion(
     }
     const liveTrip = liveTripSnap.data()!;
 
-    // Idempotency check: if commission or full settlement is already complete, abort safely
+    // Idempotency & status guard: trip must be COMPLETED and not already settled or cancelled
+    const tripStatus = String(liveTrip.status ?? "");
+    if (tripStatus !== "COMPLETED") {
+      console.warn(
+        `handleTripCompletion[${tripId}]: status is '${tripStatus}', not 'COMPLETED'. Aborting settlement.`
+      );
+      return;
+    }
     if (
       liveTrip.settlement?.settled === true ||
-      liveTrip.settlement?.commissionSettled === true
+      liveTrip.settlement?.commissionSettled === true ||
+      liveTrip.settlement?.cancellationSettled === true
     ) {
-      console.log(`handleTripCompletion[${tripId}]: already settled, skipping duplicate run`);
+      console.log(`handleTripCompletion[${tripId}]: already settled or cancelled, skipping duplicate run`);
       return;
     }
 
@@ -1013,16 +1021,21 @@ export async function handleTripCancellationSettlement(
     const trip = tripSnap.data()!;
     const currentStatus = String(trip.status ?? "");
 
-    // Terminal completion guard
-    if (currentStatus === "COMPLETED") {
-      throw new HttpsError("failed-precondition", "Cannot cancel an already completed trip.");
+    // Terminal completion / completion settlement guard
+    if (
+      currentStatus === "COMPLETED" ||
+      trip.settlement?.commissionSettled === true ||
+      (trip.settlement?.settled === true && !trip.settlement?.cancellationSettled)
+    ) {
+      throw new HttpsError("failed-precondition", "Cannot cancel an already completed or settled trip.");
     }
 
     // Idempotency check: if already cancelled and settled, return safely
     if (
       (currentStatus === "CANCELLED" ||
        currentStatus === "CANCELLED_BY_CUSTOMER" ||
-       currentStatus === "CANCELLED_BY_DRIVER") &&
+       currentStatus === "CANCELLED_BY_DRIVER" ||
+       currentStatus === "CANCELLED_WAITING_CASH_SETTLEMENT") &&
       trip.settlement?.cancellationSettled === true
     ) {
       return {

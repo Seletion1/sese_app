@@ -307,7 +307,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _allConfigs = configs;
       if (!silent) {
         _paystackPublicKeyCtrl.text = remoteKeys.paystackPublicKey;
-      _paystackSecretKeyCtrl.text = remoteKeys.paystackSecretKey;
+      // SECURITY: The Paystack secret key is server-only and is never loaded
+      // back into the client. The field below is write-only — enter the key
+      // to update it; leave blank to keep the existing server-side value.
+      // _paystackSecretKeyCtrl.text is intentionally NOT populated here.
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
       _cartoApiKeyCtrl.text = remoteKeys.cartoApiKey;
@@ -680,47 +683,77 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         }
       }
 
-      // Save Remote Keys & API Config
-      await const RemoteKeysService().saveRemoteKeys(
-        RemoteKeysConfig(
-          paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
-          paystackSecretKey: _paystackSecretKeyCtrl.text.trim(),
-          googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
-          mapboxToken: _mapboxApiKeyCtrl.text.trim(),
-          cartoApiKey: _cartoApiKeyCtrl.text.trim(),
-          mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
-              ? _mapboxStyleCtrl.text.trim()
-              : GlobalMapConfig.defaultMapboxStyle,
-          featureProviders: Map<String, String>.from(_featureProviders),
-          exchangeRateApiKey: _exchangeRateApiKeyCtrl.text.trim(),
-          resendApiKey: _resendApiKeyCtrl.text.trim(),
-          activeMapProvider: _activeMapProvider,
-          osmTileServerUrl: _osmTileServerUrlCtrl.text.trim(),
-          manualOverrideProvider:
-              _manualOverrideProvider == 'auto' ? '' : _manualOverrideProvider,
-          minimumWalletTopUp:
-              double.tryParse(_remoteMinTopUpCtrl.text.trim()) ?? 1300.0,
-          withdrawalPayoutThreshold:
-              double.tryParse(_remoteWithdrawalThresholdCtrl.text.trim()) ?? 20000.0,
-          appMaintenanceMode: _appMaintenanceMode,
-          splitPaymentMasterEnabled: _splitPaymentMasterEnabled,
-          forceDeliveryPinSystemWide: _forceDeliveryPinSystemWide,
-          maxCashTripAmountNaira:
-              double.tryParse(_maxCashTripAmountCtrl.text.trim()) ?? 50000.0,
-          requireDriverCashVerification: _requireDriverCashVerification,
-          driverBreakOption1Minutes:
-              int.tryParse(_driverBreakOption1Ctrl.text.trim()) ?? 30,
-          driverBreakOption2Minutes:
-              int.tryParse(_driverBreakOption2Ctrl.text.trim()) ?? 60,
-          driverBreakEnabled: _driverBreakEnabled,
-          googleMonthlyCap:
-              int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
-          mapboxMonthlyCap:
-              int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
-          cartoMonthlyCap:
-              int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
-        ),
+      // Save Remote Keys & API Config.
+      // Note: RemoteKeysConfig.toMap() intentionally omits `paystackSecretKey`
+      // so that customer-app SDK writes never echo the secret back. The Hub
+      // persists the secret via a targeted merge immediately after, scoped
+      // only to the fields the operator explicitly typed in.
+      final remoteKeysConfig = RemoteKeysConfig(
+        paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
+        googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
+        mapboxToken: _mapboxApiKeyCtrl.text.trim(),
+        cartoApiKey: _cartoApiKeyCtrl.text.trim(),
+        mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
+            ? _mapboxStyleCtrl.text.trim()
+            : GlobalMapConfig.defaultMapboxStyle,
+        featureProviders: Map<String, String>.from(_featureProviders),
+        exchangeRateApiKey: _exchangeRateApiKeyCtrl.text.trim(),
+        resendApiKey: _resendApiKeyCtrl.text.trim(),
+        activeMapProvider: _activeMapProvider,
+        osmTileServerUrl: _osmTileServerUrlCtrl.text.trim(),
+        manualOverrideProvider:
+            _manualOverrideProvider == 'auto' ? '' : _manualOverrideProvider,
+        minimumWalletTopUp:
+            double.tryParse(_remoteMinTopUpCtrl.text.trim()) ?? 1300.0,
+        withdrawalPayoutThreshold:
+            double.tryParse(_remoteWithdrawalThresholdCtrl.text.trim()) ?? 20000.0,
+        appMaintenanceMode: _appMaintenanceMode,
+        splitPaymentMasterEnabled: _splitPaymentMasterEnabled,
+        forceDeliveryPinSystemWide: _forceDeliveryPinSystemWide,
+        maxCashTripAmountNaira:
+            double.tryParse(_maxCashTripAmountCtrl.text.trim()) ?? 50000.0,
+        requireDriverCashVerification: _requireDriverCashVerification,
+        driverBreakOption1Minutes:
+            int.tryParse(_driverBreakOption1Ctrl.text.trim()) ?? 30,
+        driverBreakOption2Minutes:
+            int.tryParse(_driverBreakOption2Ctrl.text.trim()) ?? 60,
+        driverBreakEnabled: _driverBreakEnabled,
+        googleMonthlyCap:
+            int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
+        mapboxMonthlyCap:
+            int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
+        cartoMonthlyCap:
+            int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
       );
+      await const RemoteKeysService().saveRemoteKeys(remoteKeysConfig);
+
+      // ── Secret-key targeted merge (Hub admin only) ──────────────────────
+      // The Paystack secret is written as a separate targeted Firestore
+      // merge ONLY when the Hub operator explicitly typed a non-empty value
+      // into the write-only field. An empty field means "keep existing" —
+      // no write occurs, so a stale empty field never accidentally clears
+      // a valid server-side secret.
+      //
+      // SECURITY: This path executes only inside the authenticated Hub app
+      // whose Firestore rules restrict `system_config/remote_keys` writes to
+      // `isHubStaff()` (Hub-role authenticated users). Customer-app builds
+      // never reach this path because the field is absent from their code.
+      final enteredSecret = _paystackSecretKeyCtrl.text.trim();
+      if (enteredSecret.isNotEmpty &&
+          (enteredSecret.startsWith('sk_test_') ||
+              enteredSecret.startsWith('sk_live_'))) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('system_config')
+              .doc('remote_keys')
+              .set({'paystackSecretKey': enteredSecret}, SetOptions(merge: true));
+          // Clear the field after saving so the secret is not resident in RAM
+          // longer than necessary.
+          _paystackSecretKeyCtrl.clear();
+        } catch (e) {
+          debugPrint('GlobalConfigScreen: secret key save warning: $e');
+        }
+      }
 
       MapConfigController.instance.updateConfig(
         GlobalMapConfig(
@@ -1016,7 +1049,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     controller: _paystackSecretKeyCtrl,
                     obscureText: _obscurePaystackSecret,
                     decoration: InputDecoration(
-                      labelText: 'Paystack Secret Key',
+                      labelText: 'Paystack Secret Key (write-only)',
+                      helperText:
+                          'Leave blank to keep current server value. '
+                          'Only sk_test_… or sk_live_… accepted.',
+                      helperMaxLines: 2,
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         icon: Icon(

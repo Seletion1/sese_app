@@ -40,6 +40,7 @@ const node_crypto_1 = require("node:crypto");
 const https_1 = require("firebase-functions/v2/https");
 const payouts_1 = require("./payouts");
 const transactionPin_1 = require("./transactionPin");
+const accountGuard_1 = require("./accountGuard");
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
  *
@@ -145,6 +146,12 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to pay.");
     }
     const uid = request.auth.uid;
+    // ── Security gates (must run before any business logic) ───────────────
+    // App Check: rejects calls from non-genuine app builds / scripts.
+    (0, accountGuard_1.enforceAppCheck)(request);
+    // Suspension gate: banned/suspended users cannot initiate payments even
+    // when Firestore rules have not yet propagated to all SDK caches.
+    await (0, accountGuard_1.requireAccountActive)(uid, "customer");
     // Transaction-PIN gate: verified server-side before initializing Paystack payment intent.
     await (0, transactionPin_1.requireValidPin)(uid, (_a = request.data) === null || _a === void 0 ? void 0 : _a.transactionPin);
     const secret = await paystackSecret();
@@ -327,6 +334,9 @@ exports.verifyPayment = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
+    // ── Security gates ────────────────────────────────────────────────────────
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "customer");
     const reference = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.reference) !== null && _b !== void 0 ? _b : "").trim();
     if (!reference) {
         throw new https_1.HttpsError("invalid-argument", "reference is required.");

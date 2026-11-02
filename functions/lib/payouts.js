@@ -40,6 +40,7 @@ exports.settleTransfer = settleTransfer;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const transactionPin_1 = require("./transactionPin");
+const accountGuard_1 = require("./accountGuard");
 const db = () => admin.firestore();
 const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== void 0 ? _a : "https://api.paystack.co";
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
@@ -243,6 +244,9 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
     const uid = request.auth.uid;
+    // ── Security gates ──────────────────────────────────────────────────────
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(uid, "customer");
     const secret = paystackSecret();
     // Transaction-PIN gate FIRST: verified server-side before the balance
     // is even re-read inside the debit transaction. Skipping the app prompt

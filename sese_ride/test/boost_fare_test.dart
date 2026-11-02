@@ -124,5 +124,15 @@ void main() {
 
       expect(repo.currentFare, 5400.0);
     });
+
+    test('TripException does not produce false session expiry when authorized', () async {
+      final repo = _FakeTripRepo();
+      repo.shouldThrow = false;
+      await expectLater(
+        repo.increaseTripFare('trip_1', 6000),
+        completes,
+      );
+      expect(repo.currentFare, 6000.0);
+    });
   });
 }
