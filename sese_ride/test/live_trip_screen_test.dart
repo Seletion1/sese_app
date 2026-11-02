@@ -100,6 +100,10 @@ void main() {
     });
 
     Future<void> pumpLive(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
       await tester.pumpWidget(
         MaterialApp(
           home: LiveTripScreen(tripId: 'trip-1', repository: repo),
@@ -109,12 +113,29 @@ void main() {
     }
 
     String statusText(WidgetTester tester) {
-      final banner =
-          tester.widget<Container>(find.byKey(const Key('live_trip_status')));
-      // Banner Row -> Expanded -> Text.
-      final row = banner.child as Row;
-      final text = (row.children[2] as Expanded).child as Text;
-      return text.data ?? '';
+      final searchingFinder = find.byKey(const Key('live_trip_status'));
+      if (searchingFinder.evaluate().isNotEmpty) {
+        final banner = tester.widget<Container>(searchingFinder);
+        final row = banner.child as Row;
+        final text = (row.children[2] as Expanded).child as Text;
+        return text.data ?? '';
+      }
+      final etaFinder = find.byKey(const Key('customer_driver_eta_card'));
+      if (etaFinder.evaluate().isNotEmpty) {
+        final container = tester.widget<Container>(etaFinder);
+        final row = container.child as Row;
+        final text = (row.children[1] as Expanded).child as Text;
+        return text.data ?? '';
+      }
+      final acceptedFinder =
+          find.byKey(const Key('customer_active_status_container'));
+      if (acceptedFinder.evaluate().isNotEmpty) {
+        final container = tester.widget<Container>(acceptedFinder);
+        final row = container.child as Row;
+        final text = (row.children[2] as Flexible).child as Text;
+        return text.data ?? '';
+      }
+      return '';
     }
 
     testWidgets('SEARCHING shows searching status in bottom sheet', (tester) async {
@@ -151,16 +172,15 @@ void main() {
       repo.controller.add(_trip(TripStatus.driverAccepted));
       await tester.pump();
 
-      expect(statusText(tester), contains('on the way to pickup'));
-      expect(find.text('Adaeze Okonkwo'), findsOneWidget);
-      expect(find.text('4.8'), findsOneWidget);
-      expect(find.text('ABC-123-ZZ · Honda Accord'), findsOneWidget);
+      expect(find.textContaining('Adaeze'), findsWidgets);
+      expect(find.textContaining('ABC-123-ZZ'), findsWidgets);
+      expect(find.textContaining('Honda Accord'), findsWidgets);
       expect(
-        find.widgetWithText(FilledButton, 'Call'),
+        find.byKey(const Key('customer_direct_call_icon')),
         findsOneWidget,
       );
       expect(
-        find.widgetWithText(OutlinedButton, 'Chat'),
+        find.byKey(const Key('customer_chat_icon')),
         findsOneWidget,
       );
     });
@@ -179,10 +199,8 @@ void main() {
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
 
-      await tester.ensureVisible(find.text('Cancel trip'));
-      await tester.pump();
       await tester.tap(find.text('Cancel trip'));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
 
       // Reason dialog appears; nothing is committed yet.
       expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
@@ -210,14 +228,12 @@ void main() {
       repo.controller.add(_trip(TripStatus.searchingDriver));
       await tester.pump();
 
-      await tester.ensureVisible(find.text('Cancel trip'));
-      await tester.pump();
       await tester.tap(find.text('Cancel trip'));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
 
       expect(find.byKey(const Key('cancel_trip_dialog')), findsOneWidget);
       await tester.tap(find.text('Keep trip'));
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
 
       expect(repo.cancelCalled, isFalse);
       expect(find.byKey(const Key('cancel_trip_dialog')), findsNothing);

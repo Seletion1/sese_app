@@ -775,7 +775,24 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
     super.dispose();
   }
 
-  static double _hueFor(Color color) {
+  static double _hueFor(Color color, String? label) {
+    if (label == 'BIKE' ||
+        label == 'MOTORCYCLE' ||
+        label == 'COURIER' ||
+        label == 'DELIVERY' ||
+        label == 'KEKE' ||
+        label == '🏍️') {
+      return gmaps.BitmapDescriptor.hueAzure;
+    }
+    if (label == 'CAR' ||
+        label == 'RIDE' ||
+        label == 'DRIVER' ||
+        label == 'NEARBY_DRIVER' ||
+        label == 'VEHICLE' ||
+        label == '🚗' ||
+        label == '🚙') {
+      return gmaps.BitmapDescriptor.hueOrange;
+    }
     return HSVColor.fromColor(color).hue;
   }
 
@@ -817,7 +834,7 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
             markerId: gmaps.MarkerId(m.id),
             position: _toG(m.point),
             icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-              _hueFor(m.color),
+              _hueFor(m.color, m.label),
             ),
             infoWindow: (m.label != null && m.label!.isNotEmpty)
                 ? gmaps.InfoWindow(title: m.label)

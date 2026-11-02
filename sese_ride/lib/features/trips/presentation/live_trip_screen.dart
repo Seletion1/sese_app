@@ -764,15 +764,32 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           point: LatLng(trip.driverLat!, trip.driverLng!),
           color: Colors.blue,
         ),
-      // Real-time nearby drivers within 15km radius circle
+      // Real-time nearby drivers within active dispatch stage radius
       if (_isSearching)
         ..._nearbyDrivers.map(
-          (d) => MapPin(
-            id: 'driver_${d.id}',
-            point: d.position,
-            color: AppColors.seseGold,
-            label: 'DRIVER',
-          ),
+          (d) {
+            final cat = d.category.toLowerCase();
+            final serviceType = widget.trip.serviceType.toLowerCase();
+            final vehicleCat = widget.trip.vehicleCategory.toLowerCase();
+
+            final isBike = cat == 'bike' ||
+                cat == 'delivery' ||
+                cat == 'courier' ||
+                cat == 'keke' ||
+                cat == 'motorcycle' ||
+                serviceType == 'delivery' ||
+                serviceType == 'courier' ||
+                vehicleCat == 'bike' ||
+                vehicleCat == 'courier' ||
+                vehicleCat == 'keke';
+
+            return MapPin(
+              id: 'driver_${d.id}',
+              point: d.position,
+              color: AppColors.seseGold,
+              label: isBike ? 'BIKE' : 'CAR',
+            );
+          },
         ),
     ];
 
@@ -1652,7 +1669,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     switch (status) {
       case TripStatus.driverAccepted:
       case TripStatus.driverArriving:
-        return '$firstName is on the way';
+        return '$firstName is on the way to pickup';
       case TripStatus.driverArrived:
         return '$firstName arrived at pickup • Waiting...';
       case TripStatus.inProgress:

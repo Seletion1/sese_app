@@ -309,7 +309,7 @@ class _PinGlyph extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isNavArrow =
-        label == 'NAV' || label == 'NAVIGATION_ARROW' || label == '🚗';
+        label == 'NAV' || label == 'NAVIGATION_ARROW';
     if (isNavArrow) {
       return Container(
         width: 42,
@@ -336,9 +336,46 @@ class _PinGlyph extends StatelessWidget {
       );
     }
 
-    final isDriver =
-        label == 'DRIVER' || label == 'NEARBY_DRIVER' || label == 'VEHICLE';
-    if (isDriver) {
+    final isBike = label == 'BIKE' ||
+        label == 'MOTORCYCLE' ||
+        label == 'COURIER' ||
+        label == 'DELIVERY' ||
+        label == 'KEKE' ||
+        label == '🏍️';
+    if (isBike) {
+      return Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: color, width: 2.2),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 5,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.two_wheeler_rounded,
+            color: color,
+            size: 22,
+          ),
+        ),
+      );
+    }
+
+    final isCar = label == 'CAR' ||
+        label == 'RIDE' ||
+        label == 'DRIVER' ||
+        label == 'NEARBY_DRIVER' ||
+        label == 'VEHICLE' ||
+        label == '🚗' ||
+        label == '🚙';
+    if (isCar) {
       return Container(
         width: 38,
         height: 38,
