@@ -116,6 +116,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _maxRecyclesCtrl = TextEditingController(text: '5');
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
+  final _maxOfferBoostPctCtrl = TextEditingController(text: '100');
 
   // Financial System Parameters Controllers (/system_configs/financials)
   final _minWalletBalanceToOnlineCtrl = TextEditingController(text: '1.0');
@@ -266,6 +267,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _maxRecyclesCtrl.dispose();
     _cameraPickupDwellCtrl.dispose();
     _cameraDropoffDwellCtrl.dispose();
+    _maxOfferBoostPctCtrl.dispose();
     _minWalletBalanceToOnlineCtrl.dispose();
     _minTopUpAmountCtrl.dispose();
     _userReferralCommissionRateCtrl.dispose();
@@ -429,6 +431,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _maxRecyclesCtrl.text = tuning.maxRecycles.toString();
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
+      _maxOfferBoostPctCtrl.text = tuning.maxOfferBoostPct.toStringAsFixed(0);
       _bicycleMaxCtrl.text =
           vehicleRec.bicycleMaxDistanceKm.toString();
       _kekeMaxCtrl.text = vehicleRec.kekeMaxDistanceKm.toString();
@@ -722,6 +725,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_cameraPickupDwellCtrl.text.trim()) ?? 5,
           cameraDropoffDwellSec:
               int.tryParse(_cameraDropoffDwellCtrl.text.trim()) ?? 2,
+          maxOfferBoostPct:
+              double.tryParse(_maxOfferBoostPctCtrl.text.trim()) ?? 100.0,
+          maxConcurrentBids: maxBids,
         ),
       );
       await const VehicleRecommendationService().saveConfig(
@@ -3246,6 +3252,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 5 (2–30 sec). Camera hold duration at pickup before panning.'),
                 numField(_cameraDropoffDwellCtrl, 'Live search drop-off dwell', 'sec',
                     'Default 2 (1–15 sec). Camera hold duration at destination before returning.'),
+                numField(_maxOfferBoostPctCtrl, 'Max offer boost cap', '%',
+                    'Default 100% (50–300%). Hard cap on customer fare boosts above baseline fare.'),
               ],
             ),
           ],

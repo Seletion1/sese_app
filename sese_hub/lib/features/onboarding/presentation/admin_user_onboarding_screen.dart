@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../services/hub_onboarding_service.dart';
 import 'widgets/onboarding_wizard_dialog.dart';
+import '../../verification/presentation/agent_applications_tab.dart';
 
 /// Admin-Assisted Onboarding and Registration Console inside `sese_hub`.
 class AdminUserOnboardingScreen extends StatefulWidget {
@@ -70,17 +71,41 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('User & Driver Onboarding Console'),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('User & Agent Onboarding Console'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(
+                icon: Icon(Icons.person_add_outlined),
+                text: 'User & Driver Registration',
+              ),
+              Tab(
+                icon: Icon(Icons.badge_outlined),
+                text: 'Agent Applications ("Work With Us")',
+              ),
+            ],
+          ),
+        ),
+        body: TabBarView(
           children: [
+            _buildUserOnboardingBody(context),
+            const AgentApplicationsTab(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserOnboardingBody(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
             // Single cohesive header banner: description + the one Register
             // CTA live together, so there is no AppBar button competing with
             // the card and no double-tap confusion. Stacks vertically on
@@ -310,8 +335,7 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
             ),
           ],
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildSearchResultCard(OnboardingLookupResult result) {

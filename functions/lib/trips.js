@@ -93,6 +93,7 @@ const DEFAULT_TUNING = {
     candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
     recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
     maxRecycles: DEFAULT_MAX_RECYCLES,
+    maxOfferBoostPct: 100,
 };
 let tuningCache = null;
 /**
@@ -125,6 +126,7 @@ async function getDispatchTuning() {
             candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
             recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
             maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
+            maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
         };
         tuningCache = { at: Date.now(), value };
         return value;
@@ -2267,7 +2269,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
 });
 /** Customer raises the offered price / fare to attract drivers faster */
 exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -2290,6 +2292,15 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
     if (roundedNewFare <= currentFare) {
         throw new https_1.HttpsError("invalid-argument", "New fare must be higher than current fare.");
     }
+    const tuning = await getDispatchTuning();
+    const maxOfferBoostPct = Number((_d = tuning.maxOfferBoostPct) !== null && _d !== void 0 ? _d : 100);
+    const originalBase = Number(tripData.baselineFare && Number(tripData.baselineFare) > 0
+        ? tripData.baselineFare
+        : ((_e = tripData.fareAmount) !== null && _e !== void 0 ? _e : 0));
+    const maxAllowedFare = Math.round(originalBase * (1 + maxOfferBoostPct / 100));
+    if (roundedNewFare > maxAllowedFare) {
+        throw new https_1.HttpsError("failed-precondition", `Offer boost cannot exceed ${maxOfferBoostPct}% above original base fare (max ₦${maxAllowedFare.toLocaleString()}).`);
+    }
     const wasNeedsAction = tripData.status === "needs_customer_action";
     const boostPct = currentFare > 0
         ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
@@ -2310,7 +2321,7 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
         boostPercent: boostPct,
         boostedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: wasNeedsAction ? "SEARCHING_DRIVER" : tripData.status,
-        reassignmentCount: wasNeedsAction ? 0 : ((_d = tripData.reassignmentCount) !== null && _d !== void 0 ? _d : 0),
+        reassignmentCount: wasNeedsAction ? 0 : ((_f = tripData.reassignmentCount) !== null && _f !== void 0 ? _f : 0),
         statusMessage: "Price increased! Searching for nearby drivers...",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };

@@ -210,10 +210,19 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
 
   Future<void> _boostFare() async {
     final val = double.tryParse(_controller.text.replaceAll(',', ''));
+    final maxAllowedFare = _calculateMaxAllowedFare(widget.trip);
     if (val == null || val <= widget.trip.fareAmount) {
       setState(
         () => _error =
             'Enter an amount higher than the current fare (${widget.trip.fareFormatted})',
+      );
+      return;
+    }
+    if (val > maxAllowedFare) {
+      final maxFormatted = '₦${maxAllowedFare.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+      setState(
+        () => _error =
+            'Offer boost cannot exceed 100% above original base fare (max $maxFormatted).',
       );
       return;
     }
@@ -384,8 +393,7 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
                   alignment: WrapAlignment.center,
                   spacing: 8,
                   children: [5, 10, 20].map((pct) {
-                    final base = widget.trip.fareAmount;
-                    final boosted = (base * (100 + pct) / 100).round();
+                    final boosted = _calculateBoostedFareAmount(widget.trip, pct);
                     return OutlinedButton(
                       onPressed: _loading
                           ? null
@@ -964,6 +972,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             nearbyDriversCount: _nearbyDrivers.length,
             stageRadius: _activeStageRadiusKm,
             onCancel: () => _cancel(context),
+            dispatchTuning: _dispatchTuning,
           )
         // Accepted driver sheet (when a driver accepts)
         else if (trip.driver != null &&
@@ -1014,59 +1023,91 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   }
 }
 
-// ── Bid carousel ──────────────────────────────────────────────────────────────
+// ── Bid carousel & queue manager ──────────────────────────────────────────────
 
-/// Horizontal scrolling carousel of driver bids (max 5 visible).
-/// Shown while the trip is in a "still searching" state so the customer
-/// can accept the best bid without waiting for the automatic assignment.
-class _BidCarousel extends StatelessWidget {
-  static const int _maxVisible = 5;
-
+/// Multi-driver bidding list manager (default max 5 visible, Sese Hub configurable).
+/// Automatically triggers bottom sheet expansion animation when a new bid arrives
+/// while the sheet is minimized.
+class _BidCarousel extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
+  final int maxConcurrentBids;
+  final DraggableScrollableController? sheetController;
 
-  const _BidCarousel({required this.trip, required this.repository});
+  const _BidCarousel({
+    required this.trip,
+    required this.repository,
+    this.maxConcurrentBids = 5,
+    this.sheetController,
+  });
+
+  @override
+  State<_BidCarousel> createState() => _BidCarouselState();
+}
+
+class _BidCarouselState extends State<_BidCarousel> {
+  int _previousPendingCount = 0;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<BidModel>>(
-      stream: repository.bidsStream(trip.tripId),
+      stream: widget.repository.bidsStream(widget.trip.tripId),
       builder: (context, snapshot) {
-        final bids =
-            snapshot.data
+        final allPendingBids = snapshot.data
                 ?.where((b) => b.status == BidStatus.pending)
-                .take(_maxVisible)
                 .toList() ??
             const [];
-        if (bids.isEmpty) return const SizedBox.shrink();
+
+        // Requirement 1: Auto-expanding bottom sheet on incoming bid
+        if (allPendingBids.length > _previousPendingCount) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (widget.sheetController != null &&
+                widget.sheetController!.isAttached &&
+                widget.sheetController!.size <= 0.40) {
+              widget.sheetController!.animateTo(
+                0.68,
+                duration: const Duration(milliseconds: 350),
+                curve: Curves.easeOutCubic,
+              );
+            }
+          });
+        }
+        _previousPendingCount = allPendingBids.length;
+
+        // Requirement 3: Cap visible bids to maxConcurrentBids (default 5 or Sese Hub setting)
+        final visibleBids =
+            allPendingBids.take(widget.maxConcurrentBids).toList();
+
+        if (visibleBids.isEmpty) return const SizedBox.shrink();
+
         return Container(
-          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          margin: const EdgeInsets.symmetric(vertical: 4),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  '${bids.length} driver${bids.length == 1 ? '' : 's'} offered a fare',
-                  style: Theme.of(context).textTheme.labelMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  '${allPendingBids.length} driver${allPendingBids.length == 1 ? '' : 's'} offered a fare',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.seseGold,
+                      ),
                 ),
               ),
-              SizedBox(
-                height: 175,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(width: 10),
-                  itemCount: bids.length,
-                  itemBuilder: (ctx, i) => _BidCard(
-                    bid: bids[i],
-                    onAccept: () => _accept(ctx, bids[i].driverId),
-                    onReject: () => _reject(ctx, bids[i].driverId),
-                  ),
-                ),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: visibleBids.length,
+                itemBuilder: (ctx, i) {
+                  final bid = visibleBids[i];
+                  return _BidCard(
+                    bid: bid,
+                    onAccept: () => _accept(ctx, bid.driverId),
+                    onReject: () => _reject(ctx, bid.driverId),
+                  );
+                },
               ),
             ],
           ),
@@ -1077,7 +1118,7 @@ class _BidCarousel extends StatelessWidget {
 
   Future<void> _accept(BuildContext context, String driverId) async {
     try {
-      await repository.acceptBid(trip.tripId, driverId);
+      await widget.repository.acceptBid(widget.trip.tripId, driverId);
     } on TripException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -1088,7 +1129,7 @@ class _BidCarousel extends StatelessWidget {
 
   Future<void> _reject(BuildContext context, String driverId) async {
     try {
-      await repository.rejectBid(trip.tripId, driverId);
+      await widget.repository.rejectBid(widget.trip.tripId, driverId);
     } on TripException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -1098,6 +1139,7 @@ class _BidCarousel extends StatelessWidget {
   }
 }
 
+/// Compact multi-bid row item card (Requirement 2 & Screenshot reference).
 class _BidCard extends StatelessWidget {
   final BidModel bid;
   final VoidCallback onAccept;
@@ -1116,50 +1158,49 @@ class _BidCard extends StatelessWidget {
         ? bid.fareFormatted
         : '₦${bid.offeredFare.toStringAsFixed(0)}';
 
-    final vehicleStr = [bid.vehicleModel, bid.plateNumber]
-        .where((s) => s.trim().isNotEmpty)
-        .join(' · ');
+    final vehicleDetails = [
+      if (bid.etaMinutes != null) '~${bid.etaMinutes} min away',
+      bid.vehicleModel,
+      bid.plateNumber,
+    ].where((s) => s.trim().isNotEmpty).join(' · ');
 
     return Card(
-      margin: EdgeInsets.zero,
-      child: SizedBox(
-        width: 190,
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outline.withValues(alpha: 0.15)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row 1: Avatar + Driver Name + Bid Price directly alongside
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                UserAvatar(
+                  displayName: bid.driverName,
+                  photoUrl: bid.photoUrl,
+                  radius: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      UserAvatar(
-                        displayName: bid.driverName,
-                        photoUrl: bid.photoUrl,
-                        radius: 16,
-                      ),
-                      if (bid.isVerifiedDriver) ...[
-                        const SizedBox(height: 2),
-                        const VerifiedBadge(
-                          variant: VerifiedBadgeVariant.driver,
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
+                      Flexible(
+                        child: Row(
                           children: [
                             Flexible(
                               child: Text(
                                 bid.driverName,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 12,
+                                  fontSize: 13,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -1168,93 +1209,99 @@ class _BidCard extends StatelessWidget {
                               const SizedBox(width: 4),
                               const Icon(
                                 Icons.verified,
-                                size: 12,
-                                color: Colors.blue,
+                                size: 14,
+                                color: AppColors.seseGold,
                               ),
                             ],
                           ],
                         ),
-                        if (vehicleStr.isNotEmpty)
-                          Text(
-                            vehicleStr,
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: cs.onSurfaceVariant,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  if (bid.rating > 0) ...[
-                    const Icon(Icons.star, size: 11, color: Colors.amber),
-                    const SizedBox(width: 2),
-                    Text(
-                      bid.rating.toStringAsFixed(1),
-                      style: const TextStyle(fontSize: 10),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  if (bid.etaMinutes != null)
-                    Text(
-                      '~${bid.etaMinutes} min away',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: cs.primary,
                       ),
-                    ),
-                ],
-              ),
-              const Spacer(),
-              Text(
-                fareLabel,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: cs.primary,
+                      const SizedBox(width: 8),
+                      Text(
+                        fareLabel,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: AppColors.seseGold,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: onAccept,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 28),
-                        textStyle: const TextStyle(fontSize: 11),
-                      ),
-                      child: const Text('Accept'),
-                    ),
+              ],
+            ),
+            const SizedBox(height: 4),
+
+            // Row 2: Distance, Vehicle Model & Plate details on bottom secondary line
+            Row(
+              children: [
+                if (bid.rating > 0) ...[
+                  const Icon(Icons.star, size: 12, color: Colors.amber),
+                  const SizedBox(width: 2),
+                  Text(
+                    bid.rating.toStringAsFixed(1),
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onReject,
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: const Size(0, 28),
-                        textStyle: const TextStyle(fontSize: 11),
-                        side: BorderSide.none,
-                        backgroundColor: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                      ),
-                      child: const Text('Reject'),
-                    ),
-                  ),
+                  const SizedBox(width: 6),
+                  Text('·', style: TextStyle(color: cs.onSurfaceVariant)),
+                  const SizedBox(width: 6),
                 ],
-              ),
-            ],
-          ),
+                Expanded(
+                  child: Text(
+                    vehicleDetails.isNotEmpty
+                        ? vehicleDetails
+                        : 'Vehicle details available',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurfaceVariant,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Row 3: Compact inline Accept and Reject buttons
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onAccept,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.check, size: 14),
+                    label: const Text('Accept', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onReject,
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      side: BorderSide.none,
+                      backgroundColor: cs.surfaceContainerHighest,
+                      foregroundColor: cs.onSurface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close, size: 14),
+                    label: const Text('Reject', style: TextStyle(fontSize: 12)),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -1345,12 +1392,13 @@ class _DeliveryPinBanner extends StatelessWidget {
 /// Houses the live matchmaking status indicator, real-time nearby drivers count,
 /// fare boost pencil and split fare actions, pending bids carousel, route summary,
 /// and privacy-protected cancellation option revealed by dragging upwards.
-class _LiveTripSearchingSheet extends StatelessWidget {
+class _LiveTripSearchingSheet extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
   final int nearbyDriversCount;
   final double stageRadius;
   final VoidCallback onCancel;
+  final DispatchTuning dispatchTuning;
 
   const _LiveTripSearchingSheet({
     required this.trip,
@@ -1358,7 +1406,23 @@ class _LiveTripSearchingSheet extends StatelessWidget {
     required this.nearbyDriversCount,
     required this.stageRadius,
     required this.onCancel,
+    this.dispatchTuning = const DispatchTuning(),
   });
+
+  @override
+  State<_LiveTripSearchingSheet> createState() =>
+      _LiveTripSearchingSheetState();
+}
+
+class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
+  late final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1366,12 +1430,12 @@ class _LiveTripSearchingSheet extends StatelessWidget {
     final cs = theme.colorScheme;
 
     final String message;
-    switch (trip.status) {
+    switch (widget.trip.status) {
       case TripStatus.searchingDriver:
       case TripStatus.unknown:
-        message = trip.reassignmentCount > 0
+        message = widget.trip.reassignmentCount > 0
             ? 'Driver had to cancel. Finding you another nearby driver...'
-            : (trip.declineCount > 0
+            : (widget.trip.declineCount > 0
                 ? "First driver didn't accept... Looking for available drivers"
                 : 'Searching for nearby available drivers...');
       case TripStatus.waitingForAcceptance:
@@ -1384,7 +1448,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
         message = 'Drivers are submitting bids — choose the best offer below';
       case TripStatus.driverAccepted:
       case TripStatus.driverArriving:
-        final name = trip.driver?.fullName ?? 'Your driver';
+        final name = widget.trip.driver?.fullName ?? 'Your driver';
         message = '$name is on the way to pickup';
       case TripStatus.driverArrived:
         message = 'Your driver has arrived at the pickup point';
@@ -1399,11 +1463,12 @@ class _LiveTripSearchingSheet extends StatelessWidget {
         message = '';
     }
 
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+    final fareStr = widget.trip.fareFormatted.isNotEmpty
+        ? widget.trip.fareFormatted
+        : '₦${widget.trip.fareAmount.toStringAsFixed(0)}';
 
     return DraggableScrollableSheet(
+      controller: _sheetController,
       initialChildSize: 0.38,
       minChildSize: 0.28,
       maxChildSize: 0.88,
@@ -1469,7 +1534,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (nearbyDriversCount > 0) ...[
+                    if (widget.nearbyDriversCount > 0) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -1479,7 +1544,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          '$nearbyDriversCount nearby (${stageRadius.toStringAsFixed(stageRadius % 1 == 0 ? 0 : 1)}km)',
+                          '${widget.nearbyDriversCount} nearby (${widget.stageRadius.toStringAsFixed(widget.stageRadius % 1 == 0 ? 0 : 1)}km)',
                           style: const TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -1515,10 +1580,10 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                         children: [
                           Text(
                             fareStr,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
-                              color: Colors.black87,
+                              color: cs.onSurface,
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -1526,13 +1591,13 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                             key: const Key('boost_fare_pencil_button'),
                             icon: const Icon(
                               Icons.edit_note_rounded,
-                              color: Color(0xFFD97706),
+                              color: AppColors.seseGold,
                               size: 22,
                             ),
                             tooltip: 'Boost Offer Fare',
                             visualDensity: VisualDensity.compact,
                             onPressed: () =>
-                                _showBoostFareDialog(context, trip, repository),
+                                _showBoostFareDialog(context, widget.trip, widget.repository),
                           ),
                         ],
                       ),
@@ -1553,7 +1618,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                     onPressed: () async {
                       final splitId = await SplitRequestSheet.show(
                         context,
-                        tripId: trip.tripId,
+                        tripId: widget.trip.tripId,
                       );
                       if (splitId != null && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1569,16 +1634,21 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                 ],
               ),
 
-              if (trip.deliveryPinRequired &&
-                  trip.deliveryPin != null &&
-                  trip.deliveryPin!.trim().isNotEmpty) ...[
+              if (widget.trip.deliveryPinRequired &&
+                  widget.trip.deliveryPin != null &&
+                  widget.trip.deliveryPin!.trim().isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _DeliveryPinBanner(pin: trip.deliveryPin!),
+                _DeliveryPinBanner(pin: widget.trip.deliveryPin!),
               ],
 
               // Pending driver bids carousel
               const SizedBox(height: 12),
-              _BidCarousel(trip: trip, repository: repository),
+              _BidCarousel(
+                trip: widget.trip,
+                repository: widget.repository,
+                maxConcurrentBids: widget.dispatchTuning.maxConcurrentBids,
+                sheetController: _sheetController,
+              ),
 
               const SizedBox(height: 16),
               const Divider(height: 1),
@@ -1605,7 +1675,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          trip.pickupAddress,
+                          widget.trip.pickupAddress,
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
@@ -1615,7 +1685,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          trip.dropoffAddress,
+                          widget.trip.dropoffAddress,
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
@@ -1648,7 +1718,7 @@ class _LiveTripSearchingSheet extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 8),
                   ),
-                  onPressed: onCancel,
+                  onPressed: widget.onCancel,
                   child: const Text(
                     'Cancel trip',
                     style: TextStyle(
@@ -2675,6 +2745,26 @@ class _CompletedTripViewState extends State<_CompletedTripView> {
   }
 }
 
+/// Calculates the maximum allowed offer fare for a trip based on its baseline fare and max boost percentage (default: 100%).
+double _calculateMaxAllowedFare(ActiveTrip trip, {double maxBoostPct = 100.0}) {
+  final originalBase = (trip.baselineFare > 0)
+      ? trip.baselineFare
+      : (trip.fareAmount > 0 ? trip.fareAmount : 1.0);
+  return (originalBase * (1.0 + (maxBoostPct / 100.0))).roundToDouble();
+}
+
+/// Calculates the incremented fare for a percentage boost option (+5%, +10%, +20%),
+/// calculated relative to original base fare and clamped to the maximum allowed fare.
+int _calculateBoostedFareAmount(ActiveTrip trip, int percentage, {double maxBoostPct = 100.0}) {
+  final originalBase = (trip.baselineFare > 0)
+      ? trip.baselineFare
+      : (trip.fareAmount > 0 ? trip.fareAmount : 1.0);
+  final maxAllowed = _calculateMaxAllowedFare(trip, maxBoostPct: maxBoostPct);
+  final step = (originalBase * percentage / 100.0).roundToDouble();
+  final target = trip.fareAmount + step;
+  return target > maxAllowed ? maxAllowed.round() : target.round();
+}
+
 /// Opens the fare boost dialog allowing the customer to increase their offer fare during searching.
 void _showBoostFareDialog(
   BuildContext context,
@@ -2686,6 +2776,8 @@ void _showBoostFareDialog(
   );
   String? error;
   bool loading = false;
+  final maxAllowedFare = _calculateMaxAllowedFare(trip);
+  final maxFormatted = '₦${maxAllowedFare.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
 
   showDialog<void>(
     context: context,
@@ -2705,15 +2797,14 @@ void _showBoostFareDialog(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Increase your offer to attract nearby drivers faster. Decreases below current fare (${trip.fareFormatted.isNotEmpty ? trip.fareFormatted : "₦${trip.fareAmount.toStringAsFixed(0)}"}) are prohibited.',
+                'Increase your offer to attract nearby drivers faster. Maximum allowed offer is 100% above original base fare ($maxFormatted). Decreases below current fare are prohibited.',
                 style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 children: [5, 10, 20].map((pct) {
-                  final base = trip.fareAmount;
-                  final boosted = (base * (100 + pct) / 100).round();
+                  final boosted = _calculateBoostedFareAmount(trip, pct);
                   return OutlinedButton(
                     onPressed: loading
                         ? null
@@ -2766,6 +2857,11 @@ void _showBoostFareDialog(
                     );
                     if (val == null || val <= trip.fareAmount) {
                       setDlg(() => error = 'Enter an amount higher than current fare.');
+                      return;
+                    }
+                    if (val > maxAllowedFare) {
+                      setDlg(() => error =
+                          'Offer boost cannot exceed 100% above original base fare (max $maxFormatted).');
                       return;
                     }
                     setDlg(() => loading = true);

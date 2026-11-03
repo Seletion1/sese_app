@@ -1,4 +1,5 @@
-/// Live streamlined 2-stage dispatch engine tunables and map animation settings.
+/// Live streamlined 2-stage dispatch engine tunables, map animation settings,
+/// and offer boost limits.
 ///
 /// Mirrors the `system_settings/dispatch` Firestore document keys consumed
 /// by Cloud Functions (`functions/src/trips.ts`), the Hub Dispatch Console
@@ -14,12 +15,19 @@ class DispatchTuning {
   final int recycleWindowMin;
   final int maxRecycles;
 
+  /// Maximum allowed customer fare boost percentage over baseline fare (Hub configurable).
+  /// Default: 100.0 (i.e. Max Offer = Original Base Fare * 2).
+  final double maxOfferBoostPct;
+
   /// Dynamic Map Camera Animation Timing Parameters (Hub Configurable)
   ///
   /// Controls automated camera dwell/pause duration at the pickup point
   /// and drop-off destination during live customer searching loop.
   final int cameraPickupDwellSec; // default: 5 seconds
   final int cameraDropoffDwellSec; // default: 2 seconds
+
+  /// Maximum concurrent driver bids visible to customer in live bidding list.
+  final int maxConcurrentBids; // default: 5
 
   const DispatchTuning({
     this.dispatchRadiusKm = 10,
@@ -31,8 +39,10 @@ class DispatchTuning {
     this.candidateLimit = 25,
     this.recycleWindowMin = 25,
     this.maxRecycles = 5,
+    this.maxOfferBoostPct = 100.0,
     this.cameraPickupDwellSec = 5,
     this.cameraDropoffDwellSec = 2,
+    this.maxConcurrentBids = 5,
   });
 
   /// Resolves the driver search radius (in kilometers) for a given trip dispatch tier (1, 3).
@@ -82,8 +92,10 @@ class DispatchTuning {
       candidateLimit: intOf('candidateLimit', 25),
       recycleWindowMin: intOf('recycleWindowMin', 25),
       maxRecycles: intOf('maxRecycles', 5),
+      maxOfferBoostPct: numOf('maxOfferBoostPct', 100.0),
       cameraPickupDwellSec: intOf('cameraPickupDwellSec', 5),
       cameraDropoffDwellSec: intOf('cameraDropoffDwellSec', 2),
+      maxConcurrentBids: intOf('maxConcurrentBids', intOf('max_visible_bids', 5)),
     );
   }
 
@@ -97,7 +109,10 @@ class DispatchTuning {
         'candidateLimit': candidateLimit,
         'recycleWindowMin': recycleWindowMin,
         'maxRecycles': maxRecycles,
+        'maxOfferBoostPct': maxOfferBoostPct,
         'cameraPickupDwellSec': cameraPickupDwellSec,
         'cameraDropoffDwellSec': cameraDropoffDwellSec,
+        'maxConcurrentBids': maxConcurrentBids,
+        'max_visible_bids': maxConcurrentBids,
       };
 }

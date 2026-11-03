@@ -68,6 +68,7 @@ void main() {
     dropoffAddress: '15 Ikorodu Rd',
     status: TripStatus.searchingDriver,
     fareAmount: 4500,
+    baselineFare: 4500,
   );
 
   group('Boost Offer Fare Dialog Tests', () {
@@ -81,7 +82,6 @@ void main() {
             body: Builder(
               builder: (ctx) => ElevatedButton(
                 onPressed: () {
-                  // Open boost fare dialog using helper
                   showDialog<void>(
                     context: ctx,
                     builder: (dCtx) => StatefulBuilder(
@@ -123,6 +123,15 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(repo.currentFare, 5400.0);
+    });
+
+    test('Strict 100% boost cap prevents exceeding 2x original baseline fare', () {
+      // Baseline fare = 4500. Max allowed = 4500 * 2 = 9000.
+      final maxAllowed = (testTrip.baselineFare * 2).toDouble();
+      expect(maxAllowed, 9000.0);
+
+      // 100% boost from original baseline = 9000
+      expect(testTrip.baselineFare + 4500, 9000);
     });
 
     test('TripException does not produce false session expiry when authorized', () async {

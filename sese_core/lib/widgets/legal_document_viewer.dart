@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../legal/legal_document_content.dart';
+import 'sese_web_view_widget.dart';
 
 /// Reusable Legal Content Viewing Widget / Screen / Modal for SESE Ecosystem.
 class LegalDocumentViewer extends StatelessWidget {
@@ -13,7 +14,7 @@ class LegalDocumentViewer extends StatelessWidget {
   });
 
   /// Opens the Legal Document modal sheet or full screen viewer.
-  static Future<void> show(BuildContext context, LegalDocType type) async {
+  static Future<void> show(BuildContext context, LegalDocType type, {String? customUrl}) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -24,24 +25,32 @@ class LegalDocumentViewer extends StatelessWidget {
       ),
       builder: (ctx) => FractionallySizedBox(
         heightFactor: 0.9,
-        child: LegalDocumentViewer(type: type),
+        child: LegalDocumentViewer(type: type, customUrl: customUrl),
       ),
     );
   }
 
   /// Helper shortcut for Terms of Use.
-  static Future<void> showTerms(BuildContext context) =>
-      show(context, LegalDocType.terms);
+  static Future<void> showTerms(BuildContext context, {String? customUrl}) =>
+      show(context, LegalDocType.terms, customUrl: customUrl);
 
   /// Helper shortcut for Privacy Policy.
-  static Future<void> showPrivacy(BuildContext context) =>
-      show(context, LegalDocType.privacy);
+  static Future<void> showPrivacy(BuildContext context, {String? customUrl}) =>
+      show(context, LegalDocType.privacy, customUrl: customUrl);
 
   @override
   Widget build(BuildContext context) {
     final title = LegalDocumentContent.titleFor(type);
     final text = LegalDocumentContent.contentFor(type);
     final theme = Theme.of(context);
+
+    if (customUrl != null && customUrl!.isNotEmpty) {
+      return SeseWebViewWidget(
+        initialUrl: customUrl!,
+        appBarTitle: title,
+        onGoBack: () => Navigator.of(context).maybePop(),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(

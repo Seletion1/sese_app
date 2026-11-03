@@ -14,6 +14,7 @@ void main() {
       expect(t.candidateLimit, 25);
       expect(t.recycleWindowMin, 25);
       expect(t.maxRecycles, 5);
+      expect(t.maxOfferBoostPct, 100.0);
       expect(t.cameraPickupDwellSec, 5);
       expect(t.cameraDropoffDwellSec, 2);
     });
@@ -27,10 +28,12 @@ void main() {
         'candidateLimit': 40,
         'recycleWindowMin': 20,
         'maxRecycles': 8,
+        'maxOfferBoostPct': 150.0,
       });
       expect(t.dispatchRadiusKm, 5);
       expect(t.tier1TimeoutSec, 6);
       expect(t.recycleWindowMin, 20);
+      expect(t.maxOfferBoostPct, 150.0);
       final back = DispatchTuning.fromMap(t.toMap());
       expect(back.toMap(), t.toMap());
     });
@@ -38,9 +41,11 @@ void main() {
     test('fromMap tolerates missing/partial docs', () {
       final t = DispatchTuning.fromMap(null);
       expect(t.dispatchRadiusKm, 10);
+      expect(t.maxOfferBoostPct, 100.0);
       final partial = DispatchTuning.fromMap({'dispatchRadiusKm': 3});
       expect(partial.dispatchRadiusKm, 3);
       expect(partial.tier1TimeoutSec, 15);
+      expect(partial.maxOfferBoostPct, 100.0);
       expect(partial.cameraPickupDwellSec, 5);
       expect(partial.cameraDropoffDwellSec, 2);
     });

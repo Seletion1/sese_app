@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:sese_core/sese_core.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'payment_service.dart';
 
 /// Embedded Paystack checkout: card, transfer, and USSD all run inside an
-/// in-app WebView — the system browser is never opened.
+/// in-app WebView — the system browser is never opened unless explicitly requested.
 ///
 /// Flow: loads the server-issued [auth] authorization URL, watches
 /// navigations for Paystack's `reference`/`trxref` callback params, then
 /// verifies server-side and pops `true` (credited) or `false`.
-/// A fallback "open in browser" action keeps [PaymentService.launchCheckout]
-/// for WebView failures; verification stays manual in that path.
+/// Equipped with [SeseWebErrorDetector] to catch 404, 503, or default Firebase
+/// Hosting placeholder pages ("Site Not Found") and display [SeseWebErrorWidget].
 class PaystackCheckoutScreen extends StatefulWidget {
   final PaymentService service;
   final PaymentAuthorization auth;
@@ -41,22 +42,67 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {
-            if (mounted) setState(() => _loadingPage = true);
+            if (mounted) {
+              setState(() {
+                _loadingPage = true;
+                _webViewFailed = false;
+                _webViewErrorDetails = null;
+              });
+            }
           },
-          onPageFinished: (_) {
-            if (mounted) setState(() => _loadingPage = false);
+          onPageFinished: (url) async {
+            if (!mounted) return;
+            setState(() => _loadingPage = false);
+
+            // Evaluate title and body to catch raw Firebase Hosting "Site Not Found" pages
+            try {
+              final title = await _controller.getTitle();
+              final bodyText = await _controller.runJavaScriptReturningResult(
+                "document.body ? document.body.innerText : ''",
+              );
+
+              if (SeseWebErrorDetector.isFirebaseHostingPlaceholder(
+                bodyText.toString(),
+                title,
+              )) {
+                debugPrint('PaystackCheckout: Intercepted Firebase Hosting placeholder ($url)');
+                if (mounted && !_verifying) {
+                  setState(() {
+                    _webViewFailed = true;
+                    _webViewErrorDetails = SeseWebErrorDetector.getCleanUserErrorMessage(
+                      isFirebasePlaceholder: true,
+                    );
+                  });
+                }
+              }
+            } catch (e) {
+              debugPrint('PaystackCheckout: JS evaluation note: $e');
+            }
+          },
+          onHttpError: (HttpResponseError err) {
+            final statusCode = err.response?.statusCode;
+            debugPrint('PaystackCheckout: HTTP status error: $statusCode');
+            if (mounted && !_verifying && statusCode != null && SeseWebErrorDetector.isErrorStatusCode(statusCode)) {
+              setState(() {
+                _webViewFailed = true;
+                _webViewErrorDetails = SeseWebErrorDetector.getCleanUserErrorMessage(
+                  statusCode: statusCode,
+                );
+              });
+            }
           },
           onWebResourceError: (err) {
             debugPrint(
-                'PaystackCheckout: web resource error '
-                'code=${err.errorCode} type=${err.errorType} '
-                'url=${err.url} desc=${err.description}');
+              'PaystackCheckout: web resource error '
+              'code=${err.errorCode} type=${err.errorType} '
+              'url=${err.url} desc=${err.description}',
+            );
             if (mounted && !_verifying && err.isForMainFrame == true) {
               setState(() {
                 _webViewFailed = true;
-                _webViewErrorDetails = err.description.isNotEmpty
-                    ? err.description
-                    : 'Page failed to load (code ${err.errorCode}).';
+                _webViewErrorDetails = SeseWebErrorDetector.getCleanUserErrorMessage(
+                  originalError: err.description.isNotEmpty ? err.description : null,
+                );
               });
             }
           },
@@ -151,7 +197,8 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
       ),
       body: Stack(
         children: [
-          WebViewWidget(key: const Key('paystack_webview'), controller: _controller),
+          if (!_webViewFailed)
+            WebViewWidget(key: const Key('paystack_webview'), controller: _controller),
           if (_loadingPage && !_webViewFailed)
             const Center(child: CircularProgressIndicator()),
           if (_verifying)
@@ -163,53 +210,22 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
                   children: [
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 12),
-                    Text('Verifying payment…',
-                        style: TextStyle(color: Colors.white)),
+                    Text('Verifying payment…', style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
             ),
           if (_webViewFailed && !_verifying)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 24,
-              child: Material(
-                color: Colors.red.shade700,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _webViewErrorDetails ??
-                            'Checkout page failed to load.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton(
-                            onPressed: _retry,
-                            child: const Text('Retry',
-                                style: TextStyle(color: Colors.white)),
-                          ),
-                          TextButton(
-                            onPressed: _openInBrowser,
-                            child: const Text('Open in Browser',
-                                style: TextStyle(color: Colors.white)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            SeseWebErrorWidget(
+              isEmbedded: true,
+              title: 'Checkout Unavailable',
+              errorMessage: _webViewErrorDetails ??
+                  'The secure checkout page could not be loaded right now.',
+              onRetry: _retry,
+              onGoBack: () => Navigator.of(context).pop(false),
+              onOpenInBrowser: _openInBrowser,
             ),
-          if (_error != null && !_verifying)
+          if (_error != null && !_verifying && !_webViewFailed)
             Positioned(
               left: 16,
               right: 16,
@@ -219,9 +235,11 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Text(_error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white)),
+                  child: Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
             ),

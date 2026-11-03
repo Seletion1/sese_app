@@ -70,6 +70,7 @@ interface DispatchTuning {
   candidateLimit: number;
   recycleWindowMs: number;
   maxRecycles: number;
+  maxOfferBoostPct: number;
 }
 
 const DEFAULT_TUNING: DispatchTuning = {
@@ -82,6 +83,7 @@ const DEFAULT_TUNING: DispatchTuning = {
   candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
   recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
   maxRecycles: DEFAULT_MAX_RECYCLES,
+  maxOfferBoostPct: 100,
 };
 
 let tuningCache: { at: number; value: DispatchTuning } | null = null;
@@ -124,6 +126,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
       recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
       maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
+      maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
     };
     tuningCache = { at: Date.now(), value };
     return value;
@@ -2796,6 +2799,22 @@ export const increaseTripFare = onCall(async (request) => {
     throw new HttpsError(
       "invalid-argument",
       "New fare must be higher than current fare."
+    );
+  }
+
+  const tuning = await getDispatchTuning();
+  const maxOfferBoostPct = Number(tuning.maxOfferBoostPct ?? 100);
+  const originalBase = Number(
+    tripData.baselineFare && Number(tripData.baselineFare) > 0
+      ? tripData.baselineFare
+      : (tripData.fareAmount ?? 0)
+  );
+  const maxAllowedFare = Math.round(originalBase * (1 + maxOfferBoostPct / 100));
+
+  if (roundedNewFare > maxAllowedFare) {
+    throw new HttpsError(
+      "failed-precondition",
+      `Offer boost cannot exceed ${maxOfferBoostPct}% above original base fare (max ₦${maxAllowedFare.toLocaleString()}).`
     );
   }
 

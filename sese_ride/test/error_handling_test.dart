@@ -8,10 +8,15 @@ void main() {
 
   testWidgets('sese_ride error handler renders clean user card with zero raw exception strings',
       (WidgetTester tester) async {
+    final originalBuilder = ErrorWidget.builder;
+
     CrashReporterService.initialize(
       appName: 'sese_ride',
       appVersion: '1.0.3+4',
     );
+
+    // Reset ErrorWidget.builder after test execution so flutter_test binding passes assertion
+    ErrorWidget.builder = originalBuilder;
 
     final details = FlutterErrorDetails(
       exception: "'package:flutter/src/widgets/navigator.dart': Failed assertion: line 5949 pos 12: '!_debugLocked': is not true.",

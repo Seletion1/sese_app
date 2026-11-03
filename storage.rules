@@ -45,6 +45,14 @@ service firebase.storage {
                    && isAllowedDoc();
     }
 
+    // ── Admin / Agent applications ("Work With Us") ──────────────────────────
+    match /admin_applications/{userId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && isAllowedDoc();
+    }
+
     // ── Driver onboarding documents (Step 2: ID, selfie, vehicle docs) ────────
     match /driver_onboarding/{userId}/{allPaths=**} {
       allow read: if request.auth != null

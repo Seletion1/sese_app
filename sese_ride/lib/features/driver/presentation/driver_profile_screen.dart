@@ -6,6 +6,9 @@ import '../../trips/models/trip_models.dart';
 import '../../../widgets/verified_badge.dart';
 import '../services/driver_profile_service.dart';
 import '../services/driver_streak_service.dart';
+import '../../agent_onboarding/widgets/agent_floating_button.dart';
+import '../../agent_onboarding/presentation/agent_application_sheet.dart';
+import '../../agent_onboarding/presentation/agent_status_card_sheet.dart';
 
 /// Dedicated driver profile detail screen.
 ///
@@ -110,6 +113,40 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     }
   }
 
+  void _openAgentWorkflow({String address = ''}) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StreamBuilder<AdminApplication?>(
+        stream: AdminApplicationService().applicationStream(widget.user.uid),
+        builder: (context, snap) {
+          final app = snap.data;
+          if (app == null) {
+            return AgentApplicationSheet(
+              user: widget.user,
+              initialAddress: address,
+            );
+          }
+          return AgentStatusCardSheet(
+            application: app,
+            onResubmit: () {
+              showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => AgentApplicationSheet(
+                  user: widget.user,
+                  initialAddress: address,
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -140,13 +177,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
               ? profile!.homeAddress
               : 'Not provided';
 
+          final isVerifiedDriver = profile?.isProfileVerified == true;
+
           return StreamBuilder<ActiveTrip?>(
             stream: _streaks.activeTripStream(widget.user.uid),
             builder: (context, tripSnap) {
               final hasActiveTrip = tripSnap.data != null;
-              return ListView(
-                padding: const EdgeInsets.all(16),
+              return Stack(
                 children: [
+                  ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
                   Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -355,12 +396,30 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     onTap: () => LegalDocumentViewer.showPrivacy(context),
                   ),
                 ],
-              );
-            },
+              ),
+              if (isVerifiedDriver)
+                Positioned(
+                  bottom: 20,
+                  right: 16,
+                  child: StreamBuilder<AdminApplication?>(
+                    stream: AdminApplicationService()
+                        .applicationStream(widget.user.uid),
+                    builder: (context, snap) {
+                      final app = snap.data;
+                      return AgentFloatingButton(
+                        isPending: app?.isPending == true,
+                        onTap: () => _openAgentWorkflow(address: address),
+                      );
+                    },
+                  ),
+                ),
+            ],
           );
         },
-      ),
-    );
+      );
+    },
+  ),
+);
   }
 }
 

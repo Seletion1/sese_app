@@ -4,6 +4,9 @@ import 'package:sese_core/sese_core.dart';
 
 import '../support/support_chat_screen.dart';
 import '../../../widgets/verified_badge.dart';
+import '../agent_onboarding/widgets/agent_floating_button.dart';
+import '../agent_onboarding/presentation/agent_application_sheet.dart';
+import '../agent_onboarding/presentation/agent_status_card_sheet.dart';
 
 /// Shows the customer's personal details with strict post-approval field locks.
 ///
@@ -177,6 +180,42 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     );
   }
 
+  void _openAgentWorkflow() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StreamBuilder<AdminApplication?>(
+        stream: AdminApplicationService().applicationStream(widget.user.uid),
+        builder: (context, snap) {
+          final app = snap.data;
+          if (app == null) {
+            return AgentApplicationSheet(
+              user: widget.user,
+              initialDob: _dob.text,
+              initialAddress: _address.text,
+            );
+          }
+          return AgentStatusCardSheet(
+            application: app,
+            onResubmit: () {
+              showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => AgentApplicationSheet(
+                  user: widget.user,
+                  initialDob: _dob.text,
+                  initialAddress: _address.text,
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -184,7 +223,27 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
     if (widget.userStream == null) {
       return Scaffold(
         appBar: _appBar(),
-        body: _buildBody(),
+        body: Stack(
+          children: [
+            _buildBody(),
+            if (_isVerified)
+              Positioned(
+                bottom: 20,
+                right: 16,
+                child: StreamBuilder<AdminApplication?>(
+                  stream: AdminApplicationService()
+                      .applicationStream(widget.user.uid),
+                  builder: (context, snap) {
+                    final app = snap.data;
+                    return AgentFloatingButton(
+                      isPending: app?.isPending == true,
+                      onTap: _openAgentWorkflow,
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
       );
     }
 
@@ -197,7 +256,27 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             final d = snap.data!.data();
             if (d != null) _applyFirestoreData(d);
           }
-          return _buildBody();
+          return Stack(
+            children: [
+              _buildBody(),
+              if (_isVerified)
+                Positioned(
+                  bottom: 20,
+                  right: 16,
+                  child: StreamBuilder<AdminApplication?>(
+                    stream: AdminApplicationService()
+                        .applicationStream(widget.user.uid),
+                    builder: (context, snap) {
+                      final app = snap.data;
+                      return AgentFloatingButton(
+                        isPending: app?.isPending == true,
+                        onTap: _openAgentWorkflow,
+                      );
+                    },
+                  ),
+                ),
+            ],
+          );
         },
       ),
     );

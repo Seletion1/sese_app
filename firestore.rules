@@ -1787,6 +1787,17 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // ===== ADMIN / AGENT APPLICATIONS ("Work With Us") =====
+    match /admin_applications/{applicationId} {
+      allow read: if isOwner(applicationId) || isHubStaff() || isAgent() || isAdminAuthClaim() || isSuperAdmin();
+      allow create: if isAuthenticated() && isNotSuspended() &&
+        isOwner(applicationId) &&
+        request.resource.data.status == 'pending';
+      allow update: if isHubStaff() || isAgent() || isAdminAuthClaim() || isSuperAdmin() ||
+        (isOwner(applicationId) && resource.data.status == 'rejected' && request.resource.data.status == 'pending');
+      allow delete: if isSuperAdmin();
+    }
+
     // ===== PROMPT 27: TIERED REFERRAL RATES =====
     // `system_config/referral_rates` carries the standard-user vs. elevated
     // field-agent commission decimal rates consumed by `ride_split_service.ts`
