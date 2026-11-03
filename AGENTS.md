@@ -101,6 +101,16 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
   - After all fixes: **216 passed / 23 failed**; the 23 remaining failures are pre-existing HEAD failures (dispatch UI drift, `ErrorWidget.builder` assertion, permission onboarding pumpAndSettle timeouts, wizard back-nav step 1 finder, Rejected/Skipped badges) and were **not** addressed here — flagged for a dedicated stabilization pass.
   - `functions/` untouched, so `npm run build` / `firebase deploy` were not required for this change set.
 
+## 2026-11-03 — IAM Lockout of 6 Production Callables: Spurious UNAUTHENTICATED Failures & Restoration
+
+- **Symptom (device log)**: `increaseTripFare` (and `submitBid`, `acceptBid`, `rejectBid`, `reviewCustomerVerification`, `reviewDriverVerification`) refused every call with `[firebase_functions/unauthenticated] UNAUTHENTICATED` — even after the client's forced ID-token refresh. `createTrip`/`calculateFare` worked, so auth was never broken.
+- **Root cause (probed)**: the 6 functions' Cloud Run services had **zero IAM bindings** (`{}` / empty policy). A `403 Forbidden` from Cloud Run is surfaced to clients as `UNAUTHENTICATED`. Verified with `curl` (403 before fix, proper function 401 JSON after).
+  - `firebase deploy` **does not re-add revoked invoker bindings**, so redeploys (Nov 1/Oct 3) could not repair it. Confirmed by redeploying all 6 — still 403 until IAM was re-granted.
+  - The lockout looks deliberate (27 services total, all admin/campaign/KYC/finance-flavored, none in this repo's design) but cannot be re-authenticated automatically. **At user's instruction the 6 in-repo callables were restored to `allUsers` + `roles/run.invoker`** via the Cloud Run Admin API. The other **21 private legacy functions were deliberately NOT touched** (report-only, per user instruction).
+- **Also found (report-only, NOT changed, per user instruction)**: **~327 publicly reachable callables** on project `sese-ride` exist that are **absent from this repo** (e.g. `walletCashout`, `otpBypass`, `updateSystemConfig`, `deleteAccount`, `adminGatewayConfigSave`, `transferWalletFunds`-like duplicates). These are most likely a legacy/parallel codebase deployed to the same project and publicly invokable. **Security action needed from project owner:** confirm provenance and delete or lock these down in GCP IAM / Firebase console.
+- **Client behavior unchanged**: the refresh-retry path already handles genuine `UNAUTHENTICATED`; no app build change is required — the device works immediately after IAM propagation.
+- **Verification**: `curl` probes of all 65 repo exports after grant — 6 previously 403 now return the function's own 401/`UNAUTHENTICATED` JSON; 45 already-public callables unchanged; 14 background triggers remain correctly 403. A re-run of the deploy (`firebase deploy --only functions:increaseTripFare,...`) shows all 6 updated successfully.
+
 ## 2026-11-03 — Strict Uniqueness Registry, Duplicate Prevention & Driver Self-Assignment Lockdown
 
 - **Server-Authoritative Uniqueness Registry (`unique_identifiers/{identifierHash}`)**:
