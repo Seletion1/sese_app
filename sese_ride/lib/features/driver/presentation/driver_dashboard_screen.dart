@@ -232,6 +232,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         streakService: _streaks,
         driverPosition: _driverPosition,
         currencySymbol: _currencySymbol,
+        driverId: widget.driverId,
       ),
     );
     if (accepted != null && mounted) {
@@ -1732,6 +1733,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               child: _PoolArrivalChime(
                 streakService: _streaks,
                 driverPosition: _driverPosition,
+                driverId: widget.driverId,
                 enabled: _isOnline && active == null,
               ),
             ),
@@ -1920,6 +1922,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                               PoolBadge(
                                 streakService: _streaks,
                                 driverPosition: _driverPosition,
+                                driverId: widget.driverId,
                                 onTap: _openPoolSheet,
                               ),
                             ],
@@ -2479,11 +2482,13 @@ class _RasterCredit extends StatelessWidget {
 class _PoolArrivalChime extends StatefulWidget {
   final DriverStreakService streakService;
   final LatLng driverPosition;
+  final String? driverId;
   final bool enabled;
 
   const _PoolArrivalChime({
     required this.streakService,
     required this.driverPosition,
+    this.driverId,
     required this.enabled,
   });
 
@@ -2498,10 +2503,11 @@ class _PoolArrivalChimeState extends State<_PoolArrivalChime> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ActiveTrip>>(
-      stream: widget.streakService.marketplaceStream(),
+      stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
       builder: (context, snap) {
         final trips = snap.data ?? const <ActiveTrip>[];
         final count = trips
+            .where((t) => widget.driverId == null || widget.driverId!.isEmpty || t.customerId != widget.driverId)
             .where((t) => OrderFeedState.withinPoolRadius(
                 t, widget.driverPosition))
             .length;

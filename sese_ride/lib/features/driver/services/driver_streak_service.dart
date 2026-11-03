@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -207,6 +208,16 @@ class DriverStreakService {
     String? driverId,
     int limit = 20,
   }) {
+    final effectiveDriverId = (driverId != null && driverId.isNotEmpty)
+        ? driverId
+        : (() {
+            try {
+              return FirebaseAuth.instance.currentUser?.uid;
+            } catch (_) {
+              return null;
+            }
+          })() ??
+          '';
     final db = _db;
     if (db == null) return Stream.value(const <ActiveTrip>[]);
     return db
@@ -228,7 +239,7 @@ class DriverStreakService {
         .map(
           (snap) => snap.docs
               .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-              .where((t) => driverId == null || driverId.isEmpty || t.customerId != driverId)
+              .where((t) => effectiveDriverId.isEmpty || t.customerId != effectiveDriverId)
               .toList(),
         )
         .handleError((Object _) => const <ActiveTrip>[]);

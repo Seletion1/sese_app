@@ -1,5 +1,10 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import {
+  assertAndReserveIdentifiersTx,
+  normalizeIdentifier,
+  IdentifierEntry,
+} from "./uniqueIdentifiers";
 
 function db() {
   return admin.firestore();
@@ -241,51 +246,159 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
     throw new HttpsError("invalid-argument", "Phone number is required.");
   }
 
+  const normPhoneStr = normalizeIdentifier("phone", phone);
+  const normEmailStr = email ? normalizeIdentifier("email", email) : "";
+  const normNinStr = data.ninNumber ? normalizeIdentifier("nin", data.ninNumber) : "";
+  const normPlateStr = data.vehicleDetails?.licensePlate
+    ? normalizeIdentifier("plate_number", data.vehicleDetails.licensePlate)
+    : "";
+
   let authUser: admin.auth.UserRecord;
 
   try {
-    authUser = await admin.auth().getUserByPhoneNumber("+" + phone);
+    authUser = await admin.auth().getUserByPhoneNumber(normPhoneStr);
   } catch (_) {
-    if (email) {
+    if (normEmailStr) {
       try {
-        authUser = await admin.auth().getUserByEmail(email);
+        authUser = await admin.auth().getUserByEmail(normEmailStr);
       } catch (_) {
         authUser = await admin.auth().createUser({
-          phoneNumber: "+" + phone,
-          email,
+          phoneNumber: normPhoneStr,
+          email: normEmailStr,
           displayName: fullName,
         });
       }
     } else {
       authUser = await admin.auth().createUser({
-        phoneNumber: "+" + phone,
+        phoneNumber: normPhoneStr,
         displayName: fullName,
       });
     }
   }
 
   const uid = authUser.uid;
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  let vehicleId: string | null = null;
+  if (role === "driver" && data.vehicleDetails) {
+    vehicleId = db().collection("drivers").doc(uid).collection("vehicles").doc().id;
+  }
 
-  // Create/Update user doc
-  await db().collection("users").doc(uid).set(
-    {
-      uid,
-      fullName,
-      phoneNumber: phone,
-      phoneNumberE164: "+" + phone,
-      ...(email ? { email } : {}),
-      role,
-      customerVerificationStatus: "verified",
-      isVerifiedCustomer: true,
-      address: data.address ?? "",
-      ninNumber: data.ninNumber ?? "",
-      createdByAdminId: adminUid,
-      createdAt: now,
-      updatedAt: now,
-    },
-    { merge: true }
-  );
+  await db().runTransaction(async (tx) => {
+    // 1. ALL READS: read user doc and uniqueness docs
+    const userRef = db().collection("users").doc(uid);
+    const userSnap = await tx.get(userRef);
+
+    const oldIdentifiers: IdentifierEntry[] = [];
+    if (userSnap.exists) {
+      const old = userSnap.data() ?? {};
+      if (old.phoneNumber) oldIdentifiers.push({ type: "phone", value: old.phoneNumber });
+      if (old.email) oldIdentifiers.push({ type: "email", value: old.email });
+      if (old.ninNumber) oldIdentifiers.push({ type: "nin", value: old.ninNumber });
+    }
+
+    const identifiers: IdentifierEntry[] = [
+      { type: "phone", value: normPhoneStr },
+    ];
+    if (normEmailStr) {
+      identifiers.push({ type: "email", value: normEmailStr });
+    }
+    if (normNinStr) {
+      identifiers.push({ type: "nin", value: normNinStr });
+    }
+    if (normPlateStr && vehicleId) {
+      identifiers.push({ type: "plate_number", value: normPlateStr, entityId: vehicleId });
+    }
+
+    // Atomic uniqueness verification & reservation
+    await assertAndReserveIdentifiersTx({
+      tx,
+      ownerUid: uid,
+      ownerCollection: "users",
+      identifiers,
+      oldIdentifiers,
+    });
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // 2. ALL WRITES: user doc, driver doc, vehicle doc
+    tx.set(
+      userRef,
+      {
+        uid,
+        fullName,
+        phoneNumber: normPhoneStr,
+        phoneNumberE164: normPhoneStr,
+        ...(normEmailStr ? { email: normEmailStr } : {}),
+        role,
+        customerVerificationStatus: "verified",
+        isVerifiedCustomer: true,
+        address: data.address ?? "",
+        ...(normNinStr ? { ninNumber: normNinStr } : {}),
+        createdByAdminId: adminUid,
+        createdAt: now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    if (role === "driver") {
+      const driverRef = db().collection("drivers").doc(uid);
+      tx.set(
+        driverRef,
+        {
+          driverId: uid,
+          fullName,
+          phone: normPhoneStr,
+          ...(normEmailStr ? { email: normEmailStr } : {}),
+          licenseNumber: data.driverDetails?.licenseNumber ?? "",
+          licenseExpiry: data.driverDetails?.licenseExpiry ?? "",
+          verificationStatus: "pending_verification",
+          isProfileVerified: false,
+          vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered",
+          photoUrl: data.livePhotoUrl ?? "",
+          createdByAdminId: adminUid,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      if (data.vehicleDetails && vehicleId) {
+        const v = data.vehicleDetails;
+        const vRef = db().collection("drivers").doc(uid).collection("vehicles").doc(vehicleId);
+        const category = String(v.category ?? "car").toLowerCase();
+
+        tx.set(vRef, {
+          id: vehicleId,
+          driverId: uid,
+          category,
+          make: v.make ?? "",
+          model: v.model ?? "",
+          year: v.year ?? new Date().getFullYear(),
+          licensePlate: normPlateStr,
+          color: v.color ?? "",
+          tier: v.tier ?? null,
+          verificationStatus: "PENDING",
+          lifecycleStatus: "ACTIVE",
+          isActiveSelected: true,
+          documents: data.documents ?? {},
+          createdByAdminId: adminUid,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        tx.set(
+          driverRef,
+          {
+            activeVehicleId: vehicleId,
+            activeVehicleCategory: category,
+            activePlateNumber: normPlateStr,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      }
+    }
+  });
 
   // Set Auth Custom Claims
   try {
@@ -296,68 +409,6 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
     });
   } catch (e) {
     console.warn(`adminRegisterUser: setCustomUserClaims failed: ${e}`);
-  }
-
-  let vehicleId: string | null = null;
-
-  if (role === "driver") {
-    await db().collection("drivers").doc(uid).set(
-      {
-        driverId: uid,
-        fullName,
-        phone,
-        ...(email ? { email } : {}),
-        licenseNumber: data.driverDetails?.licenseNumber ?? "",
-        licenseExpiry: data.driverDetails?.licenseExpiry ?? "",
-        verificationStatus: "pending_verification",
-        isProfileVerified: false,
-        vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered",
-        photoUrl: data.livePhotoUrl ?? "",
-        createdByAdminId: adminUid,
-        createdAt: now,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
-
-    if (data.vehicleDetails) {
-      const v = data.vehicleDetails;
-      const vRef = db().collection("drivers").doc(uid).collection("vehicles").doc();
-      vehicleId = vRef.id;
-
-      const category = String(v.category ?? "car").toLowerCase();
-      const licensePlate = String(v.licensePlate ?? "").toUpperCase();
-
-      await vRef.set({
-        id: vehicleId,
-        driverId: uid,
-        category,
-        make: v.make ?? "",
-        model: v.model ?? "",
-        year: v.year ?? new Date().getFullYear(),
-        licensePlate,
-        color: v.color ?? "",
-        tier: v.tier ?? null,
-        verificationStatus: "PENDING",
-        lifecycleStatus: "ACTIVE",
-        isActiveSelected: true,
-        documents: data.documents ?? {},
-        createdByAdminId: adminUid,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Update root driver doc active vehicle mirror
-      await db().collection("drivers").doc(uid).set(
-        {
-          activeVehicleId: vehicleId,
-          activeVehicleCategory: category,
-          activePlateNumber: licensePlate,
-          updatedAt: now,
-        },
-        { merge: true }
-      );
-    }
   }
 
   return {

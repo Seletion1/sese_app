@@ -1171,7 +1171,7 @@ async function startTier1(
   const attempted = attemptedIdsOf(data);
   const serviceType = String(data.serviceType ?? "ride");
   const vehicleCategory = String(data.vehicleCategory ?? (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
-  const customerId = String(data.customerId ?? data.userId ?? "");
+  const customerId = String(data.customerId ?? data.userId ?? (data.customer && typeof data.customer === "object" ? data.customer.uid : "") ?? "");
   const nearest =
     pickup == null
       ? []
@@ -1593,7 +1593,7 @@ export const acceptTrip = onCall(async (request) => {
     }
 
     // Self-assignment guard: drivers cannot accept orders they created as customer
-    const orderCustomerId = String(data.customerId ?? data.userId ?? "");
+    const orderCustomerId = String(data.customerId ?? data.userId ?? (data.customer && typeof data.customer === "object" ? data.customer.uid : "") ?? "");
     if (orderCustomerId && orderCustomerId === driverId) {
       throw new HttpsError(
         "failed-precondition",
@@ -2461,7 +2461,7 @@ export const submitBid = onCall(async (request) => {
   const tripData = tripSnap.data()!;
 
   // Self-assignment guard: drivers cannot bid on orders they created as customer
-  const orderCustomerId = String(tripData.customerId ?? tripData.userId ?? "");
+  const orderCustomerId = String(tripData.customerId ?? tripData.userId ?? (tripData.customer && typeof tripData.customer === "object" ? tripData.customer.uid : "") ?? "");
   if (orderCustomerId && orderCustomerId === driverId) {
     throw new HttpsError(
       "failed-precondition",
@@ -2620,10 +2620,24 @@ export const acceptBid = onCall(async (request) => {
       throw new HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data()!;
-    if (tripData.customerId !== customerId) {
+    const orderCustomerId = String(
+      tripData.customerId ??
+        tripData.userId ??
+        (tripData.customer && typeof tripData.customer === "object"
+          ? tripData.customer.uid
+          : "") ??
+        ""
+    );
+    if (orderCustomerId !== customerId) {
       throw new HttpsError(
         "permission-denied",
         "Only the requesting customer can accept bids."
+      );
+    }
+    if (String(driverId) === customerId || String(driverId) === orderCustomerId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Customer cannot accept their own driver bid."
       );
     }
 

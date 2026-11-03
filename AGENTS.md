@@ -72,6 +72,45 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-03 — Strict Uniqueness Registry, Duplicate Prevention & Driver Self-Assignment Lockdown
+
+- **Server-Authoritative Uniqueness Registry (`unique_identifiers/{identifierHash}`)**:
+  - **O(1) SHA-256 Lookup Index**: Created a dedicated Firestore collection `unique_identifiers/{identifierHash}` where the document ID is `sha256("${type}:${normalized}")`. This guarantees instant O(1) single-document uniqueness checks across the entire system without costly full-table scans.
+  - **PII Privacy & Hash Separation**: Sensitive government identification numbers (NIN, BVN, Passport) and contact numbers are cryptographically hashed; cleartext PII is never exposed in Firestore document keys or query URLs. Cross-type collision prevention is enforced via type pre-images.
+  - **Enforced Identifier Types**:
+    - Phone Numbers (Customer, Driver, and Hub Admin: normalized to E.164 e.g. `+234...`).
+    - Emails (Gmail/Googlemail dots stripped and `+alias` suffixes removed to prevent unlimited account duplication).
+    - Government Issued IDs (NIN: 11-digit numeric, BVN: 11-digit numeric, Passport: uppercase alphanumeric, Driver's License: uppercase alphanumeric).
+    - Vehicle & Motorcycle Plate Numbers: uppercase alphanumeric, whitespace and symbols stripped.
+  - **Firestore Security Rules**: Protected `unique_identifiers/{identifierHash}` with server-only write constraints (`allow write: if false;`). Readable only by the authenticated owner (`resource.data.ownerUid == request.auth.uid`) or authorized Hub staff (`isHubStaff()`).
+
+- **Cloud Function Atomic Registration & Update Guards**:
+  - **Atomic Transaction Enforcement**:
+    - `registerUser`: Validates and reserves phone, email, NIN, BVN, and passport credentials inside an atomic Firestore transaction (`db.runTransaction`) with strict "all reads before all writes" ordering before creating `users/{uid}`.
+    - `updateProfile`: Validates any updated contact or KYC credentials against the uniqueness registry, deletes retired hashes, writes new hashes, and updates profile documents atomically.
+    - `registerVehicle`: Validates vehicle/motorcycle plate uniqueness across the entire system. Prevents different drivers (and even the same driver) from binding duplicate plate numbers to multiple vehicles.
+    - `adminRegisterUser`: Hardened admin provisioning in `adminOnboarding.ts` with atomic transaction validation of phone, email, NIN, and vehicle plate numbers.
+    - `checkIdentifierAvailability`: Exported pre-flight callable returning `{ available: boolean, maskedValue?: string, message?: string }` for real-time form field validation.
+  - **User-Friendly Error Handling**: Any attempt to register an already-bound identifier throws `HttpsError('already-exists')` with a clear, descriptive message (e.g. *"The phone number (+234••••••78) is already registered to another account."*).
+
+- **Driver Self-Trip & Self-Assignment Lockdown**:
+  - **Backend Isolation (`functions/src/trips.ts`)**:
+    - `findNearestDrivers` / `startTier1`: Gated nearest driver candidate search with customer UID exclusion (`if (customerId && doc.id === customerId) continue`), ensuring the customer is never pinged or matched as the driver for their own trip.
+    - `acceptTrip`: Hardened self-assignment guard asserting `orderCustomerId !== driverId` across all candidate customer ID locations (`customerId`, `userId`, `customer.uid`).
+    - `submitBid`: Rejects driver bids on orders created by the same authenticated user in customer mode.
+    - `acceptBid`: Blocks customers from accepting bids originating from their own driver UID.
+  - **Client Order Pool & Feed Isolation (`sese_ride`)**:
+    - `ActiveTrip.fromMap`: Robustly resolves `customerId` from `customerId`, `userId`, and `customer.uid`.
+    - `DriverStreakService.marketplaceStream`: Automatically resolves caller driver ID (`FirebaseAuth.instance.currentUser?.uid`) and excludes all orders where `trip.customerId == driverId`.
+    - `OrderFeed` & `OrderPoolSheet`: Pass `driverId` and filter self-created orders from feeds, sheets, and arrival chime sounds.
+
+- **Verification & Deployment**:
+  - `functions`: 52/52 tests passed; `tsc` compiled with 0 errors.
+  - `sese_core`: 99/99 tests passed; `flutter analyze` 0 issues.
+  - `sese_ride`: 100% test pass on driver self-trip prevention; `flutter analyze` 0 issues.
+  - `sese_hub`: `flutter analyze` 0 issues.
+  - `firebase deploy`: Deployed `firestore:rules` and updated Cloud Functions to production `sese-ride`.
+
 ## 2026-11-03 — Security Hardening, Double-Payout Prevention & Financial Limits Engine
 
 - **Security Hardening & Abuse Prevention**:

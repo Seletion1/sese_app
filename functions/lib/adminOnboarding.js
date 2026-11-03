@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const uniqueIdentifiers_1 = require("./uniqueIdentifiers");
 function db() {
     return admin.firestore();
 }
@@ -192,7 +193,7 @@ exports.verifyOnboardingOtp = (0, https_1.onCall)(async (request) => {
     };
 });
 exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
+    var _a, _b, _c;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Admin authentication required.");
     }
@@ -208,78 +209,120 @@ exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
     if (!phone) {
         throw new https_1.HttpsError("invalid-argument", "Phone number is required.");
     }
+    const normPhoneStr = (0, uniqueIdentifiers_1.normalizeIdentifier)("phone", phone);
+    const normEmailStr = email ? (0, uniqueIdentifiers_1.normalizeIdentifier)("email", email) : "";
+    const normNinStr = data.ninNumber ? (0, uniqueIdentifiers_1.normalizeIdentifier)("nin", data.ninNumber) : "";
+    const normPlateStr = ((_c = data.vehicleDetails) === null || _c === void 0 ? void 0 : _c.licensePlate)
+        ? (0, uniqueIdentifiers_1.normalizeIdentifier)("plate_number", data.vehicleDetails.licensePlate)
+        : "";
     let authUser;
     try {
-        authUser = await admin.auth().getUserByPhoneNumber("+" + phone);
+        authUser = await admin.auth().getUserByPhoneNumber(normPhoneStr);
     }
     catch (_) {
-        if (email) {
+        if (normEmailStr) {
             try {
-                authUser = await admin.auth().getUserByEmail(email);
+                authUser = await admin.auth().getUserByEmail(normEmailStr);
             }
             catch (_) {
                 authUser = await admin.auth().createUser({
-                    phoneNumber: "+" + phone,
-                    email,
+                    phoneNumber: normPhoneStr,
+                    email: normEmailStr,
                     displayName: fullName,
                 });
             }
         }
         else {
             authUser = await admin.auth().createUser({
-                phoneNumber: "+" + phone,
+                phoneNumber: normPhoneStr,
                 displayName: fullName,
             });
         }
     }
     const uid = authUser.uid;
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    // Create/Update user doc
-    await db().collection("users").doc(uid).set(Object.assign(Object.assign({ uid,
-        fullName, phoneNumber: phone, phoneNumberE164: "+" + phone }, (email ? { email } : {})), { role, customerVerificationStatus: "verified", isVerifiedCustomer: true, address: (_c = data.address) !== null && _c !== void 0 ? _c : "", ninNumber: (_d = data.ninNumber) !== null && _d !== void 0 ? _d : "", createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
+    let vehicleId = null;
+    if (role === "driver" && data.vehicleDetails) {
+        vehicleId = db().collection("drivers").doc(uid).collection("vehicles").doc().id;
+    }
+    await db().runTransaction(async (tx) => {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+        // 1. ALL READS: read user doc and uniqueness docs
+        const userRef = db().collection("users").doc(uid);
+        const userSnap = await tx.get(userRef);
+        const oldIdentifiers = [];
+        if (userSnap.exists) {
+            const old = (_a = userSnap.data()) !== null && _a !== void 0 ? _a : {};
+            if (old.phoneNumber)
+                oldIdentifiers.push({ type: "phone", value: old.phoneNumber });
+            if (old.email)
+                oldIdentifiers.push({ type: "email", value: old.email });
+            if (old.ninNumber)
+                oldIdentifiers.push({ type: "nin", value: old.ninNumber });
+        }
+        const identifiers = [
+            { type: "phone", value: normPhoneStr },
+        ];
+        if (normEmailStr) {
+            identifiers.push({ type: "email", value: normEmailStr });
+        }
+        if (normNinStr) {
+            identifiers.push({ type: "nin", value: normNinStr });
+        }
+        if (normPlateStr && vehicleId) {
+            identifiers.push({ type: "plate_number", value: normPlateStr, entityId: vehicleId });
+        }
+        // Atomic uniqueness verification & reservation
+        await (0, uniqueIdentifiers_1.assertAndReserveIdentifiersTx)({
+            tx,
+            ownerUid: uid,
+            ownerCollection: "users",
+            identifiers,
+            oldIdentifiers,
+        });
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        // 2. ALL WRITES: user doc, driver doc, vehicle doc
+        tx.set(userRef, Object.assign(Object.assign(Object.assign(Object.assign({ uid,
+            fullName, phoneNumber: normPhoneStr, phoneNumberE164: normPhoneStr }, (normEmailStr ? { email: normEmailStr } : {})), { role, customerVerificationStatus: "verified", isVerifiedCustomer: true, address: (_b = data.address) !== null && _b !== void 0 ? _b : "" }), (normNinStr ? { ninNumber: normNinStr } : {})), { createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
+        if (role === "driver") {
+            const driverRef = db().collection("drivers").doc(uid);
+            tx.set(driverRef, Object.assign(Object.assign({ driverId: uid, fullName, phone: normPhoneStr }, (normEmailStr ? { email: normEmailStr } : {})), { licenseNumber: (_d = (_c = data.driverDetails) === null || _c === void 0 ? void 0 : _c.licenseNumber) !== null && _d !== void 0 ? _d : "", licenseExpiry: (_f = (_e = data.driverDetails) === null || _e === void 0 ? void 0 : _e.licenseExpiry) !== null && _f !== void 0 ? _f : "", verificationStatus: "pending_verification", isProfileVerified: false, vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered", photoUrl: (_g = data.livePhotoUrl) !== null && _g !== void 0 ? _g : "", createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
+            if (data.vehicleDetails && vehicleId) {
+                const v = data.vehicleDetails;
+                const vRef = db().collection("drivers").doc(uid).collection("vehicles").doc(vehicleId);
+                const category = String((_h = v.category) !== null && _h !== void 0 ? _h : "car").toLowerCase();
+                tx.set(vRef, {
+                    id: vehicleId,
+                    driverId: uid,
+                    category,
+                    make: (_j = v.make) !== null && _j !== void 0 ? _j : "",
+                    model: (_k = v.model) !== null && _k !== void 0 ? _k : "",
+                    year: (_l = v.year) !== null && _l !== void 0 ? _l : new Date().getFullYear(),
+                    licensePlate: normPlateStr,
+                    color: (_m = v.color) !== null && _m !== void 0 ? _m : "",
+                    tier: (_o = v.tier) !== null && _o !== void 0 ? _o : null,
+                    verificationStatus: "PENDING",
+                    lifecycleStatus: "ACTIVE",
+                    isActiveSelected: true,
+                    documents: (_p = data.documents) !== null && _p !== void 0 ? _p : {},
+                    createdByAdminId: adminUid,
+                    createdAt: now,
+                    updatedAt: now,
+                });
+                tx.set(driverRef, {
+                    activeVehicleId: vehicleId,
+                    activeVehicleCategory: category,
+                    activePlateNumber: normPlateStr,
+                    updatedAt: now,
+                }, { merge: true });
+            }
+        }
+    });
     // Set Auth Custom Claims
     try {
         await admin.auth().setCustomUserClaims(uid, Object.assign(Object.assign({}, (authUser.customClaims || {})), { role, isVerified: true }));
     }
     catch (e) {
         console.warn(`adminRegisterUser: setCustomUserClaims failed: ${e}`);
-    }
-    let vehicleId = null;
-    if (role === "driver") {
-        await db().collection("drivers").doc(uid).set(Object.assign(Object.assign({ driverId: uid, fullName,
-            phone }, (email ? { email } : {})), { licenseNumber: (_f = (_e = data.driverDetails) === null || _e === void 0 ? void 0 : _e.licenseNumber) !== null && _f !== void 0 ? _f : "", licenseExpiry: (_h = (_g = data.driverDetails) === null || _g === void 0 ? void 0 : _g.licenseExpiry) !== null && _h !== void 0 ? _h : "", verificationStatus: "pending_verification", isProfileVerified: false, vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered", photoUrl: (_j = data.livePhotoUrl) !== null && _j !== void 0 ? _j : "", createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
-        if (data.vehicleDetails) {
-            const v = data.vehicleDetails;
-            const vRef = db().collection("drivers").doc(uid).collection("vehicles").doc();
-            vehicleId = vRef.id;
-            const category = String((_k = v.category) !== null && _k !== void 0 ? _k : "car").toLowerCase();
-            const licensePlate = String((_l = v.licensePlate) !== null && _l !== void 0 ? _l : "").toUpperCase();
-            await vRef.set({
-                id: vehicleId,
-                driverId: uid,
-                category,
-                make: (_m = v.make) !== null && _m !== void 0 ? _m : "",
-                model: (_o = v.model) !== null && _o !== void 0 ? _o : "",
-                year: (_p = v.year) !== null && _p !== void 0 ? _p : new Date().getFullYear(),
-                licensePlate,
-                color: (_q = v.color) !== null && _q !== void 0 ? _q : "",
-                tier: (_r = v.tier) !== null && _r !== void 0 ? _r : null,
-                verificationStatus: "PENDING",
-                lifecycleStatus: "ACTIVE",
-                isActiveSelected: true,
-                documents: (_s = data.documents) !== null && _s !== void 0 ? _s : {},
-                createdByAdminId: adminUid,
-                createdAt: now,
-                updatedAt: now,
-            });
-            // Update root driver doc active vehicle mirror
-            await db().collection("drivers").doc(uid).set({
-                activeVehicleId: vehicleId,
-                activeVehicleCategory: category,
-                activePlateNumber: licensePlate,
-                updatedAt: now,
-            }, { merge: true });
-        }
     }
     return {
         success: true,

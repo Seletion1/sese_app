@@ -924,12 +924,12 @@ function attemptedIdsOf(data) {
 }
 /** Tier 1: exclusive offer to the single nearest online driver (1-3km). */
 async function startTier1(tripRef, data, tuning) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     const pickup = pickupOf(data);
     const attempted = attemptedIdsOf(data);
     const serviceType = String((_a = data.serviceType) !== null && _a !== void 0 ? _a : "ride");
     const vehicleCategory = String((_b = data.vehicleCategory) !== null && _b !== void 0 ? _b : (Array.isArray(data.selectedTiers) && data.selectedTiers.length > 0 ? data.selectedTiers[0] : "")).toLowerCase();
-    const customerId = String((_d = (_c = data.customerId) !== null && _c !== void 0 ? _c : data.userId) !== null && _d !== void 0 ? _d : "");
+    const customerId = String((_e = (_d = (_c = data.customerId) !== null && _c !== void 0 ? _c : data.userId) !== null && _d !== void 0 ? _d : (data.customer && typeof data.customer === "object" ? data.customer.uid : "")) !== null && _e !== void 0 ? _e : "");
     const nearest = pickup == null
         ? []
         : await findNearestDrivers(attempted, serviceType, pickup, 1, tuning, tuning.tier1RadiusKm, vehicleCategory, customerId);
@@ -1268,7 +1268,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
     await (0, accountGuard_1.requireAccountActive)(driverId, "driver");
     const snapshot = await driverSnapshot(driverId);
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
         const ref = db().collection("trips").doc(tripId);
         const snap = await tx.get(ref);
         if (!snap.exists) {
@@ -1305,7 +1305,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             return;
         }
         // Self-assignment guard: drivers cannot accept orders they created as customer
-        const orderCustomerId = String((_g = (_f = data.customerId) !== null && _f !== void 0 ? _f : data.userId) !== null && _g !== void 0 ? _g : "");
+        const orderCustomerId = String((_h = (_g = (_f = data.customerId) !== null && _f !== void 0 ? _f : data.userId) !== null && _g !== void 0 ? _g : (data.customer && typeof data.customer === "object" ? data.customer.uid : "")) !== null && _h !== void 0 ? _h : "");
         if (orderCustomerId && orderCustomerId === driverId) {
             throw new https_1.HttpsError("failed-precondition", "You cannot accept an order you created as a customer.");
         }
@@ -1319,14 +1319,14 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         }
         else if (status === "MARKETPLACE_OPEN" || status === "MARKETPLACE_LIST") {
             const driverDoc = await tx.get(db().collection("drivers").doc(driverId));
-            if (!driverDoc.exists || ((_h = driverDoc.data()) === null || _h === void 0 ? void 0 : _h.isOnline) !== true) {
+            if (!driverDoc.exists || ((_j = driverDoc.data()) === null || _j === void 0 ? void 0 : _j.isOnline) !== true) {
                 throw new https_1.HttpsError("failed-precondition", "Go online to claim marketplace requests.");
             }
             // Zero-trust claim gate (mirrors submitBid): online alone is not
             // enough. Verification or the fleet may have been revoked mid-session
             // after goOnline granted, so re-check inside the transaction.
             const claimer = driverDoc.data();
-            const claimerStatus = String((_k = (_j = claimer.verificationStatus) !== null && _j !== void 0 ? _j : claimer.status) !== null && _k !== void 0 ? _k : "").toLowerCase();
+            const claimerStatus = String((_l = (_k = claimer.verificationStatus) !== null && _k !== void 0 ? _k : claimer.status) !== null && _l !== void 0 ? _l : "").toLowerCase();
             const claimerVerified = claimerStatus === "verified" ||
                 claimerStatus === "approved" ||
                 claimerStatus === "active_verified" ||
@@ -1355,7 +1355,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         else {
             throw new https_1.HttpsError("failed-precondition", "This trip is no longer available.");
         }
-        if ((_l = data.driver) === null || _l === void 0 ? void 0 : _l.driverId) {
+        if ((_m = data.driver) === null || _m === void 0 ? void 0 : _m.driverId) {
             throw new https_1.HttpsError("failed-precondition", "Another driver claimed this trip first.");
         }
         // Verify pending bids before assignment: accept the claimer's own
@@ -1382,16 +1382,16 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
-            dispatchTier: (_m = data.dispatchTier) !== null && _m !== void 0 ? _m : null,
+            dispatchTier: (_o = data.dispatchTier) !== null && _o !== void 0 ? _o : null,
             pingDriverId: null,
             pingDriverIds: [],
             pingExpiresAt: null,
             tierExpiresAt: null,
             hasActiveBids: false,
-            biddingCompleted: pendingBids.size > 0 ? true : ((_o = data.biddingCompleted) !== null && _o !== void 0 ? _o : false),
+            biddingCompleted: pendingBids.size > 0 ? true : ((_p = data.biddingCompleted) !== null && _p !== void 0 ? _p : false),
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
-                : ((_p = data.acceptedBidDriverId) !== null && _p !== void 0 ? _p : null),
+                : ((_q = data.acceptedBidDriverId) !== null && _q !== void 0 ? _q : null),
             statusHistory: admin.firestore.FieldValue.arrayUnion({
                 from: status,
                 to: "DRIVER_ACCEPTED",
@@ -1999,7 +1999,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 /** Driver submits a custom fare bid on an open trip document */
 exports.submitBid = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in to bid.");
     }
@@ -2036,17 +2036,17 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
     }
     const tripData = tripSnap.data();
     // Self-assignment guard: drivers cannot bid on orders they created as customer
-    const orderCustomerId = String((_e = (_d = tripData.customerId) !== null && _d !== void 0 ? _d : tripData.userId) !== null && _e !== void 0 ? _e : "");
+    const orderCustomerId = String((_f = (_e = (_d = tripData.customerId) !== null && _d !== void 0 ? _d : tripData.userId) !== null && _e !== void 0 ? _e : (tripData.customer && typeof tripData.customer === "object" ? tripData.customer.uid : "")) !== null && _f !== void 0 ? _f : "");
     if (orderCustomerId && orderCustomerId === driverId) {
         throw new https_1.HttpsError("failed-precondition", "You cannot bid on an order you created as a customer.");
     }
     // 2. Validate offered fare against baseline, rounded to nearest 100
-    const baseline = Number((_g = (_f = tripData.baselineFare) !== null && _f !== void 0 ? _f : tripData.fareAmount) !== null && _g !== void 0 ? _g : 0);
+    const baseline = Number((_h = (_g = tripData.baselineFare) !== null && _g !== void 0 ? _g : tripData.fareAmount) !== null && _h !== void 0 ? _h : 0);
     const roundedOfferedFare = (0, pricing_1.roundToNearest100)(offeredFare, baseline);
     if (baseline > 0 && roundedOfferedFare < baseline) {
         throw new https_1.HttpsError("invalid-argument", `Offered fare (₦${roundedOfferedFare}) cannot be lower than the baseline fare (₦${baseline}).`);
     }
-    if ((_h = tripData.driver) === null || _h === void 0 ? void 0 : _h.driverId) {
+    if ((_j = tripData.driver) === null || _j === void 0 ? void 0 : _j.driverId) {
         throw new https_1.HttpsError("failed-precondition", "This trip has already been claimed by another driver.");
     }
     const allowedStatuses = [
@@ -2092,17 +2092,17 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         : vehicleDetails;
     // Rich counter-bid alert: in-app notification + FCM push to the customer
     // with complete driver details, ETA, vehicle info, offered fare, and Accept/Reject payload
-    await notifyCustomer(String((_j = tripData.customerId) !== null && _j !== void 0 ? _j : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
+    await notifyCustomer(String((_k = tripData.customerId) !== null && _k !== void 0 ? _k : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
         driverId,
         driverName: String(snapshot.fullName),
-        driverPhoto: String((_k = snapshot.photoUrl) !== null && _k !== void 0 ? _k : ""),
-        driverRating: String((_l = snapshot.rating) !== null && _l !== void 0 ? _l : 0),
+        driverPhoto: String((_l = snapshot.photoUrl) !== null && _l !== void 0 ? _l : ""),
+        driverRating: String((_m = snapshot.rating) !== null && _m !== void 0 ? _m : 0),
         offeredFare: String(roundedOfferedFare),
         offeredFareFormatted: `₦${Number(roundedOfferedFare).toLocaleString()}`,
         etaMinutes: String(etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5),
-        vehicleModel: String((_m = snapshot.vehicleModel) !== null && _m !== void 0 ? _m : ""),
-        vehicleColor: String((_o = snapshot.vehicleColor) !== null && _o !== void 0 ? _o : ""),
-        plateNumber: String((_p = snapshot.plateNumber) !== null && _p !== void 0 ? _p : ""),
+        vehicleModel: String((_o = snapshot.vehicleModel) !== null && _o !== void 0 ? _o : ""),
+        vehicleColor: String((_p = snapshot.vehicleColor) !== null && _p !== void 0 ? _p : ""),
+        plateNumber: String((_q = snapshot.plateNumber) !== null && _q !== void 0 ? _q : ""),
         vehicleDetails: vehicleStr,
     });
     return { ok: true, bidId: driverId };
@@ -2148,14 +2148,20 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
     const tripRef = db().collection("trips").doc(String(tripId));
     const bidRef = tripRef.collection("bids").doc(String(driverId));
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         const tripSnap = await tx.get(tripRef);
         if (!tripSnap.exists) {
             throw new https_1.HttpsError("not-found", "Trip not found.");
         }
         const tripData = tripSnap.data();
-        if (tripData.customerId !== customerId) {
+        const orderCustomerId = String((_c = (_b = (_a = tripData.customerId) !== null && _a !== void 0 ? _a : tripData.userId) !== null && _b !== void 0 ? _b : (tripData.customer && typeof tripData.customer === "object"
+            ? tripData.customer.uid
+            : "")) !== null && _c !== void 0 ? _c : "");
+        if (orderCustomerId !== customerId) {
             throw new https_1.HttpsError("permission-denied", "Only the requesting customer can accept bids.");
+        }
+        if (String(driverId) === customerId || String(driverId) === orderCustomerId) {
+            throw new https_1.HttpsError("failed-precondition", "Customer cannot accept their own driver bid.");
         }
         const allowedBiddingStatuses = [
             "SEARCHING_DRIVER",
@@ -2168,7 +2174,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
         if (!allowedBiddingStatuses.includes(String(tripData.status))) {
             throw new https_1.HttpsError("failed-precondition", `This trip is no longer open for bidding (current status: ${tripData.status}).`);
         }
-        if (((_a = tripData.driver) === null || _a === void 0 ? void 0 : _a.driverId) || tripData.driverId) {
+        if (((_d = tripData.driver) === null || _d === void 0 ? void 0 : _d.driverId) || tripData.driverId) {
             throw new https_1.HttpsError("failed-precondition", "A driver has already been assigned to this trip.");
         }
         const bidSnap = await tx.get(bidRef);
@@ -2194,7 +2200,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
             vehicleColor: String(bidData.vehicleColor || ""),
         };
         // Calculate cashToCollect based on the newly accepted offered fare and existing wallet escrow hold
-        const walletCoverage = Number((_b = tripData.walletCoverageAmount) !== null && _b !== void 0 ? _b : 0);
+        const walletCoverage = Number((_e = tripData.walletCoverageAmount) !== null && _e !== void 0 ? _e : 0);
         const updatedOfferedFare = Number(bidData.offeredFare);
         const newCashToCollect = Math.max(0, updatedOfferedFare - walletCoverage);
         tx.update(bidRef, {
@@ -2210,7 +2216,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
             fareFormatted: `₦${updatedOfferedFare.toLocaleString()}`,
             cashToCollect: newCashToCollect,
             senderCashToCollect: tripData.paymentMode === "split"
-                ? Math.max(0, Number((_c = tripData.senderShareAmount) !== null && _c !== void 0 ? _c : (updatedOfferedFare / 2)) - walletCoverage)
+                ? Math.max(0, Number((_f = tripData.senderShareAmount) !== null && _f !== void 0 ? _f : (updatedOfferedFare / 2)) - walletCoverage)
                 : newCashToCollect,
             biddingCompleted: true,
             hasActiveBids: false,
@@ -2220,7 +2226,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
             pingExpiresAt: null,
             tierExpiresAt: null,
             statusHistory: admin.firestore.FieldValue.arrayUnion({
-                from: (_d = tripData.status) !== null && _d !== void 0 ? _d : "MARKETPLACE_OPEN",
+                from: (_g = tripData.status) !== null && _g !== void 0 ? _g : "MARKETPLACE_OPEN",
                 to: "DRIVER_ACCEPTED",
                 actor: customerId,
                 role: "customer",
@@ -2240,7 +2246,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
         }
         (0, driverStreak_1.persistTripChangeLogInTx)(tx, {
             tripId: String(tripId),
-            from: String((_e = tripData.status) !== null && _e !== void 0 ? _e : "MARKETPLACE_OPEN"),
+            from: String((_h = tripData.status) !== null && _h !== void 0 ? _h : "MARKETPLACE_OPEN"),
             to: "DRIVER_ACCEPTED",
             actor: customerId,
             role: "customer",

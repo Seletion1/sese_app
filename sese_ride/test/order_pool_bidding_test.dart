@@ -132,5 +132,17 @@ void main() {
       expect(OrderPoolSession.isDismissedTrip(updatedTrip), isFalse);
       expect(OrderPoolSession.isDismissed('trip_103'), isFalse);
     });
+
+    test('re-appears when initial updatedAt was null and is set on modification', () {
+      final original = _makeTrip(tripId: 'trip_104', updatedAt: null);
+      OrderPoolSession.dismissTrip(original);
+      expect(OrderPoolSession.isDismissedTrip(original), isTrue);
+
+      final t1 = DateTime(2026, 11, 2, 10, 5);
+      final updatedTrip = _makeTrip(tripId: 'trip_104', updatedAt: t1);
+
+      expect(OrderPoolSession.isDismissedTrip(updatedTrip), isFalse);
+      expect(OrderPoolSession.isDismissed('trip_104'), isFalse);
+    });
   });
 }

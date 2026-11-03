@@ -182,7 +182,7 @@ class OrderFeedState extends State<OrderFeed> {
       stream: widget.streakService.pingStream(widget.driverId),
       builder: (context, pingSnap) {
         return StreamBuilder<List<ActiveTrip>>(
-          stream: widget.streakService.marketplaceStream(),
+          stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
           builder: (context, marketSnap) {
             final offers = _mergedOffers(
               pingSnap.data,
@@ -293,12 +293,14 @@ class OrderFeedState extends State<OrderFeed> {
 class PoolBadge extends StatefulWidget {
   final DriverStreakService streakService;
   final LatLng driverPosition;
+  final String? driverId;
   final VoidCallback? onTap;
 
   const PoolBadge({
     super.key,
     required this.streakService,
     required this.driverPosition,
+    this.driverId,
     this.onTap,
   });
 
@@ -328,10 +330,11 @@ class _PoolBadgeState extends State<PoolBadge>
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ActiveTrip>>(
-      stream: widget.streakService.marketplaceStream(),
+      stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
       builder: (context, snap) {
         final trips = snap.data ?? const <ActiveTrip>[];
         final count = trips
+            .where((t) => widget.driverId == null || widget.driverId!.isEmpty || t.customerId != widget.driverId)
             .where((t) => OrderFeedState.withinPoolRadius(
                 t, widget.driverPosition))
             .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))

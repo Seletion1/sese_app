@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
@@ -190,21 +191,54 @@ class DriverFleetService {
     );
 
     if (col != null) {
-      // Single source of truth: drivers/{driverId}/vehicles/{vehicleId}.
-      // Canonical `verificationStatus: PENDING` plus legacy aliases
-      // (`isVerified: false`, `status: 'pending'`) so the hub
-      // collectionGroup('vehicles') pending queue — canonical or legacy
-      // query — renders the vehicle immediately on every client.
-      await col.doc(vehicleId).set({
-        ...vehicle.toMap(),
-        'isVerified': false,
-        'status': 'pending',
-      });
-      await _db?.collection('drivers').doc(driverId).set({
-        'vehicleStatus': 'pending_verification',
-        'isPendingReview': true,
-        'updatedAt': DateTime.now().toIso8601String(),
-      }, SetOptions(merge: true));
+      try {
+        final callable = FirebaseFunctions.instance.httpsCallable('registerVehicle');
+        final res = await callable.call<Map<String, dynamic>>({
+          'driverId': driverId,
+          'category': category.name,
+          'make': make,
+          'model': model,
+          'year': year,
+          'licensePlate': licensePlate,
+          'color': color,
+          'documents': documents,
+          'tier': rideTier?.name,
+        });
+        final returnedId = res.data['vehicleId']?.toString();
+        if (returnedId != null && returnedId.isNotEmpty) {
+          return vehicle.copyWith(id: returnedId);
+        }
+      } on FirebaseFunctionsException catch (e) {
+        if (e.code == 'already-exists') {
+          throw DriverFleetUploadException(
+            'already-exists',
+            e.message ?? 'This vehicle plate number is already registered.',
+          );
+        }
+        // Fall back to direct write if callable error is not a uniqueness conflict
+        await col.doc(vehicleId).set({
+          ...vehicle.toMap(),
+          'isVerified': false,
+          'status': 'pending',
+        });
+        await _db?.collection('drivers').doc(driverId).set({
+          'vehicleStatus': 'pending_verification',
+          'isPendingReview': true,
+          'updatedAt': DateTime.now().toIso8601String(),
+        }, SetOptions(merge: true));
+      } catch (_) {
+        // Direct write fallback for offline/test environments
+        await col.doc(vehicleId).set({
+          ...vehicle.toMap(),
+          'isVerified': false,
+          'status': 'pending',
+        });
+        await _db?.collection('drivers').doc(driverId).set({
+          'vehicleStatus': 'pending_verification',
+          'isPendingReview': true,
+          'updatedAt': DateTime.now().toIso8601String(),
+        }, SetOptions(merge: true));
+      }
       if (kDebugMode) debugPrint('Vehicle registered in Firestore with id: $vehicleId');
     } else {
       _offlineTestVehicles.add(vehicle);

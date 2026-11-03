@@ -26,7 +26,7 @@ abstract final class ModeSwitcher {
     required AppUser user,
     required AuthRepository auth,
   }) async {
-    final navigator = Navigator.of(context);
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -60,7 +60,7 @@ abstract final class ModeSwitcher {
         onExpired: () {
           debugPrint(
               'Active trip protection timer expired: auto-switching to Driver Mode');
-          navigator.pushAndRemoveUntil(
+          rootNavigator.pushAndRemoveUntil(
             MaterialPageRoute(
               builder: (_) => PermissionOnboardingGate.wrap(
                 user: user,
@@ -77,7 +77,7 @@ abstract final class ModeSwitcher {
       RoleController.instance.cancelActiveTripCountdown(userId: user.uid);
     }
 
-    navigator.pushAndRemoveUntil(
+    rootNavigator.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => PermissionOnboardingGate.wrap(
           user: user,
@@ -99,7 +99,7 @@ abstract final class ModeSwitcher {
     required AppUser user,
     required AuthRepository auth,
   }) async {
-    final navigator = Navigator.of(context);
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
@@ -124,25 +124,24 @@ abstract final class ModeSwitcher {
 
     // Eligibility check with a blocking progress veil (no stateful host
     // needed — the dialog owns the busy UI and is popped when done).
-    // Context safety: `navigator`/`messenger` were captured synchronously
-    // and `navigator.mounted` is re-checked after every await, so the
-    // ignores below never touch a dead route.
+    // Context safety: `rootNavigator`/`messenger` were captured synchronously
+    // and `rootNavigator.mounted` is re-checked after every await.
     showDialog<void>(
       // ignore: use_build_context_synchronously
-      context: navigator.context,
+      context: rootNavigator.context,
       barrierDismissible: false,
       builder: (_) =>
           const Center(child: CircularProgressIndicator(strokeWidth: 2)),
     );
     final scenario =
         await RoleController.instance.evaluateDriverEligibility(user.uid);
-    if (!navigator.mounted) return;
-    navigator.pop();
+    if (!rootNavigator.mounted) return;
+    rootNavigator.pop();
 
     switch (scenario) {
       case DriverOnboardingScenario.scenarioA:
         await RoleController.instance.activateMode(user.uid, UserRole.driver);
-        navigator.pushAndRemoveUntil(
+        rootNavigator.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => PermissionOnboardingGate.wrap(
               user: user,
@@ -164,7 +163,7 @@ abstract final class ModeSwitcher {
             backgroundColor: AppColors.seseGold,
           ),
         );
-        navigator.push(
+        rootNavigator.push(
           MaterialPageRoute(
             builder: (_) => DriverFleetScreen(
               fleetService: DriverFleetService(),
@@ -177,7 +176,7 @@ abstract final class ModeSwitcher {
       case DriverOnboardingScenario.scenarioC:
         await showDialog<void>(
           // ignore: use_build_context_synchronously
-          context: navigator.context,
+          context: rootNavigator.context,
           builder: (ctx) => AlertDialog(
             title: const Text('Complete Driver Profile'),
             content: const Text(
@@ -195,7 +194,7 @@ abstract final class ModeSwitcher {
                 ),
                 onPressed: () {
                   Navigator.of(ctx).pop();
-                  navigator.push(
+                  rootNavigator.push(
                     MaterialPageRoute(
                       builder: (_) => DriverOnboardingScreen(
                         user: user,

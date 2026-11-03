@@ -2042,6 +2042,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ===== UNIQUE IDENTIFIERS LOOKUP & INTEGRITY INDEX =====
+    // Dedicated server-side uniqueness index (`unique_identifiers/{identifierHash}`)
+    // to instantly verify uniqueness across collections without full table scans
+    // for phone numbers, emails, NIN, BVN, passports, and vehicle plate numbers.
+    // Written EXCLUSIVELY by the Cloud Functions Admin SDK (clients can never write,
+    // forge, or tamper with entries).
+    // Readable only by authenticated users who own the identifier or authorized Hub Staff.
+    match /unique_identifiers/{identifierHash} {
+      allow read: if isAuthenticated() && (
+        resource.data.ownerUid == request.auth.uid || isHubStaff()
+      );
+      allow write: if false;
+    }
+
     // ===== DENY ALL UNMATCHED =====
     match /{document=**} {
       allow read, write: if false;

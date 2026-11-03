@@ -148,6 +148,13 @@ export {
   verifyEmailOtp,
 } from "./email";
 
+export {
+  checkIdentifierAvailability,
+  registerUser,
+  updateProfile,
+  registerVehicle,
+} from "./uniqueIdentifiers";
+
 interface CalculateFareData {
   pickup: { lat: number; lng: number };
   dropoff: { lat: number; lng: number };

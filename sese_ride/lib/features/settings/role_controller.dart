@@ -117,8 +117,11 @@ class RoleController extends ChangeNotifier {
     }
 
     final parsedServerMode = _modeFromString(serverMode);
+    // Allow server mode to override local mode only if the server update was
+    // recorded distinctly after the local change (5s clock-skew tolerance)
+    // or if no local preference existed.
     final useServer = parsedServerMode != null &&
-        (serverUpdatedAtMs > localUpdatedAtMs || initialLocalRole == null);
+        (serverUpdatedAtMs > (localUpdatedAtMs + 5000) || initialLocalRole == null);
     final restoredRole =
         useServer ? parsedServerMode : (initialLocalRole ?? fallbackRole);
     setCurrentRole(restoredRole);

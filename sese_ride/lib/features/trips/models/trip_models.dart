@@ -564,7 +564,11 @@ class ActiveTrip {
     return ActiveTrip(
       tripId: tripId,
       status: tripStatusFromString(map['status']?.toString()),
-      customerId: (map['customerId'] ?? '').toString(),
+      customerId: (map['customerId'] ??
+              map['userId'] ??
+              (map['customer'] is Map ? map['customer']['uid'] : null) ??
+              '')
+          .toString(),
       customerName: (map['customerName'] ??
               map['customer']?['name'] ??
               map['customer']?['fullName'] ??

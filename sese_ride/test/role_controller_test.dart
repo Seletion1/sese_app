@@ -46,6 +46,24 @@ void main() {
       expect(restoredRole, UserRole.driver);
       expect(RoleController.instance.currentRole, UserRole.driver);
     });
+
+    test('activateMode persists customer role and restoreSession recovers customer mode when fallback is driver', () async {
+      SharedPreferences.setMockInitialValues({});
+      await RoleController.instance.activateMode('driver_user_1', UserRole.customer);
+      expect(RoleController.instance.currentRole, UserRole.customer);
+
+      // Simulate app restart where memory resets to driver registration fallback
+      RoleController.instance.setCurrentRole(UserRole.driver);
+
+      final restoredRole = await RoleController.instance.restoreSession(
+        userId: 'driver_user_1',
+        fallbackRole: UserRole.driver,
+        onProtectionExpired: () {},
+      );
+
+      expect(restoredRole, UserRole.customer);
+      expect(RoleController.instance.currentRole, UserRole.customer);
+    });
   });
 
   group('RoleController cross-onboarding guards', () {

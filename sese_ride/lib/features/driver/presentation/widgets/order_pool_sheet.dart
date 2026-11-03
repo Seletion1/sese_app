@@ -68,6 +68,7 @@ class DismissedTripState {
     if (trip.dropoffLat != dropoffLat || trip.dropoffLng != dropoffLng) return true;
     if (trip.pickupAddress != pickupAddress || trip.dropoffAddress != dropoffAddress) return true;
     if (trip.fareBoosted != fareBoosted || trip.boostPercent != boostPercent) return true;
+    if (updatedAt == null && trip.updatedAt != null) return true;
     if (updatedAt != null &&
         trip.updatedAt != null &&
         trip.updatedAt!.isAfter(updatedAt!)) {
@@ -136,12 +137,14 @@ class OrderPoolSheet extends StatefulWidget {
   final DriverStreakService streakService;
   final LatLng driverPosition;
   final String currencySymbol;
+  final String? driverId;
 
   const OrderPoolSheet({
     super.key,
     required this.streakService,
     required this.driverPosition,
     required this.currencySymbol,
+    this.driverId,
   });
 
   @override
@@ -153,6 +156,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
   /// Breathing animation controller for the empty-state radar indicator.
   /// Runs only while the sheet is rendered; automatically freed on dispose.
   late final AnimationController _breathe;
+  ScaffoldMessengerState? _messenger;
 
   @override
   void initState() {
@@ -164,8 +168,15 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _messenger = ScaffoldMessenger.maybeOf(context);
+  }
+
+  @override
   void dispose() {
     _breathe.dispose();
+    _messenger?.hideCurrentSnackBar();
     super.dispose();
   }
 
@@ -217,9 +228,10 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
       maxChildSize: 0.92,
       builder: (context, scrollController) {
         return StreamBuilder<List<ActiveTrip>>(
-          stream: widget.streakService.marketplaceStream(),
+          stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
           builder: (context, snap) {
             final trips = (snap.data ?? const <ActiveTrip>[])
+                .where((t) => widget.driverId == null || widget.driverId!.isEmpty || t.customerId != widget.driverId)
                 .where((t) => OrderFeedState.withinPoolRadius(
                     t, widget.driverPosition))
                 .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
@@ -320,13 +332,12 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                             ),
                             onDismissed: (_) {
                               OrderPoolSession.dismiss(trip.tripId, trip);
-                              final messenger = ScaffoldMessenger.of(context);
-                              messenger.hideCurrentSnackBar();
-                              messenger.showSnackBar(
+                              _messenger?.hideCurrentSnackBar();
+                              _messenger?.showSnackBar(
                                 SnackBar(
                                   behavior: SnackBarBehavior.floating,
                                   margin: const EdgeInsets.only(
-                                      bottom: 80, left: 16, right: 16),
+                                      bottom: 24, left: 16, right: 16),
                                   duration:
                                       const Duration(milliseconds: 1500),
                                   content: const Text(
