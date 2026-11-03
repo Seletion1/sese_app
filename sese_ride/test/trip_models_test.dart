@@ -15,6 +15,15 @@ void main() {
       expect(tripStatusFromString(''), TripStatus.unknown);
       expect(tripStatusFromString('FLYING'), TripStatus.unknown);
     });
+
+    test('parses status case-insensitively and handles aliases', () {
+      expect(tripStatusFromString('completed'), TripStatus.completed);
+      expect(tripStatusFromString('finished'), TripStatus.completed);
+      expect(tripStatusFromString('DONE'), TripStatus.completed);
+      expect(tripStatusFromString('cancelled'), TripStatus.cancelled);
+      expect(tripStatusFromString('canceled'), TripStatus.cancelled);
+      expect(tripStatusFromString('in_progress'), TripStatus.inProgress);
+    });
   });
 
   group('ActiveTrip', () {
@@ -139,6 +148,27 @@ void main() {
       });
       expect(tripIgnored.status, TripStatus.ignored);
       expect(tripIgnored.isLive, isFalse);
+    });
+
+    test('latestActivityDate prefers completedAt over createdAt for sorting', () {
+      final now = DateTime.now();
+      final t1 = ActiveTrip(
+        tripId: 't1',
+        status: TripStatus.completed,
+        customerId: 'c1',
+        createdAt: now.subtract(const Duration(days: 5)),
+        completedAt: now,
+      );
+      final t2 = ActiveTrip(
+        tripId: 't2',
+        status: TripStatus.cancelled,
+        customerId: 'c1',
+        createdAt: now.subtract(const Duration(days: 1)),
+      );
+
+      expect(t1.latestActivityDate, now);
+      expect(t2.latestActivityDate, now.subtract(const Duration(days: 1)));
+      expect(t1.latestActivityDate.isAfter(t2.latestActivityDate), isTrue);
     });
   });
 

@@ -50,3 +50,9 @@ app.*.map.json
 # Local iOS secret config
 **/GoogleMapsSdkKey.xcconfig
 
+# Android release signing (never commit signing material)
+key.properties
+**/key.properties
+*.jks
+*.keystore
+

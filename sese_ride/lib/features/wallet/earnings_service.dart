@@ -103,6 +103,9 @@ class EarningsService {
       for (final doc in [...nestedDocs, ...flatDocs]) {
         try {
           final trip = ActiveTrip.fromMap(doc.id, doc.data());
+          // Customer-booked trips created by this user must not leak into driver earnings
+          if (trip.customerId == driverId) continue;
+
           if (trip.status == TripStatus.completed) {
             map[trip.tripId] = trip;
           }

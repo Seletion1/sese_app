@@ -124,7 +124,7 @@ void main() {
       if (etaFinder.evaluate().isNotEmpty) {
         final container = tester.widget<Container>(etaFinder);
         final row = container.child as Row;
-        final text = (row.children[1] as Expanded).child as Text;
+        final text = (row.children[2] as Expanded).child as Text;
         return text.data ?? '';
       }
       final acceptedFinder =
@@ -237,6 +237,85 @@ void main() {
 
       expect(repo.cancelCalled, isFalse);
       expect(find.byKey(const Key('cancel_trip_dialog')), findsNothing);
+    });
+
+    testWidgets('driver approach phase displays dynamic ETA card to pickup',
+        (tester) async {
+      await pumpLive(tester);
+      // Trip accepted, driver at (6.55, 3.36), pickup at (6.5244, 3.3792)
+      repo.controller.add(_trip(TripStatus.driverAccepted));
+      await tester.pump();
+
+      expect(find.byKey(const Key('customer_driver_eta_card')), findsOneWidget);
+      expect(statusText(tester), contains('Driver arriving in'));
+      expect(statusText(tester), contains('away'));
+    });
+
+    testWidgets('in-progress phase updates dynamic ETA card to dropoff',
+        (tester) async {
+      await pumpLive(tester);
+      final inProgressTrip = ActiveTrip(
+        tripId: 'trip-1',
+        status: TripStatus.inProgress,
+        customerId: 'c1',
+        pickupLat: 6.5244,
+        pickupLng: 3.3792,
+        pickupAddress: 'Ikorodu, Lagos State',
+        dropoffLat: 6.6018,
+        dropoffLng: 3.3515,
+        dropoffAddress: 'Ketu, Kosofe, Lagos State',
+        driver: const DriverInfo(
+          driverId: 'd1',
+          fullName: 'Adaeze Okonkwo',
+          rating: 4.8,
+          phone: '+2348012345678',
+          plateNumber: 'ABC-123-ZZ',
+          vehicleModel: 'Honda Accord',
+        ),
+        driverLat: 6.55,
+        driverLng: 3.36,
+      );
+
+      repo.controller.add(inProgressTrip);
+      await tester.pump();
+
+      expect(find.byKey(const Key('customer_driver_eta_card')), findsOneWidget);
+      expect(statusText(tester), contains('In progress'));
+      expect(statusText(tester), contains('min to drop-off'));
+    });
+
+    testWidgets('real-time driver location updates update ETA card dynamically',
+        (tester) async {
+      await pumpLive(tester);
+      final initialTrip = _trip(TripStatus.driverAccepted);
+      repo.controller.add(initialTrip);
+      await tester.pump();
+
+      final initialText = statusText(tester);
+      expect(initialText, contains('Driver arriving in'));
+
+      // Simulate driver moving closer to pickup (6.5250, 3.3795)
+      final movedTrip = ActiveTrip(
+        tripId: initialTrip.tripId,
+        status: initialTrip.status,
+        customerId: initialTrip.customerId,
+        pickupLat: initialTrip.pickupLat,
+        pickupLng: initialTrip.pickupLng,
+        pickupAddress: initialTrip.pickupAddress,
+        dropoffLat: initialTrip.dropoffLat,
+        dropoffLng: initialTrip.dropoffLng,
+        dropoffAddress: initialTrip.dropoffAddress,
+        driver: initialTrip.driver,
+        driverLat: 6.5250,
+        driverLng: 3.3795,
+      );
+
+      repo.controller.add(movedTrip);
+      await tester.pump();
+
+      final updatedText = statusText(tester);
+      expect(updatedText, contains('Driver arriving in'));
+      expect(updatedText, isNot(equals(initialText)));
     });
   });
 }

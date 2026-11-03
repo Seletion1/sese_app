@@ -67,11 +67,47 @@ android {
         manifestPlaceholders["GOOGLE_MAPS_SDK_KEY"] = googleMapsSdkKey
     }
 
+    signingConfigs {
+        create("release") {
+            val keyPropertiesFile = rootProject.file("key.properties")
+            val releaseProps = Properties()
+            if (keyPropertiesFile.exists()) {
+                keyPropertiesFile.inputStream().use { releaseProps.load(it) }
+            }
+            val storeFilePath = releaseProps.getProperty("storeFile")
+                ?: localProps.getProperty("RELEASE_STORE_FILE")
+                ?: System.getenv("RELEASE_STORE_FILE")
+            val storePass = releaseProps.getProperty("storePassword")
+                ?: localProps.getProperty("RELEASE_STORE_PASSWORD")
+                ?: System.getenv("RELEASE_STORE_PASSWORD")
+            val aliasName = releaseProps.getProperty("keyAlias")
+                ?: localProps.getProperty("RELEASE_KEY_ALIAS")
+                ?: System.getenv("RELEASE_KEY_ALIAS")
+            val keyPass = releaseProps.getProperty("keyPassword")
+                ?: localProps.getProperty("RELEASE_KEY_PASSWORD")
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
+
+            if (!storeFilePath.isNullOrBlank() && !storePass.isNullOrBlank() &&
+                !aliasName.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = file(storeFilePath)
+                storePassword = storePass
+                keyAlias = aliasName
+                keyPassword = keyPass
+            } else {
+                // Fallback to debug signing if release keystore properties are missing locally
+                storeFile = signingConfigs.getByName("debug").storeFile
+                storePassword = signingConfigs.getByName("debug").storePassword
+                keyAlias = signingConfigs.getByName("debug").keyAlias
+                keyPassword = signingConfigs.getByName("debug").keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Uses production key configuration when provided in key.properties/local.properties,
+            // or falls back to debug signing for local debug/release tests.
+            signingConfig = signingConfigs.getByName("release")
 
             // R8 full-mode code shrinking + resource shrinking.
             // Reduces APK by ~30-40% by removing unused classes, methods, and

@@ -138,7 +138,15 @@ void main() {
     test('still rejects malformed non-empty entries', () {
       expect(isOptionalNigerianPhoneNumber('12345'), isFalse);
       expect(isOptionalNigerianPhoneNumber('not-a-number'), isFalse);
-      expect(isOptionalNigerianPhoneNumber('+15551234567'), isFalse);
+      expect(isOptionalNigerianPhoneNumber('12'), isFalse);
+    });
+
+    test('accepts any supported country number (auto-detected code)', () {
+      // All country numbers are valid contact entries — the stored value
+      // keeps its own country prefix instead of forcing +234.
+      expect(isOptionalNigerianPhoneNumber('+15551234567'), isTrue);
+      expect(isOptionalNigerianPhoneNumber('+135254682'), isTrue);
+      expect(isOptionalNigerianPhoneNumber('+233244123456'), isTrue);
     });
 
     test('accepts valid numbers', () {

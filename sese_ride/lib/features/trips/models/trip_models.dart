@@ -74,9 +74,60 @@ enum TripStatus {
 }
 
 /// Parses a Firestore status string into a [TripStatus].
+///
+/// Handles case-insensitivity, whitespace, and wire aliases (e.g. `finished`,
+/// `completed`, `canceled`, `in_progress`).
 TripStatus tripStatusFromString(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return TripStatus.unknown;
+  final normalized = raw.trim().toUpperCase();
+
+  switch (normalized) {
+    case 'COMPLETED':
+    case 'FINISHED':
+    case 'DONE':
+    case 'SETTLED':
+      return TripStatus.completed;
+    case 'CANCELLED':
+    case 'CANCELED':
+      return TripStatus.cancelled;
+    case 'IN_PROGRESS':
+    case 'INPROGRESS':
+      return TripStatus.inProgress;
+    case 'DRIVER_ACCEPTED':
+    case 'ACCEPTED':
+      return TripStatus.driverAccepted;
+    case 'DRIVER_ARRIVING':
+    case 'ARRIVING':
+      return TripStatus.driverArriving;
+    case 'DRIVER_ARRIVED':
+    case 'ARRIVED':
+      return TripStatus.driverArrived;
+    case 'SEARCHING_DRIVER':
+    case 'SEARCHING':
+      return TripStatus.searchingDriver;
+    case 'WAITING_FOR_ACCEPTANCE':
+    case 'WAITING_ACCEPTANCE':
+      return TripStatus.waitingForAcceptance;
+    case 'DRIVER_PINGED':
+      return TripStatus.driverPinged;
+    case 'MARKETPLACE_OPEN':
+      return TripStatus.marketplaceOpen;
+    case 'MARKETPLACE_LIST':
+      return TripStatus.marketplaceList;
+    case 'CANCELLED_WAITING_CASH_SETTLEMENT':
+      return TripStatus.cancelledWaitingCashSettlement;
+    case 'NEEDS_CUSTOMER_ACTION':
+      return TripStatus.needsCustomerAction;
+    case 'BIDDING':
+      return TripStatus.bidding;
+    case 'REJECTED':
+      return TripStatus.rejected;
+    case 'IGNORED':
+      return TripStatus.ignored;
+  }
+
   for (final s in TripStatus.values) {
-    if (s.wireValue == raw) return s;
+    if (s.wireValue.toUpperCase() == normalized) return s;
   }
   return TripStatus.unknown;
 }
@@ -490,6 +541,19 @@ class ActiveTrip {
 
   /// Best available completion-ish timestamp for earnings bucketing.
   DateTime? get earningDate => completedAt ?? settledAt ?? updatedAt ?? createdAt;
+
+  /// Best available completion / activity timestamp for history sorting.
+  /// Prefers [completedAt] / [settledAt] / [updatedAt] / [arrivedAt] over initial [createdAt].
+  DateTime get latestActivityDate =>
+      completedAt ??
+      settledAt ??
+      updatedAt ??
+      arrivedAt ??
+      createdAt ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Convenience getter for assigned driver's UID (or empty string if unassigned).
+  String get driverId => driver?.driverId ?? '';
 
   factory ActiveTrip.fromMap(String tripId, Map<String, dynamic> map) {
     Map<String, dynamic> sub(dynamic v) =>

@@ -224,7 +224,7 @@ class _TripFeedCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          _formatDate(trip.createdAt ?? trip.updatedAt ?? trip.settledAt),
+                          _formatDate(trip.latestActivityDate),
                           style: TextStyle(
                             fontSize: 12,
                             color: theme.textTheme.bodySmall?.color,

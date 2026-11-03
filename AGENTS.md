@@ -72,6 +72,35 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-03 — Trip History Role Segregation, Live Driver ETA Tracking & All-Country Contact Numbers
+
+- **Trip History Role Segregation (`trip_service.dart`, `earnings_service.dart`)**:
+  - Customer history: excluded trips the user fulfilled as a driver (`trip.customerId == uid` and `trip.driver.driverId != uid && trip.driverId != uid`).
+  - Driver history: `customerId == uid` trips are never shown as driver trips; completed trips only count when the caller was the assigned driver.
+  - Driver earnings: driver-fulfilled trips attributed to `driverId == uid` exclusively.
+  - Sorting switched from raw `createdAt` to `ActiveTrip.latestActivityDate` (`completedAt ?? settledAt ?? updatedAt ?? arrivedAt ?? createdAt`) so "latest activity" is chronologically correct for history feeds.
+  - `tripStatusFromString` hardened: case-insensitive, whitespace-trimmed, alias-aware (`finished`, `done`, `settled`, `canceled`, `in_progress`, etc.) to survive heterogeneous backend status values.
+
+- **Customer Live Tracking (`live_trip_screen.dart`)**:
+  - Subscribes to `driver_status/{driverId}.snapshots()` for the assigned driver; distills `lastFix`/`lat/lng` into a live driver position. Falls back to the trip document's `driverLat/Lng` heartbeat when the status doc is absent.
+  - ETA card shows **distance to driver's next waypoint by stage**: while `driverAccepted/driverArriving/driverArrived` the target is the pickup; during `inProgress` the target is the drop-off. Coach-map camera and route request switch to driver→pickup during the approach phase and back to pickup→drop-off once under way.
+  - Polyline recompute is distance-throttled (>15 m from last routed origin) to bound Directions API usage while still tracking a moving vehicle.
+
+- **All-Country Phone Validation (`customer_dispatch_screen.dart`)**:
+  - `isOptionalNigerianPhoneNumber` (used by ALL contact fields) now accepts any country's number per the product spec — users may enter e.g. `+1 352 546 82` or `+2348161561592`; validation is `>= 8` national digits + strict `E.164` shape (`^\+[1-9]\d{7,14}$`), not NG-specific. Empty stays valid ("call me when you get there").
+  - `isValidNigerianPhoneNumber` stays strictly Nigerian (`^\+234[789]\d{9}$` via `SesePhoneSanitizer.isValidNigerianNumber`); it is NOT used by the optional contact fields at all.
+  - Existing test (`review_contact_phones_test.dart`) asserting outbound-US rejection was rewritten to the all-country contract; the over-strict `+15551234567 → false` assertion was removed as incompatible with the agreed behavior.
+
+- **Release Signing (`android/app/build.gradle.kts`)**:
+  - `release` signingConfig reads `android/key.properties` (`storeFile`, `storePassword`, `keyAlias`, `keyPassword`) with `local.properties` / env fallbacks; falls back to the debug keystore when unset so local release builds keep working.
+  - `key.properties`, `*.jks`, `*.keystore` added to `sese_ride/.gitignore`.
+
+- **Verification**:
+  - `flutter analyze` in `sese_ride`: **1 issue fixed** (`unused_import` in staged test); **0 issues** remaining.
+  - HEAD baseline (`1ca39da`, clean worktree): **204 passed / 25 failed** — confirms **zero regressions** from this change set.
+  - After all fixes: **216 passed / 23 failed**; the 23 remaining failures are pre-existing HEAD failures (dispatch UI drift, `ErrorWidget.builder` assertion, permission onboarding pumpAndSettle timeouts, wizard back-nav step 1 finder, Rejected/Skipped badges) and were **not** addressed here — flagged for a dedicated stabilization pass.
+  - `functions/` untouched, so `npm run build` / `firebase deploy` were not required for this change set.
+
 ## 2026-11-03 — Strict Uniqueness Registry, Duplicate Prevention & Driver Self-Assignment Lockdown
 
 - **Server-Authoritative Uniqueness Registry (`unique_identifiers/{identifierHash}`)**:

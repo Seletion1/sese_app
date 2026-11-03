@@ -20,25 +20,26 @@ import 'widgets/split_payment_sheet.dart';
 ///
 /// Mirrors the backend `NG_PHONE` contract (`^(\+?234|0)(70|71|80|81|90|91)
 /// \d{8}$`): local 11-digit, +234, or 234-prefixed numbers with valid
-/// mobile prefixes only. A loose E.164 check here would green-light
-/// numbers the server rejects (e.g. US numbers), failing bookings after
-/// the client already accepted them.
+/// mobile prefixes only. Used where a strictly Nigerian number is required;
+/// contact fields use [isOptionalNigerianPhoneNumber] which accepts any
+/// supported country number.
 bool isValidNigerianPhoneNumber(String? input) {
   if (input == null || input.trim().isEmpty) return false;
-  return SesePhoneSanitizer.isValidNigerianNumber(input) ||
-      SesePhoneSanitizer.isValidE164(SesePhoneSanitizer.normalize(input));
+  return SesePhoneSanitizer.isValidNigerianNumber(input);
 }
 
 /// Optional variant of phone validation for Step 3 contact fields:
 /// empty (no secondary contact — e.g. "call me when you get there") is valid;
-/// non-empty entries are normalized and validated for E.164 compliance across
-/// all supported countries (Nigeria, Benin, Ghana, etc.).
+/// non-empty entries accept any supported country number (e.g. `+23481...`
+/// or `+135254682`), normalized to strict E.164 with a sane minimum length.
 bool isOptionalNigerianPhoneNumber(String? input) {
   if (input == null || input.trim().isEmpty) return true;
   final activeIso = CountryDetectionService.instance.currentCountryCode;
-  final norm = SesePhoneSanitizer.normalize(input, defaultIsoCode: activeIso);
-  return SesePhoneSanitizer.isValidE164(norm) ||
-      isValidNigerianPhoneNumber(input);
+  final parsed = SesePhoneSanitizer.parse(input, defaultIsoCode: activeIso);
+  // National part must be at least 8 digits (all supported markets use 9+);
+  // rejects junk like '12345' and '08012345' while accepting any country.
+  return parsed.nationalNumber.length >= 8 &&
+      SesePhoneSanitizer.isValidE164(parsed.e164);
 }
 
 /// Strips any hardcoded country prefix from a stored/profile number down to

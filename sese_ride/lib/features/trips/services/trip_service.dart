@@ -89,7 +89,7 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Future<String> createTrip(TripDraft draft) async {
-    try {
+    return _callWithAuthRetry(() async {
       final result =
           await _fn.httpsCallable('createTrip').call(draft.toMap());
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -102,17 +102,7 @@ class FirestoreTripRepository implements TripRepository {
       }
       if (kDebugMode) debugPrint('TripRepository: created trip $tripId');
       return tripId;
-    } on FirebaseFunctionsException catch (e) {
-      debugPrint('TripRepository.createTrip ${e.code}: ${e.message}');
-      throw TripException(e.code, _mapError(e.code, e.message));
-    } catch (e) {
-      debugPrint('TripRepository.createTrip error: $e');
-      if (e is TripException) rethrow;
-      throw const TripException(
-        'network-error',
-        'Could not reach the dispatch server. Check your connection and try again.',
-      );
-    }
+    });
   }
 
   @override
@@ -146,7 +136,8 @@ class FirestoreTripRepository implements TripRepository {
     if (userId.isEmpty) return Stream.value(const []);
     try {
       if (!isDriver) {
-        // Customer history query: all historical trips booked by customerId
+        // Customer history query: all historical trips booked by customerId.
+        // Excludes trips fulfilled by this user as a driver.
         return _db
             .collection('trips')
             .where('customerId', isEqualTo: userId)
@@ -154,8 +145,12 @@ class FirestoreTripRepository implements TripRepository {
             .map((snap) {
           final list = snap.docs
               .map((d) => ActiveTrip.fromMap(d.id, d.data()))
+              .where((trip) =>
+                  trip.customerId == userId &&
+                  trip.driver?.driverId != userId &&
+                  trip.driverId != userId)
               .toList();
-          list.sort((a, b) => _compareTripDate(b, a));
+          list.sort((a, b) => _compareTripDate(a, b));
           return list;
         }).handleError((e) {
           debugPrint('userTripHistoryStream (customer) error: $e');
@@ -163,10 +158,9 @@ class FirestoreTripRepository implements TripRepository {
         });
       }
 
-      // Driver lifetime history: queries all historical trips where driver is
-      // assigned via `driver.driverId` or legacy flat `driverId`.
-      // NO date restriction (e.g. today/00:00:00) so drivers see complete lifetime
-      // history across all statuses (completed, accepted, in-progress, cancelled, rejected).
+      // Driver lifetime history: queries historical trips where user was assigned
+      // or attempted as driver. Excludes customer-booked trips created by this user
+      // and completed trips fulfilled by other drivers.
       late final StreamController<List<ActiveTrip>> controller;
       StreamSubscription? subNested;
       StreamSubscription? subFlat;
@@ -182,13 +176,26 @@ class FirestoreTripRepository implements TripRepository {
         for (final doc in [...nestedDocs, ...flatDocs, ...attemptedDocs]) {
           try {
             final trip = ActiveTrip.fromMap(doc.id, doc.data());
+
+            // 1. Customer-booked trips created by this user MUST NOT leak
+            // into driver history.
+            if (trip.customerId == userId) continue;
+
+            // 2. Completed trips must be fulfilled by this driver, not another.
+            final isAssignedDriver =
+                trip.driver?.driverId == userId || trip.driverId == userId;
+
+            if (trip.status == TripStatus.completed && !isAssignedDriver) {
+              continue;
+            }
+
             map[trip.tripId] = trip;
           } catch (e) {
             debugPrint('Error parsing trip doc ${doc.id}: $e');
           }
         }
         final list = map.values.toList();
-        list.sort((a, b) => _compareTripDate(b, a));
+        list.sort((a, b) => _compareTripDate(a, b));
         controller.add(list);
       }
 
@@ -259,31 +266,21 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   static int _compareTripDate(ActiveTrip a, ActiveTrip b) {
-    final da = a.createdAt ?? a.updatedAt ?? a.settledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final db = b.createdAt ?? b.updatedAt ?? b.settledAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return db.compareTo(da);
+    return b.latestActivityDate.compareTo(a.latestActivityDate);
   }
 
   @override
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {
-    try {
-      await _fn.httpsCallable('cancelTrip').call({
-        'tripId': tripId,
-        if (reason != null && reason.isNotEmpty) 'reason': reason,
-        if (useCashSettlement) 'useCashSettlement': true,
-      });
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
+    await _callWithAuthRetry(() => _fn.httpsCallable('cancelTrip').call({
+      'tripId': tripId,
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
+      if (useCashSettlement) 'useCashSettlement': true,
+    }));
   }
 
   @override
   Future<void> confirmCashCancellation(String tripId) async {
-    try {
-      await _fn.httpsCallable('confirmCashCancellation').call({'tripId': tripId});
-    } on FirebaseFunctionsException catch (e) {
-      throw TripException(e.code, _mapError(e.code, e.message));
-    }
+    await _callWithAuthRetry(() => _fn.httpsCallable('confirmCashCancellation').call({'tripId': tripId}));
   }
 
   Future<T> _callWithAuthRetry<T>(Future<T> Function() callable) async {
@@ -304,6 +301,9 @@ class FirestoreTripRepository implements TripRepository {
           return await callable();
         } catch (retryErr) {
           debugPrint('FirestoreTripRepository: token refresh retry failed: $retryErr');
+          if (retryErr is FirebaseFunctionsException) {
+            throw TripException(retryErr.code, _mapError(retryErr.code, retryErr.message));
+          }
           throw TripException('unauthenticated', _mapError('unauthenticated', e.message));
         }
       }

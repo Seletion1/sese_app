@@ -499,6 +499,14 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   /// Road-network route (OSRM / Google Directions).
   List<LatLng> _routePoints = [];
 
+  /// Real-time assigned driver position fix from `driver_status/{driverId}` stream.
+  LatLng? _assignedDriverFix;
+  StreamSubscription? _assignedDriverSub;
+
+  /// Cache for distance-throttled polyline calculation.
+  LatLng? _lastRoutedOrigin;
+  TripStatus? _lastTripStatus;
+
   /// Dynamic map camera animation loop timer.
   Timer? _cameraLoopTimer;
   Timer? _cameraLoopInitTimer;
@@ -515,9 +523,84 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   double get _activeStageRadiusKm =>
       _dispatchTuning.radiusForTier(widget.trip.dispatchTier);
 
+  LatLng? get _effectiveDriverPos {
+    if (_assignedDriverFix != null) return _assignedDriverFix;
+    if (widget.trip.driverLat != null && widget.trip.driverLng != null) {
+      return LatLng(widget.trip.driverLat!, widget.trip.driverLng!);
+    }
+    return null;
+  }
+
+  bool get _isDriverEnRouteToPickup =>
+      widget.trip.status == TripStatus.driverAccepted ||
+      widget.trip.status == TripStatus.driverArriving ||
+      widget.trip.status == TripStatus.driverArrived;
+
+  LatLng get _currentRouteOrigin {
+    if (_isDriverEnRouteToPickup) {
+      return _effectiveDriverPos ?? _pickup;
+    }
+    return _pickup;
+  }
+
+  LatLng get _currentRouteDest {
+    if (_isDriverEnRouteToPickup) {
+      return _pickup;
+    }
+    return _dropoff;
+  }
+
+  void _initAssignedDriverListener() {
+    final driverId = widget.trip.driver?.driverId ?? '';
+    if (driverId.isEmpty) {
+      _assignedDriverSub?.cancel();
+      _assignedDriverSub = null;
+      _assignedDriverFix = null;
+      return;
+    }
+    _assignedDriverSub?.cancel();
+    try {
+      _assignedDriverSub = FirebaseFirestore.instance
+          .collection('driver_status')
+          .doc(driverId)
+          .snapshots()
+          .listen(
+        (doc) {
+          if (!mounted || !doc.exists || doc.data() == null) return;
+          final data = doc.data()!;
+          final fix = data['lastFix'] as Map<String, dynamic>?;
+          final lat = (fix?['latitude'] as num?)?.toDouble() ??
+              (data['lat'] as num?)?.toDouble();
+          final lng = (fix?['longitude'] as num?)?.toDouble() ??
+              (data['lng'] as num?)?.toDouble();
+          if (lat == null || lng == null) return;
+          final newFix = LatLng(lat, lng);
+
+          final prevDriverPos = _assignedDriverFix;
+          setState(() => _assignedDriverFix = newFix);
+
+          if (_isDriverEnRouteToPickup) {
+            final distanceMoved = prevDriverPos == null
+                ? 999.0
+                : const Distance().as(LengthUnit.Meter, prevDriverPos, newFix);
+            if (distanceMoved > 15) {
+              _loadRoadRoute();
+            }
+          }
+        },
+        onError: (err) {
+          debugPrint('LiveTripScreen assignedDriver stream error: $err');
+        },
+      );
+    } catch (e) {
+      debugPrint('LiveTripScreen initAssignedDriverListener error: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _initAssignedDriverListener();
     _fitRoute();
     _loadRoadRoute();
     _initDispatchTuning();
@@ -535,12 +618,38 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   @override
   void didUpdateWidget(covariant _LiveTripBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.trip.pickupLat != widget.trip.pickupLat ||
+    final oldDriverId = oldWidget.trip.driver?.driverId ?? '';
+    final newDriverId = widget.trip.driver?.driverId ?? '';
+    if (oldDriverId != newDriverId) {
+      _initAssignedDriverListener();
+    }
+
+    final statusChanged = oldWidget.trip.status != widget.trip.status;
+    final coordsChanged = oldWidget.trip.pickupLat != widget.trip.pickupLat ||
         oldWidget.trip.pickupLng != widget.trip.pickupLng ||
         oldWidget.trip.dropoffLat != widget.trip.dropoffLat ||
-        oldWidget.trip.dropoffLng != widget.trip.dropoffLng) {
+        oldWidget.trip.dropoffLng != widget.trip.dropoffLng ||
+        oldWidget.trip.driverLat != widget.trip.driverLat ||
+        oldWidget.trip.driverLng != widget.trip.driverLng;
+
+    if (coordsChanged || statusChanged) {
       _fitRoute();
-      _loadRoadRoute();
+
+      bool driverMovedSignificantly = false;
+      if (_isDriverEnRouteToPickup && _effectiveDriverPos != null) {
+        final lastOrigin = _lastRoutedOrigin;
+        if (lastOrigin == null) {
+          driverMovedSignificantly = true;
+        } else {
+          final dist = const Distance()
+              .as(LengthUnit.Meter, lastOrigin, _effectiveDriverPos!);
+          if (dist > 15) driverMovedSignificantly = true;
+        }
+      }
+
+      if (statusChanged || driverMovedSignificantly || _lastTripStatus != widget.trip.status) {
+        _loadRoadRoute();
+      }
       _initNearbyDrivers();
     }
 
@@ -564,6 +673,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     _stopCameraLoop();
     _nearbyDriversSub?.cancel();
     _dispatchTuningSub?.cancel();
+    _assignedDriverSub?.cancel();
     super.dispose();
   }
 
@@ -595,14 +705,24 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   void _fitRoute() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _mapController.fitPoints(_pickup, _dropoff, padding: 72);
+      if (_isDriverEnRouteToPickup && _effectiveDriverPos != null) {
+        _mapController.fitPoints(_effectiveDriverPos!, _pickup, padding: 72);
+      } else {
+        _mapController.fitPoints(_pickup, _dropoff, padding: 72);
+      }
     });
   }
 
-  /// Fetches the drivable road geometry.
+  /// Fetches the drivable road geometry based on the active trip stage.
   Future<void> _loadRoadRoute() async {
     if (SeSeMapView.debugTileProviderOverride != null) return;
-    final points = await LocationService.fetchRoutePolyline(_pickup, _dropoff);
+    final origin = _currentRouteOrigin;
+    final dest = _currentRouteDest;
+
+    _lastRoutedOrigin = origin;
+    _lastTripStatus = widget.trip.status;
+
+    final points = await LocationService.fetchRoutePolyline(origin, dest);
     if (!mounted || points.isEmpty) return;
     setState(() => _routePoints = points);
   }
@@ -748,20 +868,28 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
     final trip = widget.trip;
     final pickup = _pickup;
     final dropoff = _dropoff;
-    final hasDriverFix = trip.driverLat != null && trip.driverLng != null;
-    final focus = hasDriverFix
-        ? LatLng(trip.driverLat!, trip.driverLng!)
-        : LatLng(
-            (pickup.latitude + dropoff.latitude) / 2,
-            (pickup.longitude + dropoff.longitude) / 2,
-          );
+    final driverPos = _effectiveDriverPos;
+    final hasDriverFix = driverPos != null;
+
+    final focus = _isDriverEnRouteToPickup && hasDriverFix
+        ? driverPos
+        : hasDriverFix
+            ? driverPos
+            : LatLng(
+                (pickup.latitude + dropoff.latitude) / 2,
+                (pickup.longitude + dropoff.longitude) / 2,
+              );
+
+    final fallbackPolylinePoints = _isDriverEnRouteToPickup
+        ? [driverPos ?? pickup, pickup]
+        : [pickup, dropoff];
 
     final markers = [
       SeSeMapView.pin(point: pickup, color: Colors.green),
       SeSeMapView.pin(point: dropoff, color: Colors.red),
       if (hasDriverFix)
         SeSeMapView.pin(
-          point: LatLng(trip.driverLat!, trip.driverLng!),
+          point: driverPos,
           color: Colors.blue,
         ),
       // Real-time nearby drivers within active dispatch stage radius
@@ -795,7 +923,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
     final polylines = [
       SeSeMapView.route(
-        points: _routePoints.isNotEmpty ? _routePoints : [pickup, dropoff],
+        points: _routePoints.isNotEmpty ? _routePoints : fallbackPolylinePoints,
       ),
     ];
 
@@ -847,6 +975,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             driver: trip.driver!,
             trip: trip,
             repository: widget.repository,
+            driverPosOverride: driverPos,
             onCancel: () => _cancel(context),
             onNavigateAway: () => _navigateBackToBookingOrPop(context, trip),
           ),
@@ -1560,12 +1689,16 @@ class _AcceptedDriverSheet extends StatefulWidget {
   /// cancel dialog; this skips the dialog and goes straight to navigation.
   final VoidCallback? onNavigateAway;
 
+  /// Optional live assigned driver position override (from real-time stream).
+  final LatLng? driverPosOverride;
+
   const _AcceptedDriverSheet({
     required this.driver,
     required this.trip,
     required this.repository,
     this.onCancel,
     this.onNavigateAway,
+    this.driverPosOverride,
   });
 
   @override
@@ -1943,8 +2076,12 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 //      arriving in 3 min • 120 m away" or "In progress …").
                 //    • When no fix yet → show the plain amber status box as
                 //      the sole banner so there is never two status lines.
-                if (trip.driverLat != null && trip.driverLng != null) ...[
-                  _DriverEtaCard(trip: trip),
+                if (widget.driverPosOverride != null ||
+                    (trip.driverLat != null && trip.driverLng != null)) ...[
+                  _DriverEtaCard(
+                    trip: trip,
+                    driverPosOverride: widget.driverPosOverride,
+                  ),
                   const SizedBox(height: 8),
                 ] else ...[
                   // b. Plain status container — only shown when no GPS fix.
@@ -2675,13 +2812,19 @@ void _showBoostFareDialog(
 ///   customer sees "In progress • X min to dropoff".
 class _DriverEtaCard extends StatelessWidget {
   final ActiveTrip trip;
+  final LatLng? driverPosOverride;
 
-  const _DriverEtaCard({required this.trip});
+  const _DriverEtaCard({required this.trip, this.driverPosOverride});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final driverPos = LatLng(trip.driverLat!, trip.driverLng!);
+    final driverPos = driverPosOverride ??
+        (trip.driverLat != null && trip.driverLng != null
+            ? LatLng(trip.driverLat!, trip.driverLng!)
+            : null);
+    if (driverPos == null) return const SizedBox.shrink();
+
     final isInProgress = trip.status == TripStatus.inProgress;
 
     // Choose the relevant destination based on trip stage.
