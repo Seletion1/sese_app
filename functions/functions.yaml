@@ -1150,6 +1150,44 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "calculateFare"
+    },
+    "onTripWrittenForDriverHistory": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "eventTrigger": {
+        "eventType": "google.cloud.firestore.document.v1.written",
+        "eventFilters": {
+          "database": "(default)",
+          "namespace": "(default)"
+        },
+        "eventFilterPathPatterns": {
+          "document": "trips/{tripId}"
+        },
+        "retry": false
+      },
+      "entryPoint": "onTripWrittenForDriverHistory"
+    },
+    "backfillDriverTripHistory": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "backfillDriverTripHistory"
     }
   },
   "requiredAPIs": [

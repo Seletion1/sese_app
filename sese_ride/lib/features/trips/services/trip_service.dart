@@ -232,9 +232,15 @@ class FirestoreTripRepository implements TripRepository {
               },
             );
 
+            // Server-maintained mirror (`onTripWrittenForDriverHistory`):
+            // reading `drivers/{uid}/trip_history` is provably safe — the
+            // owner-only rule passes the query-validation proof, unlike the
+            // disjunctive `trips` read rule (which rejects array-contains
+            // list queries outright).
             subAttempted = _db
-                .collection('trips')
-                .where('attemptedDriverIds', arrayContains: userId)
+                .collection('drivers')
+                .doc(userId)
+                .collection('trip_history')
                 .snapshots()
                 .listen(
               (snap) {
@@ -242,7 +248,7 @@ class FirestoreTripRepository implements TripRepository {
                 emitCombined();
               },
               onError: (err) {
-                debugPrint('userTripHistoryStream (attemptedDriverIds) error: $err');
+                debugPrint('userTripHistoryStream (drivers/{uid}/trip_history) error: $err');
                 emitCombined();
               },
             );

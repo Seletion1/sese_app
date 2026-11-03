@@ -409,8 +409,9 @@ class PaymentService {
     }
   }
 
-  /// Opens the Paystack hosted checkout, preferring the secure in-app browser view
-  /// and falling back safely if third-party app deep-links throw SecurityExceptions.
+  /// Opens the Paystack hosted checkout, preferring the secure self-contained
+  /// in-app WebView and falling back safely if third-party app deep-links throw
+  /// SecurityExceptions.
   Future<bool> launchCheckout(String authorizationUrl) async {
     final uri = Uri.tryParse(authorizationUrl.trim());
     if (uri == null || !uri.hasScheme) {
@@ -420,22 +421,25 @@ class PaymentService {
     debugPrint(
         'PaymentService.launchCheckout: opening ${uri.host} (scheme ${uri.scheme})');
 
-    // Attempt 1: In-App Browser View / Chrome Custom Tab (bypasses un-exported third-party app intent traps)
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-      debugPrint('PaymentService.launchCheckout inAppBrowserView: $ok');
-      if (ok) return true;
-    } catch (e) {
-      debugPrint('PaymentService.launchCheckout inAppBrowserView error: $e');
-    }
-
-    // Attempt 2: In-App WebView (completely self-contained within app process)
+    // Attempt 1: In-App WebView (fully self-contained; immune to third-party
+    // app intent filter traps, e.g. OPay's unexported WebFoundationActivity,
+    // which resolved https://checkout.paystack.com and threw SecurityException).
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.inAppWebView);
       debugPrint('PaymentService.launchCheckout inAppWebView: $ok');
       if (ok) return true;
     } catch (e) {
       debugPrint('PaymentService.launchCheckout inAppWebView error: $e');
+    }
+
+    // Attempt 2: In-App Browser View / Chrome Custom Tab (used only if the
+    // self-contained WebView fails on exotic devices).
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      debugPrint('PaymentService.launchCheckout inAppBrowserView: $ok');
+      if (ok) return true;
+    } catch (e) {
+      debugPrint('PaymentService.launchCheckout inAppBrowserView error: $e');
     }
 
     // Attempt 3: External Application

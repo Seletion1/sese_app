@@ -63,6 +63,11 @@ export {
 } from "./driverStreak";
 
 export {
+  onTripWrittenForDriverHistory,
+  backfillDriverTripHistory,
+} from "./driverTripHistory";
+
+export {
   evaluateAndGrantStreakRewards,
   resolveDynamicStreakRewards,
   getCyclePeriodKey,

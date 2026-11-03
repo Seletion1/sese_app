@@ -551,6 +551,16 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    // Per-driver mirrored trip history (maintained by the
+    // `onTripWrittenForDriverHistory` trigger; server-only writes).
+    // Owners read their own history; staff/ops may read for audits.
+    match /drivers/{driverId}/trip_history/{tripId} {
+      allow read: if isAuthenticated() &&
+        (isOwner(driverId) || isAgent() || isHubStaff() || isAdminAuthClaim() ||
+          isOperationsAdmin() || isSuperAdmin()) && isNotSuspended();
+      allow write: if false;
+    }
+
     // Driver break state is server-managed; the owning driver may observe it
     // while all mutations continue through the break controller callables.
     match /drivers/{driverId}/driver_break/{document} {

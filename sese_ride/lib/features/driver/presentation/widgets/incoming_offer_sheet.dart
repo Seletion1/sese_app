@@ -59,6 +59,10 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
   bool _busy = false;
   bool _accepting = false;
 
+  /// Guards local expiry so the countdown callback can't race a manual
+  /// Accept/Skip (which sets [_busy] and manages the route itself).
+  bool _expiryHandled = false;
+
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
   LatLng get _dropoff =>
       LatLng(widget.trip.dropoffLat, widget.trip.dropoffLng);
@@ -80,11 +84,58 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     // ignore: discarded_futures
     AppSoundService.instance.playIncomingOrderAlert(minDuration: window);
     _countdown = AnimationController(vsync: this, duration: window)
+      ..addStatusListener(_handleCountdownStatus)
       ..forward();
     _loadRoutes();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _mapController.fitPoints(_pickup, _dropoff, padding: 72);
     });
+  }
+
+  /// Countdown hit zero → tear the sheet down immediately, no server round-trip.
+  void _handleCountdownStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      // Fire-and-forget: the route pop happens synchronously inside.
+      // ignore: discarded_futures
+      _expireLocally();
+    }
+  }
+
+  /// Local, zero-server dismissal path for an expired offer.
+  ///
+  /// Order of operations is deliberate: (1) stop the alert loop, (2) pop the
+  /// route so the driver instantly sees the idle/searching surface again,
+  /// (3) tell the backend to record the skip so dispatch re-pings the next
+  /// Stage-1 driver (or escalates to the Tier-3 marketplace pool). The UI
+  /// never waits on the network — expiry is a local decision.
+  Future<void> _expireLocally() async {
+    if (_expiryHandled || !mounted) return;
+    // A manual Accept/Skip in flight owns the route — don't race it.
+    if (_busy) return;
+    _expiryHandled = true;
+
+    // 1. Stop the urgent alert immediately.
+    // ignore: discarded_futures
+    AppSoundService.instance.stopIncomingOrderAlert();
+
+    // 2. Instantly clear the offer card from the driver's screen.
+    if (mounted) {
+      Navigator.of(context).pop();
+      // The embedded StreamBuilder is unmounted with the route, so
+      // `tripStream` unsubscribes automatically; `dispose()` tears down
+      // the AnimationController and stops the chime loop.
+    }
+
+    // 3. Record the skip server-side; dispatch re-matches (Tier 1) or opens
+    //    the order pool. Failures here must not resurrect the UI.
+    try {
+      await widget.streakService.declineTrip(
+        widget.trip.tripId,
+        action: 'skipped',
+      );
+    } catch (e) {
+      debugPrint('IncomingOfferSheet expiry declineTrip error: $e');
+    }
   }
 
   @override
@@ -141,6 +192,7 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
 
   Future<void> _accept() async {
     if (_busy) return;
+    _expiryHandled = true;
     setState(() {
       _busy = true;
       _accepting = true;
@@ -185,6 +237,7 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
 
   Future<void> _skip() async {
     if (_busy) return;
+    _expiryHandled = true;
     setState(() => _busy = true);
     // Stop urgent loop immediately.
     // ignore: discarded_futures
@@ -210,10 +263,21 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     }
   }
 
+  /// Trip poll stream, degrading to an empty stream when Firebase is
+  /// unavailable (widget tests / offline host without an app).
+  Stream<ActiveTrip?> _tripStream() {
+    try {
+      return FirestoreTripRepository().tripStream(widget.trip.tripId);
+    } catch (e) {
+      debugPrint('IncomingOfferSheet tripStream unavailable: $e');
+      return const Stream<ActiveTrip?>.empty();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<ActiveTrip?>(
-      stream: FirestoreTripRepository().tripStream(widget.trip.tripId),
+      stream: _tripStream(),
       builder: (context, snap) {
         final trip = snap.data ?? widget.trip;
         final fareLabel = _fareLabel(trip);
@@ -761,11 +825,12 @@ class _ZoomButton extends StatelessWidget {
   }
 }
 
-/// Visible 6s offer countdown bar, synced to the chime loop.
+/// Visible offer countdown bar, synced to the chime loop.
 ///
-/// Drains green → amber → red as the window closes. Purely informational:
-/// the server sweep enforces the real expiry, so a late tap still resolves
-/// through accept/reject instead of the sheet vanishing.
+/// Drains green → amber → red as the window closes. The parent sheet
+/// detonates automatically when the timer reaches zero (see
+/// [_IncomingOfferSheetState._expireLocally]); the server-side ping sweep is
+/// only a backstop for app crashes / force-closes.
 class _OfferCountdown extends StatelessWidget {
   final AnimationController controller;
 

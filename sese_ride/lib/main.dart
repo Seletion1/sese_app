@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -48,6 +49,17 @@ void main() async {
   unawaited(GmsAvailability.isAvailable());
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Analytics SDK is present so Firebase AB-testing / Remote Config can
+  // resolve the ABT bridge (silences the "Analytics SDK not available"
+  // runtime warning). Collection is explicitly disabled until a privacy
+  // decision is made and the consent flow ships; the native SDK still
+  // initializes and the warning disappears.
+  try {
+    await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(false);
+  } catch (e) {
+    debugPrint('Analytics init error: $e');
+  }
 
   // App Check attestation is ENFORCED on Firestore: without an activated
   // provider every read fails with PERMISSION_DENIED. Debug builds use the

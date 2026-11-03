@@ -224,15 +224,11 @@ class DriverStreakService {
         .collection('trips')
         .where(
           'status',
-          whereIn: const [
-            'MARKETPLACE_OPEN',
-            'MARKETPLACE_LIST',
-            'bidding',
-            'SEARCHING_DRIVER',
-            'searching_driver',
-            'WAITING_FOR_ACCEPTANCE',
-            'waiting_for_acceptance',
-          ],
+          // Firestore rule-compatible: drivers may only list
+          // MARKETPLACE_OPEN / MARKETPLACE_LIST. Anything broader is denied
+          // wholesale by the rules engine — orders with active bids keep
+          // `MARKETPLACE_OPEN`, so no legitimate order is missed.
+          whereIn: const ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST'],
         )
         .limit(limit)
         .snapshots()
