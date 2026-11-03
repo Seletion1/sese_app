@@ -106,6 +106,18 @@ class InboxNotification {
     required this.createdAt,
   });
 
+  /// Parses a numeric value that may be persisted as int, double, string,
+  /// or (in legacy docs) a wrapped object — never throws.
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.trim());
+    if (value is Map && value['value'] != null) {
+      return _toDouble(value['value']);
+    }
+    return double.tryParse(value.toString());
+  }
+
   factory InboxNotification.fromDoc(
       DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
@@ -124,8 +136,7 @@ class InboxNotification {
       driverId: data['driverId']?.toString(),
       driverName: data['driverName']?.toString(),
       driverPhoto: data['driverPhoto']?.toString(),
-      driverRating: (data['driverRating'] as num?)?.toDouble() ??
-          double.tryParse(data['driverRating']?.toString() ?? ''),
+      driverRating: _toDouble(data['driverRating']),
       offeredFare: data['offeredFare']?.toString(),
       offeredFareFormatted: data['offeredFareFormatted']?.toString(),
       etaMinutes: data['etaMinutes']?.toString(),
