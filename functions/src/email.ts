@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { Resend } from "resend";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -35,10 +36,11 @@ export async function getResendApiKey(): Promise<string> {
     return envKey.trim();
   }
 
+  // Prioritize server-restricted config paths (never readable by standard clients)
   const docPaths = [
-    "system_config/remote_keys",
+    "system_config/system_secrets",
+    "system_config/insurance_secrets",
     "system_config/email",
-    "system_config/global_default",
     "system_configs/global_default",
   ];
 
@@ -120,9 +122,34 @@ export const sendTransactionalEmail = onCall<TransactionalEmailData>(async (requ
     throw new HttpsError("unauthenticated", "Authentication required to send emails.");
   }
 
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "any");
+
   const { to, subject, html, text } = request.data ?? {};
   if (!to || !subject) {
     throw new HttpsError("invalid-argument", "'to' and 'subject' fields are required.");
+  }
+
+  const callerEmail = (request.auth.token.email ?? "").trim().toLowerCase();
+  const isAdminOrStaff =
+    request.auth.token.admin === true ||
+    request.auth.token.adminAuth === true ||
+    request.auth.token.role === "SUPER_ADMIN" ||
+    request.auth.token.role === "OPERATIONS_ADMIN" ||
+    request.auth.token.role === "AGENT" ||
+    callerEmail === "bamiduromichael2@gmail.com";
+
+  // If not staff/admin, users can ONLY send receipts/notifications to their OWN registered email address
+  if (!isAdminOrStaff) {
+    const recipients = Array.isArray(to) ? to.map((e) => e.trim().toLowerCase()) : [to.trim().toLowerCase()];
+    const isSendingToSelf = recipients.length === 1 && recipients[0] === callerEmail && callerEmail.length > 0;
+    if (!isSendingToSelf) {
+      throw new HttpsError(
+        "permission-denied",
+        "Standard accounts can only send transactional notifications to their verified registered email address."
+      );
+    }
   }
 
   const result = await sendEmailViaResend({

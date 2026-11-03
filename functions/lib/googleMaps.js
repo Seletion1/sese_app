@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.googleMapsProxy = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const mapQuotas_1 = require("./mapQuotas");
+const accountGuard_1 = require("./accountGuard");
 const FETCH_TIMEOUT_MS = 9000;
 const MAX_INPUT_LEN = 200;
 function serverKey() {
@@ -224,6 +225,9 @@ exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to search.");
     }
+    // ── Security gates (protect against quota scrapers & unauthorized bots) ──
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "any");
     const data = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     const action = data.action;
     if (action !== "autocomplete" &&

@@ -1414,7 +1414,7 @@ service cloud.firestore {
       return docId in ['config', 'payments', 'gateways', 'delivery_modes',
         'referral_settings', 'referral_rates', 'dispatch_settings',
         'ride_split', 'wallet_rules', 'kyc_rules', 'dispatch_rules',
-        'remote_keys', 'exchange_rates'];
+        'remote_keys', 'exchange_rates', 'financial_limits'];
     }
     match /system_config/{docId} {
       allow read: if isAuthenticated() && isPublicSystemConfig(docId);
@@ -1607,6 +1607,14 @@ service cloud.firestore {
           isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
         );
         allow create, update, delete: if false;
+      }
+
+      // Daily financial limits tracking (server-only write; owner/staff read)
+      match /daily_usage/{dateKey} {
+        allow read: if isAuthenticated() && (
+          isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
+        );
+        allow write: if false;
       }
     }
 

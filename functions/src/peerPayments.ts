@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { assertP2pTransferAllowed, recordDailyUsage } from "./financialLimits";
 
 /**
  * P2P wallet-to-wallet transfers + split-payment intents.
@@ -426,6 +427,21 @@ export const transferWalletFunds = onCall<WalletTransferData>(
           "Your balance is too low for this transfer."
         );
       }
+
+      // Server-enforced financial limits check for P2P transfer
+      await assertP2pTransferAllowed({
+        senderUid: senderId,
+        recipientUid: recipientId,
+        amountKobo,
+        currency: "NGN",
+        tx,
+      });
+      await recordDailyUsage({
+        uid: senderId,
+        type: "p2p_send",
+        amountKobo,
+        tx,
+      });
 
       tx.update(senderRef, {
         balance: admin.firestore.FieldValue.increment(-amountKobo),
@@ -930,9 +946,19 @@ export const settleSplitPayment = onCall(async (request) => {
         ? Math.max(0, share - Math.max(0, balance))
         : 0;
 
+      // Hard overdraft ceiling: max ₦2,000 (200,000 kobo) cumulative split debt
+      const MAX_SPLIT_OVERDRAFT_KOBO = 200_000;
+      if (stats.splitDebtKobo + debtIncrease > MAX_SPLIT_OVERDRAFT_KOBO) {
+        throw new HttpsError(
+          "failed-precondition",
+          `A co-payer's share exceeds the maximum authorized split overdraft limit of ₦2,000. Wallet must be pre-funded.`
+        );
+      }
+
       if (walletSnap.exists) {
         tx.update(walletRef, {
           balance: admin.firestore.FieldValue.increment(-share),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-share / 100),
           updatedAt: createdAt,
         });
       } else {
@@ -941,6 +967,7 @@ export const settleSplitPayment = onCall(async (request) => {
         tx.set(walletRef, {
           userId: c.uid,
           balance: -share,
+          mainWalletBalance: -share / 100,
           currency: "NGN",
           updatedAt: createdAt,
         });
@@ -990,12 +1017,14 @@ export const settleSplitPayment = onCall(async (request) => {
     if (reqWalletSnap.exists) {
       tx.update(requesterWallet, {
         balance: admin.firestore.FieldValue.increment(totalKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(totalKobo / 100),
         updatedAt: createdAt,
       });
     } else {
       tx.set(requesterWallet, {
         userId: requesterId,
         balance: totalKobo,
+        mainWalletBalance: totalKobo / 100,
         currency: "NGN",
         updatedAt: createdAt,
       });

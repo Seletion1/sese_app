@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { nextEngine, recordCall } from "./mapQuotas";
+import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 
 /**
  * Google Maps Platform proxy: the ONLY place the server-side Google key
@@ -348,6 +349,10 @@ export const googleMapsProxy = onCall<ProxyRequest>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to search.");
   }
+
+  // ── Security gates (protect against quota scrapers & unauthorized bots) ──
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "any");
   const data = request.data ?? {};
   const action = data.action;
   if (

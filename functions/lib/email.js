@@ -40,6 +40,7 @@ const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("crypto"));
 const https_1 = require("firebase-functions/v2/https");
 const resend_1 = require("resend");
+const accountGuard_1 = require("./accountGuard");
 const db = () => admin.firestore();
 /** Sender address strictly set to Seletion Tech domain */
 const SENDER_EMAIL = "Seletion Tech <noreply@sesetech.com>";
@@ -66,10 +67,11 @@ async function getResendApiKey() {
     if (envKey && envKey.trim()) {
         return envKey.trim();
     }
+    // Prioritize server-restricted config paths (never readable by standard clients)
     const docPaths = [
-        "system_config/remote_keys",
+        "system_config/system_secrets",
+        "system_config/insurance_secrets",
         "system_config/email",
-        "system_config/global_default",
         "system_configs/global_default",
     ];
     for (const path of docPaths) {
@@ -122,13 +124,31 @@ async function sendEmailViaResend(options) {
  * Callable: Send general transactional emails from authenticated client or staff apps.
  */
 exports.sendTransactionalEmail = (0, https_1.onCall)(async (request) => {
-    var _a;
+    var _a, _b;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to send emails.");
     }
+    // ── Security gates ────────────────────────────────────────────────────────
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "any");
     const { to, subject, html, text } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     if (!to || !subject) {
         throw new https_1.HttpsError("invalid-argument", "'to' and 'subject' fields are required.");
+    }
+    const callerEmail = ((_b = request.auth.token.email) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
+    const isAdminOrStaff = request.auth.token.admin === true ||
+        request.auth.token.adminAuth === true ||
+        request.auth.token.role === "SUPER_ADMIN" ||
+        request.auth.token.role === "OPERATIONS_ADMIN" ||
+        request.auth.token.role === "AGENT" ||
+        callerEmail === "bamiduromichael2@gmail.com";
+    // If not staff/admin, users can ONLY send receipts/notifications to their OWN registered email address
+    if (!isAdminOrStaff) {
+        const recipients = Array.isArray(to) ? to.map((e) => e.trim().toLowerCase()) : [to.trim().toLowerCase()];
+        const isSendingToSelf = recipients.length === 1 && recipients[0] === callerEmail && callerEmail.length > 0;
+        if (!isSendingToSelf) {
+            throw new https_1.HttpsError("permission-denied", "Standard accounts can only send transactional notifications to their verified registered email address.");
+        }
     }
     const result = await sendEmailViaResend({
         to,

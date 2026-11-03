@@ -38,6 +38,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const transactionPin_1 = require("./transactionPin");
 const accountGuard_1 = require("./accountGuard");
+const financialLimits_1 = require("./financialLimits");
 /**
  * P2P wallet-to-wallet transfers + split-payment intents.
  *
@@ -382,6 +383,20 @@ exports.transferWalletFunds = (0, https_1.onCall)(async (request) => {
         if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
             throw new https_1.HttpsError("failed-precondition", "Your balance is too low for this transfer.");
         }
+        // Server-enforced financial limits check for P2P transfer
+        await (0, financialLimits_1.assertP2pTransferAllowed)({
+            senderUid: senderId,
+            recipientUid: recipientId,
+            amountKobo,
+            currency: "NGN",
+            tx,
+        });
+        await (0, financialLimits_1.recordDailyUsage)({
+            uid: senderId,
+            type: "p2p_send",
+            amountKobo,
+            tx,
+        });
         tx.update(senderRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
             mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
@@ -792,9 +807,15 @@ exports.settleSplitPayment = (0, https_1.onCall)(async (request) => {
             const debtIncrease = trusted
                 ? Math.max(0, share - Math.max(0, balance))
                 : 0;
+            // Hard overdraft ceiling: max ₦2,000 (200,000 kobo) cumulative split debt
+            const MAX_SPLIT_OVERDRAFT_KOBO = 200000;
+            if (stats.splitDebtKobo + debtIncrease > MAX_SPLIT_OVERDRAFT_KOBO) {
+                throw new https_1.HttpsError("failed-precondition", `A co-payer's share exceeds the maximum authorized split overdraft limit of ₦2,000. Wallet must be pre-funded.`);
+            }
             if (walletSnap.exists) {
                 tx.update(walletRef, {
                     balance: admin.firestore.FieldValue.increment(-share),
+                    mainWalletBalance: admin.firestore.FieldValue.increment(-share / 100),
                     updatedAt: createdAt,
                 });
             }
@@ -804,6 +825,7 @@ exports.settleSplitPayment = (0, https_1.onCall)(async (request) => {
                 tx.set(walletRef, {
                     userId: c.uid,
                     balance: -share,
+                    mainWalletBalance: -share / 100,
                     currency: "NGN",
                     updatedAt: createdAt,
                 });
@@ -848,6 +870,7 @@ exports.settleSplitPayment = (0, https_1.onCall)(async (request) => {
         if (reqWalletSnap.exists) {
             tx.update(requesterWallet, {
                 balance: admin.firestore.FieldValue.increment(totalKobo),
+                mainWalletBalance: admin.firestore.FieldValue.increment(totalKobo / 100),
                 updatedAt: createdAt,
             });
         }
@@ -855,6 +878,7 @@ exports.settleSplitPayment = (0, https_1.onCall)(async (request) => {
             tx.set(requesterWallet, {
                 userId: requesterId,
                 balance: totalKobo,
+                mainWalletBalance: totalKobo / 100,
                 currency: "NGN",
                 updatedAt: createdAt,
             });

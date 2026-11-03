@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { assertWithdrawalAllowed, recordDailyUsage } from "./financialLimits";
 
 const db = () => admin.firestore();
 
@@ -388,6 +389,20 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         );
       }
 
+      // Server-enforced financial limits check for withdrawals
+      await assertWithdrawalAllowed({
+        uid,
+        amountKobo,
+        currency: "NGN",
+        tx,
+      });
+      await recordDailyUsage({
+        uid,
+        type: "withdrawal",
+        amountKobo,
+        tx,
+      });
+
       tx.update(walletRef, {
         balance: admin.firestore.FieldValue.increment(-amountKobo),
         mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
@@ -488,8 +503,38 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         accountName,
       };
     } catch (e) {
-      // 6. Compensate: the debit already committed, so give the money back.
+      // 6. Compensate: verify whether error is an ambiguous network timeout or explicit Paystack error.
       const reason = e instanceof Error ? e.message : String(e);
+      const isNetworkTimeout =
+        reason.toLowerCase().includes("timeout") ||
+        reason.includes("ETIMEDOUT") ||
+        reason.includes("ECONNRESET") ||
+        reason.includes("504") ||
+        reason.includes("ENOTFOUND");
+
+      if (isNetworkTimeout) {
+        // Do NOT automatically refund when network connection to Paystack timed out.
+        // Mark status as 'pending_verification' and log to DLQ so webhook/ops reconciles safely without double payout.
+        console.warn(`[payouts] Network timeout for requestId ${requestId}. Holding debit for reconciliation.`);
+        await requestRef.update({
+          status: "pending_verification",
+          failureReason: `Network timeout connecting to Paystack: ${reason.slice(0, 400)}`,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db().collection("failed_payouts_dlq").doc(requestId).set({
+          requestId,
+          userId: uid,
+          amountKobo,
+          reason,
+          status: "NEEDS_RECONCILIATION",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw new HttpsError(
+          "unavailable",
+          "Transfer request timed out with our payment provider. Your balance is safely held while we verify delivery status."
+        );
+      }
+
       await db().runTransaction(async (tx) => {
         tx.update(walletRef, {
           balance: admin.firestore.FieldValue.increment(amountKobo),
@@ -539,7 +584,18 @@ export async function settleTransfer(
   if (!snap.exists) return;
   const row = snap.data()!;
   if (row["status"] === outcome) return;
-  if (row["status"] === "refunded" && outcome === "success") return;
+  if (row["status"] === "refunded" && outcome === "success") {
+    console.error(`[payouts] CRITICAL: Payout ${reference} succeeded on Paystack but had already been marked refunded!`);
+    await db().collection("failed_payouts_dlq").doc(`${reference}_double_payout_alert`).set({
+      type: "DOUBLE_PAYOUT_DETECTED",
+      severity: "CRITICAL",
+      reference,
+      userId: row["userId"],
+      amountKobo: row["amountKobo"],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return;
+  }
 
   const walletRef = db().collection("wallets").doc(String(row["userId"]));
   const ledgerRef = walletRef

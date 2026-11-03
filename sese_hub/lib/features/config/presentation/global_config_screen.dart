@@ -170,6 +170,37 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _driverBreakEnabled = true;
   bool _enableWaitingTimeBilling = true;
 
+  // ── Financial Limits & Anti-Fraud Engine Controllers (/system_config/financial_limits)
+  final _custMinTopUpCtrl = TextEditingController(text: '100');
+  final _custMaxSingleTopUpCtrl = TextEditingController(text: '20000');
+  final _custMaxDailyTopUpCountCtrl = TextEditingController(text: '5');
+  final _custMaxBalanceUnverifiedCtrl = TextEditingController(text: '20000');
+  final _custMaxBalanceVerifiedCtrl = TextEditingController(text: '50000');
+  final _custMaxDailyP2pUnverifiedCtrl = TextEditingController(text: '5000');
+  final _custMaxDailyP2pVerifiedCtrl = TextEditingController(text: '15000');
+  final _custMaxDailyWithdrawalUnverifiedCtrl = TextEditingController(text: '10000');
+  final _custMaxDailyWithdrawalVerifiedCtrl = TextEditingController(text: '25000');
+
+  final _drvMinTopUpCtrl = TextEditingController(text: '100');
+  final _drvMaxSingleTopUpCtrl = TextEditingController(text: '20000');
+  final _drvMaxDailyTopUpCountCtrl = TextEditingController(text: '5');
+  final _drvMaxBalanceUnverifiedCtrl = TextEditingController(text: '20000');
+  final _drvMaxBalanceVerifiedCtrl = TextEditingController(text: '50000');
+  final _drvMaxDailyP2pUnverifiedCtrl = TextEditingController(text: '5000');
+  final _drvMaxDailyP2pVerifiedCtrl = TextEditingController(text: '15000');
+  final _drvMaxDailyWithdrawalUnverifiedCtrl = TextEditingController(text: '15000');
+  final _drvMaxDailyWithdrawalVerifiedCtrl = TextEditingController(text: '35000');
+
+  final _adminMinTopUpCtrl = TextEditingController(text: '100');
+  final _adminMaxSingleTopUpCtrl = TextEditingController(text: '50000');
+  final _adminMaxDailyTopUpCountCtrl = TextEditingController(text: '15');
+  final _adminMaxBalanceCtrl = TextEditingController(text: '50000');
+  final _adminMaxDailyP2pCtrl = TextEditingController(text: '10000');
+  final _adminMaxDailyWithdrawalCtrl = TextEditingController(text: '20000');
+
+  final _minWithdrawalFloorCtrl = TextEditingController(text: '100');
+  final _minP2pTransferFloorCtrl = TextEditingController(text: '100');
+
   @override
   void initState() {
     super.initState();
@@ -261,6 +292,33 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _maxCashTripAmountCtrl.dispose();
     _driverBreakOption1Ctrl.dispose();
     _driverBreakOption2Ctrl.dispose();
+    // ── Financial Limits Engine controllers ──────────────────────────────────
+    _custMinTopUpCtrl.dispose();
+    _custMaxSingleTopUpCtrl.dispose();
+    _custMaxDailyTopUpCountCtrl.dispose();
+    _custMaxBalanceUnverifiedCtrl.dispose();
+    _custMaxBalanceVerifiedCtrl.dispose();
+    _custMaxDailyP2pUnverifiedCtrl.dispose();
+    _custMaxDailyP2pVerifiedCtrl.dispose();
+    _custMaxDailyWithdrawalUnverifiedCtrl.dispose();
+    _custMaxDailyWithdrawalVerifiedCtrl.dispose();
+    _drvMinTopUpCtrl.dispose();
+    _drvMaxSingleTopUpCtrl.dispose();
+    _drvMaxDailyTopUpCountCtrl.dispose();
+    _drvMaxBalanceUnverifiedCtrl.dispose();
+    _drvMaxBalanceVerifiedCtrl.dispose();
+    _drvMaxDailyP2pUnverifiedCtrl.dispose();
+    _drvMaxDailyP2pVerifiedCtrl.dispose();
+    _drvMaxDailyWithdrawalUnverifiedCtrl.dispose();
+    _drvMaxDailyWithdrawalVerifiedCtrl.dispose();
+    _adminMinTopUpCtrl.dispose();
+    _adminMaxSingleTopUpCtrl.dispose();
+    _adminMaxDailyTopUpCountCtrl.dispose();
+    _adminMaxBalanceCtrl.dispose();
+    _adminMaxDailyP2pCtrl.dispose();
+    _adminMaxDailyWithdrawalCtrl.dispose();
+    _minWithdrawalFloorCtrl.dispose();
+    _minP2pTransferFloorCtrl.dispose();
     super.dispose();
   }
 
@@ -301,6 +359,18 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         if (m != null && m > 0) mapboxCapText = m.toString();
         if (c != null && c > 0) cartoCapText = c.toString();
       }
+    } catch (_) {}
+
+    // ── Load Financial Limits from /system_config/financial_limits ────────────────────
+    // These limits are server-enforced by financialLimits.ts; the Hub reads
+    // them here only to populate the admin adjustment panel.
+    Map<String, dynamic>? limData;
+    try {
+      final limSnap = await FirebaseFirestore.instance
+          .collection('system_config')
+          .doc('financial_limits')
+          .get();
+      if (limSnap.exists) limData = limSnap.data();
     } catch (_) {}
     if (!mounted) return;
     setState(() {
@@ -368,6 +438,41 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _minConvertibleBonusCtrl.text = finConfig.minConvertibleBonus.toStringAsFixed(0);
       _maxBonusThresholdCtrl.text = finConfig.maxBonusThreshold.toStringAsFixed(0);
       _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
+
+      // ── Populate Financial Limits panel from Firestore snapshot ──────────────
+      if (limData != null) {
+        final data = limData;
+        double dv(String k, double fb) =>
+            (data[k] is num) ? (data[k] as num).toDouble() : fb;
+        int iv(String k, int fb) =>
+            (data[k] is num) ? (data[k] as num).toInt() : fb;
+        _custMinTopUpCtrl.text = dv('customerMinTopUp', 100).toStringAsFixed(0);
+        _custMaxSingleTopUpCtrl.text = dv('customerMaxSingleTopUp', 20000).toStringAsFixed(0);
+        _custMaxDailyTopUpCountCtrl.text = iv('customerMaxDailyTopUpCount', 5).toString();
+        _custMaxBalanceUnverifiedCtrl.text = dv('customerMaxWalletBalanceUnverified', 20000).toStringAsFixed(0);
+        _custMaxBalanceVerifiedCtrl.text = dv('customerMaxWalletBalanceVerified', 50000).toStringAsFixed(0);
+        _custMaxDailyP2pUnverifiedCtrl.text = dv('customerMaxDailyP2pUnverified', 5000).toStringAsFixed(0);
+        _custMaxDailyP2pVerifiedCtrl.text = dv('customerMaxDailyP2pVerified', 15000).toStringAsFixed(0);
+        _custMaxDailyWithdrawalUnverifiedCtrl.text = dv('customerMaxDailyWithdrawalUnverified', 10000).toStringAsFixed(0);
+        _custMaxDailyWithdrawalVerifiedCtrl.text = dv('customerMaxDailyWithdrawalVerified', 25000).toStringAsFixed(0);
+        _drvMinTopUpCtrl.text = dv('driverMinTopUp', 100).toStringAsFixed(0);
+        _drvMaxSingleTopUpCtrl.text = dv('driverMaxSingleTopUp', 20000).toStringAsFixed(0);
+        _drvMaxDailyTopUpCountCtrl.text = iv('driverMaxDailyTopUpCount', 5).toString();
+        _drvMaxBalanceUnverifiedCtrl.text = dv('driverMaxWalletBalanceUnverified', 20000).toStringAsFixed(0);
+        _drvMaxBalanceVerifiedCtrl.text = dv('driverMaxWalletBalanceVerified', 50000).toStringAsFixed(0);
+        _drvMaxDailyP2pUnverifiedCtrl.text = dv('driverMaxDailyP2pUnverified', 5000).toStringAsFixed(0);
+        _drvMaxDailyP2pVerifiedCtrl.text = dv('driverMaxDailyP2pVerified', 15000).toStringAsFixed(0);
+        _drvMaxDailyWithdrawalUnverifiedCtrl.text = dv('driverMaxDailyWithdrawalUnverified', 15000).toStringAsFixed(0);
+        _drvMaxDailyWithdrawalVerifiedCtrl.text = dv('driverMaxDailyWithdrawalVerified', 35000).toStringAsFixed(0);
+        _adminMinTopUpCtrl.text = dv('hubAdminMinTopUp', 100).toStringAsFixed(0);
+        _adminMaxSingleTopUpCtrl.text = dv('hubAdminMaxSingleTopUp', 50000).toStringAsFixed(0);
+        _adminMaxDailyTopUpCountCtrl.text = iv('hubAdminMaxDailyTopUpCount', 15).toString();
+        _adminMaxBalanceCtrl.text = dv('hubAdminMaxWalletBalance', 50000).toStringAsFixed(0);
+        _adminMaxDailyP2pCtrl.text = dv('hubAdminMaxDailyP2p', 10000).toStringAsFixed(0);
+        _adminMaxDailyWithdrawalCtrl.text = dv('hubAdminMaxDailyWithdrawal', 20000).toStringAsFixed(0);
+        _minWithdrawalFloorCtrl.text = dv('minWithdrawalAmount', 100).toStringAsFixed(0);
+        _minP2pTransferFloorCtrl.text = dv('minP2pTransferAmount', 100).toStringAsFixed(0);
+      }
       _loading = false;
     }
   });
@@ -807,6 +912,69 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         }, SetOptions(merge: true));
       } catch (_) {}
 
+      // \u2500\u2500 Save Financial Limits to /system_config/financial_limits \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      // Admin-scoped merge write; never blocks config publish on failure.
+      try {
+        await FirebaseFirestore.instance
+            .collection('system_config')
+            .doc('financial_limits')
+            .set({
+          'customerMinTopUp':
+              double.tryParse(_custMinTopUpCtrl.text.trim()) ?? 100.0,
+          'customerMaxSingleTopUp':
+              double.tryParse(_custMaxSingleTopUpCtrl.text.trim()) ?? 20000.0,
+          'customerMaxDailyTopUpCount':
+              int.tryParse(_custMaxDailyTopUpCountCtrl.text.trim()) ?? 5,
+          'customerMaxWalletBalanceUnverified':
+              double.tryParse(_custMaxBalanceUnverifiedCtrl.text.trim()) ?? 20000.0,
+          'customerMaxWalletBalanceVerified':
+              double.tryParse(_custMaxBalanceVerifiedCtrl.text.trim()) ?? 50000.0,
+          'customerMaxDailyP2pUnverified':
+              double.tryParse(_custMaxDailyP2pUnverifiedCtrl.text.trim()) ?? 5000.0,
+          'customerMaxDailyP2pVerified':
+              double.tryParse(_custMaxDailyP2pVerifiedCtrl.text.trim()) ?? 15000.0,
+          'customerMaxDailyWithdrawalUnverified':
+              double.tryParse(_custMaxDailyWithdrawalUnverifiedCtrl.text.trim()) ?? 10000.0,
+          'customerMaxDailyWithdrawalVerified':
+              double.tryParse(_custMaxDailyWithdrawalVerifiedCtrl.text.trim()) ?? 25000.0,
+          'driverMinTopUp':
+              double.tryParse(_drvMinTopUpCtrl.text.trim()) ?? 100.0,
+          'driverMaxSingleTopUp':
+              double.tryParse(_drvMaxSingleTopUpCtrl.text.trim()) ?? 20000.0,
+          'driverMaxDailyTopUpCount':
+              int.tryParse(_drvMaxDailyTopUpCountCtrl.text.trim()) ?? 5,
+          'driverMaxWalletBalanceUnverified':
+              double.tryParse(_drvMaxBalanceUnverifiedCtrl.text.trim()) ?? 20000.0,
+          'driverMaxWalletBalanceVerified':
+              double.tryParse(_drvMaxBalanceVerifiedCtrl.text.trim()) ?? 50000.0,
+          'driverMaxDailyP2pUnverified':
+              double.tryParse(_drvMaxDailyP2pUnverifiedCtrl.text.trim()) ?? 5000.0,
+          'driverMaxDailyP2pVerified':
+              double.tryParse(_drvMaxDailyP2pVerifiedCtrl.text.trim()) ?? 15000.0,
+          'driverMaxDailyWithdrawalUnverified':
+              double.tryParse(_drvMaxDailyWithdrawalUnverifiedCtrl.text.trim()) ?? 15000.0,
+          'driverMaxDailyWithdrawalVerified':
+              double.tryParse(_drvMaxDailyWithdrawalVerifiedCtrl.text.trim()) ?? 35000.0,
+          'hubAdminMinTopUp':
+              double.tryParse(_adminMinTopUpCtrl.text.trim()) ?? 100.0,
+          'hubAdminMaxSingleTopUp':
+              double.tryParse(_adminMaxSingleTopUpCtrl.text.trim()) ?? 50000.0,
+          'hubAdminMaxDailyTopUpCount':
+              int.tryParse(_adminMaxDailyTopUpCountCtrl.text.trim()) ?? 15,
+          'hubAdminMaxWalletBalance':
+              double.tryParse(_adminMaxBalanceCtrl.text.trim()) ?? 50000.0,
+          'hubAdminMaxDailyP2p':
+              double.tryParse(_adminMaxDailyP2pCtrl.text.trim()) ?? 10000.0,
+          'hubAdminMaxDailyWithdrawal':
+              double.tryParse(_adminMaxDailyWithdrawalCtrl.text.trim()) ?? 20000.0,
+          'minWithdrawalAmount':
+              double.tryParse(_minWithdrawalFloorCtrl.text.trim()) ?? 100.0,
+          'minP2pTransferAmount':
+              double.tryParse(_minP2pTransferFloorCtrl.text.trim()) ?? 100.0,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+
       await _loadConfigurations(silent: true);
 
       if (!mounted) return;
@@ -949,6 +1117,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             _buildFinancialConfigCard(),
             const SizedBox(height: 20),
             _buildP2pWalletRulesCard(),
+            const SizedBox(height: 20),
+            _buildFinancialLimitsCard(),
           ]),
         ),
         HubModuleSection(
@@ -3205,6 +3375,294 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     ),
                   ),
                 ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Financial Limits & Anti-Fraud Engine Panel
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Renders the Financial Limits & Anti-Fraud Engine adjustment panel.
+  ///
+  /// All values are entered in Naira (no currency prefix — staff enter plain
+  /// numbers) and persisted to `/system_config/financial_limits` via
+  /// [_saveConfig]. The backend `financialLimits.ts` callable reads the same
+  /// document and converts limits to Kobo before enforcing them, so the Hub
+  /// panel operates entirely in human-readable Naira amounts.
+  ///
+  /// KYC-tiered fields (Unverified / Verified) map to the `verified` flag on
+  /// the user's Firestore profile; the backend selects the appropriate cap at
+  /// runtime based on the caller's KYC status.
+  Widget _buildFinancialLimitsCard() {
+    const fw = 200.0; // preferred field width — shrinks on narrow phones
+
+    /// Helper to build a consistently-styled numeric TextFormField inside a
+    /// [_CappedField] widget that constrains width on small screens.
+    Widget limField({
+      required String label,
+      required TextEditingController ctrl,
+      String suffix = '',
+      String? helper,
+    }) {
+      return _CappedField(
+        preferredWidth: fw,
+        child: TextFormField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: label,
+            suffixText: suffix,
+            helperText: helper,
+            helperMaxLines: 2,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Header ──────────────────────────────────────────────────────
+            Row(
+              children: [
+                const Icon(Icons.shield_outlined, color: Colors.deepOrange),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Financial Limits & Anti-Fraud Engine',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    softWrap: true,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Server-enforced daily limits, single-transaction caps, wallet balance '
+              'ceilings, and KYC-tiered thresholds. Changes take effect immediately on '
+              'the next transaction attempt. All amounts are in Naira; the backend '
+              'converts to Kobo and scales to other currencies via the live '
+              'exchange-rate service.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Global Floor Limits ──────────────────────────────────────────
+            const Text(
+              'Global Floor Limits',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                limField(
+                  label: 'Min Withdrawal',
+                  ctrl: _minWithdrawalFloorCtrl,
+                  suffix: '',
+                  helper: 'Minimum single withdrawal (all roles)',
+                ),
+                limField(
+                  label: 'Min P2P Transfer',
+                  ctrl: _minP2pTransferFloorCtrl,
+                  suffix: '',
+                  helper: 'Minimum P2P send amount (all roles)',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Customer Limits ──────────────────────────────────────────────
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              initiallyExpanded: true,
+              title: const Text(
+                'Customer Limits',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              children: [
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    limField(
+                      label: 'Min Top-up',
+                      ctrl: _custMinTopUpCtrl,
+                      helper: 'Minimum single top-up',
+                    ),
+                    limField(
+                      label: 'Max Single Top-up',
+                      ctrl: _custMaxSingleTopUpCtrl,
+                      helper: 'Cap per top-up transaction',
+                    ),
+                    limField(
+                      label: 'Max Daily Top-ups',
+                      ctrl: _custMaxDailyTopUpCountCtrl,
+                      suffix: '/ day',
+                      helper: 'Frequency cap on top-up attempts',
+                    ),
+                    limField(
+                      label: 'Balance Cap (Unverified)',
+                      ctrl: _custMaxBalanceUnverifiedCtrl,
+                      helper: 'Max wallet balance without KYC',
+                    ),
+                    limField(
+                      label: 'Balance Cap (Verified)',
+                      ctrl: _custMaxBalanceVerifiedCtrl,
+                      helper: 'Max wallet balance after KYC',
+                    ),
+                    limField(
+                      label: 'Daily P2P (Unverified)',
+                      ctrl: _custMaxDailyP2pUnverifiedCtrl,
+                      helper: 'Daily P2P send cap without KYC',
+                    ),
+                    limField(
+                      label: 'Daily P2P (Verified)',
+                      ctrl: _custMaxDailyP2pVerifiedCtrl,
+                      helper: 'Daily P2P send cap after KYC',
+                    ),
+                    limField(
+                      label: 'Daily Withdrawal (Unverified)',
+                      ctrl: _custMaxDailyWithdrawalUnverifiedCtrl,
+                      helper: 'Daily withdrawal cap without KYC',
+                    ),
+                    limField(
+                      label: 'Daily Withdrawal (Verified)',
+                      ctrl: _custMaxDailyWithdrawalVerifiedCtrl,
+                      helper: 'Daily withdrawal cap after KYC',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            const Divider(),
+
+            // ── Driver Limits ────────────────────────────────────────────────
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'Driver Limits',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              children: [
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    limField(
+                      label: 'Min Top-up',
+                      ctrl: _drvMinTopUpCtrl,
+                      helper: 'Minimum single top-up',
+                    ),
+                    limField(
+                      label: 'Max Single Top-up',
+                      ctrl: _drvMaxSingleTopUpCtrl,
+                      helper: 'Cap per top-up transaction',
+                    ),
+                    limField(
+                      label: 'Max Daily Top-ups',
+                      ctrl: _drvMaxDailyTopUpCountCtrl,
+                      suffix: '/ day',
+                      helper: 'Frequency cap on top-up attempts',
+                    ),
+                    limField(
+                      label: 'Balance Cap (Unverified)',
+                      ctrl: _drvMaxBalanceUnverifiedCtrl,
+                      helper: 'Max wallet balance without KYC',
+                    ),
+                    limField(
+                      label: 'Balance Cap (Verified)',
+                      ctrl: _drvMaxBalanceVerifiedCtrl,
+                      helper: 'Max wallet balance after KYC',
+                    ),
+                    limField(
+                      label: 'Daily P2P (Unverified)',
+                      ctrl: _drvMaxDailyP2pUnverifiedCtrl,
+                      helper: 'Daily P2P send cap without KYC',
+                    ),
+                    limField(
+                      label: 'Daily P2P (Verified)',
+                      ctrl: _drvMaxDailyP2pVerifiedCtrl,
+                      helper: 'Daily P2P send cap after KYC',
+                    ),
+                    limField(
+                      label: 'Daily Withdrawal (Unverified)',
+                      ctrl: _drvMaxDailyWithdrawalUnverifiedCtrl,
+                      helper: 'Daily withdrawal cap without KYC',
+                    ),
+                    limField(
+                      label: 'Daily Withdrawal (Verified)',
+                      ctrl: _drvMaxDailyWithdrawalVerifiedCtrl,
+                      helper: 'Daily withdrawal cap after KYC',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+            const Divider(),
+
+            // ── Hub Admin Limits ─────────────────────────────────────────────
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text(
+                'Hub Admin Limits',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              children: [
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    limField(
+                      label: 'Min Top-up',
+                      ctrl: _adminMinTopUpCtrl,
+                      helper: 'Minimum single top-up',
+                    ),
+                    limField(
+                      label: 'Max Single Top-up',
+                      ctrl: _adminMaxSingleTopUpCtrl,
+                      helper: 'Cap per top-up transaction',
+                    ),
+                    limField(
+                      label: 'Max Daily Top-ups',
+                      ctrl: _adminMaxDailyTopUpCountCtrl,
+                      suffix: '/ day',
+                      helper: 'Frequency cap on top-up attempts',
+                    ),
+                    limField(
+                      label: 'Balance Cap',
+                      ctrl: _adminMaxBalanceCtrl,
+                      helper: 'Max wallet balance (admin)',
+                    ),
+                    limField(
+                      label: 'Daily P2P Cap',
+                      ctrl: _adminMaxDailyP2pCtrl,
+                      helper: 'Daily P2P send cap (admin)',
+                    ),
+                    limField(
+                      label: 'Daily Withdrawal Cap',
+                      ctrl: _adminMaxDailyWithdrawalCtrl,
+                      helper: 'Daily withdrawal cap (admin)',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
               ],
             ),
           ],

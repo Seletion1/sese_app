@@ -41,6 +41,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const transactionPin_1 = require("./transactionPin");
 const accountGuard_1 = require("./accountGuard");
+const financialLimits_1 = require("./financialLimits");
 const db = () => admin.firestore();
 const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== void 0 ? _a : "https://api.paystack.co";
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
@@ -306,6 +307,19 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
             throw new https_1.HttpsError("failed-precondition", "Your balance is too low for this withdrawal.");
         }
+        // Server-enforced financial limits check for withdrawals
+        await (0, financialLimits_1.assertWithdrawalAllowed)({
+            uid,
+            amountKobo,
+            currency: "NGN",
+            tx,
+        });
+        await (0, financialLimits_1.recordDailyUsage)({
+            uid,
+            type: "withdrawal",
+            amountKobo,
+            tx,
+        });
         tx.update(walletRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
             mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
@@ -390,8 +404,32 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         };
     }
     catch (e) {
-        // 6. Compensate: the debit already committed, so give the money back.
+        // 6. Compensate: verify whether error is an ambiguous network timeout or explicit Paystack error.
         const reason = e instanceof Error ? e.message : String(e);
+        const isNetworkTimeout = reason.toLowerCase().includes("timeout") ||
+            reason.includes("ETIMEDOUT") ||
+            reason.includes("ECONNRESET") ||
+            reason.includes("504") ||
+            reason.includes("ENOTFOUND");
+        if (isNetworkTimeout) {
+            // Do NOT automatically refund when network connection to Paystack timed out.
+            // Mark status as 'pending_verification' and log to DLQ so webhook/ops reconciles safely without double payout.
+            console.warn(`[payouts] Network timeout for requestId ${requestId}. Holding debit for reconciliation.`);
+            await requestRef.update({
+                status: "pending_verification",
+                failureReason: `Network timeout connecting to Paystack: ${reason.slice(0, 400)}`,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            await db().collection("failed_payouts_dlq").doc(requestId).set({
+                requestId,
+                userId: uid,
+                amountKobo,
+                reason,
+                status: "NEEDS_RECONCILIATION",
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            throw new https_1.HttpsError("unavailable", "Transfer request timed out with our payment provider. Your balance is safely held while we verify delivery status.");
+        }
         await db().runTransaction(async (tx) => {
             tx.update(walletRef, {
                 balance: admin.firestore.FieldValue.increment(amountKobo),
@@ -434,8 +472,18 @@ async function settleTransfer(reference, outcome, reason) {
     const row = snap.data();
     if (row["status"] === outcome)
         return;
-    if (row["status"] === "refunded" && outcome === "success")
+    if (row["status"] === "refunded" && outcome === "success") {
+        console.error(`[payouts] CRITICAL: Payout ${reference} succeeded on Paystack but had already been marked refunded!`);
+        await db().collection("failed_payouts_dlq").doc(`${reference}_double_payout_alert`).set({
+            type: "DOUBLE_PAYOUT_DETECTED",
+            severity: "CRITICAL",
+            reference,
+            userId: row["userId"],
+            amountKobo: row["amountKobo"],
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
         return;
+    }
     const walletRef = db().collection("wallets").doc(String(row["userId"]));
     const ledgerRef = walletRef
         .collection("transactions")

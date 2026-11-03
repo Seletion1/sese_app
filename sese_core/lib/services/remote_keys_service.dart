@@ -292,8 +292,9 @@ class RemoteKeysConfig {
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
       'exchangeRateApiKey': exchangeRateApiKey.trim(),
-      'resendApiKey': resendApiKey.trim(),
-      'resend_api_key': resendApiKey.trim(),
+      // ── SECURITY: resendApiKey is server-only and OMITTED ─────────────
+      // Resend API keys must NEVER be written by client SDKs to public Firestore.
+      // ──────────────────────────────────────────────────────────────────
       'activeMapProvider': activeMapProvider,
       'activeProvider': mapCfg.normalizedProvider,
       'osmTileServerUrl': osmTileServerUrl.trim(),

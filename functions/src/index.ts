@@ -69,6 +69,11 @@ export {
 } from "./streakRewards";
 
 export {
+  getUserFinancialLimits,
+  scheduledDailyLimitsReset,
+} from "./financialLimits";
+
+export {
   initializePayment,
   initializePaystackTopUp,
   verifyPayment,

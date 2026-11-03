@@ -72,6 +72,42 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-03 — Security Hardening, Double-Payout Prevention & Financial Limits Engine
+
+- **Security Hardening & Abuse Prevention**:
+  - **P2P Split Payment Overdraft Cap**: Added `MAX_SPLIT_OVERDRAFT_KOBO = 200_000` (₦2,000) ceiling in `functions/src/peerPayments.ts`. Even trusted split payers cannot incur negative debt beyond ₦2,000, eliminating the risk of bad-debt theft. Synchronized `mainWalletBalance` (Naira float) alongside `balance` (Kobo integer) in split settlements.
+  - **Open Email Relay Mitigation**: Hardened `sendTransactionalEmail` in `functions/src/email.ts` with `enforceAppCheck(request)` and `requireAccountActive()`. Restricted non-admin callers to sending strictly to their own verified email address. Migrated backend email API key lookup to server-scoped config.
+  - **Client Remote Key Sanitization**: Removed `resendApiKey` and `resend_api_key` from `RemoteKeysConfig.toMap()` in `sese_core/lib/services/remote_keys_service.dart` to prevent client serialization of secret credentials into publicly readable `/system_config/remote_keys`.
+  - **Double Payout Prevention on Network Timeouts**: In `functions/src/payouts.ts`, transient network errors (socket timeouts, HTTP 504) during Paystack transfer requests no longer execute immediate synchronous refunds. The payout status transitions to `pending_verification` and logs to `failed_payouts_dlq` for reconciliation. Enhanced `settleTransfer` to flag double-payout alerts if an unverified payout later triggers a `transfer.success` webhook.
+  - **Google Maps Proxy Hardening**: Added `enforceAppCheck(request)` and `requireAccountActive()` to `googleMapsProxy` in `functions/src/googleMaps.ts` to prevent unauthorized scraping and billing exhaustion.
+
+- **Comprehensive Financial Limits & Anti-Fraud Engine**:
+  - **Backend Architecture (`functions/src/financialLimits.ts`)**:
+    - Enforced role-based limits for Customers, Drivers, and Hub Admins:
+      - Daily P2P Send Caps (Customer/Driver: ₦5,000 unverified / ₦15,000 verified | Hub Admin: ₦10,000 / ₦50,000).
+      - Daily Withdrawal Caps (Customer: ₦10,000 unverified / ₦25,000 verified | Driver: ₦15,000 / ₦35,000 | Hub Admin: ₦20,000 / ₦50,000).
+      - Single Top-up Caps (Customer/Driver: ₦20,000 | Hub Admin: ₦50,000).
+      - Daily Top-up Frequency Caps (Customer/Driver: 5 attempts/day | Hub Admin: 15 attempts/day).
+      - Overall Wallet Balance Ceilings (Customer/Driver: ₦20,000 unverified / ₦50,000 verified | Hub Admin: ₦50,000).
+    - Integrated with existing live Exchange API rates (`getExchangeRates`) to dynamically scale all limits from Naira base into user local currencies without hardcoding.
+    - Automated 00:00 local time daily reset achieved via local timezone date keys (`wallets/{uid}/daily_usage/{YYYY-MM-DD}`) with automated UTC midnight cleanup cron (`scheduledDailyLimitsReset`) pruning records older than 14 days.
+    - Exported `getUserFinancialLimits` callable returning live usage, limits, and remaining headroom.
+  - **Shared Flutter Core (`sese_core`)**:
+    - Created `FinancialLimitsConfig` model with role and KYC tier resolution methods.
+    - Created `FinancialLimitsService` supporting real-time streaming, caching, and client validation for top-up, P2P, and withdrawals with currency scaling.
+  - **Hub Admin Adjustment Panel (`sese_hub`)**:
+    - Added dedicated `Financial Limits & Anti-Fraud Engine` card under `Wallet & Payouts` section in `global_config_screen.dart`.
+    - Enables staff to dynamically adjust min/max bounds for all roles and KYC tiers with persistence to `/system_config/financial_limits`.
+  - **Driver Dashboard Layout Fix (`sese_ride`)**:
+    - Removed redundant closing brackets in `driver_dashboard_screen.dart` to restore clean compilation and static analysis.
+
+- **Verification & Deployment**:
+  - `functions`: 43/43 tests passed; TypeScript compiled with 0 errors.
+  - `sese_core`: 94/94 tests passed; `flutter analyze` 0 issues.
+  - `sese_ride`: 38/38 payment/wallet/trip tests passed; `flutter analyze` 0 issues.
+  - `sese_hub`: `flutter analyze` 0 issues.
+  - `firebase deploy`: Deployed `firestore:rules` and 12 Cloud Functions to `sese-ride`.
+
 ## 2026-11-02 — Elimination of Client Paystack Secret Key, Server-Side App Check & Suspension Hardening
 
 - **Hardcoded Secret Key Elimination (C2)**:

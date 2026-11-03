@@ -1,5 +1,7 @@
 export 'financial/financial_config.dart';
 export 'financial/financial_config_service.dart';
+export 'financial/financial_limits_config.dart';
+export 'financial/financial_limits_service.dart';
 export 'financial/exchange_rates.dart';
 export 'financial/exchange_rate_service.dart';
 export 'financial/wallet_calculation_engine.dart';
