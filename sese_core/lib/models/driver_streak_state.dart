@@ -1,8 +1,9 @@
+library;
+import 'package:sese_core/utils/safe_json.dart';
 /// Per-driver daily streak state document: `driver_streaks/{driverId}`.
 ///
 /// The backend (Cloud Functions) is the only writer. Clients and the
 /// admin SDK read this to render the streak banner and compute commission.
-library;
 
 /// Which of the three streak levels the driver is currently in.
 ///
@@ -73,7 +74,7 @@ class DriverStreakState {
   // ── Wire format ──────────────────────────────────────────────────────────
 
   factory DriverStreakState.fromMap(String driverId, Map<String, dynamic> map) {
-    final levelInt = (map['currentLevel'] as num?)?.toInt() ?? 1;
+    final levelInt = safeNum(map['currentLevel'])?.toInt() ?? 1;
     final level = switch (levelInt) {
       2 => StreakLevel.level2,
       3 => StreakLevel.level3,
@@ -87,7 +88,7 @@ class DriverStreakState {
         : map['level1PaidCommissionHistory'];
     final history = (rawHistory is List)
         ? rawHistory
-            .map((e) => (e as num?)?.toDouble() ?? 0.0)
+            .map((e) => safeNum(e)?.toDouble() ?? 0.0)
             .toList()
         : <double>[];
 
@@ -95,12 +96,12 @@ class DriverStreakState {
       driverId: driverId,
       streakActive: (map['streakActive'] as bool?) ?? true,
       currentLevel: level,
-      currentStep: (map['currentStep'] as num?)?.toInt() ?? 0,
+      currentStep: safeNum(map['currentStep'])?.toInt() ?? 0,
       level1PaidHistory: history,
       dailyStreakCompleted: (map['dailyStreakCompleted'] as bool?) ?? false,
       resetDateLocal: (map['resetDateLocal'] as String?) ?? '',
       baseCommissionRate:
-          (map['baseCommissionRate'] as num?)?.toDouble() ?? 0.20,
+          safeNum(map['baseCommissionRate'])?.toDouble() ?? 0.20,
     );
   }
 

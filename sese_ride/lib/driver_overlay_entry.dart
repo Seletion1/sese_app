@@ -286,10 +286,10 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
         ? o['fareFormatted'].toString()
         : '₦${o['fareAmount'] ?? '—'}';
 
-    final double? pLat = (o['pickupLat'] as num?)?.toDouble();
-    final double? pLng = (o['pickupLng'] as num?)?.toDouble();
-    final double? dLat = (o['dropoffLat'] as num?)?.toDouble();
-    final double? dLng = (o['dropoffLng'] as num?)?.toDouble();
+    final double? pLat = safeNum(o['pickupLat'])?.toDouble();
+    final double? pLng = safeNum(o['pickupLng'])?.toDouble();
+    final double? dLat = safeNum(o['dropoffLat'])?.toDouble();
+    final double? dLng = safeNum(o['dropoffLng'])?.toDouble();
 
     final pickupPoint = pLat != null && pLng != null ? LatLng(pLat, pLng) : null;
     final dropoffPoint = dLat != null && dLng != null ? LatLng(dLat, dLng) : null;

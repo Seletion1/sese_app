@@ -1,4 +1,5 @@
 import 'vehicle_category.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Fare estimate details for a specific vehicle category or car ride tier.
 class TripEstimate {
@@ -58,14 +59,14 @@ class TripEstimate {
       category: VehicleCategory.fromString(map['category'] ?? 'car'),
       tier: map['tier'] != null ? RideTier.fromString(map['tier']) : null,
       label: map['label'] ?? '',
-      distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0.0,
-      durationMinutes: (map['durationMinutes'] as num?)?.toDouble() ?? 0.0,
-      baseFee: (map['baseFee'] as num?)?.toDouble() ?? 0.0,
-      distanceFare: (map['distanceFare'] as num?)?.toDouble() ?? 0.0,
-      timeFare: (map['timeFare'] as num?)?.toDouble() ?? 0.0,
-      surgeMultiplier: (map['surgeMultiplier'] as num?)?.toDouble() ?? 1.0,
-      tierMultiplier: (map['tierMultiplier'] as num?)?.toDouble() ?? 1.0,
-      totalFare: (map['totalFare'] as num?)?.toDouble() ?? 0.0,
+      distanceKm: safeNum(map['distanceKm'])?.toDouble() ?? 0.0,
+      durationMinutes: safeNum(map['durationMinutes'])?.toDouble() ?? 0.0,
+      baseFee: safeNum(map['baseFee'])?.toDouble() ?? 0.0,
+      distanceFare: safeNum(map['distanceFare'])?.toDouble() ?? 0.0,
+      timeFare: safeNum(map['timeFare'])?.toDouble() ?? 0.0,
+      surgeMultiplier: safeNum(map['surgeMultiplier'])?.toDouble() ?? 1.0,
+      tierMultiplier: safeNum(map['tierMultiplier'])?.toDouble() ?? 1.0,
+      totalFare: safeNum(map['totalFare'])?.toDouble() ?? 0.0,
       currencySymbol: map['currencySymbol'] ?? '₦',
       currencyCode: map['currencyCode'] ?? 'NGN',
     );

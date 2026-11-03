@@ -6,6 +6,7 @@
 library;
 
 import 'dart:math' as math;
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Lifecycle states of a customer trip / delivery request.
 ///
@@ -161,7 +162,7 @@ class DriverInfo {
       driverId: (map['driverId'] ?? '').toString(),
       fullName: (map['fullName'] ?? map['name'] ?? 'Driver').toString(),
       photoUrl: (map['photoUrl'] ?? '').toString(),
-      rating: (map['rating'] as num?)?.toDouble() ?? 0.0,
+      rating: safeNum(map['rating'])?.toDouble() ?? 0.0,
       phone: (map['phone'] ?? map['phoneNumber'] ?? map['phoneNumberE164'] ?? '').toString(),
       plateNumber: (map['plateNumber'] ?? map['licensePlate'] ?? '').toString(),
       vehicleModel: (map['vehicleModel'] ?? map['model'] ?? '').toString(),
@@ -565,8 +566,23 @@ class ActiveTrip {
     final loc = sub(map['driverLocation']);
     final settlement = sub(map['settlement']);
 
+    /// Tolerates legacy docs persisting numbers as strings ("4100").
+    double? n(dynamic v) {
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v.trim());
+      if (v is Map && v['value'] != null) return n(v['value']);
+      return null;
+    }
+
     double numOf(Map<String, dynamic> m, String key) =>
-        (m[key] as num?)?.toDouble() ?? 0.0;
+        n(m[key])?.toDouble() ?? 0.0;
+
+    /// Tolerates any list payload, coercing every element via toString().
+    List<String> stringList(dynamic v) {
+      if (v is! List) return const [];
+      return v.map((e) => e.toString()).toList();
+    }
+
 
     DateTime? dateOf(dynamic v) {
       if (v == null) return null;
@@ -584,28 +600,25 @@ class ActiveTrip {
 
     // Gross fare: prefer explicitly specified trip document fare amounts (fareAmount, proposedFare, etc.)
     // over raw baseline tier calculations in fareTiers.
-    double fareAmount = (map['fareAmount'] as num?)?.toDouble() ??
-        (map['proposedFare'] as num?)?.toDouble() ??
-        (map['fare'] as num?)?.toDouble() ??
-        (map['offeredFare'] as num?)?.toDouble() ??
-        (map['agreedFare'] as num?)?.toDouble() ??
-        (map['grossFare'] as num?)?.toDouble() ??
-        (settlement['fareAmount'] as num?)?.toDouble() ??
+    double fareAmount = n(map['fareAmount'])?.toDouble() ??
+        n(map['proposedFare'])?.toDouble() ??
+        n(map['fare'])?.toDouble() ??
+        n(map['offeredFare'])?.toDouble() ??
+        n(map['agreedFare'])?.toDouble() ??
+        n(map['grossFare'])?.toDouble() ??
+        n(settlement['fareAmount'])?.toDouble() ??
         (map['fareMinor'] is num ? (map['fareMinor'] as num).toDouble() / 100.0 : 0.0);
 
     if (fareAmount == 0) {
       final fareTiers = map['fareTiers'];
       if (fareTiers is List && fareTiers.isNotEmpty) {
         final selected =
-            ((map['selectedTiers'] ?? map['tierIds']) as List<dynamic>?)
-                ?.map((t) => t.toString())
-                .toSet();
+            stringList(map['selectedTiers'] ?? map['tierIds']).toSet();
         Map<String, dynamic>? matched;
         for (final t in fareTiers) {
           if (t is Map) {
             final m = Map<String, dynamic>.from(t);
-            if (selected != null &&
-                selected.contains((m['tierId'] ?? '').toString())) {
+            if (selected.contains((m['tierId'] ?? '').toString())) {
               matched = m;
               break;
             }
@@ -613,7 +626,7 @@ class ActiveTrip {
           }
         }
         if (matched != null) {
-          fareAmount = (matched['fareAmount'] as num?)?.toDouble() ?? 0;
+          fareAmount = n(matched['fareAmount'])?.toDouble() ?? 0;
         }
       }
     }
@@ -657,26 +670,18 @@ class ActiveTrip {
       dropoffName: (dropoff['name'] ?? '').toString(),
       dropoffPhone: ((dropoff['phone'] ?? map['dropoffPhone']) ?? '')
           .toString(),
-      tierIds:
-          ((map['selectedTiers'] ?? map['tierIds']) as List<dynamic>?)
-              ?.map((t) => t.toString())
-              .toList() ??
-          const [],
+      tierIds: stringList(map['selectedTiers'] ?? map['tierIds']),
       fareFormatted: fareFormatted,
-      distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0.0,
-      durationMins: (map['durationMins'] as num?)?.toDouble() ?? 0.0,
-      declineCount: (map['declineCount'] as num?)?.toInt() ?? 0,
-      reassignmentCount: (map['reassignmentCount'] as num?)?.toInt() ?? 0,
+      distanceKm: n(map['distanceKm'])?.toDouble() ?? 0.0,
+      durationMins: n(map['durationMins'])?.toDouble() ?? 0.0,
+      declineCount: n(map['declineCount'])?.toInt() ?? 0,
+      reassignmentCount: n(map['reassignmentCount'])?.toInt() ?? 0,
       driver: driverMap.isEmpty ? null : DriverInfo.fromMap(driverMap),
-      driverLat: (loc['lat'] as num?)?.toDouble(),
-      driverLng: (loc['lng'] as num?)?.toDouble(),
+      driverLat: n(loc['lat'])?.toDouble(),
+      driverLng: n(loc['lng'])?.toDouble(),
       pingDriverId: (map['pingDriverId'] ?? '').toString(),
-      pingDriverIds:
-          ((map['pingDriverIds']) as List<dynamic>?)
-              ?.map((t) => t.toString())
-              .toList() ??
-          const [],
-      dispatchTier: (map['dispatchTier'] as num?)?.toInt() ?? 0,
+      pingDriverIds: stringList(map['pingDriverIds']),
+      dispatchTier: n(map['dispatchTier'])?.toInt() ?? 0,
       arrivedAt: dateOf(map['arrivedAt']),
       completedAt: dateOf(map['completedAt']) ?? dateOf(settlement['commissionSettledAt']),
       settledAt: dateOf(settlement['settledAt']),
@@ -684,19 +689,19 @@ class ActiveTrip {
       createdAt: dateOf(map['createdAt']) ?? dateOf(map['requestedAt']),
       fareAmount: fareAmount,
       isVerifiedCustomer: map['isVerifiedCustomer'] == true,
-      streakLevel: (settlement['streakLevel'] as num?)?.toInt() ?? 0,
-      streakStep: (settlement['streakStep'] as num?)?.toInt() ?? 0,
-      commissionRate: (settlement['commissionRate'] as num?)?.toDouble() ?? 0,
-      commissionAmount: (settlement['commissionAmount'] as num?)?.toDouble() ?? 0,
-      cashBackAmount: (settlement['cashBackAmount'] as num?)?.toDouble() ?? 0,
-      cashBonusAmount: (settlement['cashBonusAmount'] as num?)?.toDouble() ?? 0,
+      streakLevel: n(settlement['streakLevel'])?.toInt() ?? 0,
+      streakStep: n(settlement['streakStep'])?.toInt() ?? 0,
+      commissionRate: n(settlement['commissionRate'])?.toDouble() ?? 0,
+      commissionAmount: n(settlement['commissionAmount'])?.toDouble() ?? 0,
+      cashBackAmount: n(settlement['cashBackAmount'])?.toDouble() ?? 0,
+      cashBonusAmount: n(settlement['cashBonusAmount'])?.toDouble() ?? 0,
       grandAwardTriggered: settlement['grandAwardTriggered'] == true,
       grandAwardAmount:
-          (settlement['grandAwardAmount'] as num?)?.toDouble() ?? 0,
+          n(settlement['grandAwardAmount'])?.toDouble() ?? 0,
       cancellationSource: map['cancellationSource']?.toString(),
-      baselineFare: (map['baselineFare'] as num?)?.toDouble() ?? 0,
+      baselineFare: n(map['baselineFare'])?.toDouble() ?? 0,
       fareBoosted: map['fareBoosted'] == true,
-      boostPercent: (map['boostPercent'] as num?)?.toInt() ?? 0,
+      boostPercent: n(map['boostPercent'])?.toInt() ?? 0,
       paymentMethod:
           (map['paymentMethod'] ?? map['paymentPlan'] ?? 'cash').toString(),
       vehicleCategory: (map['vehicleCategory'] ??
@@ -713,10 +718,10 @@ class ActiveTrip {
       paymentMode: (map['paymentMode'] ??
               (map['paymentMethod'] == 'split' ? 'split' : 'sender_pays'))
           .toString(),
-      senderShareAmount: (map['senderShareAmount'] as num?)?.toDouble() ??
-          (map['splitPayment']?['senderShare'] as num?)?.toDouble(),
-      receiverShareAmount: (map['receiverShareAmount'] as num?)?.toDouble() ??
-          (map['splitPayment']?['receiverShare'] as num?)?.toDouble(),
+      senderShareAmount: n(map['senderShareAmount'])?.toDouble() ??
+          n(map['splitPayment']?['senderShare'])?.toDouble(),
+      receiverShareAmount: n(map['receiverShareAmount'])?.toDouble() ??
+          n(map['splitPayment']?['receiverShare'])?.toDouble(),
       deliveryPin: (map['deliveryPin'] ?? map['order']?['deliveryPin'])?.toString(),
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
@@ -724,17 +729,17 @@ class ActiveTrip {
       deliveryPinVerified: map['deliveryPinVerified'] == true ||
           map['deliveryPinSkipped'] == true,
       enableWaitingTimeBilling: map['enableWaitingTimeBilling'] != false,
-      paidWaitingFee: (map['paidWaitingFee'] as num?)?.toDouble() ?? 0.0,
-      pendingCashFee: (map['pendingCashFee'] as num?)?.toDouble() ??
-          (map['paidWaitingFee'] as num?)?.toDouble() ??
+      paidWaitingFee: n(map['paidWaitingFee'])?.toDouble() ?? 0.0,
+      pendingCashFee: n(map['pendingCashFee'])?.toDouble() ??
+          n(map['paidWaitingFee'])?.toDouble() ??
           0.0,
       outstandingBalanceIncluded:
-          (map['outstandingBalanceIncluded'] as num?)?.toDouble() ?? 0.0,
-      walletCoverageAmount: (map['walletCoverageAmount'] as num?)?.toDouble() ??
-          (map['paymentBreakdown']?['walletCoverageAmount'] as num?)?.toDouble() ??
+          n(map['outstandingBalanceIncluded'])?.toDouble() ?? 0.0,
+      walletCoverageAmount: n(map['walletCoverageAmount'])?.toDouble() ??
+          n(map['paymentBreakdown']?['walletCoverageAmount'])?.toDouble() ??
           0.0,
-      cashToCollect: (map['cashToCollect'] as num?)?.toDouble() ??
-          (map['paymentBreakdown']?['cashToCollect'] as num?)?.toDouble() ??
+      cashToCollect: n(map['cashToCollect'])?.toDouble() ??
+          n(map['paymentBreakdown']?['cashToCollect'])?.toDouble() ??
           ((map['paymentMethod'] == 'wallet' || map['paymentMethod'] == 'prepaid')
               ? 0.0
               : fareAmount),
@@ -750,14 +755,11 @@ class ActiveTrip {
           .toString(),
       escrowLocked: map['escrowLocked'] == true ||
           map['paymentBreakdown']?['escrowLocked'] == true,
-      rejections: (map['rejections'] as List<dynamic>?)
-              ?.map((e) => Map<String, dynamic>.from(e as Map))
-              .toList() ??
-          const [],
-      attemptedDriverIds: (map['attemptedDriverIds'] as List<dynamic>?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const [],
+      rejections: (map['rejections'] is List ? map['rejections'] as List : const [])
+              .whereType<Map>()
+              .map(Map<String, dynamic>.from)
+              .toList(),
+      attemptedDriverIds: stringList(map['attemptedDriverIds']),
       hasActiveBids: map['hasActiveBids'] == true,
     );
   }

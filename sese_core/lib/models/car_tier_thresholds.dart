@@ -1,4 +1,5 @@
 import 'vehicle_category.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Configuration for dynamic year thresholds, display names, and pricing multipliers
 /// for Car / Sedan passenger ride tiers.
@@ -95,16 +96,16 @@ class CarTierThresholds {
   factory CarTierThresholds.fromMap(Map<String, dynamic>? map) {
     if (map == null) return const CarTierThresholds();
     return CarTierThresholds(
-      comfortMaxYear: (map['comfortMaxYear'] as num?)?.toInt() ?? 2009,
-      premiumMinYear: (map['premiumMinYear'] as num?)?.toInt() ?? 2010,
-      premiumMaxYear: (map['premiumMaxYear'] as num?)?.toInt() ?? 2019,
-      luxeMinYear: (map['luxeMinYear'] as num?)?.toInt() ?? 2020,
+      comfortMaxYear: safeNum(map['comfortMaxYear'])?.toInt() ?? 2009,
+      premiumMinYear: safeNum(map['premiumMinYear'])?.toInt() ?? 2010,
+      premiumMaxYear: safeNum(map['premiumMaxYear'])?.toInt() ?? 2019,
+      luxeMinYear: safeNum(map['luxeMinYear'])?.toInt() ?? 2020,
       comfortLabel: map['comfortLabel'] ?? 'Standard / Comfort',
       premiumLabel: map['premiumLabel'] ?? 'Executive / Premium',
       luxeLabel: map['luxeLabel'] ?? 'Luxe / Super',
-      comfortMultiplier: (map['comfortMultiplier'] as num?)?.toDouble() ?? 1.0,
-      premiumMultiplier: (map['premiumMultiplier'] as num?)?.toDouble() ?? 1.35,
-      luxeMultiplier: (map['luxeMultiplier'] as num?)?.toDouble() ?? 1.75,
+      comfortMultiplier: safeNum(map['comfortMultiplier'])?.toDouble() ?? 1.0,
+      premiumMultiplier: safeNum(map['premiumMultiplier'])?.toDouble() ?? 1.35,
+      luxeMultiplier: safeNum(map['luxeMultiplier'])?.toDouble() ?? 1.75,
     );
   }
 

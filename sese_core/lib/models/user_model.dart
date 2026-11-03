@@ -1,5 +1,6 @@
 import 'driver_verification.dart';
 import 'user_role.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Single source of truth for authenticated users in sese_ride + sese_hub.
 class AppUser {
@@ -78,9 +79,9 @@ class AppUser {
       createdAt: _parseDateTime(map['createdAt']),
       photoUrl: (map['photoUrl'] ?? map['photoURL'] ?? '').toString(),
       verificationStatus: (map['verificationStatus'] ?? '').toString(),
-      averageRating: (map['averageRating'] as num?)?.toDouble() ?? 5.0,
-      totalRatingSum: (map['totalRatingSum'] as num?)?.toInt() ?? 0,
-      totalRatingCount: (map['totalRatingCount'] as num?)?.toInt() ?? 0,
+      averageRating: safeNum(map['averageRating'])?.toDouble() ?? 5.0,
+      totalRatingSum: safeNum(map['totalRatingSum'])?.toInt() ?? 0,
+      totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
     );
   }
 

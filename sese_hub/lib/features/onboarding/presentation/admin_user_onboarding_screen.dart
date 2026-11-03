@@ -254,7 +254,10 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
 
                 return Column(
                   children: docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
+                    final rawData = doc.data();
+                    final data = rawData is Map<String, dynamic>
+                        ? Map<String, dynamic>.from(rawData)
+                        : <String, dynamic>{};
                     final name = data['fullName']?.toString() ?? 'Unnamed Profile';
                     final phone = data['phoneNumber']?.toString() ?? '';
                     final role = data['role']?.toString() ?? 'customer';

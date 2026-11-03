@@ -27,6 +27,17 @@ import '../auth/hub_session_guard.dart';
 /// 4. Session Closure:
 ///    - "Resolve & Close Chat" button sets `status = 'resolved'`.
 ///    - Locks input on both ends and archives the session.
+/// Parse a Firestore timestamp that may be persisted as Timestamp,
+/// DateTime, ISO string, or epoch millis — never throws.
+DateTime? _asDate(dynamic v) {
+  if (v == null) return null;
+  if (v is DateTime) return v;
+  if (v is Timestamp) return v.toDate();
+  if (v is String) return DateTime.tryParse(v);
+  if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
+  return null;
+}
+
 class HubSupportChatScreen extends StatefulWidget {
   final FirebaseFirestore? firestore;
   final FirebaseAuth? auth;
@@ -548,8 +559,8 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
         // Sort newest updated/created first in memory
         final sortedDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
           ..sort((a, b) {
-            final aTime = (a.data()['updatedAt'] ?? a.data()['createdAt']) as Timestamp?;
-            final bTime = (b.data()['updatedAt'] ?? b.data()['createdAt']) as Timestamp?;
+            final aTime = _asDate(a.data()['updatedAt'] ?? a.data()['createdAt']);
+            final bTime = _asDate(b.data()['updatedAt'] ?? b.data()['createdAt']);
             if (aTime == null || bTime == null) return 0;
             return bTime.compareTo(aTime);
           });
@@ -685,8 +696,8 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
         final docs = snapshot.data?.docs ?? [];
         final sortedDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
           ..sort((a, b) {
-            final aTime = (a.data()['updatedAt'] ?? a.data()['createdAt']) as Timestamp?;
-            final bTime = (b.data()['updatedAt'] ?? b.data()['createdAt']) as Timestamp?;
+            final aTime = _asDate(a.data()['updatedAt'] ?? a.data()['createdAt']);
+            final bTime = _asDate(b.data()['updatedAt'] ?? b.data()['createdAt']);
             if (aTime == null || bTime == null) return 0;
             return bTime.compareTo(aTime);
           });
@@ -764,7 +775,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
                   // by the live doc (ratingStream equivalent), so it appears
                   // here the moment the user submits — no refresh needed.
                   if (isResolved)
-                    _CsatStars(rating: (data['csatRating'] as num?)?.toInt()),
+                    _CsatStars(rating: safeNum(data['csatRating'])?.toInt()),
                 ],
               ),
               onTap: () => _openChatDetail(chatId, isMobile: isMobile),

@@ -51,11 +51,16 @@ class MapboxService {
         return '';
       }
 
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final features = data['features'] as List<dynamic>?;
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) return '';
+      final data = Map<String, dynamic>.from(decoded);
+      final featuresRaw = data['features'];
+      final features = featuresRaw is List ? featuresRaw : null;
       if (features == null || features.isEmpty) return '';
 
-      final first = features.first as Map<String, dynamic>;
+      final firstRaw = features.first;
+      if (firstRaw is! Map) return '';
+      final first = Map<String, dynamic>.from(firstRaw);
       return _extractFormattedName(first);
     } catch (e) {
       debugPrint('MapboxService.reverseGeocode failed: $e');
@@ -92,9 +97,12 @@ class MapboxService {
       final response = await _client.get(uri).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return [];
 
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final features = data['features'] as List<dynamic>?;
-      if (features == null || features.isEmpty) return [];
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) return const [];
+      final data = Map<String, dynamic>.from(decoded);
+      final featuresRaw = data['features'];
+      final features = featuresRaw is List ? featuresRaw : null;
+      if (features == null || features.isEmpty) return const [];
 
       final predictions = <PlacePrediction>[];
       for (final item in features) {
@@ -160,18 +168,24 @@ class MapboxService {
       final response = await _client.get(Uri.parse(url)).timeout(const Duration(seconds: 6));
       if (response.statusCode != 200) return null;
 
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final features = data['features'] as List<dynamic>?;
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) return null;
+      final data = Map<String, dynamic>.from(decoded);
+      final featuresRaw = data['features'];
+      final features = featuresRaw is List ? featuresRaw : null;
       if (features == null || features.isEmpty) return null;
 
-      final first = features.first as Map<String, dynamic>;
+      final firstRaw = features.first;
+        if (firstRaw is! Map) return null;
+        final first = Map<String, dynamic>.from(firstRaw);
       final placeId = (first['id'] ?? '').toString();
       final placeName = _extractFormattedName(first);
-      final center = first['center'] as List<dynamic>?;
+      final centerRaw = first['center'];
+      final center = centerRaw is List ? centerRaw : null;
       if (center == null || center.length < 2) return null;
 
-      final resultLng = (center[0] as num).toDouble();
-      final resultLat = (center[1] as num).toDouble();
+      final resultLng = (center[0] is num ? (center[0] as num).toDouble() : double.tryParse(center[0].toString())) ?? 0;
+      final resultLat = (center[1] is num ? (center[1] as num).toDouble() : double.tryParse(center[1].toString())) ?? 0;
 
       return PlaceDetails(
         placeId: placeId,
@@ -211,15 +225,24 @@ class MapboxService {
         return const GoogleRoute(points: [], distanceM: 0, durationS: 0);
       }
 
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      final routes = data['routes'] as List<dynamic>?;
+      final decoded = json.decode(response.body);
+      if (decoded is! Map) {
+        return const GoogleRoute(points: [], distanceM: 0, durationS: 0);
+      }
+      final data = Map<String, dynamic>.from(decoded);
+      final routesRaw = data['routes'];
+      final routes = routesRaw is List ? routesRaw : null;
       if (routes == null || routes.isEmpty) {
         return const GoogleRoute(points: [], distanceM: 0, durationS: 0);
       }
 
-      final first = routes.first as Map<String, dynamic>;
+      final firstRaw = routes.first;
+      if (firstRaw is! Map) {
+        return const GoogleRoute(points: [], distanceM: 0, durationS: 0);
+      }
+      final first = Map<String, dynamic>.from(firstRaw);
       final poly = (first['geometry'] ?? '').toString();
-      final distance = (first['distance'] as num? ?? 0).round();
+      final distance = (first['distance'] is num ? (first['distance'] as num).round() : ((first['distance'] is String) ? (double.tryParse(first['distance'].toString()) ?? 0).round() : 0));
       final duration = (first['duration'] as num? ?? 0).round();
 
       return GoogleRoute(

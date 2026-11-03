@@ -1,9 +1,12 @@
+library;
+
+import 'package:sese_core/utils/safe_json.dart';
+
 /// Bid models for the multi-driver bidding system.
 ///
 /// A bid is written to `trips/{tripId}/bids/{driverId}` by the `submitBid`
 /// Cloud Function. The customer reads bids via [TripRepository.bidsStream] and
 /// accepts one with [TripRepository.acceptBid] (atomic transaction on server).
-library;
 
 /// Lifecycle states of a single driver bid.
 enum BidStatus {
@@ -72,10 +75,10 @@ class BidModel {
       driverId: (map['driverId'] ?? bidId).toString(),
       driverName: (map['driverName'] ?? map['fullName'] ?? 'Driver').toString(),
       photoUrl: (map['photoUrl'] ?? '').toString(),
-      rating: (map['rating'] as num?)?.toDouble() ?? 0,
-      offeredFare: (map['offeredFare'] as num?)?.toDouble() ?? 0,
+      rating: safeNum(map['rating'])?.toDouble() ?? 0,
+      offeredFare: safeNum(map['offeredFare'])?.toDouble() ?? 0,
       fareFormatted: (map['fareFormatted'] ?? '').toString(),
-      etaMinutes: (map['etaMinutes'] as num?)?.toInt(),
+      etaMinutes: safeNum(map['etaMinutes'])?.toInt(),
       status: bidStatusFromString(map['status']?.toString()),
       vehicleModel: (map['vehicleModel'] ?? '').toString(),
       plateNumber: (map['plateNumber'] ?? '').toString(),

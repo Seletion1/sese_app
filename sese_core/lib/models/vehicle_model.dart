@@ -1,4 +1,5 @@
 import 'vehicle_category.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Represents a vehicle registered in a driver's fleet under
 /// `/drivers/{driverId}/vehicles/{vehicleId}`.
@@ -76,7 +77,7 @@ class VehicleModel {
       rideTier = RideTier.fromString(map['tier']);
     }
 
-    final docsRaw = map['documents'] as Map<String, dynamic>? ?? {};
+    final docsRaw = map['documents'] is Map ? Map<String, dynamic>.from(map['documents'] as Map) : <String, dynamic>{};
     final docs = docsRaw.map((k, v) => MapEntry(k, v.toString()));
 
     // Legacy approval aliases written by sese_hub (`isVerified`, `status`):
@@ -96,7 +97,7 @@ class VehicleModel {
       tier: rideTier,
       make: map['make'] ?? '',
       model: map['model'] ?? '',
-      year: (map['year'] as num?)?.toInt() ?? 2015,
+      year: safeNum(map['year'])?.toInt() ?? 2015,
       licensePlate: map['licensePlate'] ?? '',
       color: map['color'] ?? '',
       documents: docs,

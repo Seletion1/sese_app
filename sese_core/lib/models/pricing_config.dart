@@ -1,5 +1,6 @@
 import 'car_tier_thresholds.dart';
 import 'vehicle_category.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Pricing rates defined for a specific vehicle category.
 class VehiclePricingRate {
@@ -41,10 +42,10 @@ class VehiclePricingRate {
       );
     }
     return VehiclePricingRate(
-      baseFee: (map['baseFee'] as num?)?.toDouble() ?? 500.0,
-      distanceRatePerKm: (map['distanceRatePerKm'] as num?)?.toDouble() ?? 150.0,
-      timeRatePerMinute: (map['timeRatePerMinute'] as num?)?.toDouble() ?? 20.0,
-      surgeMultiplier: (map['surgeMultiplier'] as num?)?.toDouble() ?? 1.0,
+      baseFee: safeNum(map['baseFee'])?.toDouble() ?? 500.0,
+      distanceRatePerKm: safeNum(map['distanceRatePerKm'])?.toDouble() ?? 150.0,
+      timeRatePerMinute: safeNum(map['timeRatePerMinute'])?.toDouble() ?? 20.0,
+      surgeMultiplier: safeNum(map['surgeMultiplier'])?.toDouble() ?? 1.0,
     );
   }
 
@@ -80,8 +81,8 @@ class StreakTier {
 
   factory StreakTier.fromMap(Map<String, dynamic> map) {
     return StreakTier(
-      completedTripsTrigger: (map['completedTripsTrigger'] as num?)?.toInt() ?? 5,
-      bonusPayout: (map['bonusPayout'] as num?)?.toDouble() ?? 1000.0,
+      completedTripsTrigger: safeNum(map['completedTripsTrigger'])?.toInt() ?? 5,
+      bonusPayout: safeNum(map['bonusPayout'])?.toDouble() ?? 1000.0,
     );
   }
 }
@@ -138,9 +139,9 @@ class StreakRewardConfig {
       cycle: (map['cycle'] as String?) ?? 'daily',
       tiers: tiersList,
       grandCompletionCashAward:
-          (map['grandCompletionCashAward'] as num?)?.toDouble() ?? 15000.0,
+          safeNum(map['grandCompletionCashAward'])?.toDouble() ?? 15000.0,
       grandCompletionTargetTrips:
-          (map['grandCompletionTargetTrips'] as num?)?.toInt() ?? 30,
+          safeNum(map['grandCompletionTargetTrips'])?.toInt() ?? 30,
     );
   }
 
@@ -245,13 +246,13 @@ class DailyStreakConfig {
     return DailyStreakConfig(
       streakEnabled: (map['streakEnabled'] as bool?) ?? true,
       baseCommissionRate:
-          (map['baseCommissionRate'] as num?)?.toDouble() ?? 0.20,
-      noShowWaitMinutes: (map['noShowWaitMinutes'] as num?)?.toInt() ?? 10,
+          safeNum(map['baseCommissionRate'])?.toDouble() ?? 0.20,
+      noShowWaitMinutes: safeNum(map['noShowWaitMinutes'])?.toInt() ?? 10,
       completionCashAward:
-          (map['completionCashAward'] as num?)?.toDouble() ?? 10000.0,
+          safeNum(map['completionCashAward'])?.toDouble() ?? 10000.0,
       autoArrivalEnabled: (map['autoArrivalEnabled'] as bool?) ?? true,
       autoArrivalCountdownSeconds:
-          (map['autoArrivalCountdownSeconds'] as num?)?.toInt() ?? 5,
+          safeNum(map['autoArrivalCountdownSeconds'])?.toInt() ?? 5,
       enableWaitingTimeBilling:
           (map['enableWaitingTimeBilling'] as bool?) ?? true,
       disabledCountries: (map['disabledCountries'] as List<dynamic>?)
@@ -412,7 +413,7 @@ class RegionConfig {
       currencyCode: map['currencyCode'] ?? 'NGN',
       currencySymbol: map['currencySymbol'] ?? '₦',
       regionalSurgeMultiplier:
-          (map['regionalSurgeMultiplier'] as num?)?.toDouble() ?? 1.0,
+          safeNum(map['regionalSurgeMultiplier'])?.toDouble() ?? 1.0,
       pricingRates: pricingMap,
       carTierThresholds: CarTierThresholds.fromMap(
         map['carTierThresholds'] as Map<String, dynamic>?,

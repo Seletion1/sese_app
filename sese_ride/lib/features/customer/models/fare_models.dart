@@ -5,6 +5,7 @@
 library;
 
 import 'package:latlong2/latlong.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 // ── Request ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ class FareTier {
       name: (map['name'] ?? '').toString(),
       isRecommended: map['isRecommended'] == true,
       fareFormatted: (map['fareFormatted'] ?? '').toString(),
-      fareAmount: (map['fareAmount'] as num?)?.toDouble() ?? 0.0,
+      fareAmount: safeNum(map['fareAmount'])?.toDouble() ?? 0.0,
     );
   }
 }
@@ -109,11 +110,17 @@ class FareResponse {
     required this.fareToken,
   });
 
+  static double? _num(dynamic v) {
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v.trim());
+    return null;
+  }
+
   factory FareResponse.fromMap(Map<String, dynamic> map) {
-    final rawTiers = (map['tiers'] as List<dynamic>? ?? []);
+    final rawTiers = (map['tiers'] is List ? map['tiers'] as List : const []);
     return FareResponse(
-      distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0.0,
-      durationMins: (map['durationMins'] as num?)?.toDouble() ?? 0.0,
+      distanceKm: _num(map['distanceKm'])?.toDouble() ?? 0.0,
+      durationMins: _num(map['durationMins'])?.toDouble() ?? 0.0,
       tiers: rawTiers
           .map((t) => FareTier.fromMap(Map<String, dynamic>.from(t as Map)))
           .toList(),

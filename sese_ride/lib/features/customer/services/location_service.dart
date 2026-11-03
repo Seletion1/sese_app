@@ -67,6 +67,14 @@ class PlaceSuggestion {
 ///
 /// Test seams are unchanged — widget tests keep working offline.
 class LocationService {
+  /// Parse a number that may be persisted as int, double, or string.
+  static num? _asNum(dynamic v) {
+    if (v is num) return v;
+    if (v is String) return num.tryParse(v.trim());
+    return null;
+  }
+
+
   static final GoogleMapsService _maps = GoogleMapsService();
   static final MapboxService _mapbox = const MapboxService();
 
@@ -286,7 +294,7 @@ class LocationService {
       // structured address components if display_name is missing.
       final displayName = (data['display_name'] as String?)?.trim() ?? '';
       if (displayName.isNotEmpty) return displayName;
-      final address = data['address'] as Map<String, dynamic>?;
+      final address = data['address'] is Map ? Map<String, dynamic>.from(data['address'] as Map) : null;
       if (address == null) return '';
       // Build a short readable string from the most useful components.
       final parts = <String>[
@@ -317,8 +325,8 @@ class LocationService {
           .timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return [];
       final list = json.decode(response.body) as List<dynamic>;
-      return list.map((item) {
-        final map = item as Map<String, dynamic>;
+      return list.whereType<Map>().map((item) {
+        final map = Map<String, dynamic>.from(item);
         final displayName = (map['display_name'] as String?)?.trim() ?? query;
         final lat = double.tryParse(map['lat']?.toString() ?? '0') ?? 0;
         final lng = double.tryParse(map['lon']?.toString() ?? '0') ?? 0;
@@ -700,27 +708,30 @@ class LocationService {
     if (response.statusCode != 200) {
       throw Exception('OSRM HTTP ${response.statusCode}');
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) throw Exception('OSRM: unexpected response shape');
+    final body = Map<String, dynamic>.from(decoded);
     final code = body['code'] as String? ?? '';
     if (code != 'Ok') throw Exception('OSRM status: $code');
 
-    final routes = body['routes'] as List<dynamic>?;
-    final first = (routes != null && routes.isNotEmpty)
-        ? routes[0] as Map<String, dynamic>?
+    final routesRaw = body['routes'];
+    final routes = routesRaw is List ? routesRaw : null;
+    final first = (routes != null && routes.isNotEmpty && routes[0] is Map)
+        ? Map<String, dynamic>.from(routes[0] as Map)
         : null;
     if (first == null) throw Exception('OSRM: no routes returned');
 
     final encoded = first['geometry'] as String? ?? '';
-    final distanceM = (first['distance'] as num? ?? 0).toInt();
-    final durationS = (first['duration'] as num? ?? 0).toInt();
+    final distanceM = _asNum(first['distance'])?.toInt() ?? 0;
+    final durationS = _asNum(first['duration'])?.toInt() ?? 0;
 
     if (encoded.isEmpty) throw Exception('OSRM: empty geometry');
 
     // Reuse the same decoder used for Google's encoded polyline — the format
     // is identical (precision 5, same zigzag encoding, same coordinate order).
-    final decoded = GoogleMapsService.decodePolyline(encoded);
+    final routePoints = GoogleMapsService.decodePolyline(encoded);
     return (
-      points: decoded.map((p) => LatLng(p.lat, p.lng)).toList(),
+      points: routePoints.map((p) => LatLng(p.lat, p.lng)).toList(),
       distanceM: distanceM,
       durationS: durationS,
     );

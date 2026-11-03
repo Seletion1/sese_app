@@ -337,7 +337,7 @@ class _PayoutRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = (data['status'] ?? 'pending').toString();
-    final amountKobo = (data['amountKobo'] as num?)?.toInt() ?? 0;
+    final amountKobo = safeNum(data['amountKobo'])?.toInt() ?? 0;
     final accountName = (data['accountName'] ?? '').toString();
     final bankName = (data['bankName'] ?? data['bankCode'] ?? '').toString();
     final accountNumber = (data['accountNumber'] ?? '').toString();

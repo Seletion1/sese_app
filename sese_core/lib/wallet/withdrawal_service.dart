@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 import 'bank_service.dart';
 
@@ -56,7 +57,7 @@ class PayoutRequest {
     }
     return PayoutRequest(
       requestId: id,
-      amountKobo: (map['amountKobo'] as num?)?.round() ?? 0,
+      amountKobo: safeNum(map['amountKobo'])?.round() ?? 0,
       accountName: (map['accountName'] ?? '').toString(),
       bankName: (map['bankName'] ?? '').toString(),
       status: (map['status'] ?? 'pending').toString(),

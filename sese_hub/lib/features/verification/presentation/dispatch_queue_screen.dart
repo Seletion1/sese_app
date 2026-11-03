@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 import '../../auth/hub_session_guard.dart';
 
@@ -176,10 +177,10 @@ class _QueueCardState extends State<_QueueCard> {
   Widget build(BuildContext context) {
     final d = widget.data;
     final status = (d['status'] ?? '').toString();
-    final tier = (d['dispatchTier'] as num?)?.toInt();
-    final decline = (d['declineCount'] as num?)?.toInt() ?? 0;
-    final recycles = (d['recycleCount'] as num?)?.toInt() ?? 0;
-    final reassigns = (d['reassignmentCount'] as num?)?.toInt() ?? 0;
+    final tier = safeNum(d['dispatchTier'])?.toInt();
+    final decline = safeNum(d['declineCount'])?.toInt() ?? 0;
+    final recycles = safeNum(d['recycleCount'])?.toInt() ?? 0;
+    final reassigns = safeNum(d['reassignmentCount'])?.toInt() ?? 0;
     final pingOne = (d['pingDriverId'] ?? '').toString();
     final pingGroup = ((d['pingDriverIds']) as List<dynamic>?)
             ?.map((e) => e.toString())
@@ -187,10 +188,10 @@ class _QueueCardState extends State<_QueueCard> {
         const [];
     final fare = (d['fareFormatted'] ?? '').toString().isNotEmpty
         ? (d['fareFormatted'] ?? '').toString()
-        : '₦${((d['fareAmount'] as num?) ?? 0).toStringAsFixed(0)}';
+        : '₦${(safeNum(d['fareAmount']) ?? 0).toStringAsFixed(0)}';
     final hasBids = d['hasActiveBids'] == true;
     final pickup = ((d['pickup'] as Map?)?['address'] ?? '').toString();
-    final expiresAt = (d['tierExpiresAt'] as num?)?.toInt();
+    final expiresAt = safeNum(d['tierExpiresAt'])?.toInt();
     final updated = DispatchQueueTab._millis(d['updatedAt']);
 
     return Card(
@@ -321,7 +322,7 @@ class _PendingBids extends StatelessWidget {
         return Column(
           children: bids.map((b) {
             final m = b.data();
-            final fare = (m['offeredFare'] as num?)?.toStringAsFixed(0) ?? '—';
+            final fare = safeNum(m['offeredFare'])?.toStringAsFixed(0) ?? '—';
             return ListTile(
               dense: true,
               leading: const Icon(Icons.gavel, size: 18),

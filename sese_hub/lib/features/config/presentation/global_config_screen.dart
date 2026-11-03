@@ -352,9 +352,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           .get();
       final qd = quotas.data();
       if (qd != null) {
-        final g = (qd['googleMonthlyCap'] as num?)?.toInt();
-        final m = (qd['mapboxMonthlyCap'] as num?)?.toInt();
-        final c = (qd['cartoMonthlyCap'] as num?)?.toInt();
+        int? capOf(dynamic v) {
+          if (v is num) return v.toInt();
+          if (v is String) return int.tryParse(v.trim());
+          return null;
+        }
+        final g = capOf(qd['googleMonthlyCap']);
+        final m = capOf(qd['mapboxMonthlyCap']);
+        final c = capOf(qd['cartoMonthlyCap']);
         if (g != null && g > 0) googleCapText = g.toString();
         if (m != null && m > 0) mapboxCapText = m.toString();
         if (c != null && c > 0) cartoCapText = c.toString();

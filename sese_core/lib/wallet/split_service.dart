@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Thrown when a split action cannot proceed. [message] is user-safe.
 class SplitException implements Exception {
@@ -35,7 +36,7 @@ class SplitPart {
     return SplitPart(
       userId: id,
       name: (map['name'] ?? '').toString(),
-      shareKobo: (map['shareKobo'] as num?)?.toInt() ?? 0,
+      shareKobo: safeNum(map['shareKobo'])?.toInt() ?? 0,
       status: (map['status'] ?? 'pending').toString(),
     );
   }

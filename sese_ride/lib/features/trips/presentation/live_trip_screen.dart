@@ -569,10 +569,10 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           if (!mounted || !doc.exists || doc.data() == null) return;
           final data = doc.data()!;
           final fix = data['lastFix'] as Map<String, dynamic>?;
-          final lat = (fix?['latitude'] as num?)?.toDouble() ??
-              (data['lat'] as num?)?.toDouble();
-          final lng = (fix?['longitude'] as num?)?.toDouble() ??
-              (data['lng'] as num?)?.toDouble();
+          final lat = safeNum(fix?['latitude'])?.toDouble() ??
+              safeNum(data['lat'])?.toDouble();
+          final lng = safeNum(fix?['longitude'])?.toDouble() ??
+              safeNum(data['lng'])?.toDouble();
           if (lat == null || lng == null) return;
           final newFix = LatLng(lat, lng);
 
@@ -810,10 +810,10 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           for (final doc in snapshot.docs) {
             final data = doc.data();
             final fix = data['lastFix'] as Map<String, dynamic>?;
-            final lat = (fix?['latitude'] as num?)?.toDouble() ??
-                (data['lat'] as num?)?.toDouble();
-            final lng = (fix?['longitude'] as num?)?.toDouble() ??
-                (data['lng'] as num?)?.toDouble();
+            final lat = safeNum(fix?['latitude'])?.toDouble() ??
+                safeNum(data['lat'])?.toDouble();
+            final lng = safeNum(fix?['longitude'])?.toDouble() ??
+                safeNum(data['lng'])?.toDouble();
             if (lat == null || lng == null) continue;
             final pos = LatLng(lat, lng);
 

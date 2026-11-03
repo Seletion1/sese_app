@@ -36,7 +36,7 @@ class OnboardingLookupResult {
       role: map['role'] as String?,
       customerVerificationStatus: map['customerVerificationStatus'] as String?,
       driverVerificationStatus: map['driverVerificationStatus'] as String?,
-      vehicleCount: (map['vehicleCount'] as num?)?.toInt() ?? 0,
+      vehicleCount: safeNum(map['vehicleCount'])?.toInt() ?? 0,
       missingSteps: (map['missingSteps'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       userData: map['userData'] != null ? Map<String, dynamic>.from(map['userData'] as Map) : null,
       driverData: map['driverData'] != null ? Map<String, dynamic>.from(map['driverData'] as Map) : null,

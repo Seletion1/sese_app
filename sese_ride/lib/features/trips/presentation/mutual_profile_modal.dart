@@ -88,15 +88,15 @@ class MutualProfileModal extends StatelessWidget {
 
         // Live average star rating — server-computed from totalRatingSum/Count.
         final rating =
-            (data?['averageRating'] as num?)?.toDouble() ?? fallbackRating;
+            safeNum(data?['averageRating'])?.toDouble() ?? fallbackRating;
 
         // Total number of individual ratings received (shown as "N Reviews").
         final ratingCount =
-            (data?['totalRatingCount'] as num?)?.toInt() ?? 0;
+            safeNum(data?['totalRatingCount'])?.toInt() ?? 0;
 
         // Total completed trips — incremented by the onTripCompleted Cloud Function.
         final completedTrips =
-            (data?['completedTrips'] as num?)?.toInt() ?? 0;
+            safeNum(data?['completedTrips'])?.toInt() ?? 0;
 
         final rawCreated = data?['createdAt'];
         final createdAt = AppUser.fromMap({'createdAt': rawCreated}).createdAt;

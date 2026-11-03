@@ -155,9 +155,9 @@ class SystemConfigService {
           .get();
       if (doc.exists) {
         final data = doc.data();
-        if (data != null && data['max_visible_bids'] is num) {
-          return (data['max_visible_bids'] as num).toInt();
-        }
+        final raw = data?['max_visible_bids'];
+        if (raw is num) return raw.toInt();
+        if (raw is String) return int.tryParse(raw.trim()) ?? 5;
       }
     } catch (e) {
       debugPrint('Error getting max_visible_bids, falling back to 5: $e');

@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Thrown when a P2P transfer cannot proceed. [message] is user-safe.
 class P2pException implements Exception {
@@ -41,11 +42,11 @@ class P2pRecipientResult {
       recipientId: (map['recipientId'] ?? '').toString(),
       recipientName: (map['recipientName'] ?? 'SeSe User').toString(),
       accountType: (map['accountType'] ?? 'Customer').toString(),
-      completedTrips: (map['completedTrips'] as num?)?.toInt() ?? 0,
-      minDriverTrips: (map['minDriverTrips'] as num?)?.toInt() ?? 3,
-      maxP2pLimitNaira: (map['maxP2pLimitNaira'] as num?)?.toDouble() ?? 20000.0,
+      completedTrips: safeNum(map['completedTrips'])?.toInt() ?? 0,
+      minDriverTrips: safeNum(map['minDriverTrips'])?.toInt() ?? 3,
+      maxP2pLimitNaira: safeNum(map['maxP2pLimitNaira'])?.toDouble() ?? 20000.0,
       canReceive: map['canReceive'] == true,
-      tripsRemaining: (map['tripsRemaining'] as num?)?.toInt() ?? 0,
+      tripsRemaining: safeNum(map['tripsRemaining'])?.toInt() ?? 0,
       reason: (map['reason'] ?? '').toString(),
     );
   }

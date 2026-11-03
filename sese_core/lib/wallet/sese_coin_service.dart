@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 /// Dual-balance wallet view: withdrawable cash + SeSe Coin bonus.
 ///
@@ -127,7 +128,7 @@ class SeseCoinService {
       final res =
           await fn.httpsCallable('convertSeseCoins').call({});
       final data = Map<String, dynamic>.from(res.data as Map);
-      return ((data['converted'] as num?) ?? 0).toDouble();
+      return (safeNum(data['converted']) ?? 0).toDouble();
     } on FirebaseFunctionsException catch (e) {
       throw SeseCoinException(e.code, e.message ?? 'Conversion failed.');
     }

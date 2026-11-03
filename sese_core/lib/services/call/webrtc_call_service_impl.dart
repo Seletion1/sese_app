@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sese_core/utils/safe_json.dart';
 
 import 'call_config_repository.dart';
 import 'i_call_service.dart';
@@ -114,7 +115,9 @@ class WebRtcCallServiceImpl implements ICallService {
           startedAt: (data['createdAt'] is Timestamp)
               ? (data['createdAt'] as Timestamp).toDate()
               : DateTime.now(),
-          metadata: data['metadata'] as Map<String, dynamic>? ?? {},
+          metadata: data['metadata'] is Map
+              ? Map<String, dynamic>.from(data['metadata'] as Map)
+              : <String, dynamic>{},
         );
 
         if (!_incomingCallController.isClosed) {
@@ -366,7 +369,9 @@ class WebRtcCallServiceImpl implements ICallService {
         startedAt: (data['createdAt'] is Timestamp)
             ? (data['createdAt'] as Timestamp).toDate()
             : DateTime.now(),
-        metadata: data['metadata'] as Map<String, dynamic>? ?? {},
+        metadata: data['metadata'] is Map
+              ? Map<String, dynamic>.from(data['metadata'] as Map)
+              : <String, dynamic>{},
       );
 
       // 1. Capture local audio track
@@ -452,7 +457,7 @@ class WebRtcCallServiceImpl implements ICallService {
               final candidate = RTCIceCandidate(
                 candData['candidate']?.toString(),
                 candData['sdpMid']?.toString(),
-                (candData['sdpMLineIndex'] as num?)?.toInt() ?? 0,
+                safeNum(candData['sdpMLineIndex'])?.toInt() ?? 0,
               );
               _peerConnection!.addCandidate(candidate);
             }

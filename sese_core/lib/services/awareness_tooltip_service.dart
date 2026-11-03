@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:sese_core/utils/safe_json.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -26,7 +27,7 @@ class AwarenessTooltipItem {
       title: (map['title'] ?? '').toString(),
       description: (map['description'] ?? '').toString(),
       enabled: map['enabled'] != false,
-      maxViews: (map['maxViews'] as num?)?.toInt() ?? 2,
+      maxViews: safeNum(map['maxViews'])?.toInt() ?? 2,
     );
   }
 

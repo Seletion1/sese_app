@@ -443,7 +443,7 @@ class _SplitInvitesCardState extends State<_SplitInvitesCard> {
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final amount = Text(
-                          'Your share: ${PaymentService.formatNaira(((inv['shareKobo'] as num?)?.toInt() ?? 0) / 100.0)}',
+                          'Your share: ${PaymentService.formatNaira((safeNum(inv['shareKobo'])?.toInt() ?? 0) / 100.0)}',
                           style:
                               const TextStyle(fontWeight: FontWeight.w600),
                           softWrap: true,

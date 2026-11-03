@@ -84,7 +84,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
       final walletSnap = await db.collection('wallets').doc(uid).get();
       if (walletSnap.exists && walletSnap.data() != null) {
         final data = walletSnap.data()!;
-        final balance = (data['balance'] as num?)?.toDouble() ?? 0.0;
+        final balance = safeNum(data['balance'])?.toDouble() ?? 0.0;
         if (balance > 0) {
           final naira = balance > 1000 ? (balance / 100.0) : balance;
           setState(() {
