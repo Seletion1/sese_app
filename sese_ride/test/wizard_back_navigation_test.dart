@@ -132,8 +132,8 @@ void main() {
     /// assertions must not rely on Step 2 text disappearing.)
     void expectOnStep1(WidgetTester tester) {
       expect(
-        find.widgetWithText(TextField, 'Destination / Drop-off'),
-        findsOneWidget,
+        find.textContaining('Test Dropoff'),
+        findsWidgets,
       );
       expect(find.widgetWithText(OutlinedButton, 'Back'), findsNothing);
       expect(wizardPopScope(tester).canPop, isTrue);

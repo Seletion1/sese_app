@@ -1810,11 +1810,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (mounted) {
       final result = await Navigator.of(context).push<dynamic>(
         MaterialPageRoute(
-          builder: (_) =>
-              LiveTripScreen(tripId: tripId, repository: _tripRepository),
+          builder: (_) => LiveTripScreen(
+            tripId: tripId,
+            repository: _tripRepository,
+            isPushedFromDispatch: true,
+          ),
         ),
       );
-      if (result == 'completed' && mounted) {
+      if ((result == 'completed' || result == 'minimize_to_home') && mounted) {
         Navigator.of(context).pop();
       }
     }
@@ -3875,6 +3878,14 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
     _fitBounds();
   }
 
+  Timer? _fitTimer;
+
+  @override
+  void dispose() {
+    _fitTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   void didUpdateWidget(covariant _RouteMapPreview oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -3909,8 +3920,11 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
         widget.dropoff!,
         padding: widget.padding,
       );
-      if (_fitAttempts < _maxFitAttempts) {
-        Future.delayed(_fitRetryDelay, _fitBounds);
+      if (mounted && _fitAttempts < _maxFitAttempts) {
+        _fitTimer?.cancel();
+        _fitTimer = Timer(_fitRetryDelay, () {
+          if (mounted) _fitBounds();
+        });
       }
     });
   }

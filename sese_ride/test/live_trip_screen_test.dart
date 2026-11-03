@@ -317,5 +317,93 @@ void main() {
       expect(updatedText, contains('Driver arriving in'));
       expect(updatedText, isNot(equals(initialText)));
     });
+
+    testWidgets('back button when isPushedFromDispatch is true pops minimize_to_home',
+        (tester) async {
+      OsmMapView.debugTileProviderOverride = BlankTileProvider();
+      dynamic navResult;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (ctx) => ElevatedButton(
+              onPressed: () async {
+                navResult = await Navigator.of(ctx).push(
+                  MaterialPageRoute(
+                    builder: (_) => LiveTripScreen(
+                      tripId: 'trip-1',
+                      repository: repo,
+                      isPushedFromDispatch: true,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Push'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Push'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      repo.controller.add(_trip(TripStatus.searchingDriver));
+      await tester.pump();
+
+      // Tap back arrow in AppBar
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(navResult, equals('minimize_to_home'));
+    });
+
+    testWidgets('confirming cancel when isPushedFromDispatch is true pops cancelled',
+        (tester) async {
+      OsmMapView.debugTileProviderOverride = BlankTileProvider();
+      dynamic navResult;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (ctx) => ElevatedButton(
+              onPressed: () async {
+                navResult = await Navigator.of(ctx).push(
+                  MaterialPageRoute(
+                    builder: (_) => LiveTripScreen(
+                      tripId: 'trip-1',
+                      repository: repo,
+                      isPushedFromDispatch: true,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Push'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Push'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      repo.controller.add(_trip(TripStatus.searchingDriver));
+      await tester.pump();
+
+      await tester.tap(find.text('Cancel trip'));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('cancel_reason_changed_my_mind')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('cancel_trip_confirm_button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Dismiss post-cancel feedback sheet if shown
+      final skipFinder = find.text('Skip');
+      if (skipFinder.evaluate().isNotEmpty) {
+        await tester.tap(skipFinder);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      expect(navResult, equals('cancelled'));
+    });
   });
 }

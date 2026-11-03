@@ -8,7 +8,6 @@ import 'package:sese_core/sese_core.dart';
 
 import '../../../core/services/call_service.dart';
 import '../../../widgets/map_provider.dart';
-import '../../../widgets/verified_badge.dart';
 import '../../customer/services/location_service.dart';
 import '../models/bid_models.dart';
 import '../models/trip_models.dart';
@@ -27,9 +26,13 @@ import '../../customer/presentation/customer_dispatch_screen.dart';
 /// in-memory state (controllers, addresses, vehicle choices, and payment modes).
 /// If opened directly (app relaunch / notification), reconstructs [CustomerDispatchScreen]
 /// seeded with all details from [trip] on step 2 (Review & Confirm).
-void _navigateBackToBookingOrPop(BuildContext context, ActiveTrip trip) {
-  if (Navigator.of(context).canPop()) {
-    Navigator.of(context).pop(true);
+void _navigateBackToBookingOrPop(
+  BuildContext context,
+  ActiveTrip trip, {
+  bool isPushedFromDispatch = false,
+}) {
+  if (isPushedFromDispatch && Navigator.of(context).canPop()) {
+    Navigator.of(context).pop('cancelled');
     return;
   }
   final pickupLoc = trip.pickupLat != 0 && trip.pickupLng != 0
@@ -39,9 +42,17 @@ void _navigateBackToBookingOrPop(BuildContext context, ActiveTrip trip) {
       ? LatLng(trip.dropoffLat, trip.dropoffLng)
       : null;
 
+  final isRide = trip.serviceType == 'ride';
+  final isReceive = trip.serviceType == 'receive_item';
+  final category = trip.vehicleCategory.isNotEmpty
+      ? trip.vehicleCategory
+      : (trip.tierIds.isNotEmpty ? trip.tierIds.first : null);
+
   Navigator.of(context).pushReplacement(
     MaterialPageRoute(
       builder: (_) => CustomerDispatchScreen(
+        initialModeIndex: isRide ? 1 : 0,
+        isReceiving: isReceive,
         initialPickupAddress:
             trip.pickupAddress.isNotEmpty ? trip.pickupAddress : null,
         initialPickupLatLng: pickupLoc,
@@ -58,6 +69,7 @@ void _navigateBackToBookingOrPop(BuildContext context, ActiveTrip trip) {
             trip.dropoffName.isNotEmpty ? trip.dropoffName : null,
         initialPaymentMode:
             trip.paymentMode.isNotEmpty ? trip.paymentMode : null,
+        initialCategory: category,
         initialStep: 2,
       ),
     ),
@@ -73,78 +85,113 @@ void _navigateBackToBookingOrPop(BuildContext context, ActiveTrip trip) {
 class LiveTripScreen extends StatelessWidget {
   final String tripId;
   final TripRepository repository;
+  final bool isPushedFromDispatch;
 
   const LiveTripScreen({
     super.key,
     required this.tripId,
     required this.repository,
+    this.isPushedFromDispatch = false,
   });
+
+  void _handleBackPress(BuildContext context) {
+    if (isPushedFromDispatch && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop('minimize_to_home');
+    } else if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Live Trip')),
-      body: StreamBuilder<ActiveTrip?>(
-        stream: repository.tripStream(tripId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _MessageState(
-              icon: Icons.error_outline,
-              title: 'Could not load this trip',
-              body: 'Check your connection and try again.',
-              onClose: () => Navigator.of(context).pop(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _handleBackPress(context);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Live Trip'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _handleBackPress(context),
+          ),
+        ),
+        body: StreamBuilder<ActiveTrip?>(
+          stream: repository.tripStream(tripId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _MessageState(
+                icon: Icons.error_outline,
+                title: 'Could not load this trip',
+                body: 'Check your connection and try again.',
+                onClose: () => _handleBackPress(context),
+              );
+            }
+            final trip = snapshot.data;
+            if (trip == null) {
+              return _MessageState(
+                icon: Icons.search_off,
+                title: 'Trip no longer available',
+                body: 'It may have been cancelled or removed.',
+                onClose: () => _handleBackPress(context),
+              );
+            }
+            if (trip.status == TripStatus.completed) {
+              return _CompletedTripView(trip: trip);
+            }
+            if (trip.status == TripStatus.cancelled ||
+                trip.status == TripStatus.cancelledWaitingCashSettlement) {
+              final isCashWaiting =
+                  trip.status == TripStatus.cancelledWaitingCashSettlement;
+              final fee = trip.pendingCashFee > 0
+                  ? trip.pendingCashFee
+                  : trip.paidWaitingFee;
+              final feeText = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : '';
+              final reason = isCashWaiting
+                  ? (feeText.isNotEmpty
+                      ? 'Trip cancelled during waiting period. Please pay $feeText cash directly to your driver.'
+                      : 'Trip cancelled during waiting period. Please pay the cash waiting fee to your driver.')
+                  : (trip.cancellationSource == 'driver'
+                      ? 'This trip was cancelled by the driver.'
+                      : trip.cancellationSource == 'customer'
+                          ? 'You cancelled this trip.'
+                          : 'This request is no longer active.');
+              return _MessageState(
+                icon: isCashWaiting
+                    ? Icons.payments_outlined
+                    : Icons.cancel_outlined,
+                iconColor: isCashWaiting
+                    ? const Color(0xFFFFB800)
+                    : Colors.redAccent,
+                title: isCashWaiting ? 'Cash Payment Due' : 'Trip cancelled',
+                body: reason,
+                onClose: () => _navigateBackToBookingOrPop(
+                  context,
+                  trip,
+                  isPushedFromDispatch: isPushedFromDispatch,
+                ),
+              );
+            }
+            // Special state: auto-reassignment exhausted — prompt fare boost.
+            if (trip.status == TripStatus.needsCustomerAction) {
+              return _NeedsActionBody(
+                trip: trip,
+                repository: repository,
+                isPushedFromDispatch: isPushedFromDispatch,
+              );
+            }
+            return _LiveTripBody(
+              trip: trip,
+              repository: repository,
+              isPushedFromDispatch: isPushedFromDispatch,
             );
-          }
-          final trip = snapshot.data;
-          if (trip == null) {
-            return _MessageState(
-              icon: Icons.search_off,
-              title: 'Trip no longer available',
-              body: 'It may have been cancelled or removed.',
-              onClose: () => Navigator.of(context).pop(),
-            );
-          }
-          if (trip.status == TripStatus.completed) {
-            return _CompletedTripView(trip: trip);
-          }
-          if (trip.status == TripStatus.cancelled ||
-              trip.status == TripStatus.cancelledWaitingCashSettlement) {
-            final isCashWaiting =
-                trip.status == TripStatus.cancelledWaitingCashSettlement;
-            final fee = trip.pendingCashFee > 0
-                ? trip.pendingCashFee
-                : trip.paidWaitingFee;
-            final feeText = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : '';
-            final reason = isCashWaiting
-                ? (feeText.isNotEmpty
-                    ? 'Trip cancelled during waiting period. Please pay $feeText cash directly to your driver.'
-                    : 'Trip cancelled during waiting period. Please pay the cash waiting fee to your driver.')
-                : (trip.cancellationSource == 'driver'
-                    ? 'This trip was cancelled by the driver.'
-                    : trip.cancellationSource == 'customer'
-                        ? 'You cancelled this trip.'
-                        : 'This request is no longer active.');
-            return _MessageState(
-              icon: isCashWaiting
-                  ? Icons.payments_outlined
-                  : Icons.cancel_outlined,
-              iconColor: isCashWaiting
-                  ? const Color(0xFFFFB800)
-                  : Colors.redAccent,
-              title: isCashWaiting ? 'Cash Payment Due' : 'Trip cancelled',
-              body: reason,
-              onClose: () => _navigateBackToBookingOrPop(context, trip),
-            );
-          }
-          // Special state: auto-reassignment exhausted — prompt fare boost.
-          if (trip.status == TripStatus.needsCustomerAction) {
-            return _NeedsActionBody(trip: trip, repository: repository);
-          }
-          return _LiveTripBody(trip: trip, repository: repository);
-        },
+          },
+        ),
       ),
     );
   }
@@ -157,8 +204,13 @@ class LiveTripScreen extends StatelessWidget {
 class _NeedsActionBody extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
+  final bool isPushedFromDispatch;
 
-  const _NeedsActionBody({required this.trip, required this.repository});
+  const _NeedsActionBody({
+    required this.trip,
+    required this.repository,
+    this.isPushedFromDispatch = false,
+  });
 
   @override
   State<_NeedsActionBody> createState() => _NeedsActionBodyState();
@@ -261,7 +313,13 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
           isDriver: false,
         );
       }
-      if (mounted) _navigateBackToBookingOrPop(context, widget.trip);
+      if (mounted) {
+        _navigateBackToBookingOrPop(
+          context,
+          widget.trip,
+          isPushedFromDispatch: widget.isPushedFromDispatch,
+        );
+      }
     } on TripException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -494,8 +552,13 @@ class _NearbyDriverMarker {
 class _LiveTripBody extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
+  final bool isPushedFromDispatch;
 
-  const _LiveTripBody({required this.trip, required this.repository});
+  const _LiveTripBody({
+    required this.trip,
+    required this.repository,
+    this.isPushedFromDispatch = false,
+  });
 
   @override
   State<_LiveTripBody> createState() => _LiveTripBodyState();
@@ -986,7 +1049,11 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             repository: widget.repository,
             driverPosOverride: driverPos,
             onCancel: () => _cancel(context),
-            onNavigateAway: () => _navigateBackToBookingOrPop(context, trip),
+            onNavigateAway: () => _navigateBackToBookingOrPop(
+              context,
+              trip,
+              isPushedFromDispatch: widget.isPushedFromDispatch,
+            ),
           ),
       ],
     );
@@ -1013,7 +1080,13 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           isDriver: false,
         );
       }
-      if (context.mounted) _navigateBackToBookingOrPop(context, widget.trip);
+      if (context.mounted) {
+        _navigateBackToBookingOrPop(
+          context,
+          widget.trip,
+          isPushedFromDispatch: widget.isPushedFromDispatch,
+        );
+      }
     } on TripException catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

@@ -474,7 +474,12 @@ class _ActiveTripCardBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final onPrimary = Theme.of(context).colorScheme.onPrimaryContainer;
+    final Color bannerBg = _isSearching
+        ? AppColors.seseGold
+        : Theme.of(context).colorScheme.primaryContainer;
+    final Color bannerTextColor = _isSearching
+        ? Colors.black
+        : Theme.of(context).colorScheme.onPrimaryContainer;
 
     final String statusText;
     if (trip.status == TripStatus.driverAccepted ||
@@ -496,7 +501,7 @@ class _ActiveTripCardBanner extends StatelessWidget {
 
     return Material(
       elevation: 6,
-      color: Theme.of(context).colorScheme.primaryContainer,
+      color: bannerBg,
       child: InkWell(
         onTap: () {
           Navigator.of(context).push(
@@ -516,7 +521,7 @@ class _ActiveTripCardBanner extends StatelessWidget {
                 trip.serviceType == 'send_item' || trip.serviceType == 'receive_item'
                     ? Icons.local_shipping
                     : Icons.directions_car,
-                color: onPrimary,
+                color: bannerTextColor,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -528,7 +533,7 @@ class _ActiveTripCardBanner extends StatelessWidget {
                       children: [
                         if (_isSearching) ...[
                           const _SearchingRadarIndicator(
-                            color: AppColors.seseGold,
+                            color: Colors.black,
                           ),
                           const SizedBox(width: 6),
                         ],
@@ -538,7 +543,7 @@ class _ActiveTripCardBanner extends StatelessWidget {
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 13,
-                              color: onPrimary,
+                              color: bannerTextColor,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -552,7 +557,7 @@ class _ActiveTripCardBanner extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
-                          color: onPrimary.withValues(alpha: 0.8),
+                          color: bannerTextColor.withValues(alpha: 0.8),
                         ),
                       ),
                   ],
@@ -566,13 +571,13 @@ class _ActiveTripCardBanner extends StatelessWidget {
                     'View',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: onPrimary,
+                      color: bannerTextColor,
                     ),
                   ),
                   Icon(
                     Icons.chevron_right,
                     size: 18,
-                    color: onPrimary,
+                    color: bannerTextColor,
                   ),
                 ],
               ),
