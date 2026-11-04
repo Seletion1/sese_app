@@ -36,16 +36,19 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queue() {
-    // Accept both the new `pending_review` and legacy `pending` values.
-    return _db
-        .collection('users')
-        .where(CustomerVerification.fieldStatus,
-            whereIn: [
-              CustomerVerification.pendingReview,
-              CustomerVerification.pending,
-            ])
-        .snapshots()
-        .map((snap) => snap.docs);
+    try {
+      return _db
+          .collection('users')
+          .where(CustomerVerification.fieldStatus,
+              whereIn: [
+                CustomerVerification.pendingReview,
+                CustomerVerification.pending,
+              ])
+          .snapshots()
+          .map((snap) => snap.docs);
+    } catch (_) {
+      return Stream.value(const []);
+    }
   }
 
   Future<void> _approve(String uid, String name) async {

@@ -105,11 +105,12 @@ void main() {
       expect(merged.map((v) => v.id), ['veh-driver-1/veh-1']);
     });
 
-    test('skips unparsable docs instead of throwing', () {
+    test('safely parses invalid fields with default fallbacks without throwing', () {
       final merged = FleetRepository.mergePendingDocs([
         _doc('driver-1/veh-1', {'year': 'not-a-year'}),
       ]);
-      expect(merged, isEmpty);
+      expect(merged.length, 1);
+      expect(merged.first.year, 2015);
     });
   });
 

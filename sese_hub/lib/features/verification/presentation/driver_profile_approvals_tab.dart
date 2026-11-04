@@ -38,84 +38,88 @@ class _DriverProfileApprovalsTabState
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queue() {
-    final stream1 = _db
-        .collection('drivers')
-        .where('profileStatus', isEqualTo: 'pending_verification')
-        .snapshots();
-    final stream2 = _db
-        .collection('drivers')
-        .where('isPendingReview', isEqualTo: true)
-        .snapshots();
-    final stream3 = _db
-        .collection('drivers')
-        .where(DriverVerification.fieldStatus, whereIn: [
-          DriverVerification.pending,
-          'submitted',
-          DriverVerification.pendingOnboarding,
-          'PENDING',
-        ])
-        .snapshots();
+    try {
+      final stream1 = _db
+          .collection('drivers')
+          .where('profileStatus', isEqualTo: 'pending_verification')
+          .snapshots();
+      final stream2 = _db
+          .collection('drivers')
+          .where('isPendingReview', isEqualTo: true)
+          .snapshots();
+      final stream3 = _db
+          .collection('drivers')
+          .where(DriverVerification.fieldStatus, whereIn: [
+            DriverVerification.pending,
+            'submitted',
+            DriverVerification.pendingOnboarding,
+            'PENDING',
+          ])
+          .snapshots();
 
-    late final StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
-    Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map1 = {};
-    Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map2 = {};
-    Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map3 = {};
+      late final StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>> controller;
+      Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map1 = {};
+      Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map2 = {};
+      Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> map3 = {};
 
-    StreamSubscription? sub1;
-    StreamSubscription? sub2;
-    StreamSubscription? sub3;
+      StreamSubscription? sub1;
+      StreamSubscription? sub2;
+      StreamSubscription? sub3;
 
-    void emit() {
-      final combined = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-      for (final doc in [...map1.values, ...map2.values, ...map3.values]) {
-        final data = doc.data();
-        final status = (data[DriverVerification.fieldStatus] ?? '').toString().toLowerCase();
-        final profileStatus = (data['profileStatus'] ?? '').toString().toLowerCase();
-        if ((status == 'approved' || status == 'verified') && profileStatus != 'pending_verification') {
-          continue;
+      void emit() {
+        final combined = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+        for (final doc in [...map1.values, ...map2.values, ...map3.values]) {
+          final data = doc.data();
+          final status = (data[DriverVerification.fieldStatus] ?? '').toString().toLowerCase();
+          final profileStatus = (data['profileStatus'] ?? '').toString().toLowerCase();
+          if ((status == 'approved' || status == 'verified') && profileStatus != 'pending_verification') {
+            continue;
+          }
+          if (status == 'rejected' && profileStatus != 'pending_verification') {
+            continue;
+          }
+          combined[doc.id] = doc;
         }
-        if (status == 'rejected' && profileStatus != 'pending_verification') {
-          continue;
-        }
-        combined[doc.id] = doc;
-      }
-      if (!controller.isClosed) {
-        controller.add(combined.values.toList());
-      }
-    }
-
-    controller = StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.broadcast(
-      onListen: () {
-        sub1 = stream1.listen((snap) {
-          map1 = {for (var d in snap.docs) d.id: d};
-          emit();
-        }, onError: (e) {
-          if (map2.isEmpty && map3.isEmpty) controller.addError(e);
-        });
-        sub2 = stream2.listen((snap) {
-          map2 = {for (var d in snap.docs) d.id: d};
-          emit();
-        }, onError: (e) {
-          if (map1.isEmpty && map3.isEmpty) controller.addError(e);
-        });
-        sub3 = stream3.listen((snap) {
-          map3 = {for (var d in snap.docs) d.id: d};
-          emit();
-        }, onError: (e) {
-          if (map1.isEmpty && map2.isEmpty) controller.addError(e);
-        });
-      },
-      onCancel: () async {
-        await sub1?.cancel();
-        await sub2?.cancel();
-        await sub3?.cancel();
         if (!controller.isClosed) {
-          await controller.close();
+          controller.add(combined.values.toList());
         }
-      },
-    );
+      }
 
-    return controller.stream;
+      controller = StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.broadcast(
+        onListen: () {
+          sub1 = stream1.listen((snap) {
+            map1 = {for (var d in snap.docs) d.id: d};
+            emit();
+          }, onError: (e) {
+            if (map2.isEmpty && map3.isEmpty) controller.addError(e);
+          });
+          sub2 = stream2.listen((snap) {
+            map2 = {for (var d in snap.docs) d.id: d};
+            emit();
+          }, onError: (e) {
+            if (map1.isEmpty && map3.isEmpty) controller.addError(e);
+          });
+          sub3 = stream3.listen((snap) {
+            map3 = {for (var d in snap.docs) d.id: d};
+            emit();
+          }, onError: (e) {
+            if (map1.isEmpty && map2.isEmpty) controller.addError(e);
+          });
+        },
+        onCancel: () async {
+          await sub1?.cancel();
+          await sub2?.cancel();
+          await sub3?.cancel();
+          if (!controller.isClosed) {
+            await controller.close();
+          }
+        },
+      );
+
+      return controller.stream;
+    } catch (_) {
+      return Stream.value(const []);
+    }
   }
 
   Future<void> _recomputeCanGoOnline(String driverId) async {

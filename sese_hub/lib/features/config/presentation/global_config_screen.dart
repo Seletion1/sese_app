@@ -1022,7 +1022,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading && _allConfigs.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const SeseCardSkeleton();
     }
 
     final isNarrow = MediaQuery.sizeOf(context).width < 600;

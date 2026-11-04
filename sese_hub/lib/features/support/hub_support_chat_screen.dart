@@ -64,9 +64,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
   bool _isSending = false;
   bool _isResolving = false;
 
-  FirebaseFirestore get _db {
-    return widget.firestore ?? FirebaseFirestore.instance;
-  }
+  FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
   String get _currentAdminUid {
     final auth = widget.auth ?? FirebaseAuth.instance;
@@ -553,7 +551,7 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
               contextLabel: 'support queue');
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const SeseListSkeleton(itemCount: 5);
         }
         final docs = snapshot.data?.docs ?? [];
         // Sort newest updated/created first in memory
@@ -1209,17 +1207,24 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
   // ---------------------------------------------------------------------------
 
   Widget _buildDeveloperQueueTab({required bool isMobile}) {
+    FirebaseFirestore? db;
+    try {
+      db = _db;
+    } catch (_) {}
+    if (db == null) {
+      return const Center(
+        child: Text('Crash reports queue unavailable offline.'),
+      );
+    }
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _db
+      stream: db
           .collection('crash_reports')
           .orderBy('timestamp', descending: true)
           .limit(50)
           .snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(strokeWidth: 2),
-          );
+          return const SeseListSkeleton(itemCount: 4);
         }
         if (snap.hasError) {
           return Center(

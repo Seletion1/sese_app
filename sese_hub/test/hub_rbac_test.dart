@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_hub/features/config/services/system_config_service.dart';
 import 'package:sese_hub/features/dashboard/presentation/hub_dashboard_screen.dart';
@@ -22,67 +23,37 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('offers Gmail field and exactly the four modules',
+    testWidgets('offers email field and module tier selection',
         (tester) async {
       await pumpDialog(tester);
 
-      expect(find.text("Candidate's Gmail address"), findsOneWidget);
-      expect(find.text('Fleet & Security'), findsOneWidget);
-      expect(find.text('Dynamic Config'), findsOneWidget);
-      expect(find.text('Staff Management'), findsOneWidget);
-      expect(find.text('Support Inbox'), findsOneWidget);
-      // Legacy/system-critical codes are gone from provisioning.
-      expect(find.text('Manage admin invites'), findsNothing);
-      expect(find.text('Manage vault keys'), findsNothing);
-      expect(find.text('Manage system settings'), findsNothing);
+      expect(find.text("Admin's Email address"), findsOneWidget);
+      expect(find.text('Super Admin'), findsOneWidget);
+      expect(find.text('Scoped Sub-Admin'), findsOneWidget);
+      expect(find.text('Scoped Permissions Checklist'), findsOneWidget);
     });
 
-    testWidgets('staff_manage is disabled for Agent, enabled for Super',
+    testWidgets('switching to Super Admin displays auto-grant message',
         (tester) async {
       await pumpDialog(tester);
 
-      CheckboxListTile staffTile() => tester.widget<CheckboxListTile>(
-          find.widgetWithText(CheckboxListTile, 'Staff Management'));
-      expect(staffTile().onChanged, isNull);
-      expect(find.text('Super Admin only'), findsOneWidget);
-
-      await tester.tap(find.byType(DropdownButtonFormField<UserRole>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Super').last);
+      await tester.tap(find.text('Super Admin'));
       await tester.pumpAndSettle();
 
-      expect(staffTile().onChanged, isNotNull);
+      expect(find.text('Super Admin tier automatically grants full system permissions across all modules.'), findsOneWidget);
     });
 
-    testWidgets('switching Super back to Agent drops staff_manage',
+    testWidgets('switching back to Scoped Sub-Admin restores permissions checklist',
         (tester) async {
       await pumpDialog(tester);
 
-      await tester.tap(find.byType(DropdownButtonFormField<UserRole>));
+      await tester.tap(find.text('Super Admin'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Super').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(CheckboxListTile, 'Staff Management'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-                find.widgetWithText(CheckboxListTile, 'Staff Management'))
-            .value,
-        isTrue,
-      );
 
-      await tester.tap(find.byType(DropdownButtonFormField<UserRole>));
+      await tester.tap(find.text('Scoped Sub-Admin'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Agent').last);
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-                find.widgetWithText(CheckboxListTile, 'Staff Management'))
-            .value,
-        isFalse,
-      );
+
+      expect(find.text('Scoped Permissions Checklist'), findsOneWidget);
     });
   });
 
@@ -93,6 +64,7 @@ void main() {
       bool isOwner = false,
       List<String> permissions = const [],
     }) async {
+      SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(
         MaterialApp(
           home: HubDashboardScreen(
@@ -141,7 +113,7 @@ void main() {
       // occupy the bottom bar; Support, Payouts, Config, Staff spill into the More sheet.
       expect(find.text('Active Rides'), findsOneWidget);
       expect(find.text('Fleet & Security'), findsOneWidget);
-      expect(find.text('Onboarding'), findsOneWidget);
+      expect(find.text('User Onboarding'), findsOneWidget);
 
       // More button is always present when overflow tabs exist.
       expect(find.text('More'), findsOneWidget);

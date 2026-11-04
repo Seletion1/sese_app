@@ -48,7 +48,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: GlobalConfigScreen(configService: service)),
     );
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(SeseCardSkeleton), findsOneWidget);
 
     // Remove the screen from the tree while the config reads are in flight.
     await tester.pumpWidget(const MaterialApp(home: Scaffold()));

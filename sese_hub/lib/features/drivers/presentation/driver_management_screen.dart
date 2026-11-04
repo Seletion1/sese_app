@@ -52,7 +52,11 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _driversStream() {
-    return _db.collection('drivers').snapshots();
+    try {
+      return _db.collection('drivers').snapshots();
+    } catch (_) {
+      return const Stream.empty();
+    }
   }
 
   Future<void> _toggleDriverOnlineStatus({

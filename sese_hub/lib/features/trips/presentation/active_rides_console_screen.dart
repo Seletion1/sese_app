@@ -115,6 +115,17 @@ class _RidesConsoleBody extends StatefulWidget {
 class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> _activeTripsStream() {
+    try {
+      return _db
+          .collection('trips')
+          .where('status', whereIn: _activeStatuses)
+          .snapshots();
+    } catch (_) {
+      return const Stream.empty();
+    }
+  }
+
   /// Non-null when the staffer's jurisdiction is locked (not global/ALL).
   String? get _locked =>
       (widget.lockedCountry ?? '').trim().toUpperCase().isNotEmpty &&
@@ -189,10 +200,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
           // Active & Scheduled Trips Stream
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _db
-                  .collection('trips')
-                  .where('status', whereIn: _activeStatuses)
-                  .snapshots(),
+              stream: _activeTripsStream(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return Center(
@@ -200,7 +208,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   );
                 }
                 if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const SeseListSkeleton(itemCount: 6);
                 }
 
                 final docs = snapshot.data?.docs ?? [];

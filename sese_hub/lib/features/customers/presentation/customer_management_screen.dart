@@ -48,7 +48,11 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _customersStream() {
-    return _db.collection('users').where('role', isEqualTo: 'customer').snapshots();
+    try {
+      return _db.collection('users').where('role', isEqualTo: 'customer').snapshots();
+    } catch (_) {
+      return const Stream.empty();
+    }
   }
 
   Future<void> _toggleSuspension(String uid, String name, bool currentlySuspended) async {

@@ -38,16 +38,44 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
   @override
   void initState() {
     super.initState();
-    _loadFleet();
+    _loadFleetWithCache();
   }
 
-  Future<void> _loadFleet() async {
-    setState(() => _loading = true);
+  Future<void> _loadFleetWithCache() async {
+    // 1. Instant local-first restore from LocalCacheService
+    final cacheKey = 'driver_fleet_${widget.driverId}';
+    final cachedData = LocalCacheService.instance.getJsonList(cacheKey);
+    if (cachedData != null && cachedData.isNotEmpty) {
+      try {
+        final cachedVehicles = cachedData.map((json) => VehicleModel.fromMap(json)).toList();
+        setState(() {
+          _vehicles = cachedVehicles;
+          _loading = false;
+        });
+      } catch (e) {
+        debugPrint('DriverFleetScreen cache parse error: $e');
+      }
+    }
+
+    // 2. Silent background sync
     final list = await widget.fleetService.getDriverFleet(widget.driverId);
+    if (!mounted) return;
     setState(() {
       _vehicles = list;
       _loading = false;
     });
+
+    // 3. Persist fresh data back to cache
+    try {
+      final jsonList = list.map((v) => v.toMap()).toList();
+      await LocalCacheService.instance.setJsonList(cacheKey, jsonList);
+    } catch (e) {
+      debugPrint('DriverFleetScreen cache save error: $e');
+    }
+  }
+
+  Future<void> _loadFleet() async {
+    await _loadFleetWithCache();
   }
 
   Future<void> _onVehicleRegistered(VehicleModel newVeh) async {
@@ -121,9 +149,13 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+    if (_loading && _vehicles.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('My Vehicle Fleet')),
+        body: const Padding(
+          padding: EdgeInsets.only(top: 16),
+          child: SeseListSkeleton(itemCount: 4),
+        ),
       );
     }
 

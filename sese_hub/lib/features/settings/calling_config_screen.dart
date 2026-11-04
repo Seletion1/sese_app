@@ -99,7 +99,7 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Calling Configuration')),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const SeseCardSkeleton(),
       );
     }
 
