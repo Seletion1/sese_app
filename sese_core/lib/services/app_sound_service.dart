@@ -237,19 +237,14 @@ class AppSoundService {
       {Duration minDuration = const Duration(seconds: 6)}) async {
     try {
       if (!_toneLoaded) await loadSelectedTone();
-      _orderWantsStop = false;
       _minDurationTimer?.cancel();
-      _orderMinDuration = minDuration;
-      _orderStart = DateTime.now();
+      _minDurationTimer = null;
 
       _orderPlayer ??= _createPlayer();
       await _applyAlertContext(_orderPlayer!);
       await _orderPlayer!.setReleaseMode(ReleaseMode.loop);
       if (_orderPlayer!.state != PlayerState.playing) {
-        // Not already looping: start the tone. When the dashboard fired and
-        // then the sheet fires for the same offer, the player is already
-        // playing — restarting `play` would audibly cut and restart the tone,
-        // so skip straight to the clock reset below.
+        // Not already looping: start the tone.
         try {
           await _orderPlayer!.play(AssetSource(_selectedTone.asset));
         } catch (_) {
@@ -261,12 +256,6 @@ class AppSoundService {
           }
         }
       }
-
-      // Ensure at least minDuration of audible alert even if stop is called
-      // immediately (e.g., rapid accept). The timer only sets a flag; actual
-      // Cancel any legacy deferred timer.
-      _minDurationTimer?.cancel();
-      _minDurationTimer = null;
     } catch (e) {
       debugPrint('AppSoundService playIncomingOrderAlert failed: $e');
     }
