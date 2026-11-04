@@ -1220,7 +1220,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
 
     if (driverPos == null || driverPos.latitude == 0 || destLat == 0.0) {
-      return '5 min';
+      if (trip.durationMins > 0) return '${trip.durationMins.round()} min';
+      return '— min';
     }
     final distM = const Distance().as(
       LengthUnit.Meter,
@@ -1239,7 +1240,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
 
     if (driverPos == null || driverPos.latitude == 0 || destLat == 0.0) {
-      return '2.3 km';
+      if (trip.distanceKm > 0) return '${trip.distanceKm.toStringAsFixed(1)} km';
+      return '— km';
     }
     final distM = const Distance().as(
       LengthUnit.Meter,
@@ -1259,7 +1261,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     final destLat = isDropoff ? trip.dropoffLat : trip.pickupLat;
     final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
 
-    int etaMin = 5;
+    int etaMin = trip.durationMins > 0 ? trip.durationMins.round() : 5;
     if (driverPos != null && driverPos.latitude != 0 && destLat != 0.0) {
       final distM = const Distance().as(
         LengthUnit.Meter,

@@ -647,6 +647,44 @@ class SeSeMapController {
     return Future.value();
   }
 
+  /// Offset calculation to anchor [target] at bottom-center of the viewport.
+  static base.LatLng computeBottomCenterTarget(base.LatLng target, double zoom) {
+    final zoomFactor = math.pow(2.0, (17.0 - zoom).clamp(-4.0, 4.0));
+    final latOffset = 0.0018 * zoomFactor;
+    return base.LatLng(target.latitude + latOffset, target.longitude);
+  }
+
+  /// Follows live fix with bottom-center camera locking during active navigation.
+  Future<void> followToBottomCenter(base.LatLng target, {double? zoom}) {
+    final currentZoom = zoom ?? (_ready ? _native.camera.zoom : 17.0);
+    final offsetTarget = computeBottomCenterTarget(target, currentZoom);
+    void run() {
+      final google = _google;
+      if (google != null) {
+        google.animateCamera(
+          gmaps.CameraUpdate.newLatLngZoom(_toG(offsetTarget), currentZoom),
+        );
+        return;
+      }
+      _native.move(
+        LatLng(offsetTarget.latitude, offsetTarget.longitude),
+        currentZoom,
+      );
+    }
+
+    if (!_ready && _google == null) {
+      _pending.add(run);
+      return Future.value();
+    }
+    try {
+      _noteProgrammatic();
+      run();
+    } catch (e) {
+      debugPrint('SeSeMapController.followToBottomCenter failed: $e');
+    }
+    return Future.value();
+  }
+
   /// Called by [OsmMapView] once the tile map is ready; flushes queued moves.
   void markReady() {
     _ready = true;

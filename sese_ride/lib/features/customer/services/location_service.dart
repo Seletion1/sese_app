@@ -689,6 +689,134 @@ class LocationService {
     return [pickup, dropoff];
   }
 
+  /// Fetches complete route details including step-by-step turn guidance instructions.
+  static Future<
+      ({
+        List<LatLng> points,
+        int distanceM,
+        int durationS,
+        List<RouteStep> steps
+      })> fetchRouteDetails(LatLng pickup, LatLng dropoff) async {
+    final route = await fetchRoute(pickup, dropoff);
+    List<RouteStep> steps = [];
+    try {
+      steps = await _fetchOsrmSteps(pickup, dropoff);
+    } catch (_) {}
+    if (steps.isEmpty && route.points.length >= 2) {
+      steps = _generateFallbackSteps(route.points, pickup, dropoff);
+    }
+    return (
+      points: route.points,
+      distanceM: route.distanceM,
+      durationS: route.durationS,
+      steps: steps,
+    );
+  }
+
+  static Future<List<RouteStep>> _fetchOsrmSteps(
+      LatLng pickup, LatLng dropoff) async {
+    final uri = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/'
+      '${pickup.longitude},${pickup.latitude};'
+      '${dropoff.longitude},${dropoff.latitude}'
+      '?overview=full&geometries=polyline&steps=true',
+    );
+    final response = await http.get(uri).timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) return [];
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map || decoded['code'] != 'Ok') return [];
+    final routes = decoded['routes'] as List?;
+    if (routes == null || routes.isEmpty) return [];
+    final legs = (routes[0] as Map)['legs'] as List?;
+    if (legs == null || legs.isEmpty) return [];
+    final stepsRaw = (legs[0] as Map)['steps'] as List?;
+    if (stepsRaw == null) return [];
+
+    final List<RouteStep> result = [];
+    for (final s in stepsRaw) {
+      if (s is! Map) continue;
+      final dist = _asNum(s['distance'])?.toDouble() ?? 0.0;
+      final name = (s['name'] as String? ?? '').trim();
+      final maneuver = s['maneuver'] as Map? ?? {};
+      final type = maneuver['type'] as String? ?? 'turn';
+      final modifier = maneuver['modifier'] as String? ?? 'straight';
+      final loc = maneuver['location'] as List?;
+      LatLng locLatLng = pickup;
+      if (loc != null && loc.length >= 2) {
+        locLatLng = LatLng(_asNum(loc[1])?.toDouble() ?? pickup.latitude,
+            _asNum(loc[0])?.toDouble() ?? pickup.longitude);
+      }
+
+      String instruction = '';
+      final street = name.isNotEmpty ? name : 'road';
+      if (type == 'depart') {
+        instruction = 'Head towards destination on $street';
+      } else if (type == 'arrive') {
+        instruction = 'Arrive at destination';
+      } else if (modifier.isNotEmpty) {
+        final dir = modifier.replaceAll('_', ' ');
+        instruction = 'Turn $dir onto $street';
+      } else {
+        instruction = 'Continue on $street';
+      }
+
+      result.add(RouteStep(
+        location: locLatLng,
+        instruction: instruction,
+        maneuverType: type,
+        maneuverModifier: modifier,
+        distanceMeters: dist,
+        streetName: name,
+      ));
+    }
+    return result;
+  }
+
+  static List<RouteStep> _generateFallbackSteps(
+      List<LatLng> points, LatLng pickup, LatLng dropoff) {
+    if (points.length < 2) return [];
+    final totalM = const Distance().as(LengthUnit.Meter, pickup, dropoff);
+    if (totalM < 300) {
+      return [
+        RouteStep(
+          location: pickup,
+          instruction: 'Proceed directly to destination',
+          maneuverType: 'straight',
+          maneuverModifier: 'straight',
+          distanceMeters: totalM,
+        ),
+      ];
+    }
+    final midIdx = (points.length / 2).floor();
+    final midPoint = points[midIdx];
+    final d1 = const Distance().as(LengthUnit.Meter, pickup, midPoint);
+    final d2 = const Distance().as(LengthUnit.Meter, midPoint, dropoff);
+
+    return [
+      RouteStep(
+        location: pickup,
+        instruction: 'Head toward destination',
+        maneuverType: 'depart',
+        maneuverModifier: 'straight',
+        distanceMeters: d1,
+      ),
+      RouteStep(
+        location: midPoint,
+        instruction: 'Continue straight on route',
+        maneuverType: 'straight',
+        maneuverModifier: 'straight',
+        distanceMeters: d2,
+      ),
+      RouteStep(
+        location: dropoff,
+        instruction: 'Arrive at destination',
+        maneuverType: 'arrive',
+        maneuverModifier: 'straight',
+        distanceMeters: 0,
+      ),
+    ];
+  }
+
   /// Queries the OSRM public routing engine for a driving route.
   ///
   /// OSRM uses the same Google-compatible encoded polyline format when
@@ -738,6 +866,25 @@ class LocationService {
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
+}
+
+/// Represents a step-by-step turn-by-turn guidance instruction along a route leg.
+class RouteStep {
+  final LatLng location;
+  final String instruction;
+  final String maneuverType;
+  final String maneuverModifier;
+  final double distanceMeters;
+  final String streetName;
+
+  const RouteStep({
+    required this.location,
+    required this.instruction,
+    this.maneuverType = 'turn',
+    this.maneuverModifier = 'straight',
+    this.distanceMeters = 0.0,
+    this.streetName = '',
+  });
 }
 
 /// Service providing location autocomplete suggestions.

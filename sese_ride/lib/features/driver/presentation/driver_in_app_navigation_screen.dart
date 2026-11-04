@@ -65,6 +65,8 @@ class _DriverInAppNavigationScreenState
   double _speedKmh = 0.0;
 
   List<LatLng> _routePoints = [];
+  List<RouteStep> _routeSteps = [];
+  RouteStep? _currentGuidanceStep;
   double _distanceRemainingKm = 0.0;
   int _etaMinutes = 0;
 
@@ -115,27 +117,35 @@ class _DriverInAppNavigationScreenState
       ),
     ).listen((pos) {
       if (!mounted) return;
+      final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
-        _currentPosition = LatLng(pos.latitude, pos.longitude);
+        _currentPosition = newPos;
         _speedKmh = (pos.speed * 3.6).clamp(0, 200);
         _recalculateRemaining();
       });
+      if (_isAutoTracking) {
+        _mapController.followToBottomCenter(newPos, zoom: 17.0);
+      }
     });
   }
 
   Future<void> _fetchRoute() async {
     if (_currentPosition.latitude == 0 && _currentPosition.longitude == 0) return;
     try {
-      final points = await LocationService.fetchRoutePolyline(
+      final details = await LocationService.fetchRouteDetails(
         _currentPosition,
         widget.destination,
       );
       if (mounted) {
         setState(() {
-          _routePoints = points;
+          _routePoints = details.points;
+          _routeSteps = details.steps;
+          if (details.steps.isNotEmpty) {
+            _currentGuidanceStep = details.steps.first;
+          }
           _recalculateRemaining();
         });
-        if (points.isNotEmpty) {
+        if (details.points.isNotEmpty) {
           _mapController.fitPoints(_currentPosition, widget.destination);
         }
       }
@@ -151,6 +161,22 @@ class _DriverInAppNavigationScreenState
     );
     _distanceRemainingKm = distM / 1000.0;
     _etaMinutes = (_distanceRemainingKm / 30.0 * 60).ceil().clamp(1, 999);
+
+    if (_routeSteps.isNotEmpty) {
+      RouteStep? nextStep;
+      double minUpcomingDist = double.infinity;
+      for (final step in _routeSteps) {
+        final stepDistM =
+            const Distance().as(LengthUnit.Meter, _currentPosition, step.location);
+        if (stepDistM < minUpcomingDist) {
+          minUpcomingDist = stepDistM;
+          nextStep = step;
+        }
+      }
+      if (nextStep != null) {
+        _currentGuidanceStep = nextStep;
+      }
+    }
   }
 
   @override
@@ -222,7 +248,7 @@ class _DriverInAppNavigationScreenState
                   OsmMapView.pin(
                     point: _currentPosition,
                     color: AppColors.seseGold,
-                    label: '🚗',
+                    label: 'NAV',
                   ),
                 OsmMapView.pin(
                   point: widget.destination,
@@ -291,9 +317,11 @@ class _DriverInAppNavigationScreenState
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            widget.isHeadingToPickup
-                                ? 'Navigation: En Route to Pickup'
-                                : 'Navigation: En Route to Drop-off',
+                            _currentGuidanceStep != null && _currentGuidanceStep!.instruction.isNotEmpty
+                                ? _currentGuidanceStep!.instruction
+                                : (widget.isHeadingToPickup
+                                    ? 'Navigation: En Route to Pickup'
+                                    : 'Navigation: En Route to Drop-off'),
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,

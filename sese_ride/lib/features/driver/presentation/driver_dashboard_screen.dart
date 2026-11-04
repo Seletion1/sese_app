@@ -134,8 +134,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   Timer? _mapInactivityTimer;
   DateTime? _lastPanTime;
   List<LatLng> _activeRoutePoints = [];
+  List<RouteStep> _activeRouteSteps = [];
+  RouteStep? _currentGuidanceStep;
+  double _currentSpeedKmh = 0.0;
   DateTime? _lastRouteFetchTime;
   final Set<String> _ratedTripDocIds = {};
+
+  void _updateCurrentGuidanceStep(LatLng driverPos) {
+    if (_activeRouteSteps.isEmpty || driverPos.latitude == 0) return;
+    RouteStep? nextStep;
+    double minUpcomingDist = double.infinity;
+    for (final step in _activeRouteSteps) {
+      final distM = const Distance().as(LengthUnit.Meter, driverPos, step.location);
+      if (distM < minUpcomingDist) {
+        minUpcomingDist = distM;
+        nextStep = step;
+      }
+    }
+    if (nextStep != null && nextStep != _currentGuidanceStep) {
+      setState(() {
+        _currentGuidanceStep = nextStep;
+      });
+    }
+  }
 
   void _handleMapGestureStarted() {
     _mapInactivityTimer?.cancel();
@@ -205,14 +226,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _lastRouteFetchTime = now;
 
     try {
-      final points = await LocationService.fetchRoutePolyline(
+      final details = await LocationService.fetchRouteDetails(
         _driverPosition,
         LatLng(destLat, destLng),
       );
-      if (mounted && points.isNotEmpty) {
+      if (mounted && details.points.isNotEmpty) {
         setState(() {
-          _activeRoutePoints = points;
+          _activeRoutePoints = details.points;
+          _activeRouteSteps = details.steps;
         });
+        _updateCurrentGuidanceStep(_driverPosition);
       }
     } catch (_) {}
   }
@@ -616,13 +639,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         (pos) {
           if (!mounted) return;
           final newPos = LatLng(pos.latitude, pos.longitude);
+          final speedKmh = (pos.speed * 3.6).clamp(0.0, 200.0);
           setState(() {
             _driverPosition = newPos;
+            _currentSpeedKmh = speedKmh;
           });
+
+          _updateCurrentGuidanceStep(newPos);
 
           // Live map camera follow during active trip or when set to follow
           if (_isFollowingUser) {
-            _mapController.followTo(newPos);
+            final active = _currentActiveTrip;
+            if (active != null && active.status == TripStatus.inProgress) {
+              _mapController.followToBottomCenter(newPos, zoom: 17.0);
+            } else {
+              _mapController.followTo(newPos);
+            }
           } else {
             _checkAutoResumeTracking(pos, newPos);
           }
@@ -1848,7 +1880,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '50',
+                        _currentSpeedKmh > 0
+                            ? '${_currentSpeedKmh.round()}'
+                            : '0',
                         style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 18,
@@ -2412,9 +2446,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   ),
                 ] else ...[
                   Text(
-                    isDropoff
-                        ? 'Navigation: En Route to Drop-off'
-                        : 'Navigation: En Route to Pickup',
+                    _currentGuidanceStep != null && _currentGuidanceStep!.instruction.isNotEmpty
+                        ? _currentGuidanceStep!.instruction
+                        : (isDropoff
+                            ? 'Navigation: En Route to Drop-off'
+                            : 'Navigation: En Route to Pickup'),
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 14.5,
