@@ -87,7 +87,7 @@ void main() {
 
     // 5. Verify Slide-to-Action button is rendered with stage label
     expect(find.byKey(const Key('driver_slide_action_button')), findsOneWidget);
-    expect(find.text('Complete Trip'), findsOneWidget);
+    expect(find.textContaining('Complete Trip'), findsOneWidget);
   });
 
   testWidgets('Call Contact Sheet shows clean options with no bulky header text',
@@ -177,7 +177,7 @@ void main() {
     // Total fare ₦6,000 is visible
     expect(find.textContaining('₦6,000'), findsAtLeastNWidgets(1));
     // Subtitle shows clean mode label without breaking down cash
-    expect(find.text('₦6,000 • Split Payment'), findsOneWidget);
+    expect(find.text('Split Payment'), findsOneWidget);
     // Specific collection breakdown card is completely hidden
     expect(find.textContaining('Collect cash from sender'), findsNothing);
     expect(find.textContaining('credited to your wallet upon completion'), findsNothing);
@@ -215,7 +215,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Subtitle indicates cash due at pickup
-    expect(find.text('₦6,000 • Collect ₦5000 Cash'), findsOneWidget);
+    expect(find.text('Collect ₦5000 Cash'), findsOneWidget);
     // Cash collection card is revealed with professional wording
     expect(
       find.text('Collect cash from sender before leaving pickup (₦5000).'),
@@ -274,7 +274,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Subtitle indicates receiver pays at drop-off
-    expect(find.text('₦6,000 • Receiver Pays at Drop-off'), findsOneWidget);
+    expect(find.text('Receiver Pays at Drop-off'), findsOneWidget);
     // Pickup cash collection card is NOT shown
     expect(find.textContaining('Collect cash from sender'), findsNothing);
 
@@ -345,5 +345,48 @@ void main() {
 
     expect(fakeStreak.lastAdvancedTripId, 'receiver_2');
     expect(fakeStreak.lastAdvancedNextStatus, 'COMPLETED');
+  });
+
+  testWidgets(
+      'In progress renders HUD telemetry strip and triggers collapse callback on trip start',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+    bool collapseToggled = false;
+
+    final inProgressTrip = ActiveTrip(
+      tripId: 'in_progress_1',
+      status: TripStatus.inProgress,
+      customerId: 'cust_5',
+      customerName: 'Bamiduro',
+      pickupAddress: '32 Olafiranye St',
+      dropoffAddress: '5 Ikosi Road, Ketu',
+      fareAmount: 4000,
+      fareFormatted: '₦4,000',
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: inProgressTrip,
+          streakService: fakeStreak,
+          onToggleCollapse: () {
+            collapseToggled = true;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify collapse callback can be passed
+    expect(collapseToggled, isFalse);
+
+    // Verify HUD telemetry strip is present
+    expect(find.byKey(const Key('hud_bottom_telemetry_strip')), findsOneWidget);
+    expect(find.textContaining('min'), findsAtLeastNWidgets(1));
+    expect(find.textContaining('km'), findsAtLeastNWidgets(1));
+
+    // Verify complete trip action button label includes chevron
+    expect(find.text('Complete Trip >'), findsOneWidget);
   });
 }

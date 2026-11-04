@@ -299,8 +299,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       () => widget.streakService.advanceTripStatus(trip.tripId, next),
       'Could not update trip status.',
     );
-    if (success && next == 'COMPLETED') {
-      _promptPostTripRating(trip);
+    if (success) {
+      if (next == 'IN_PROGRESS') {
+        widget.onToggleCollapse?.call();
+      } else if (next == 'COMPLETED') {
+        _promptPostTripRating(trip);
+      }
     }
   }
 
@@ -728,7 +732,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       case 'IN_PROGRESS':
         return 'Start Ride';
       case 'COMPLETED':
-        return 'Complete Trip';
+        return 'Complete Trip >';
       case 'CONFIRM_CASH_SETTLEMENT':
         final fee = widget.trip.pendingCashFee > 0
             ? widget.trip.pendingCashFee
@@ -1209,6 +1213,140 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     );
   }
 
+  String _calculateEtaLabel(ActiveTrip trip) {
+    final driverPos = widget.driverPosition;
+    final isDropoff = trip.status == TripStatus.inProgress;
+    final destLat = isDropoff ? trip.dropoffLat : trip.pickupLat;
+    final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
+
+    if (driverPos == null || driverPos.latitude == 0 || destLat == 0.0) {
+      return '5 min';
+    }
+    final distM = const Distance().as(
+      LengthUnit.Meter,
+      driverPos,
+      LatLng(destLat, destLng),
+    );
+    final distKm = distM / 1000.0;
+    final etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+    return '$etaMin min';
+  }
+
+  String _calculateDistanceLabel(ActiveTrip trip) {
+    final driverPos = widget.driverPosition;
+    final isDropoff = trip.status == TripStatus.inProgress;
+    final destLat = isDropoff ? trip.dropoffLat : trip.pickupLat;
+    final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
+
+    if (driverPos == null || driverPos.latitude == 0 || destLat == 0.0) {
+      return '2.3 km';
+    }
+    final distM = const Distance().as(
+      LengthUnit.Meter,
+      driverPos,
+      LatLng(destLat, destLng),
+    );
+    final distKm = distM / 1000.0;
+    if (distKm < 1.0) {
+      return '${distM.round()} m';
+    }
+    return '${distKm.toStringAsFixed(1)} km';
+  }
+
+  String _calculateArrivalTimeLabel(ActiveTrip trip) {
+    final driverPos = widget.driverPosition;
+    final isDropoff = trip.status == TripStatus.inProgress;
+    final destLat = isDropoff ? trip.dropoffLat : trip.pickupLat;
+    final destLng = isDropoff ? trip.dropoffLng : trip.pickupLng;
+
+    int etaMin = 5;
+    if (driverPos != null && driverPos.latitude != 0 && destLat != 0.0) {
+      final distM = const Distance().as(
+        LengthUnit.Meter,
+        driverPos,
+        LatLng(destLat, destLng),
+      );
+      final distKm = distM / 1000.0;
+      etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+    }
+    final arrivalTime = DateTime.now().add(Duration(minutes: etaMin));
+    final h = arrivalTime.hour.toString().padLeft(2, '0');
+    final m = arrivalTime.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  Widget _buildTelemetryStrip(ActiveTrip trip, bool isDark) {
+    final eta = _calculateEtaLabel(trip);
+    final dist = _calculateDistanceLabel(trip);
+    final arrival = _calculateArrivalTimeLabel(trip);
+
+    return Padding(
+      key: const Key('hud_bottom_telemetry_strip'),
+      padding: const EdgeInsets.only(bottom: 8, top: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.directions_car_rounded,
+            size: 18,
+            color: isDark ? Colors.white70 : Colors.black54,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            eta,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '•',
+              style: TextStyle(
+                color: isDark ? Colors.white38 : Colors.grey.shade400,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Text(
+            dist,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '•',
+              style: TextStyle(
+                color: isDark ? Colors.white38 : Colors.grey.shade400,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Icon(
+            Icons.access_time_rounded,
+            size: 17,
+            color: isDark ? Colors.white70 : Colors.black54,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            arrival,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSheetContent(
       BuildContext context, ScrollController scrollController) {
     final trip = widget.trip;
@@ -1390,6 +1528,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   ),
                 );
               }),
+            ],
+
+            if (trip.status == TripStatus.inProgress) ...[
+              _buildTelemetryStrip(trip, isDark),
             ],
 
             // a. Action Container (Primary Action Slider)

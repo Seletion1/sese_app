@@ -1652,18 +1652,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           }
           if (active.tripId != _trackedTripId || active.status != _lastTrackedStatus) {
             final isNewTrip = active.tripId != _trackedTripId;
-            final isActiveTripState = active.status == TripStatus.driverAccepted ||
-                active.status == TripStatus.driverArriving ||
-                active.status == TripStatus.driverArrived ||
-                active.status == TripStatus.inProgress;
+            final isJustStarted = active.status == TripStatus.inProgress &&
+                _lastTrackedStatus != TripStatus.inProgress;
 
-            if (isNewTrip && isActiveTripState) {
+            if (isNewTrip || isJustStarted) {
               _hasAutoCollapsedForTrip = true;
               _tripStartLocation = _driverPosition;
               _autoCollapseSheetOnActiveTrip();
-            } else if (active.status == TripStatus.inProgress &&
-                _lastTrackedStatus != TripStatus.inProgress) {
-              _tripStartLocation = _driverPosition;
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
             }
@@ -1808,6 +1803,105 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ),
             ),
+
+            // Left Speed Limit / Current Speed indicator badge (active in_progress)
+            if (active != null && active.status == TripStatus.inProgress)
+              Positioned(
+                left: 14,
+                bottom: 140,
+                child: Container(
+                  key: const Key('hud_speed_limit_badge'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF1E1E24).withValues(alpha: 0.90)
+                        : Colors.white.withValues(alpha: 0.90),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF2C2C36)
+                              : Colors.grey.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.location_on_rounded,
+                            color: isDark ? Colors.white70 : Colors.black87,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '50',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 18,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        'km/h',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // Right Panel Search Icon (retained exclusively during active turn-by-turn navigation)
+            if (active != null && active.status == TripStatus.inProgress)
+              Positioned(
+                right: 14,
+                top: 105,
+                child: Container(
+                  key: const Key('hud_search_button'),
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF252530).withValues(alpha: 0.90)
+                        : Colors.white.withValues(alpha: 0.90),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.search_rounded,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                      size: 22,
+                    ),
+                    onPressed: () {},
+                  ),
+                ),
+              ),
 
             // Primary Floating Recenter Pill Button (bottom-center):
             // The sole, standardized recenter control for optimal thumb accessibility.
@@ -2203,15 +2297,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  /// Floating top banner shown while a driver has an active trip.
-  /// Matches the Uber/Lyft/Bolt top navigation indicator:
-  /// Left green navigation icon, current stage ("Now PICKUP/DROPOFF"),
-  /// guidance instruction, and quick actions to open in-app navigation
-  /// cockpit or toggle voice guidance.
+  /// Floating top turn-by-turn banner shown while a driver has an active trip.
+  /// Matches top turn navigation indicator spec:
+  /// Left turn/navigation icon, title ("Navigation: En Route to Drop-off"),
+  /// destination address, and secondary detail line.
   Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
     final isCashSettlement =
         active.status == TripStatus.cancelledWaitingCashSettlement;
-    final isPickup = active.status != TripStatus.inProgress;
+    final isDropoff = active.status == TripStatus.inProgress;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fee = active.pendingCashFee > 0
         ? active.pendingCashFee
@@ -2240,23 +2333,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
               color: isCashSettlement
                   ? const Color(0xFFF59E0B)
-                  : const Color(0xFF10B981),
+                  : (isDropoff ? const Color(0xFF1E293B) : const Color(0xFF10B981)),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Center(
               child: Icon(
-                isCashSettlement ? Icons.payments_rounded : Icons.navigation,
+                isCashSettlement
+                    ? Icons.payments_rounded
+                    : (isDropoff ? Icons.turn_right_rounded : Icons.navigation),
                 color: Colors.white,
-                size: 22,
+                size: 24,
               ),
             ),
           ),
@@ -2316,45 +2411,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                     overflow: TextOverflow.ellipsis,
                   ),
                 ] else ...[
-                  Row(
-                    children: [
-                      Text(
-                        'Now',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF064E3B).withValues(alpha: 0.3)
-                              : const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          isPickup ? 'PICKUP' : 'DROPOFF',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? const Color(0xFFA7F3D0)
-                                : const Color(0xFF047857),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Text(
+                    isDropoff
+                        ? 'Navigation: En Route to Drop-off'
+                        : 'Navigation: En Route to Pickup',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14.5,
+                      color: isDark ? Colors.white : Colors.black87,
+                      letterSpacing: -0.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    isPickup
-                        ? 'Head towards pickup'
-                        : 'Head towards destination',
+                    isDropoff
+                        ? (active.dropoffAddress.isNotEmpty
+                            ? active.dropoffAddress
+                            : 'Drop-off destination')
+                        : (active.pickupAddress.isNotEmpty
+                            ? active.pickupAddress
+                            : 'Pickup location'),
                     style: TextStyle(
                       fontSize: 12,
                       color:
@@ -2363,6 +2441,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    'Destination details',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color:
+                          isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
                   ),
                 ],
               ],
