@@ -267,36 +267,22 @@ class AppSoundService {
 
       // Ensure at least minDuration of audible alert even if stop is called
       // immediately (e.g., rapid accept). The timer only sets a flag; actual
-      // stop logic checks elapsed time.
+      // Cancel any legacy deferred timer.
       _minDurationTimer?.cancel();
-      _minDurationTimer = Timer(minDuration, () {
-        if (_orderWantsStop) {
-          _doStopOrderAlert();
-        }
-      });
+      _minDurationTimer = null;
     } catch (e) {
       debugPrint('AppSoundService playIncomingOrderAlert failed: $e');
     }
   }
 
-  /// Stops the looping order alert immediately, or after the minimum duration
-  /// if called too early.
+  /// Stops the looping order alert immediately (e.g. the exact microsecond a driver
+  /// taps Accept, Skip, or when the offer countdown timer expires), preventing ringtone lingering.
   Future<void> stopIncomingOrderAlert() async {
+    _minDurationTimer?.cancel();
+    _minDurationTimer = null;
+    _orderWantsStop = false;
+    _orderStart = null;
     if (_orderPlayer == null) return;
-    final start = _orderStart;
-    if (start != null) {
-      final elapsed = DateTime.now().difference(start);
-      final remaining = _orderMinDuration - elapsed;
-      if (remaining > Duration.zero) {
-        // Defer stop until minimum duration fulfilled.
-        _orderWantsStop = true;
-        _minDurationTimer?.cancel();
-        _minDurationTimer = Timer(remaining, () {
-          _doStopOrderAlert();
-        });
-        return;
-      }
-    }
     await _doStopOrderAlert();
   }
 

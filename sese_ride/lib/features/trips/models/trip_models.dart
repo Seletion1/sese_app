@@ -191,6 +191,7 @@ class ActiveTrip {
   final TripStatus status;
   final String customerId;
   final String customerName;
+  final String customerPhotoUrl;
 
   /// The trip booker's own account number, minted server-side at `createTrip`
   /// from `users/{customerId}` — raw and NEVER masked, even when the booker
@@ -369,6 +370,7 @@ class ActiveTrip {
     required this.status,
     required this.customerId,
     this.customerName = 'Customer',
+    this.customerPhotoUrl = '',
     this.customerPhone = '',
     this.serviceType = 'ride',
     this.pickupLat = 0,
@@ -650,6 +652,13 @@ class ActiveTrip {
               map['customer']?['name'] ??
               map['customer']?['fullName'] ??
               'Customer')
+          .toString(),
+      customerPhotoUrl: (map['customerPhotoUrl'] ??
+              map['customerPhoto'] ??
+              map['customer']?['photoUrl'] ??
+              map['customer']?['photo'] ??
+              map['customer']?['avatarUrl'] ??
+              '')
           .toString(),
       customerPhone: (map['customerPhone'] ??
               (map['tripBooker'] is Map

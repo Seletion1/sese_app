@@ -770,61 +770,55 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   /// below, so this line shows only the fare + a short mode label to avoid
   /// conflicting or duplicate cash-amount text.
   String _formatTripPaymentSubtitle(ActiveTrip trip) {
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
-
     // 1. While en route to pickup:
-    // Ensure the total trip fare remains visible, but completely hide specific
-    // cash collection amounts/escrow notes until arriving at pickup.
     if (trip.status == TripStatus.driverAccepted ||
         trip.status == TripStatus.driverArriving) {
       if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
-        return '$fareStr • Receiver Pays at Drop-off';
+        return 'Receiver Pays at Drop-off';
       }
       if (trip.isSplitTrip) {
-        return '$fareStr • Split Payment';
+        return 'Split Payment';
       }
       if (trip.isPrepaidTrip || (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0)) {
-        return '$fareStr • 100% Wallet Prepaid';
+        return '100% Wallet Prepaid';
       }
-      return '$fareStr • Cash Payment';
+      return 'Cash Payment';
     }
 
     // 2. Arrived at pickup:
     if (trip.status == TripStatus.driverArrived) {
       if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
-        return '$fareStr • Receiver Pays at Drop-off';
+        return 'Receiver Pays at Drop-off';
       }
       if (trip.hasCashDueAtPickup) {
-        return '$fareStr • Collect ₦${trip.cashDueAtPickup.toStringAsFixed(0)} Cash';
+        return 'Collect ₦${trip.cashDueAtPickup.toStringAsFixed(0)} Cash';
       } else {
-        return '$fareStr • No Cash Due at Pickup';
+        return 'No Cash Due at Pickup';
       }
     }
 
     // 3. In Progress (Heading to Drop-off):
     if (trip.status == TripStatus.inProgress) {
       if (trip.hasCashDueAtDropoff) {
-        return '$fareStr • Collect ₦${trip.cashDueAtDropoff.toStringAsFixed(0)} Cash at Drop-off';
+        return 'Collect ₦${trip.cashDueAtDropoff.toStringAsFixed(0)} Cash at Drop-off';
       } else {
-        return '$fareStr • All Payments Settled';
+        return 'All Payments Settled';
       }
     }
 
     if (trip.paymentMode.toLowerCase() == 'receiver_pays') {
-      return '$fareStr • Receiver Pays at Drop-off';
+      return 'Receiver Pays at Drop-off';
     }
 
     if (trip.walletCoverageAmount > 0 && trip.cashToCollect > 0) {
-      return '$fareStr • Wallet + ₦${trip.cashToCollect.toStringAsFixed(0)} Cash';
+      return 'Wallet + ₦${trip.cashToCollect.toStringAsFixed(0)} Cash';
     } else if (trip.walletCoverageAmount > 0 && trip.cashToCollect <= 0) {
-      return '$fareStr • 100% Wallet Prepaid';
+      return '100% Wallet Prepaid';
     } else if (trip.cashToCollect > 0) {
-      return '$fareStr • Cash Payment';
+      return 'Cash Payment';
     }
 
-    return '$fareStr • ${_paymentLabel(trip)}';
+    return _paymentLabel(trip);
   }
 
   /// Booker lifeline: the account holder who ordered and paid.
@@ -1834,18 +1828,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ],
 
-            // Informative wait notice: STRICTLY only when arrived at pickup AND wait hasn't expired.
-            if (isAtPickupWait && !_hasWaitTimeExpired) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Wait at least ${widget.waitThresholdMinutes} min after Arrived — '
-                'a no-show cancel after that keeps your streak.',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: scheme.onTertiaryContainer),
-              ),
-            ],
+
 
             // Cancellation option — visible after scrolling, with generous bottom clearance.
             // Per spec: no cancel button while en-route to pickup (DRIVER_ACCEPTED /
@@ -2353,19 +2336,19 @@ class _PaymentCollectionCard extends StatelessWidget {
                 color: textColor,
               ),
             ),
-            const SizedBox(height: 3),
-            Text(
-              hasWallet
-                  ? '₦${walletAmount.toStringAsFixed(0)} wallet portion locked in escrow, credited upon completion.'
-                  : 'Keep 100% of collected cash.',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: isDark
-                    ? Colors.grey.shade400
-                    : accentColor.withValues(alpha: 0.85),
+            if (hasWallet) ...[
+              const SizedBox(height: 3),
+              Text(
+                '₦${walletAmount.toStringAsFixed(0)} wallet portion locked in escrow, credited upon completion.',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: isDark
+                      ? Colors.grey.shade400
+                      : accentColor.withValues(alpha: 0.85),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       );

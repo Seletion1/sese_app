@@ -955,13 +955,29 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         ? [driverPos ?? pickup, pickup]
         : [pickup, dropoff];
 
+    final vehicleCat = widget.trip.vehicleCategory.toLowerCase();
+    final serviceCat = widget.trip.serviceType.toLowerCase();
+    final isDriverBike = vehicleCat == 'bike' ||
+        vehicleCat == 'delivery' ||
+        vehicleCat == 'courier' ||
+        vehicleCat == 'keke' ||
+        vehicleCat == 'motorcycle' ||
+        serviceCat == 'delivery' ||
+        serviceCat == 'courier';
+
     final markers = [
-      SeSeMapView.pin(point: pickup, color: Colors.green),
-      SeSeMapView.pin(point: dropoff, color: Colors.red),
+      SeSeMapView.pin(
+        point: pickup,
+        color: const Color(0xFF10B981),
+        label: 'CUSTOMER',
+        avatarUrl: widget.trip.customerPhotoUrl,
+      ),
+      SeSeMapView.pin(point: dropoff, color: Colors.red, label: 'B'),
       if (hasDriverFix)
         SeSeMapView.pin(
           point: driverPos,
           color: Colors.blue,
+          label: isDriverBike ? 'BIKE' : 'CAR',
         ),
       // Real-time nearby drivers within active dispatch stage radius
       if (_isSearching)

@@ -105,12 +105,14 @@ class OsmMapView extends StatefulWidget {
     required Color color,
     String? id,
     String? label,
+    String? avatarUrl,
   }) {
     return MapPin(
       id: id ?? '${point.latitude},${point.longitude},${color.toARGB32()}',
       point: point,
       color: color,
       label: label,
+      avatarUrl: avatarUrl,
     );
   }
 
@@ -244,9 +246,13 @@ class _OsmMapViewState extends State<OsmMapView> {
             for (final m in widget.markers)
               fm.Marker(
                 point: _toFm(m.point),
-                width: 44,
-                height: 44,
-                child: _PinGlyph(color: m.color, label: m.label),
+                width: 52,
+                height: 52,
+                child: _PinGlyph(
+                  color: m.color,
+                  label: m.label,
+                  avatarUrl: m.avatarUrl,
+                ),
               ),
           ],
         ),
@@ -273,14 +279,18 @@ class MapPin {
   final base.LatLng point;
   final Color color;
 
-  /// Optional letter badge drawn inside the pin (`'A'`/`'B'`).
+  /// Optional letter badge drawn inside the pin (`'A'`/`'B'`) or vehicle tag.
   final String? label;
+
+  /// Optional profile image URL for rendering customer avatar pin.
+  final String? avatarUrl;
 
   const MapPin({
     required this.id,
     required this.point,
     required this.color,
     this.label,
+    this.avatarUrl,
   });
 }
 
@@ -299,15 +309,93 @@ class MapRoute {
   });
 }
 
-/// Teardrop-ish pin glyph with an optional letter badge, or glowing blue dot for user position.
+/// Teardrop-ish pin glyph with an optional letter badge, glowing blue dot,
+/// customer circular photo avatar, or vehicle-differentiated icon.
 class _PinGlyph extends StatelessWidget {
   final Color color;
   final String? label;
+  final String? avatarUrl;
 
-  const _PinGlyph({required this.color, this.label});
+  const _PinGlyph({
+    required this.color,
+    this.label,
+    this.avatarUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final isCustomerAvatar = (avatarUrl != null && avatarUrl!.trim().isNotEmpty) ||
+        label == 'CUSTOMER' ||
+        label == 'PICKUP_AVATAR';
+    if (isCustomerAvatar) {
+      final ringColor = (color != Colors.red && color != Colors.green)
+          ? color
+          : const Color(0xFF10B981);
+      final hasUrl = avatarUrl != null && avatarUrl!.trim().isNotEmpty;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: ringColor.withValues(alpha: 0.35),
+              border: Border.all(color: ringColor, width: 2.8),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 6,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(2.5),
+              child: Container(
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white,
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: hasUrl
+                    ? Image.network(
+                        avatarUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.person,
+                          color: Color(0xFF10B981),
+                          size: 24,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.person,
+                        color: Color(0xFF10B981),
+                        size: 24,
+                      ),
+              ),
+            ),
+          ),
+          Container(
+            width: 5,
+            height: 5,
+            margin: const EdgeInsets.only(top: 1),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: ringColor,
+              border: Border.all(color: Colors.white, width: 1.0),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 2,
+                  offset: Offset(0, 1),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     final isNavArrow =
         label == 'NAV' || label == 'NAVIGATION_ARROW';
     if (isNavArrow) {
