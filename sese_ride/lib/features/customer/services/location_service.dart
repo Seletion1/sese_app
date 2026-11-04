@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
@@ -689,6 +689,50 @@ class LocationService {
     return [pickup, dropoff];
   }
 
+  /// Calculates remaining route distance in meters along the polyline path
+  /// from [currentPos] to the end of [routePoints].
+  static double calculateRemainingRouteDistanceM(
+    LatLng currentPos,
+    List<LatLng> routePoints, {
+    LatLng? fallbackDestination,
+  }) {
+    if (routePoints.isEmpty) {
+      if (fallbackDestination != null && currentPos.latitude != 0) {
+        return const Distance().as(LengthUnit.Meter, currentPos, fallbackDestination);
+      }
+      return 0.0;
+    }
+    if (routePoints.length == 1) {
+      return const Distance().as(LengthUnit.Meter, currentPos, routePoints.first);
+    }
+
+    int closestIdx = 0;
+    double minDistance = double.infinity;
+    for (int i = 0; i < routePoints.length; i++) {
+      final dist = const Distance().as(LengthUnit.Meter, currentPos, routePoints[i]);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIdx = i;
+      }
+    }
+
+    double totalM = const Distance().as(
+      LengthUnit.Meter,
+      currentPos,
+      routePoints[closestIdx],
+    );
+
+    for (int i = closestIdx; i < routePoints.length - 1; i++) {
+      totalM += const Distance().as(
+        LengthUnit.Meter,
+        routePoints[i],
+        routePoints[i + 1],
+      );
+    }
+
+    return totalM;
+  }
+
   /// Fetches complete route details including step-by-step turn guidance instructions.
   static Future<
       ({
@@ -885,6 +929,61 @@ class RouteStep {
     this.distanceMeters = 0.0,
     this.streetName = '',
   });
+
+  /// Formats step instruction dynamically with live distance to the maneuver.
+  String formatDynamicInstruction(double distM) {
+    if (maneuverType == 'arrive') {
+      if (distM < 30) return 'Arrive at destination';
+      final distStr = distM < 1000
+          ? '${distM.round()}m'
+          : '${(distM / 1000).toStringAsFixed(1)}km';
+      return 'In $distStr, arrive at destination';
+    }
+
+    final distStr = distM < 1000
+        ? '${(distM / 10).round() * 10}m'
+        : '${(distM / 1000).toStringAsFixed(1)}km';
+
+    if (instruction.startsWith('In ')) {
+      return instruction;
+    }
+
+    final baseText = instruction.isNotEmpty
+        ? instruction
+        : (streetName.isNotEmpty ? 'Continue on $streetName' : 'Head toward destination');
+
+    if (baseText.toLowerCase().startsWith('turn') ||
+        baseText.toLowerCase().startsWith('continue') ||
+        baseText.toLowerCase().startsWith('head') ||
+        baseText.toLowerCase().startsWith('keep') ||
+        baseText.toLowerCase().startsWith('merge')) {
+      return 'In $distStr, ${baseText.substring(0, 1).toLowerCase()}${baseText.substring(1)}';
+    }
+
+    return 'In $distStr, $baseText';
+  }
+
+  /// Maps the maneuver modifier/type to a turn arrow icon.
+  IconData get maneuverIconData {
+    final type = maneuverType.toLowerCase();
+    final mod = maneuverModifier.toLowerCase();
+
+    if (type == 'arrive') return Icons.place_rounded;
+    if (mod.contains('right')) {
+      if (mod.contains('slight')) return Icons.turn_slight_right_rounded;
+      if (mod.contains('sharp')) return Icons.turn_sharp_right_rounded;
+      return Icons.turn_right_rounded;
+    }
+    if (mod.contains('left')) {
+      if (mod.contains('slight')) return Icons.turn_slight_left_rounded;
+      if (mod.contains('sharp')) return Icons.turn_sharp_left_rounded;
+      return Icons.turn_left_rounded;
+    }
+    if (mod.contains('u-turn') || mod.contains('uturn')) {
+      return Icons.u_turn_left_rounded;
+    }
+    return Icons.straight_rounded;
+  }
 }
 
 /// Service providing location autocomplete suggestions.

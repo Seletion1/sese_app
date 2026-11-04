@@ -575,7 +575,10 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
               // Single authoritative live blue-dot pin for raster engines
               final rasterMarkers = List<MapPin>.from(baseMarkers);
-              if (widget.showMyLocation) {
+              final hasNavMarker = baseMarkers.any(
+                (m) => m.label == 'NAV' || m.label == 'NAVIGATION_ARROW',
+              );
+              if (widget.showMyLocation && !hasNavMarker) {
                 rasterMarkers.insert(
                   0,
                   MapPin(
@@ -778,6 +781,9 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
   }
 
   static double _hueFor(Color color, String? label) {
+    if (label == 'NAV' || label == 'NAVIGATION_ARROW') {
+      return gmaps.BitmapDescriptor.hueAzure;
+    }
     if (label == 'BIKE' ||
         label == 'MOTORCYCLE' ||
         label == 'COURIER' ||

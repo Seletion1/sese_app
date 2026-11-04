@@ -1416,14 +1416,20 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
+                          if (trip.status == TripStatus.inProgress ||
+                              trip.status == TripStatus.driverArriving ||
+                              trip.status == TripStatus.driverAccepted) ...[
+                            _buildTelemetryStrip(trip, isDark),
+                            const SizedBox(height: 6),
+                          ],
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
                                   _statusHeaderTitle(trip),
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
@@ -1433,26 +1439,26 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                if (_statusHeaderSubtitle(trip).isNotEmpty) ...[
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _statusHeaderSubtitle(trip),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ],
+                              ),
+                              Icon(
+                                Icons.format_list_bulleted_rounded,
+                                size: 22,
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                              ),
+                            ],
+                          ),
+                          if (_statusHeaderSubtitle(trip).isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              _statusHeaderSubtitle(trip),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                          ),
-                          Icon(
-                            Icons.format_list_bulleted_rounded,
-                            size: 22,
-                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -1530,10 +1536,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   ),
                 );
               }),
-            ],
-
-            if (trip.status == TripStatus.inProgress) ...[
-              _buildTelemetryStrip(trip, isDark),
             ],
 
             // a. Action Container (Primary Action Slider)

@@ -574,7 +574,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   void _recenterMap() {
     _mapInactivityTimer?.cancel();
-    _mapController.recenterTo(_driverPosition, 16.5);
+    final active = _currentActiveTrip;
+    if (active != null && active.status == TripStatus.inProgress) {
+      _mapController.recenterToBottomCenter(_driverPosition, zoom: 17.0);
+    } else {
+      _mapController.recenterTo(_driverPosition, 16.5);
+    }
     if (mounted) {
       setState(() {
         _isFollowingUser = true;
@@ -639,7 +644,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         (pos) {
           if (!mounted) return;
           final newPos = LatLng(pos.latitude, pos.longitude);
-          final speedKmh = (pos.speed * 3.6).clamp(0.0, 200.0);
+          double speedKmh = 0.0;
+          if (pos.speed > 0) {
+            speedKmh = (pos.speed * 3.6).clamp(0.0, 200.0);
+          } else if (_lastRouteFetchTime != null && _driverPosition.latitude != 0) {
+            final dtSec = DateTime.now().difference(_lastRouteFetchTime!).inMilliseconds / 1000.0;
+            if (dtSec > 0.5 && dtSec < 10.0) {
+              final distM = const Distance().as(LengthUnit.Meter, _driverPosition, newPos);
+              speedKmh = ((distM / dtSec) * 3.6).clamp(0.0, 200.0);
+            }
+          }
+
           setState(() {
             _driverPosition = newPos;
             _currentSpeedKmh = speedKmh;
@@ -1691,6 +1706,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               _hasAutoCollapsedForTrip = true;
               _tripStartLocation = _driverPosition;
               _autoCollapseSheetOnActiveTrip();
+              if (active.status == TripStatus.inProgress &&
+                  _driverPosition.latitude != 0.0) {
+                _mapController.followToBottomCenter(_driverPosition, zoom: 17.0);
+              }
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
             }
@@ -2105,7 +2124,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           markers.add(
             SeSeMapView.pin(
               point: _driverPosition,
-              color: AppColors.seseGold,
+              color: const Color(0xFF2563EB),
               label: 'NAV',
             ),
           );
@@ -2331,6 +2350,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
+  String _formattedGuidanceText(ActiveTrip active) {
+    if (_currentGuidanceStep != null &&
+        _currentGuidanceStep!.instruction.isNotEmpty) {
+      if (_driverPosition.latitude != 0.0) {
+        final distM = const Distance().as(
+          LengthUnit.Meter,
+          _driverPosition,
+          _currentGuidanceStep!.location,
+        );
+        return _currentGuidanceStep!.formatDynamicInstruction(distM);
+      }
+      return _currentGuidanceStep!.instruction;
+    }
+    return active.status == TripStatus.inProgress
+        ? 'Navigation: En Route to Drop-off'
+        : 'Navigation: En Route to Pickup';
+  }
+
+  IconData _guidanceManeuverIcon(ActiveTrip active) {
+    if (_currentGuidanceStep != null) {
+      return _currentGuidanceStep!.maneuverIconData;
+    }
+    return active.status == TripStatus.inProgress
+        ? Icons.turn_right_rounded
+        : Icons.navigation_rounded;
+  }
+
   /// Floating top turn-by-turn banner shown while a driver has an active trip.
   /// Matches top turn navigation indicator spec:
   /// Left turn/navigation icon, title ("Navigation: En Route to Drop-off"),
@@ -2383,7 +2429,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               child: Icon(
                 isCashSettlement
                     ? Icons.payments_rounded
-                    : (isDropoff ? Icons.turn_right_rounded : Icons.navigation),
+                    : _guidanceManeuverIcon(active),
                 color: Colors.white,
                 size: 24,
               ),
@@ -2446,11 +2492,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   ),
                 ] else ...[
                   Text(
-                    _currentGuidanceStep != null && _currentGuidanceStep!.instruction.isNotEmpty
-                        ? _currentGuidanceStep!.instruction
-                        : (isDropoff
-                            ? 'Navigation: En Route to Drop-off'
-                            : 'Navigation: En Route to Pickup'),
+                    _formattedGuidanceText(active),
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 14.5,

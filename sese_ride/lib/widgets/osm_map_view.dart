@@ -399,13 +399,16 @@ class _PinGlyph extends StatelessWidget {
     final isNavArrow =
         label == 'NAV' || label == 'NAVIGATION_ARROW';
     if (isNavArrow) {
+      final navColor = (color != Colors.red && color != Colors.green)
+          ? color
+          : const Color(0xFF2563EB);
       return Container(
-        width: 42,
-        height: 42,
+        width: 44,
+        height: 44,
         decoration: BoxDecoration(
-          color: color,
+          color: navColor,
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 2.5),
+          border: Border.all(color: Colors.white, width: 2.8),
           boxShadow: const [
             BoxShadow(
               color: Colors.black38,
@@ -418,7 +421,7 @@ class _PinGlyph extends StatelessWidget {
           child: Icon(
             Icons.navigation_rounded,
             color: Colors.white,
-            size: 24,
+            size: 26,
           ),
         ),
       );
@@ -683,6 +686,17 @@ class SeSeMapController {
       debugPrint('SeSeMapController.followToBottomCenter failed: $e');
     }
     return Future.value();
+  }
+
+  /// Re-center action with bottom-center anchor locking during active navigation.
+  Future<void> recenterToBottomCenter(base.LatLng target, {double zoom = 17.0}) {
+    if (!isFollowingUser) {
+      isFollowingUser = true;
+      onFollowingChanged?.call();
+    } else {
+      isFollowingUser = true;
+    }
+    return followToBottomCenter(target, zoom: zoom);
   }
 
   /// Called by [OsmMapView] once the tile map is ready; flushes queued moves.

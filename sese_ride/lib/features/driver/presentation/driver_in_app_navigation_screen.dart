@@ -154,10 +154,10 @@ class _DriverInAppNavigationScreenState
 
   void _recalculateRemaining() {
     if (_currentPosition.latitude == 0) return;
-    final distM = const Distance().as(
-      LengthUnit.Meter,
+    final distM = LocationService.calculateRemainingRouteDistanceM(
       _currentPosition,
-      widget.destination,
+      _routePoints,
+      fallbackDestination: widget.destination,
     );
     _distanceRemainingKm = distM / 1000.0;
     _etaMinutes = (_distanceRemainingKm / 30.0 * 60).ceil().clamp(1, 999);
@@ -196,12 +196,38 @@ class _DriverInAppNavigationScreenState
         : '${_distanceRemainingKm.toStringAsFixed(1)} km';
   }
 
-  /// Current wall-clock time formatted as "HH:mm" for the ETA clock cell.
+  /// Arrival wall-clock time formatted as "HH:mm" for the ETA clock cell.
   String get _currentTimeLabel {
-    final now = DateTime.now();
-    final h = now.hour.toString().padLeft(2, '0');
-    final m = now.minute.toString().padLeft(2, '0');
+    final etaMins = _etaMinutes > 0 ? _etaMinutes : 5;
+    final arrivalTime = DateTime.now().add(Duration(minutes: etaMins));
+    final h = arrivalTime.hour.toString().padLeft(2, '0');
+    final m = arrivalTime.minute.toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  String _formattedNavGuidanceText() {
+    if (_currentGuidanceStep != null &&
+        _currentGuidanceStep!.instruction.isNotEmpty) {
+      if (_currentPosition.latitude != 0.0) {
+        final distM = const Distance().as(
+          LengthUnit.Meter,
+          _currentPosition,
+          _currentGuidanceStep!.location,
+        );
+        return _currentGuidanceStep!.formatDynamicInstruction(distM);
+      }
+      return _currentGuidanceStep!.instruction;
+    }
+    return widget.isHeadingToPickup
+        ? 'Navigation: En Route to Pickup'
+        : 'Navigation: En Route to Drop-off';
+  }
+
+  IconData _navManeuverIcon() {
+    if (_currentGuidanceStep != null) {
+      return _currentGuidanceStep!.maneuverIconData;
+    }
+    return Icons.turn_right_rounded;
   }
 
   // ── Build ────────────────────────────────────────────────────────────────
@@ -247,7 +273,7 @@ class _DriverInAppNavigationScreenState
                 if (_currentPosition.latitude != 0)
                   OsmMapView.pin(
                     point: _currentPosition,
-                    color: AppColors.seseGold,
+                    color: const Color(0xFF2563EB),
                     label: 'NAV',
                   ),
                 OsmMapView.pin(
@@ -303,7 +329,7 @@ class _DriverInAppNavigationScreenState
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Icon(
-                        Icons.turn_right_rounded,
+                        _navManeuverIcon(),
                         color: bannerIconColor,
                         size: 26,
                       ),
@@ -317,11 +343,7 @@ class _DriverInAppNavigationScreenState
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            _currentGuidanceStep != null && _currentGuidanceStep!.instruction.isNotEmpty
-                                ? _currentGuidanceStep!.instruction
-                                : (widget.isHeadingToPickup
-                                    ? 'Navigation: En Route to Pickup'
-                                    : 'Navigation: En Route to Drop-off'),
+                            _formattedNavGuidanceText(),
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
@@ -428,7 +450,7 @@ class _DriverInAppNavigationScreenState
                   onTap: () {
                     if (_currentPosition.latitude != 0) {
                       // ignore: discarded_futures
-                      _mapController.recenterTo(_currentPosition, 17.0);
+                      _mapController.recenterToBottomCenter(_currentPosition, zoom: 17.0);
                     }
                   },
                 ),
@@ -480,6 +502,7 @@ class _PlainSpeedOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final displaySpeed = currentSpeedKmh > 0 ? '${currentSpeedKmh.round()}' : '0';
     final isSpeeding = currentSpeedKmh > limitKmh;
     // Amber tint when speeding — subtle enough to avoid distraction.
     final numColor = isSpeeding ? const Color(0xFFFFB300) : Colors.white;
@@ -491,7 +514,7 @@ class _PlainSpeedOverlay extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$limitKmh',
+          displaySpeed,
           style: TextStyle(
             fontSize: 36,
             fontWeight: FontWeight.w900,
