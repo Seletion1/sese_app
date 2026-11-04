@@ -102,6 +102,9 @@ export 'widgets/sese_web_error_widget.dart';
 export 'widgets/sese_web_view_widget.dart';
 export 'widgets/in_app_call_screen.dart';
 export 'widgets/incoming_call_overlay.dart';
+export 'widgets/sese_shimmer.dart';
+export 'services/local_cache_service.dart';
+export 'utils/optimistic_state.dart';
 
 /// A Calculator.
 class Calculator {

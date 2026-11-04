@@ -121,8 +121,8 @@ class LiveTripScreen extends StatelessWidget {
         body: StreamBuilder<ActiveTrip?>(
           stream: repository.tripStream(tripId),
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
+            if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+              return const SeseDetailSkeleton();
             }
             if (snapshot.hasError) {
               return _MessageState(

@@ -154,13 +154,8 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       body: StreamBuilder<DriverProfile?>(
         stream: _profiles.profileStream(widget.user.uid),
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(32),
-                child: CircularProgressIndicator(),
-              ),
-            );
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return const SeseProfileSkeleton();
           }
           final profile = snap.data;
           // Fall back to the signed-in account when the driver doc is

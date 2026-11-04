@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:sese_core/utils/safe_json.dart';
+import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
 
@@ -55,7 +55,7 @@ class DispatchQueueTab extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return SeseListSkeleton(itemCount: 4);
         }
         if (snapshot.hasError) {
           if (isHubSessionExpiredError(snapshot.error)) {
@@ -300,14 +300,14 @@ class _PendingBids extends StatelessWidget {
           .where('status', isEqualTo: 'pending')
           .get(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Padding(
             padding: EdgeInsets.all(8),
             child: Center(
                 child: SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))),
+                    child: SeseSkeletonBox(width: 20, height: 20))),
           );
         }
         if (snapshot.hasError) {

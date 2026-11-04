@@ -151,8 +151,8 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
       stream: _queue(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const SeseListSkeleton(itemCount: 4);
         }
         if (snapshot.hasError) {
           if (isHubSessionExpiredError(snapshot.error)) {

@@ -2774,7 +2774,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Widget _buildStep3Content() {
     final isDelivery = _selectedModeIndex == 0;
     if (_fareResponse == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const SeseDetailSkeleton();
     }
     return SingleChildScrollView(
       // No horizontal padding here: the steps' outer scroll view already

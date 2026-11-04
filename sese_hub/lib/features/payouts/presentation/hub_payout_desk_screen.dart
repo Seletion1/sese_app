@@ -94,13 +94,13 @@ class _HubPayoutDeskScreenState extends State<HubPayoutDeskScreen>
 
   Widget _buildWeeklyQueueTab() {
     if (_loadingFinConfig) {
-      return const Center(child: CircularProgressIndicator());
+      return const SeseListSkeleton(itemCount: 4);
     }
     return StreamBuilder<List<PayoutQueueEntry>>(
       stream: _queueService.queueStream(minPayoutThreshold: _minPayoutThreshold),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const SeseListSkeleton(itemCount: 4);
         }
         if (snap.hasError) {
           return Center(
@@ -197,8 +197,8 @@ class _HubPayoutDeskScreenState extends State<HubPayoutDeskScreen>
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _auditStream(),
             builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                return const SeseListSkeleton(itemCount: 4);
               }
               if (snap.hasError) {
                 return Center(

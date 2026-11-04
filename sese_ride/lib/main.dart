@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -49,6 +50,19 @@ void main() async {
   unawaited(GmsAvailability.isAvailable());
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Enable aggressive offline persistence for zero latency on app launch.
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+  } catch (e) {
+    debugPrint('Firestore persistence setting error: $e');
+  }
+
+  // Prime local storage cache for instant screen hydration.
+  await LocalCacheService.instance.init();
 
   // Analytics SDK is present so Firebase AB-testing / Remote Config can
   // resolve the ABT bridge (silences the "Analytics SDK not available"

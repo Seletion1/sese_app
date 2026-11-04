@@ -81,8 +81,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: col.snapshots(),
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                  return const SeseListSkeleton(itemCount: 4);
                 }
                 if (snapshot.hasError) {
                   if (isHubSessionExpiredError(snapshot.error)) {

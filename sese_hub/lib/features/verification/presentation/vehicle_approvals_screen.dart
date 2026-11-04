@@ -334,7 +334,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
         // only show the spinner on first load with no data yet.
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const SeseListSkeleton(itemCount: 4);
         }
 
         if (snapshot.hasError) {
@@ -661,8 +661,8 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const SeseListSkeleton(itemCount: 4);
         }
 
         if (snapshot.hasError) {

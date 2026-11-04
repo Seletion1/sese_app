@@ -1641,11 +1641,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (_loading) {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: const Center(
-          child: CircularProgressIndicator(
-            color: AppColors.seseGold,
-          ),
-        ),
+        body: const SeseProfileSkeleton(),
       );
     }
 

@@ -278,8 +278,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       body: FutureBuilder<String>(
         future: _sessionFuture,
         builder: (context, sessionSnap) {
-          if (sessionSnap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+          if (sessionSnap.connectionState == ConnectionState.waiting && !sessionSnap.hasData) {
+            return const SeseListSkeleton(itemCount: 4);
           }
           if (sessionSnap.hasError || sessionSnap.data == null) {
             final reason = _sessionError ?? 'Could not open support chat.';

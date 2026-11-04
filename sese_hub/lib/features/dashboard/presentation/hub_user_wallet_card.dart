@@ -150,13 +150,8 @@ class HubUserWalletCard extends StatelessWidget {
           .limit(20)
           .snapshots(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(12),
-              child: CircularProgressIndicator(),
-            ),
-          );
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const SeseListSkeleton(itemCount: 3);
         }
         final docs = snap.data?.docs ?? [];
         if (docs.isEmpty) {

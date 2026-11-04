@@ -177,7 +177,7 @@ class _TripChatScreenState extends State<TripChatScreen>
         final messages = snapshot.data ?? const <TripChatMessage>[];
         if (snapshot.connectionState == ConnectionState.waiting &&
             messages.isEmpty) {
-          return const Center(child: CircularProgressIndicator());
+          return const SeseListSkeleton(itemCount: 4);
         }
         if (messages.isEmpty) {
           return const Center(

@@ -33,8 +33,8 @@ class CustomerTripsScreen extends StatelessWidget {
       body: StreamBuilder<List<ActiveTrip>>(
         stream: _repo.userTripHistoryStream(customerId, isDriver: isDriver),
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+            return const SeseListSkeleton(itemCount: 6);
           }
           if (snapshot.hasError) {
             return Center(

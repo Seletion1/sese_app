@@ -222,7 +222,7 @@ class NotificationInboxScreen extends StatelessWidget {
           }
           if (snap.connectionState == ConnectionState.waiting &&
               !snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const SeseListSkeleton(itemCount: 5);
           }
           final items = (snap.data?.docs ?? [])
               .map(InboxNotification.fromDoc)

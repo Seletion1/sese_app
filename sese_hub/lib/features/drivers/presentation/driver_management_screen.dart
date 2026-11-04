@@ -575,13 +575,8 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
                       child: Text('Failed to load trips: ${tripSnap.error}'),
                     );
                   }
-                  if (tripSnap.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      ),
-                    );
+                  if (tripSnap.connectionState == ConnectionState.waiting && !tripSnap.hasData) {
+                    return const SeseListSkeleton(itemCount: 3);
                   }
 
                   final tripDocs = (tripSnap.data?.docs ?? []).toList()
@@ -776,7 +771,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
               stream: _driversStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const SeseListSkeleton(itemCount: 5);
                 }
                 if (snapshot.hasError) {
                   if (isHubSessionExpiredError(snapshot.error)) {

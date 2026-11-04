@@ -280,12 +280,8 @@ class WalletScreenState extends State<WalletScreen> {
     return StreamBuilder<List<WalletTransaction>>(
       stream: _payments.walletHistoryStream(widget.user.uid, limit: 50),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(
-              child: Padding(
-            padding: EdgeInsets.all(24),
-            child: CircularProgressIndicator(),
-          ));
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const SeseListSkeleton(itemCount: 4);
         }
         final items = snap.data ?? const <WalletTransaction>[];
         if (items.isEmpty) {

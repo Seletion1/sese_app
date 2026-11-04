@@ -127,8 +127,8 @@ class _AgentApplicationsTabState extends State<AgentApplicationsTab> {
                   );
                 }
 
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+                if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                  return const SeseListSkeleton(itemCount: 4);
                 }
 
                 final apps = snap.data ?? [];

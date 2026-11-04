@@ -16,9 +16,8 @@ class MyReferralsScreen extends StatelessWidget {
       body: StreamBuilder<List<ReferredUserEntry>>(
         stream: service.referralsStream(user.uid),
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(
-                child: CircularProgressIndicator());
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return const SeseListSkeleton(itemCount: 4);
           }
           final items = snap.data ?? const <ReferredUserEntry>[];
           if (items.isEmpty) {
