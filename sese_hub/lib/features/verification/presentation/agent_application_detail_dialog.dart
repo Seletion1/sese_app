@@ -497,7 +497,7 @@ class _AgentApplicationDetailDialogState
                   ? Image.network(
                       url,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
+                      errorBuilder: (_, _, _) => const Center(
                         child: Icon(Icons.broken_image_outlined, size: 40),
                       ),
                       loadingBuilder: (_, child, progress) {

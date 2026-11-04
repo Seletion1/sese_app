@@ -376,7 +376,7 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
               const SizedBox(height: 8),
 
               DropdownButtonFormField<String>(
-                value: _idType,
+                initialValue: _idType,
                 decoration: InputDecoration(
                   labelText: 'Government ID Type',
                   filled: true,

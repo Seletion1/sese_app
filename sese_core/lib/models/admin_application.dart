@@ -1,4 +1,3 @@
-import 'package:sese_core/utils/safe_json.dart';
 
 /// Representation of an Agent ("Become an Admin / Work With Us") onboarding application.
 ///

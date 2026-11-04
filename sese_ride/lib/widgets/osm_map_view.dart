@@ -362,7 +362,7 @@ class _PinGlyph extends StatelessWidget {
                     ? Image.network(
                         avatarUrl!,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
+                        errorBuilder: (_, _, _) => const Icon(
                           Icons.person,
                           color: Color(0xFF10B981),
                           size: 24,

@@ -360,12 +360,14 @@ class SeseUniversalMap extends StatefulWidget {
     required Color color,
     String? id,
     String? label,
+    String? avatarUrl,
   }) {
     return OsmMapView.pin(
       point: point,
       color: color,
       id: id,
       label: label,
+      avatarUrl: avatarUrl,
     );
   }
 

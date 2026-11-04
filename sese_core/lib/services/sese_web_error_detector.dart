@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 
 /// Centralized utility for detecting web resource errors, HTTP error status codes,
 /// and Firebase Hosting "Site Not Found" / deployment error placeholder pages.

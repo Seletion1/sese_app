@@ -95,9 +95,6 @@ class AppSoundService {
   AudioPlayer? _orderPlayer;
   AudioPlayer? _sirenPlayer;
   Timer? _minDurationTimer;
-  DateTime? _orderStart;
-  Duration _orderMinDuration = const Duration(seconds: 6);
-  bool _orderWantsStop = false;
 
   AlertTone _selectedTone = AlertTone.chime;
   bool _toneLoaded = false;
@@ -280,8 +277,6 @@ class AppSoundService {
   Future<void> stopIncomingOrderAlert() async {
     _minDurationTimer?.cancel();
     _minDurationTimer = null;
-    _orderWantsStop = false;
-    _orderStart = null;
     if (_orderPlayer == null) return;
     await _doStopOrderAlert();
   }
@@ -290,8 +285,6 @@ class AppSoundService {
     try {
       _minDurationTimer?.cancel();
       _minDurationTimer = null;
-      _orderWantsStop = false;
-      _orderStart = null;
       await _orderPlayer?.stop();
       await _orderPlayer?.setReleaseMode(ReleaseMode.stop);
     } catch (e) {
@@ -304,8 +297,6 @@ class AppSoundService {
   Future<void> dispose() async {
     _minDurationTimer?.cancel();
     _minDurationTimer = null;
-    _orderWantsStop = false;
-    _orderStart = null;
     _toneLoaded = false;
     try {
       await _shortPlayer?.dispose();
