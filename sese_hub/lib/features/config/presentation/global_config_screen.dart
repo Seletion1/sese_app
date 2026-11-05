@@ -138,7 +138,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _googleQuotaCapCtrl = TextEditingController(text: '20000');
   final _mapboxQuotaCapCtrl = TextEditingController(text: '50000');
   final _cartoQuotaCapCtrl = TextEditingController(text: '100000');
-  final _exchangeRateApiKeyCtrl = TextEditingController();
   final _resendApiKeyCtrl = TextEditingController();
   final _osmTileServerUrlCtrl = TextEditingController(
       text: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
@@ -160,7 +159,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _obscureGoogleMapsKey = true;
   bool _obscureMapboxKey = true;
   bool _obscureCartoKey = true;
-  bool _obscureExchangeRateKey = true;
   bool _obscureResendKey = true;
 
   // Driver Resting Break & Timer Configuration
@@ -168,37 +166,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _driverBreakOption2Ctrl = TextEditingController(text: '60');
   bool _driverBreakEnabled = true;
   bool _enableWaitingTimeBilling = true;
-
-  // ── Financial Limits & Anti-Fraud Engine Controllers (/system_config/financial_limits)
-  final _custMinTopUpCtrl = TextEditingController(text: '100');
-  final _custMaxSingleTopUpCtrl = TextEditingController(text: '20000');
-  final _custMaxDailyTopUpCountCtrl = TextEditingController(text: '5');
-  final _custMaxBalanceUnverifiedCtrl = TextEditingController(text: '20000');
-  final _custMaxBalanceVerifiedCtrl = TextEditingController(text: '50000');
-  final _custMaxDailyP2pUnverifiedCtrl = TextEditingController(text: '5000');
-  final _custMaxDailyP2pVerifiedCtrl = TextEditingController(text: '15000');
-  final _custMaxDailyWithdrawalUnverifiedCtrl = TextEditingController(text: '10000');
-  final _custMaxDailyWithdrawalVerifiedCtrl = TextEditingController(text: '25000');
-
-  final _drvMinTopUpCtrl = TextEditingController(text: '100');
-  final _drvMaxSingleTopUpCtrl = TextEditingController(text: '20000');
-  final _drvMaxDailyTopUpCountCtrl = TextEditingController(text: '5');
-  final _drvMaxBalanceUnverifiedCtrl = TextEditingController(text: '20000');
-  final _drvMaxBalanceVerifiedCtrl = TextEditingController(text: '50000');
-  final _drvMaxDailyP2pUnverifiedCtrl = TextEditingController(text: '5000');
-  final _drvMaxDailyP2pVerifiedCtrl = TextEditingController(text: '15000');
-  final _drvMaxDailyWithdrawalUnverifiedCtrl = TextEditingController(text: '15000');
-  final _drvMaxDailyWithdrawalVerifiedCtrl = TextEditingController(text: '35000');
-
-  final _adminMinTopUpCtrl = TextEditingController(text: '100');
-  final _adminMaxSingleTopUpCtrl = TextEditingController(text: '50000');
-  final _adminMaxDailyTopUpCountCtrl = TextEditingController(text: '15');
-  final _adminMaxBalanceCtrl = TextEditingController(text: '50000');
-  final _adminMaxDailyP2pCtrl = TextEditingController(text: '10000');
-  final _adminMaxDailyWithdrawalCtrl = TextEditingController(text: '20000');
-
-  final _minWithdrawalFloorCtrl = TextEditingController(text: '100');
-  final _minP2pTransferFloorCtrl = TextEditingController(text: '100');
 
   @override
   void initState() {
@@ -282,7 +249,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _googleQuotaCapCtrl.dispose();
     _mapboxQuotaCapCtrl.dispose();
     _cartoQuotaCapCtrl.dispose();
-    _exchangeRateApiKeyCtrl.dispose();
     _resendApiKeyCtrl.dispose();
     _osmTileServerUrlCtrl.dispose();
     _remoteMinTopUpCtrl.dispose();
@@ -290,33 +256,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _maxCashTripAmountCtrl.dispose();
     _driverBreakOption1Ctrl.dispose();
     _driverBreakOption2Ctrl.dispose();
-    // ── Financial Limits Engine controllers ──────────────────────────────────
-    _custMinTopUpCtrl.dispose();
-    _custMaxSingleTopUpCtrl.dispose();
-    _custMaxDailyTopUpCountCtrl.dispose();
-    _custMaxBalanceUnverifiedCtrl.dispose();
-    _custMaxBalanceVerifiedCtrl.dispose();
-    _custMaxDailyP2pUnverifiedCtrl.dispose();
-    _custMaxDailyP2pVerifiedCtrl.dispose();
-    _custMaxDailyWithdrawalUnverifiedCtrl.dispose();
-    _custMaxDailyWithdrawalVerifiedCtrl.dispose();
-    _drvMinTopUpCtrl.dispose();
-    _drvMaxSingleTopUpCtrl.dispose();
-    _drvMaxDailyTopUpCountCtrl.dispose();
-    _drvMaxBalanceUnverifiedCtrl.dispose();
-    _drvMaxBalanceVerifiedCtrl.dispose();
-    _drvMaxDailyP2pUnverifiedCtrl.dispose();
-    _drvMaxDailyP2pVerifiedCtrl.dispose();
-    _drvMaxDailyWithdrawalUnverifiedCtrl.dispose();
-    _drvMaxDailyWithdrawalVerifiedCtrl.dispose();
-    _adminMinTopUpCtrl.dispose();
-    _adminMaxSingleTopUpCtrl.dispose();
-    _adminMaxDailyTopUpCountCtrl.dispose();
-    _adminMaxBalanceCtrl.dispose();
-    _adminMaxDailyP2pCtrl.dispose();
-    _adminMaxDailyWithdrawalCtrl.dispose();
-    _minWithdrawalFloorCtrl.dispose();
-    _minP2pTransferFloorCtrl.dispose();
     super.dispose();
   }
 
@@ -364,17 +303,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       }
     } catch (_) {}
 
-    // ── Load Financial Limits from /system_config/financial_limits ────────────────────
-    // These limits are server-enforced by financialLimits.ts; the Hub reads
-    // them here only to populate the admin adjustment panel.
-    Map<String, dynamic>? limData;
-    try {
-      final limSnap = await FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('financial_limits')
-          .get();
-      if (limSnap.exists) limData = limSnap.data();
-    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _allConfigs = configs;
@@ -387,7 +315,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
       _cartoApiKeyCtrl.text = remoteKeys.cartoApiKey;
-      _exchangeRateApiKeyCtrl.text = remoteKeys.exchangeRateApiKey;
       _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
       _activeMapProvider =
           GlobalMapConfig(activeProvider: remoteKeys.activeMapProvider).normalizedProvider;
@@ -440,41 +367,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _standardReferralDurationDaysCtrl.text = finConfig.standardReferralDurationDays.toString();
       _agentReferralDurationDaysCtrl.text = finConfig.agentReferralDurationDays.toString();
       _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
-
-      // ── Populate Financial Limits panel from Firestore snapshot ──────────────
-      if (limData != null) {
-        final data = limData;
-        double dv(String k, double fb) =>
-            (data[k] is num) ? (data[k] as num).toDouble() : fb;
-        int iv(String k, int fb) =>
-            (data[k] is num) ? (data[k] as num).toInt() : fb;
-        _custMinTopUpCtrl.text = dv('customerMinTopUp', 100).toStringAsFixed(0);
-        _custMaxSingleTopUpCtrl.text = dv('customerMaxSingleTopUp', 20000).toStringAsFixed(0);
-        _custMaxDailyTopUpCountCtrl.text = iv('customerMaxDailyTopUpCount', 5).toString();
-        _custMaxBalanceUnverifiedCtrl.text = dv('customerMaxWalletBalanceUnverified', 20000).toStringAsFixed(0);
-        _custMaxBalanceVerifiedCtrl.text = dv('customerMaxWalletBalanceVerified', 50000).toStringAsFixed(0);
-        _custMaxDailyP2pUnverifiedCtrl.text = dv('customerMaxDailyP2pUnverified', 5000).toStringAsFixed(0);
-        _custMaxDailyP2pVerifiedCtrl.text = dv('customerMaxDailyP2pVerified', 15000).toStringAsFixed(0);
-        _custMaxDailyWithdrawalUnverifiedCtrl.text = dv('customerMaxDailyWithdrawalUnverified', 10000).toStringAsFixed(0);
-        _custMaxDailyWithdrawalVerifiedCtrl.text = dv('customerMaxDailyWithdrawalVerified', 25000).toStringAsFixed(0);
-        _drvMinTopUpCtrl.text = dv('driverMinTopUp', 100).toStringAsFixed(0);
-        _drvMaxSingleTopUpCtrl.text = dv('driverMaxSingleTopUp', 20000).toStringAsFixed(0);
-        _drvMaxDailyTopUpCountCtrl.text = iv('driverMaxDailyTopUpCount', 5).toString();
-        _drvMaxBalanceUnverifiedCtrl.text = dv('driverMaxWalletBalanceUnverified', 20000).toStringAsFixed(0);
-        _drvMaxBalanceVerifiedCtrl.text = dv('driverMaxWalletBalanceVerified', 50000).toStringAsFixed(0);
-        _drvMaxDailyP2pUnverifiedCtrl.text = dv('driverMaxDailyP2pUnverified', 5000).toStringAsFixed(0);
-        _drvMaxDailyP2pVerifiedCtrl.text = dv('driverMaxDailyP2pVerified', 15000).toStringAsFixed(0);
-        _drvMaxDailyWithdrawalUnverifiedCtrl.text = dv('driverMaxDailyWithdrawalUnverified', 15000).toStringAsFixed(0);
-        _drvMaxDailyWithdrawalVerifiedCtrl.text = dv('driverMaxDailyWithdrawalVerified', 35000).toStringAsFixed(0);
-        _adminMinTopUpCtrl.text = dv('hubAdminMinTopUp', 100).toStringAsFixed(0);
-        _adminMaxSingleTopUpCtrl.text = dv('hubAdminMaxSingleTopUp', 50000).toStringAsFixed(0);
-        _adminMaxDailyTopUpCountCtrl.text = iv('hubAdminMaxDailyTopUpCount', 15).toString();
-        _adminMaxBalanceCtrl.text = dv('hubAdminMaxWalletBalance', 50000).toStringAsFixed(0);
-        _adminMaxDailyP2pCtrl.text = dv('hubAdminMaxDailyP2p', 10000).toStringAsFixed(0);
-        _adminMaxDailyWithdrawalCtrl.text = dv('hubAdminMaxDailyWithdrawal', 20000).toStringAsFixed(0);
-        _minWithdrawalFloorCtrl.text = dv('minWithdrawalAmount', 100).toStringAsFixed(0);
-        _minP2pTransferFloorCtrl.text = dv('minP2pTransferAmount', 100).toStringAsFixed(0);
-      }
       _loading = false;
     }
   });
@@ -803,7 +695,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ? _mapboxStyleCtrl.text.trim()
             : GlobalMapConfig.defaultMapboxStyle,
         featureProviders: Map<String, String>.from(_featureProviders),
-        exchangeRateApiKey: _exchangeRateApiKeyCtrl.text.trim(),
         resendApiKey: _resendApiKeyCtrl.text.trim(),
         activeMapProvider: _activeMapProvider,
         osmTileServerUrl: _osmTileServerUrlCtrl.text.trim(),
@@ -909,69 +800,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           'googleMonthlyCap': googleCap > 0 ? googleCap : 20000,
           'mapboxMonthlyCap': mapboxCap > 0 ? mapboxCap : 50000,
           'cartoMonthlyCap': cartoCap > 0 ? cartoCap : 100000,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } catch (_) {}
-
-      // \u2500\u2500 Save Financial Limits to /system_config/financial_limits \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-      // Admin-scoped merge write; never blocks config publish on failure.
-      try {
-        await FirebaseFirestore.instance
-            .collection('system_config')
-            .doc('financial_limits')
-            .set({
-          'customerMinTopUp':
-              double.tryParse(_custMinTopUpCtrl.text.trim()) ?? 100.0,
-          'customerMaxSingleTopUp':
-              double.tryParse(_custMaxSingleTopUpCtrl.text.trim()) ?? 20000.0,
-          'customerMaxDailyTopUpCount':
-              int.tryParse(_custMaxDailyTopUpCountCtrl.text.trim()) ?? 5,
-          'customerMaxWalletBalanceUnverified':
-              double.tryParse(_custMaxBalanceUnverifiedCtrl.text.trim()) ?? 20000.0,
-          'customerMaxWalletBalanceVerified':
-              double.tryParse(_custMaxBalanceVerifiedCtrl.text.trim()) ?? 50000.0,
-          'customerMaxDailyP2pUnverified':
-              double.tryParse(_custMaxDailyP2pUnverifiedCtrl.text.trim()) ?? 5000.0,
-          'customerMaxDailyP2pVerified':
-              double.tryParse(_custMaxDailyP2pVerifiedCtrl.text.trim()) ?? 15000.0,
-          'customerMaxDailyWithdrawalUnverified':
-              double.tryParse(_custMaxDailyWithdrawalUnverifiedCtrl.text.trim()) ?? 10000.0,
-          'customerMaxDailyWithdrawalVerified':
-              double.tryParse(_custMaxDailyWithdrawalVerifiedCtrl.text.trim()) ?? 25000.0,
-          'driverMinTopUp':
-              double.tryParse(_drvMinTopUpCtrl.text.trim()) ?? 100.0,
-          'driverMaxSingleTopUp':
-              double.tryParse(_drvMaxSingleTopUpCtrl.text.trim()) ?? 20000.0,
-          'driverMaxDailyTopUpCount':
-              int.tryParse(_drvMaxDailyTopUpCountCtrl.text.trim()) ?? 5,
-          'driverMaxWalletBalanceUnverified':
-              double.tryParse(_drvMaxBalanceUnverifiedCtrl.text.trim()) ?? 20000.0,
-          'driverMaxWalletBalanceVerified':
-              double.tryParse(_drvMaxBalanceVerifiedCtrl.text.trim()) ?? 50000.0,
-          'driverMaxDailyP2pUnverified':
-              double.tryParse(_drvMaxDailyP2pUnverifiedCtrl.text.trim()) ?? 5000.0,
-          'driverMaxDailyP2pVerified':
-              double.tryParse(_drvMaxDailyP2pVerifiedCtrl.text.trim()) ?? 15000.0,
-          'driverMaxDailyWithdrawalUnverified':
-              double.tryParse(_drvMaxDailyWithdrawalUnverifiedCtrl.text.trim()) ?? 15000.0,
-          'driverMaxDailyWithdrawalVerified':
-              double.tryParse(_drvMaxDailyWithdrawalVerifiedCtrl.text.trim()) ?? 35000.0,
-          'hubAdminMinTopUp':
-              double.tryParse(_adminMinTopUpCtrl.text.trim()) ?? 100.0,
-          'hubAdminMaxSingleTopUp':
-              double.tryParse(_adminMaxSingleTopUpCtrl.text.trim()) ?? 50000.0,
-          'hubAdminMaxDailyTopUpCount':
-              int.tryParse(_adminMaxDailyTopUpCountCtrl.text.trim()) ?? 15,
-          'hubAdminMaxWalletBalance':
-              double.tryParse(_adminMaxBalanceCtrl.text.trim()) ?? 50000.0,
-          'hubAdminMaxDailyP2p':
-              double.tryParse(_adminMaxDailyP2pCtrl.text.trim()) ?? 10000.0,
-          'hubAdminMaxDailyWithdrawal':
-              double.tryParse(_adminMaxDailyWithdrawalCtrl.text.trim()) ?? 20000.0,
-          'minWithdrawalAmount':
-              double.tryParse(_minWithdrawalFloorCtrl.text.trim()) ?? 100.0,
-          'minP2pTransferAmount':
-              double.tryParse(_minP2pTransferFloorCtrl.text.trim()) ?? 100.0,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } catch (_) {}
@@ -1305,29 +1133,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                         onPressed: () {
                           setState(() {
                             _obscureCartoKey = !_obscureCartoKey;
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 320,
-                  child: TextFormField(
-                    controller: _exchangeRateApiKeyCtrl,
-                    obscureText: _obscureExchangeRateKey,
-                    decoration: InputDecoration(
-                      labelText: 'Exchange Rate API Key',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureExchangeRateKey
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureExchangeRateKey = !_obscureExchangeRateKey;
                           });
                         },
                       ),

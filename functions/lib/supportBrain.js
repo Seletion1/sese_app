@@ -366,11 +366,11 @@ const ARTICLES = [
             "sese coin", "sese coins", "bonus balance", "promo balance", "referral earnings",
             "convert coin", "convert bonus", "auto sweep", "autosweep", "convert to main",
         ],
-        answer: `SeSe Coin Bonus & Conversion Mechanics:\n\n` +
-            `• Bonus Credits: Referral commissions (1% standard for 365 days, 2% agent/staff for 547 days), streak awards, and promotional bonuses credit exclusively into your SeSe Coin balance (seseCoinBalance).\n` +
-            `• Manual Conversion: Once your seseCoinBalance reaches ₦5,000.00, you can tap "Convert to Main Balance" to move your coins into your primary cash wallet.\n` +
-            `• Auto-Sweep: When your seseCoinBalance reaches ₦10,000.00, the full bonus automatically sweeps into your main cash wallet in real time.\n` +
-            `• Note: SeSe Coins cannot be withdrawn directly to an external bank account without converting to main balance first.`,
+        answer: `Unified Wallet & Referral Earnings:\n\n` +
+            `• Direct Main Balance Credit: Referral commissions (1% standard for 365 days, 2% agent/staff for 547 days), streak awards, and promotional bonuses now credit directly into your primary withdrawable cash balance (mainWalletBalance).\n` +
+            `• No Manual Conversion Needed: You no longer need to wait for a threshold or tap "Convert to Main Balance" — earnings are immediately available in your wallet cash.\n` +
+            `• Legacy Coins Auto-Swept: Any legacy SeSe Coin balance is automatically swept into your withdrawable wallet cash.\n` +
+            `• Withdrawable: Your main cash balance can be withdrawn directly to your verified bank account via the weekly payout desk or used towards rides.`,
     },
     {
         topic: "single_account_architecture",
@@ -535,11 +535,9 @@ async function respondTo(userText, ctx) {
                 kind: "reply",
                 topic: "sese_coin_followup",
                 intent: "financials_wallet",
-                reply: `To convert your SeSe Coins into main withdrawable balance:\n\n` +
-                    `1. Open Wallet & Earnings in the app.\n` +
-                    `2. Check your SeSe Coin bonus card. Once balance reaches ₦5,000.00, tap "Convert to Main Balance".\n` +
-                    `3. If your balance reaches ₦10,000.00, it automatically converts into your main cash wallet!\n\n` +
-                    `After converting, you can withdraw your main balance to your bank account via the weekly payout desk.`,
+                reply: `Unified Wallet & Earnings:\n\n` +
+                    `Referral bonuses and promotional earnings are now credited directly to your main cash wallet (mainWalletBalance) with zero manual conversion required!\n\n` +
+                    `Any existing legacy coins are automatically swept into your withdrawable wallet cash. You can view your total balance in the Wallet & Earnings screen and withdraw directly to your bank account via the weekly payout desk.`,
             };
         }
     }

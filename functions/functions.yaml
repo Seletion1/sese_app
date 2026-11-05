@@ -457,38 +457,6 @@
       },
       "entryPoint": "scheduledResetStreaks"
     },
-    "getUserFinancialLimits": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "getUserFinancialLimits"
-    },
-    "scheduledDailyLimitsReset": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "scheduleTrigger": {
-        "schedule": "0 0 * * *",
-        "retryConfig": {},
-        "timeZone": "UTC"
-      },
-      "entryPoint": "scheduledDailyLimitsReset"
-    },
     "initializePayment": {
       "availableMemoryMb": null,
       "timeoutSeconds": null,
@@ -601,90 +569,6 @@
       "callableTrigger": {},
       "entryPoint": "processWalletWithdrawal"
     },
-    "lookupP2pRecipient": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "lookupP2pRecipient"
-    },
-    "transferWalletFunds": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "transferWalletFunds"
-    },
-    "requestSplitPayment": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "requestSplitPayment"
-    },
-    "respondSplitPayment": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "respondSplitPayment"
-    },
-    "settleSplitPayment": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "settleSplitPayment"
-    },
-    "convertSeseCoins": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "convertSeseCoins"
-    },
     "onSupportMessageCreated": {
       "availableMemoryMb": null,
       "timeoutSeconds": null,
@@ -760,38 +644,6 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "sendTargetedBroadcast"
-    },
-    "syncGlobalExchangeRates": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "scheduleTrigger": {
-        "schedule": "0 */6 * * *",
-        "retryConfig": {},
-        "timeZone": "UTC"
-      },
-      "entryPoint": "syncGlobalExchangeRates"
-    },
-    "triggerExchangeRatesSync": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "triggerExchangeRatesSync"
     },
     "googleMapsProxy": {
       "availableMemoryMb": null,

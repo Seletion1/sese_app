@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
@@ -47,7 +48,16 @@ class OsmMapView extends StatefulWidget {
   /// Test seam: when set, a plain placeholder renders instead of the real
   /// tile map (network tiles stall `flutter_test`).
   /// Set to [BlankTileProvider()] in test setup.
-  static Object? debugTileProviderOverride;
+  static Object? _debugTileProviderOverride;
+  static Object? get debugTileProviderOverride {
+    assert(!kReleaseMode || _debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
+    return kReleaseMode ? null : _debugTileProviderOverride;
+  }
+  static set debugTileProviderOverride(Object? val) {
+    assert(!kReleaseMode || val == null, 'FATAL: debugTileProviderOverride active in release build');
+    if (kReleaseMode && val != null) return;
+    _debugTileProviderOverride = val;
+  }
 
   /// Optional path to a local `.mbtiles` SQLite file.
   final String? localMbtilePath;

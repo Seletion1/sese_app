@@ -1192,46 +1192,32 @@ async function processReferralCommissions(tripId, customerId, driverId, driverNa
             }
             const wSnap = await tx.get(wRef);
             const wData = wSnap.exists ? ((_a = wSnap.data()) !== null && _a !== void 0 ? _a : {}) : {};
-            const currentCoins = typeof wData.seseCoinBalance === "number" ? wData.seseCoinBalance : 0;
-            const newCoins = currentCoins + cutNaira;
-            // Auto-Sweep check
-            if (newCoins >= finCfg.maxBonusThreshold) {
-                const newCoinsKobo = nairaToKobo(newCoins);
-                tx.set(wRef, {
-                    seseCoinBalance: 0,
-                    mainWalletBalance: admin.firestore.FieldValue.increment(newCoins),
-                    balance: admin.firestore.FieldValue.increment(newCoinsKobo),
-                    updatedAt: now,
-                }, { merge: true });
-                tx.set(txRef, {
-                    type: "sese_coin_auto_sweep",
-                    amountNaira: newCoins,
-                    amountKobo: newCoinsKobo,
-                    amount: newCoinsKobo,
-                    tripId,
-                    refereeId,
-                    note: `Auto-swept ₦${newCoins.toFixed(2)} in SeSe Coins to withdrawable wallet cash.`,
-                    createdAt: now,
-                });
-            }
-            else {
-                const cutKobo = nairaToKobo(cutNaira);
-                tx.set(wRef, {
-                    seseCoinBalance: admin.firestore.FieldValue.increment(cutNaira),
-                    updatedAt: now,
-                }, { merge: true });
-                tx.set(txRef, {
-                    type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
-                    amountNaira: cutNaira,
-                    amountKobo: cutKobo,
-                    amount: cutKobo,
-                    note,
-                    tripId,
-                    refereeId,
-                    isFirstTrip,
-                    createdAt: now,
-                });
-            }
+            const existingCoins = typeof wData.seseCoinBalance === "number" ? wData.seseCoinBalance : 0;
+            // Credit directly to mainWalletBalance (and balance in kobo) so referral commissions
+            // are never stranded below the legacy ₦10,000 threshold. Automatically sweeps any
+            // existing legacy SeSe Coins into main cash wallet.
+            const cutKobo = nairaToKobo(cutNaira);
+            const totalCreditNaira = cutNaira + existingCoins;
+            const totalCreditKobo = nairaToKobo(totalCreditNaira);
+            tx.set(wRef, {
+                seseCoinBalance: 0,
+                mainWalletBalance: admin.firestore.FieldValue.increment(totalCreditNaira),
+                balance: admin.firestore.FieldValue.increment(totalCreditKobo),
+                updatedAt: now,
+            }, { merge: true });
+            tx.set(txRef, {
+                type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
+                amountNaira: cutNaira,
+                amountKobo: cutKobo,
+                amount: cutKobo,
+                note: existingCoins > 0
+                    ? `${note} (+ auto-swept ₦${existingCoins.toFixed(2)} legacy SeSe Coins into main balance)`
+                    : note,
+                tripId,
+                refereeId,
+                isFirstTrip,
+                createdAt: now,
+            });
             tx.set(auditRef, {
                 type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
                 userId: targetUid,

@@ -320,10 +320,14 @@ class SeseUniversalMap extends StatefulWidget {
   final bool showCenterBlueDot;
 
   /// Test seam: when set, renders a placeholder map without network tiles.
-  static Object? get debugTileProviderOverride =>
-      OsmMapView.debugTileProviderOverride;
-  static set debugTileProviderOverride(Object? val) =>
-      OsmMapView.debugTileProviderOverride = val;
+  static Object? get debugTileProviderOverride {
+    assert(!kReleaseMode || OsmMapView.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
+    return OsmMapView.debugTileProviderOverride;
+  }
+  static set debugTileProviderOverride(Object? val) {
+    assert(!kReleaseMode || val == null, 'FATAL: debugTileProviderOverride active in release build');
+    OsmMapView.debugTileProviderOverride = val;
+  }
 
   const SeseUniversalMap({
     super.key,

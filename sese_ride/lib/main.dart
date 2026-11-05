@@ -29,7 +29,7 @@ import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
-import 'widgets/map_provider.dart' show GmsAvailability;
+import 'widgets/map_provider.dart' show GmsAvailability, SeseUniversalMap;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,6 +48,11 @@ void main() async {
   // Prime GMS availability check so map surfaces have synchronous 0ms resolution.
   // ignore: discarded_futures
   unawaited(GmsAvailability.isAvailable());
+
+  assert(
+    !kReleaseMode || SeseUniversalMap.debugTileProviderOverride == null,
+    'FATAL: debugTileProviderOverride active in release build',
+  );
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 

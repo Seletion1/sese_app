@@ -126,6 +126,7 @@ class DriverFleetService {
     // In widget-test environments, Firestore streams never complete (no
     // network), which prevents pumpAndSettle from settling. Use in-memory
     // list instead.
+    assert(!kReleaseMode || SeseUniversalMap.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
     final inTest = SeseUniversalMap.debugTileProviderOverride != null;
     final col = _driverVehiclesCollection(driverId);
     if (col == null || inTest) {

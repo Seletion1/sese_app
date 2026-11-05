@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
@@ -483,6 +484,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // Skip in widget-test environments: fetchRemoteKeys() calls Firestore
     // which hangs in emulator-less macOS test runners and prevents
     // pumpAndSettle from settling.
+    assert(!kReleaseMode || SeseUniversalMap.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
     if (SeseUniversalMap.debugTileProviderOverride == null) {
       // ignore: discarded_futures
       RemoteKeysService().fetchRemoteKeys().then((cfg) {

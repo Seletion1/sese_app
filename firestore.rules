@@ -659,22 +659,32 @@ service cloud.firestore {
               'isSuspended', 'role', 'completedTrips', 'completedTripCount',
               'outstandingNegativeBalance', 'cancelStats', 'rating',
               'averageRating', 'totalRatings', 'totalRatingSum',
-              'totalRatingCount', 'seseCoinBalance', 'balance', 'mainWalletBalance'
+              'totalRatingCount', 'balance', 'mainWalletBalance'
             ]);
       }
 
-      // Authenticated users can read public profile (name, avatar, ratings, completedTrips)
-      allow read: if isAuthenticated();
+      // Only the account owner, hub staff, and admins may read full user profiles
+      // (which contain PII: phone, email, KYC flags). Other authenticated users
+      // must use the /public sub-collection for limited safe projections.
+      allow read: if isOwner(userId) || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
       // On creation, users cannot pre-seed debt, un-suspended state bypass, or elevated role
       allow create: if isAuthenticated() && request.auth.uid == userId &&
         (!request.resource.data.keys().hasAny(['isSuspended']) || request.resource.data.isSuspended == false) &&
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
-        (!request.resource.data.keys().hasAny(['role', 'cancelStats', 'seseCoinBalance', 'balance', 'mainWalletBalance']));
+        (!request.resource.data.keys().hasAny(['role', 'cancelStats', 'balance', 'mainWalletBalance']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
       allow delete: if isSuperAdmin();
+
+      // Safe public projection — name, avatar, rating, completedTripCount only.
+      // Any authenticated user (e.g. a customer viewing their driver's card) may
+      // read this sub-collection. PII never lives here.
+      match /public/{docId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(userId) || isHubStaff() || isSuperAdmin();
+      }
 
       // Reviews / ratings subcollection (consumed by ratings_breakdown_card)
       match /reviews/{reviewId} {
@@ -948,7 +958,7 @@ service cloud.firestore {
     // report in the background. Only hub staff, support admins, and super
     // admins can inspect, resolve, or manage crash reports in The Hub queue.
     match /crash_reports/{reportId} {
-      allow create: if true;
+      allow create: if isAuthenticated();
       allow read, update, delete: if adminSupportAccess() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
     }
 
@@ -1402,8 +1412,7 @@ service cloud.firestore {
     function isPublicSystemConfig(docId) {
       return docId in ['config', 'payments', 'gateways', 'delivery_modes',
         'referral_settings', 'referral_rates', 'dispatch_settings',
-        'wallet_rules', 'kyc_rules', 'dispatch_rules',
-        'remote_keys'];
+        'wallet_rules', 'kyc_rules', 'dispatch_rules'];
     }
     match /system_config/{docId} {
       allow read: if isAuthenticated() && isPublicSystemConfig(docId);
@@ -1429,6 +1438,26 @@ service cloud.firestore {
     match /system_config/sms_sync_secrets {
       allow read: if isSuperAdmin() || isOperationsAdmin();
       allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+    // `remote_keys`: contains third-party API keys (Paystack, Maps proxy, etc.).
+    // Only hub staff and admins with the system-settings scope may read or write.
+    // The `exchangeRateApiKey` previously leaked here — now server-only.
+    match /system_config/remote_keys {
+      allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+    // `exchange_rate_secrets`: server-only exchange-rate API credentials.
+    // Never readable by standard or hub users.
+    match /system_config/exchange_rate_secrets {
+      allow read: if isSuperAdmin() || isOperationsAdmin();
+      allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+    // `financial_limits`: hub admin/ops read; super admin writes.
+    match /system_config/financial_limits {
+      allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+      allow write: if isSuperAdmin() ||
+        (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
     }
 
     // `dispatch_sounds`: Ringtone audio library available to active drivers.
@@ -1557,7 +1586,7 @@ service cloud.firestore {
     function isZeroBalanceWalletCreate() {
       return request.resource.data.keys().hasOnly([
         'userId', 'currency', 'balance', 'mainWalletBalance', 'availableBalance',
-        'escrowHold', 'escrowBalance', 'seseCoinBalance', 'createdAt', 'updatedAt',
+        'escrowHold', 'escrowBalance', 'createdAt', 'updatedAt',
       ]) &&
         (!request.resource.data.keys().hasAny(['balance']) ||
          request.resource.data.balance == 0) &&
@@ -1569,8 +1598,6 @@ service cloud.firestore {
          request.resource.data.escrowHold == 0) &&
         (!request.resource.data.keys().hasAny(['escrowBalance']) ||
          request.resource.data.escrowBalance == 0) &&
-        (!request.resource.data.keys().hasAny(['seseCoinBalance']) ||
-         request.resource.data.seseCoinBalance == 0) &&
         request.resource.data.userId == request.auth.uid;
     }
 
@@ -1643,11 +1670,6 @@ service cloud.firestore {
     match /phone_lookup/{phoneId} {
       allow read: if isAuthenticated() && isNotSuspended();
       allow write: if false;
-    }
-
-    match /phone_lookup_rate_limits/{phoneId} {
-      allow create, update: if isAuthenticated() && isNotSuspended();
-      allow read, delete: if false;
     }
 
     // ===== CAMPAIGN & INCENTIVE SYSTEM =====

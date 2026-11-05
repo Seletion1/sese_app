@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/driver_fleet_service.dart';
@@ -168,6 +169,7 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
       // In widget tests the SeseShimmer's AnimationController.repeat() keeps
       // pumpAndSettle alive indefinitely. Use a non-animated placeholder so
       // tests can settle once loading completes.
+      assert(!kReleaseMode || SeseUniversalMap.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
       final inTest = SeseUniversalMap.debugTileProviderOverride != null;
       return Scaffold(
         appBar: AppBar(title: const Text('My Vehicle Fleet')),

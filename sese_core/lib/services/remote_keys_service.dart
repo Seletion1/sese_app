@@ -291,9 +291,8 @@ class RemoteKeysConfig {
       for (final f in MapFeature.values)
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
-      'exchangeRateApiKey': exchangeRateApiKey.trim(),
-      // ── SECURITY: resendApiKey is server-only and OMITTED ─────────────
-      // Resend API keys must NEVER be written by client SDKs to public Firestore.
+      // ── SECURITY: exchangeRateApiKey and resendApiKey are server-only and OMITTED ──
+      // Secrets and third-party quota keys must NEVER be written by client SDKs to public Firestore.
       // ──────────────────────────────────────────────────────────────────
       'activeMapProvider': activeMapProvider,
       'activeProvider': mapCfg.normalizedProvider,
