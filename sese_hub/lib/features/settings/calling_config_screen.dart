@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// Screen allowing administrators to configure, switch, and test in-app calling providers.
+/// Screen allowing administrators to configure, switch, and test in-app calling routing modes.
 ///
-/// Supports:
-/// 1. **Self-Hosted WebRTC:** Zero-cost P2P audio using Firebase Firestore signaling.
-/// 2. **Managed ZegoCloud SDK:** Turnkey global VoIP calling requiring App ID & App Sign.
+/// Supports 3 routing modes:
+/// 1. **Automatic / Smart Fallback (Default):** Attempts custom WebRTC first (using Google STUN
+///    servers); if connection fails, times out, or fails ICE gathering, seamlessly drops over to
+///    the third-party API backend.
+/// 2. **Custom P2P Only:** Strict self-hosted WebRTC with zero vendor cost.
+/// 3. **Third-Party API Only:** Forces the use of the plug-and-play third-party SDK.
 class CallingConfigScreen extends StatefulWidget {
   const CallingConfigScreen({super.key});
 
@@ -17,9 +20,10 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
   final _configRepo = CallConfigRepository.instance;
   final _callManager = CallServiceManager.instance;
 
-  late CallProviderType _selectedProvider;
+  late CallRoutingMode _selectedRoutingMode;
   late final TextEditingController _appIdController;
   late final TextEditingController _appSignController;
+  late final TextEditingController _timeoutController;
 
   bool _obscureAppSign = true;
   bool _isLoading = true;
@@ -30,6 +34,7 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
     super.initState();
     _appIdController = TextEditingController();
     _appSignController = TextEditingController();
+    _timeoutController = TextEditingController();
     _loadConfig();
   }
 
@@ -37,7 +42,8 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
     final config = await _configRepo.loadConfig();
     if (!mounted) return;
     setState(() {
-      _selectedProvider = config.providerType;
+      _selectedRoutingMode = config.routingMode;
+      _timeoutController.text = config.fallbackTimeoutSeconds.toString();
       if (config.zegoAppId != null) {
         _appIdController.text = config.zegoAppId.toString();
       }
@@ -52,21 +58,23 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
     setState(() => _isSaving = true);
     final int? parsedAppId = int.tryParse(_appIdController.text.trim());
     final String parsedAppSign = _appSignController.text.trim();
+    final int parsedTimeout = int.tryParse(_timeoutController.text.trim())?.clamp(3, 30) ?? 10;
 
     final updated = _configRepo.currentConfig.copyWith(
-      providerType: _selectedProvider,
+      routingMode: _selectedRoutingMode,
+      fallbackTimeoutSeconds: parsedTimeout,
       zegoAppId: parsedAppId,
       zegoAppSign: parsedAppSign.isEmpty ? null : parsedAppSign,
     );
 
     await _configRepo.saveConfig(updated);
-    await _callManager.switchProvider(_selectedProvider);
+    await _callManager.switchRoutingMode(_selectedRoutingMode);
 
     if (mounted) {
       setState(() => _isSaving = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Settings updated successfully'),
+          content: const Text('Calling settings updated successfully'),
           backgroundColor: Colors.green.shade700,
           duration: const Duration(seconds: 3),
         ),
@@ -89,6 +97,7 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
   void dispose() {
     _appIdController.dispose();
     _appSignController.dispose();
+    _timeoutController.dispose();
     super.dispose();
   }
 
@@ -142,14 +151,14 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Switchable In-App Calling',
+                        'Robust In-App Calling Architecture',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.bold,
                             ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Choose between self-hosted WebRTC (zero 3rd-party vendor cost) or managed ZegoCloud calling.',
+                        'Configure routing between zero-cost self-hosted WebRTC and plug-and-play third-party SDK fallback.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),
@@ -162,40 +171,104 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
           ),
 
           const SizedBox(height: 24),
-          const _SectionLabel('Active Calling Provider'),
+          const _SectionLabel('Active Calling Routing Policy'),
 
-          // ── Option 1: WebRTC Card ────────────────────────────────────────
+          // ── Option 1: Automatic / Smart Fallback Card ────────────────────
           _ProviderCard(
-            key: const Key('provider_card_webrtc'),
-            title: 'Self-Hosted WebRTC',
-            badge: 'Zero Vendor Cost (Recommended)',
+            key: const Key('routing_card_smart_fallback'),
+            title: 'Automatic / Smart Fallback',
+            badge: 'Smart Routing (Default)',
             badgeColor: Colors.green,
             description:
-                'Peer-to-peer VoIP audio using your existing Firebase Firestore for signaling. End-to-end encrypted via DTLS/SRTP with Google STUN servers.',
-            isSelected: _selectedProvider == CallProviderType.webrtc,
-            icon: Icons.sync_alt_rounded,
-            onTap: () => setState(() => _selectedProvider = CallProviderType.webrtc),
+                'Tries our custom WebRTC setup first using Google STUN servers. If connection fails, times out, or fails ICE gathering due to mobile carrier NAT/firewall blocks, it automatically drops over to the third-party API backend seamlessly without dropping the user experience.',
+            isSelected: _selectedRoutingMode == CallRoutingMode.smartFallback,
+            icon: Icons.auto_mode_rounded,
+            onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.smartFallback),
           ),
 
           const SizedBox(height: 12),
 
-          // ── Option 2: ZegoCloud Card ─────────────────────────────────────
+          // ── Option 2: Custom P2P Only Card ──────────────────────────────
           _ProviderCard(
-            key: const Key('provider_card_zego'),
-            title: 'Managed ZegoCloud SDK',
-            badge: 'Turnkey Global Relay',
-            badgeColor: Colors.blue,
+            key: const Key('routing_card_custom_p2p'),
+            title: 'Custom P2P Only',
+            badge: 'Zero Vendor Cost',
+            badgeColor: Colors.teal,
             description:
-                'Managed VoIP cloud SDK. Requires Zego Application ID and App Sign configured below.',
-            isSelected: _selectedProvider == CallProviderType.zego,
+                'Uses our free WebRTC implementation exclusively via Cloud Firestore signaling and Google STUN servers. No third-party API calls will be made.',
+            isSelected: _selectedRoutingMode == CallRoutingMode.customP2pOnly,
+            icon: Icons.sync_alt_rounded,
+            onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.customP2pOnly),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Option 3: Third-Party API Only Card ─────────────────────────
+          _ProviderCard(
+            key: const Key('routing_card_third_party'),
+            title: 'Third-Party API Only',
+            badge: 'Managed Vendor Relay',
+            badgeColor: Colors.indigo,
+            description:
+                'Forces the use of the plug-and-play third-party calling SDK (e.g. ZegoCloud). Bypasses custom WebRTC entirely.',
+            isSelected: _selectedRoutingMode == CallRoutingMode.thirdPartyOnly,
             icon: Icons.cloud_done_rounded,
-            onTap: () => setState(() => _selectedProvider = CallProviderType.zego),
+            onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.thirdPartyOnly),
           ),
 
           const SizedBox(height: 24),
 
-          // ── WebRTC STUN Diagnostics ──────────────────────────────────────
-          if (_selectedProvider == CallProviderType.webrtc) ...[
+          // ── Fallback Watchdog Timeout Setting ────────────────────────────
+          if (_selectedRoutingMode == CallRoutingMode.smartFallback) ...[
+            const _SectionLabel('Smart Fallback Watchdog Timing'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 20, color: Colors.blueGrey),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Connection Timeout Trigger',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'If WebRTC peer connection is not established within this timeframe (e.g. strict carrier NAT blocks), call drops over to third-party SDK.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('fallback_timeout_field'),
+                      controller: _timeoutController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Timeout (seconds)',
+                        hintText: '10',
+                        suffixText: 'sec',
+                        border: OutlineInputBorder(),
+                        helperText: 'Recommended: 8–15 seconds.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+
+          // ── WebRTC STUN Servers ──────────────────────────────────────────
+          if (_selectedRoutingMode == CallRoutingMode.smartFallback ||
+              _selectedRoutingMode == CallRoutingMode.customP2pOnly) ...[
             const _SectionLabel('WebRTC Signaling & STUN Traversal'),
             Card(
               child: Padding(
@@ -237,6 +310,21 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     const Divider(height: 24),
                     Row(
                       children: [
+                        const Icon(Icons.mic_none_rounded, size: 18, color: Colors.cyan),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Optimized Audio: Echo Cancellation, Noise Suppression, and Auto Gain Control active.',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
                         const Icon(Icons.local_fire_department_rounded, size: 18, color: Colors.orange),
                         const SizedBox(width: 6),
                         Expanded(
@@ -253,11 +341,13 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
           ],
 
-          // ── ZegoCloud Credentials ────────────────────────────────────────
-          if (_selectedProvider == CallProviderType.zego) ...[
-            const _SectionLabel('ZegoCloud Credentials'),
+          // ── Third-Party API Credentials ──────────────────────────────────
+          if (_selectedRoutingMode == CallRoutingMode.smartFallback ||
+              _selectedRoutingMode == CallRoutingMode.thirdPartyOnly) ...[
+            const _SectionLabel('Third-Party Calling SDK Credentials (ZegoCloud)'),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -269,11 +359,11 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                       controller: _appIdController,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
-                        labelText: 'Zego App ID',
+                        labelText: 'Third-Party App ID',
                         hintText: 'e.g. 123456789',
                         prefixIcon: Icon(Icons.numbers_rounded),
                         border: OutlineInputBorder(),
-                        helperText: 'Found in your ZegoCloud Admin Console project details.',
+                        helperText: 'Found in your third-party VoIP admin console project details.',
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -282,11 +372,11 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                       controller: _appSignController,
                       obscureText: _obscureAppSign,
                       decoration: InputDecoration(
-                        labelText: 'Zego App Sign',
+                        labelText: 'Third-Party App Sign / Secret',
                         hintText: '64-character hexadecimal sign key',
                         prefixIcon: const Icon(Icons.key_rounded),
                         border: const OutlineInputBorder(),
-                        helperText: 'Server/App sign key from Zego project credentials.',
+                        helperText: 'Authentication sign key from third-party project credentials.',
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscureAppSign ? Icons.visibility_outlined : Icons.visibility_off_outlined,
@@ -299,9 +389,8 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
           ],
-
-          const SizedBox(height: 24),
 
           // ── In-App Call Testing / Diagnostics ─────────────────────────────
           const _SectionLabel('Diagnostics & Testing'),
@@ -371,88 +460,67 @@ class _ProviderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? scheme.primary.withValues(alpha: 0.08)
-              : scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? scheme.primary : scheme.outlineVariant,
-            width: isSelected ? 2 : 1,
-          ),
+    return Card(
+      elevation: isSelected ? 2 : 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? scheme.primary : scheme.outlineVariant.withValues(alpha: 0.6),
+          width: isSelected ? 2 : 1,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? scheme.primary
-                    : scheme.surfaceContainerHighest,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                color: isSelected ? scheme.onPrimary : scheme.onSurfaceVariant,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: badgeColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          badge,
-                          style: TextStyle(
-                            color: badgeColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
+                  Icon(
+                    icon,
+                    color: isSelected ? scheme.primary : scheme.onSurfaceVariant,
+                    size: 24,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                          height: 1.35,
-                        ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: isSelected ? scheme.primary : scheme.onSurface,
+                          ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: badgeColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      badge,
+                      style: TextStyle(
+                        color: badgeColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              isSelected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
-              color: isSelected ? scheme.primary : scheme.outline,
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                description,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+              ),
+            ],
+          ),
         ),
       ),
     );

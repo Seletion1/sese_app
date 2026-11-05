@@ -72,6 +72,39 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-05 — Robust In-App Voice Calling Architecture: 3 Routing Modes & Seamless Fallback
+
+- **In-App Call Routing Modes (`ICallService`, `CallRoutingMode`, `CallConfigRepository`)**:
+  - Implemented 3 administrative and remote-configurable routing modes:
+    1. `smartFallback` (Default): Initiates free peer-to-peer WebRTC voice call. If ICE candidate gathering fails, disconnects, or times out (configurable watchdog timer, 3–30s, default 10s), it seamlessly falls back to the third-party calling provider (ZegoCloud) without dropping the active call screen or breaking the user experience.
+    2. `customP2pOnly`: Forces pure self-hosted WebRTC with zero vendor costs.
+    3. `thirdPartyOnly`: Directly routes all in-app calls through the plug-and-play third-party SDK.
+  - Remote config & Firestore real-time streaming: Subscribes to `system_settings/calling` with local `SharedPreferences` caching (`_kPrefRoutingMode`, `_kPrefFallbackTimeout`) and graceful fallback for offline/test environments.
+  - Backwards-compatible serialization: Maps legacy `providerType` seamlessly to/from `CallRoutingMode`.
+
+- **WebRTC STUN & Clean Audio Constraints (`WebRtcCallServiceImpl`)**:
+  - Configured Google's public STUN servers: `'stun:stun.l.google.com:19302'` and `'stun:stun1.l.google.com:19302'` with `iceCandidatePoolSize: 2`.
+  - Configured voice audio constraints: `echoCancellation: true`, `noiseSuppression: true`, `autoGainControl: true`, `highpassFilter: true`, `typingNoiseDetection: true`, `audioMirroring: false`.
+  - Added connection & ICE state listeners (`onIceConnectionState`, `onConnectionState`) to catch network NAT/firewall blocks promptly and signal `onConnectionFailed`.
+  - Implemented `abortForFallback()`: Cleanly tears down local/remote media tracks and peer connection without triggering `CallState.ended` or closing the Firestore call document prematurely.
+
+- **Unified Call Manager & Seamless Circuit Breaker (`CallServiceManager`)**:
+  - Implemented `ICallService` on `CallServiceManager` to act as a resilient facade for `InAppCallScreen`.
+  - Integrated `_fallbackTimer` watchdog timer. Upon WebRTC timeout or failure in `smartFallback` mode, triggers `_executeFallback()`:
+    - Signals the active Firestore call doc: `{'provider': 'zego', 'fallback': true}`.
+    - Transitions media handling to `ZegoCallServiceImpl` while keeping `_currentState = CallState.connecting` so the UI does not terminate or flash errors.
+    - Caller and receiver UI updates to show "Connecting via backup relay...".
+
+- **Admin & Hub Management (`sese_hub/calling_config_screen.dart`)**:
+  - Updated admin settings screen with interactive selector for the 3 routing modes.
+  - Added input controller for configurable fallback timeout (clamped 3–30s).
+  - Added visibility chips for Google Public STUN servers and audio optimization constraints.
+
+- **Verification**:
+  - `sese_core`: `flutter analyze` 0 issues; `test/call_service_test.dart` 12/12 tests green.
+  - `sese_hub`: `flutter analyze` 0 issues.
+  - `sese_ride`: `flutter analyze` 0 issues.
+
 ## 2026-11-03 — Trip History Role Segregation, Live Driver ETA Tracking & All-Country Contact Numbers
 
 - **Trip History Role Segregation (`trip_service.dart`, `earnings_service.dart`)**:

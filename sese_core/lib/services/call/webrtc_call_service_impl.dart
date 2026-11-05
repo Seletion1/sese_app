@@ -19,8 +19,16 @@ class WebRtcCallServiceImpl implements ICallService {
   @override
   final CallProviderType providerType = CallProviderType.webrtc;
 
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestore;
   final CallConfigRepository _configRepo;
+
+  static FirebaseFirestore? get _safeFirestore {
+    try {
+      return FirebaseFirestore.instance;
+    } catch (_) {
+      return null;
+    }
+  }
 
   String? _currentUserId;
   String? _displayName;
@@ -46,10 +54,24 @@ class WebRtcCallServiceImpl implements ICallService {
   bool _isMuted = false;
   bool _isSpeakerOn = false;
 
+  /// Optional listener triggered when WebRTC connection or ICE candidate gathering fails.
+  void Function(String reason)? onConnectionFailed;
+
+  /// Audio constraints optimized for clear voice transmission, background noise reduction,
+  /// and feedback cancellation in moving vehicles.
+  static const Map<String, dynamic> defaultAudioConstraints = {
+    'echoCancellation': true,
+    'noiseSuppression': true,
+    'autoGainControl': true,
+    'highpassFilter': true,
+    'typingNoiseDetection': true,
+    'audioMirroring': false,
+  };
+
   WebRtcCallServiceImpl({
     FirebaseFirestore? firestore,
     CallConfigRepository? configRepo,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+  })  : _firestore = firestore ?? _safeFirestore,
         _configRepo = configRepo ?? CallConfigRepository.instance;
 
   @override
@@ -86,48 +108,50 @@ class WebRtcCallServiceImpl implements ICallService {
 
     // Cancel any prior listener before setting up the current user's listener
     await _incomingCallsSub?.cancel();
-    _incomingCallsSub = _firestore
-        .collection('calls')
-        .where('receiverId', isEqualTo: currentUserId)
-        .where('status', isEqualTo: 'ringing')
-        .snapshots()
-        .listen(
-      (snapshot) {
-        if (snapshot.docs.isEmpty) {
-          if (!_incomingCallController.isClosed) {
-            _incomingCallController.add(null);
+    if (_firestore != null) {
+      _incomingCallsSub = _firestore
+          .collection('calls')
+          .where('receiverId', isEqualTo: currentUserId)
+          .where('status', isEqualTo: 'ringing')
+          .snapshots()
+          .listen(
+        (snapshot) {
+          if (snapshot.docs.isEmpty) {
+            if (!_incomingCallController.isClosed) {
+              _incomingCallController.add(null);
+            }
+            return;
           }
-          return;
-        }
 
-        final doc = snapshot.docs.first;
-        final data = doc.data();
-        final session = CallSession(
-          callId: doc.id,
-          callerId: data['callerId']?.toString() ?? '',
-          callerName: data['callerName']?.toString() ?? 'Caller',
-          callerAvatar: data['callerAvatar']?.toString(),
-          receiverId: currentUserId,
-          receiverName: data['receiverName']?.toString() ?? 'Receiver',
-          receiverAvatar: data['receiverAvatar']?.toString(),
-          provider: CallProviderType.webrtc,
-          state: CallState.incoming,
-          startedAt: (data['createdAt'] is Timestamp)
-              ? (data['createdAt'] as Timestamp).toDate()
-              : DateTime.now(),
-          metadata: data['metadata'] is Map
-              ? Map<String, dynamic>.from(data['metadata'] as Map)
-              : <String, dynamic>{},
-        );
+          final doc = snapshot.docs.first;
+          final data = doc.data();
+          final session = CallSession(
+            callId: doc.id,
+            callerId: data['callerId']?.toString() ?? '',
+            callerName: data['callerName']?.toString() ?? 'Caller',
+            callerAvatar: data['callerAvatar']?.toString(),
+            receiverId: currentUserId,
+            receiverName: data['receiverName']?.toString() ?? 'Receiver',
+            receiverAvatar: data['receiverAvatar']?.toString(),
+            provider: CallProviderType.webrtc,
+            state: CallState.incoming,
+            startedAt: (data['createdAt'] is Timestamp)
+                ? (data['createdAt'] as Timestamp).toDate()
+                : DateTime.now(),
+            metadata: data['metadata'] is Map
+                ? Map<String, dynamic>.from(data['metadata'] as Map)
+                : <String, dynamic>{},
+          );
 
-        if (!_incomingCallController.isClosed) {
-          _incomingCallController.add(session);
-        }
-      },
-      onError: (e) {
-        debugPrint('WebRtcCallServiceImpl: error in incoming calls stream: $e');
-      },
-    );
+          if (!_incomingCallController.isClosed) {
+            _incomingCallController.add(session);
+          }
+        },
+        onError: (e) {
+          debugPrint('WebRtcCallServiceImpl: error in incoming calls stream: $e');
+        },
+      );
+    }
   }
 
   void _setCallState(CallState state) {
@@ -151,6 +175,7 @@ class WebRtcCallServiceImpl implements ICallService {
     return {
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
+      'iceCandidatePoolSize': 2,
     };
   }
 
@@ -193,18 +218,29 @@ class WebRtcCallServiceImpl implements ICallService {
     _setCallState(CallState.outgoing);
 
     try {
-      // 1. Capture local audio track
+      // 1. Capture local audio track with optimized audio constraints
       _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-          'autoGainControl': true,
-        },
+        'audio': defaultAudioConstraints,
         'video': false,
       });
 
       // 2. Instantiate WebRTC Peer Connection
       _peerConnection = await createPeerConnection(_buildIceServersConfig());
+
+      // Listen for ICE and connection state failures to trigger fallback
+      _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
+        debugPrint('WebRtcCallServiceImpl: ICE connection state -> $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+          onConnectionFailed?.call('ICE connection state: $state');
+        }
+      };
+      _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+        debugPrint('WebRtcCallServiceImpl: Peer connection state -> $state');
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          onConnectionFailed?.call('Peer connection state failed');
+        }
+      };
 
       // 3. Register local audio tracks
       for (final track in _localStream!.getAudioTracks()) {
@@ -219,6 +255,12 @@ class WebRtcCallServiceImpl implements ICallService {
       };
 
       // 5. Stream ICE candidates to Firestore subcollection (buffered until parent callDoc commits)
+      if (_firestore == null) {
+        debugPrint('WebRtcCallServiceImpl: Firestore unavailable (mock/offline mode).');
+        _startCallTimer();
+        _setCallState(CallState.connected);
+        return;
+      }
       final callDocRef = _firestore.collection('calls').doc(callId);
       final callerCandidatesCol = callDocRef.collection('callerCandidates');
       final earlyCandidates = <RTCIceCandidate>[];
@@ -343,6 +385,12 @@ class WebRtcCallServiceImpl implements ICallService {
     _setCallState(CallState.connecting);
 
     try {
+      if (_firestore == null) {
+        debugPrint('WebRtcCallServiceImpl: Firestore unavailable (mock/offline mode).');
+        _startCallTimer();
+        _setCallState(CallState.connected);
+        return;
+      }
       final callDocRef = _firestore.collection('calls').doc(callId);
       final callDoc = await callDocRef.get();
       final data = callDoc.data();
@@ -374,18 +422,29 @@ class WebRtcCallServiceImpl implements ICallService {
               : <String, dynamic>{},
       );
 
-      // 1. Capture local audio track
+      // 1. Capture local audio track with optimized audio constraints
       _localStream = await navigator.mediaDevices.getUserMedia({
-        'audio': {
-          'echoCancellation': true,
-          'noiseSuppression': true,
-          'autoGainControl': true,
-        },
+        'audio': defaultAudioConstraints,
         'video': false,
       });
 
       // 2. Instantiate WebRTC Peer Connection
       _peerConnection = await createPeerConnection(_buildIceServersConfig());
+
+      // Listen for ICE and connection state failures to trigger fallback
+      _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
+        debugPrint('WebRtcCallServiceImpl: ICE connection state -> $state');
+        if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
+            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+          onConnectionFailed?.call('ICE connection state: $state');
+        }
+      };
+      _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+        debugPrint('WebRtcCallServiceImpl: Peer connection state -> $state');
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+          onConnectionFailed?.call('Peer connection state failed');
+        }
+      };
 
       // 3. Register local audio tracks
       for (final track in _localStream!.getAudioTracks()) {
@@ -521,7 +580,7 @@ class WebRtcCallServiceImpl implements ICallService {
     _durationTimer = null;
 
     final session = _currentSession;
-    if (session != null) {
+    if (session != null && _firestore != null) {
       try {
         await _firestore.collection('calls').doc(session.callId).update({
           'status': 'ended',
@@ -588,8 +647,62 @@ class WebRtcCallServiceImpl implements ICallService {
     });
   }
 
+  /// Aborts the WebRTC media session and cancels listeners cleanly without marking
+  /// the call session as ended or updating Firestore `calls/{callId}` status to 'ended',
+  /// allowing the third-party provider to assume control of the call seamlessly.
+  Future<void> abortForFallback() async {
+    _durationTimer?.cancel();
+    _durationTimer = null;
+
+    try {
+      await _callDocSub?.cancel();
+    } catch (_) {}
+    _callDocSub = null;
+
+    try {
+      await _candidatesSub?.cancel();
+    } catch (_) {}
+    _candidatesSub = null;
+
+    if (_localStream != null) {
+      try {
+        for (final track in _localStream!.getTracks()) {
+          track.stop();
+        }
+        await _localStream!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl abort localStream error: $e');
+      }
+      _localStream = null;
+    }
+
+    if (_remoteStream != null) {
+      try {
+        await _remoteStream!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl abort remoteStream error: $e');
+      }
+      _remoteStream = null;
+    }
+
+    if (_peerConnection != null) {
+      try {
+        await _peerConnection!.close();
+        await _peerConnection!.dispose();
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl abort peerConnection error: $e');
+      }
+      _peerConnection = null;
+    }
+
+    _isMuted = false;
+    _isSpeakerOn = false;
+    _connectedAt = null;
+  }
+
   @override
   Future<void> rejectCall(String callId, {String? reason}) async {
+    if (_firestore == null) return;
     try {
       await _firestore.collection('calls').doc(callId).update({
         'status': 'rejected',

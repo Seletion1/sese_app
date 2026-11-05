@@ -18,7 +18,15 @@ class ZegoCallServiceImpl implements ICallService {
   final CallProviderType providerType = CallProviderType.zego;
 
   final CallConfigRepository _configRepo;
-  final FirebaseFirestore _firestore;
+  final FirebaseFirestore? _firestore;
+
+  static FirebaseFirestore? get _safeFirestore {
+    try {
+      return FirebaseFirestore.instance;
+    } catch (_) {
+      return null;
+    }
+  }
 
   String? _currentUserId;
   String? _displayName;
@@ -40,7 +48,7 @@ class ZegoCallServiceImpl implements ICallService {
     CallConfigRepository? configRepo,
     FirebaseFirestore? firestore,
   })  : _configRepo = configRepo ?? CallConfigRepository.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+        _firestore = firestore ?? _safeFirestore;
 
   @override
   CallState get currentState => _currentState;
@@ -124,20 +132,22 @@ class ZegoCallServiceImpl implements ICallService {
 
     try {
       // Record call session in Firestore for auditing & push notifications
-      await _firestore.collection('calls').doc(callId).set({
-        'callId': callId,
-        'callerId': _currentUserId,
-        'callerName': _displayName ?? 'Caller',
-        'callerAvatar': _avatarUrl,
-        'receiverId': targetUserId,
-        'receiverName': targetUserName ?? 'Receiver',
-        'receiverAvatar': targetUserAvatar,
-        'status': 'ringing',
-        'type': 'audio',
-        'provider': CallProviderType.zego.name,
-        'createdAt': FieldValue.serverTimestamp(),
-        'metadata': metadata ?? {},
-      });
+      if (_firestore != null) {
+        await _firestore.collection('calls').doc(callId).set({
+          'callId': callId,
+          'callerId': _currentUserId,
+          'callerName': _displayName ?? 'Caller',
+          'callerAvatar': _avatarUrl,
+          'receiverId': targetUserId,
+          'receiverName': targetUserName ?? 'Receiver',
+          'receiverAvatar': targetUserAvatar,
+          'status': 'ringing',
+          'type': 'audio',
+          'provider': CallProviderType.zego.name,
+          'createdAt': FieldValue.serverTimestamp(),
+          'metadata': metadata ?? {},
+        });
+      }
 
       // Transition to connected once the signaling channel establishes
       Future.delayed(const Duration(seconds: 1), () {
@@ -170,10 +180,12 @@ class ZegoCallServiceImpl implements ICallService {
     _setCallState(CallState.connecting);
 
     try {
-      await _firestore.collection('calls').doc(callId).update({
-        'status': 'connected',
-        'answeredAt': FieldValue.serverTimestamp(),
-      });
+      if (_firestore != null) {
+        await _firestore.collection('calls').doc(callId).update({
+          'status': 'connected',
+          'answeredAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       _startCallTimer();
       _setCallState(CallState.connected);
@@ -221,7 +233,7 @@ class ZegoCallServiceImpl implements ICallService {
     _durationTimer = null;
 
     final session = _currentSession;
-    if (session != null) {
+    if (session != null && _firestore != null) {
       try {
         await _firestore.collection('calls').doc(session.callId).update({
           'status': 'ended',
@@ -248,6 +260,7 @@ class ZegoCallServiceImpl implements ICallService {
 
   @override
   Future<void> rejectCall(String callId, {String? reason}) async {
+    if (_firestore == null) return;
     try {
       await _firestore.collection('calls').doc(callId).update({
         'status': 'rejected',

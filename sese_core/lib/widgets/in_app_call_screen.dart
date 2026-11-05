@@ -88,7 +88,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   void initState() {
     super.initState();
     _state = widget.isIncoming ? CallState.connecting : CallState.outgoing;
-    _service = _callManager.activeService;
+    _service = _callManager;
 
     _pulseController = AnimationController(
       vsync: this,
@@ -193,6 +193,9 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   String get _statusLabel {
     if (_errorMessage != null) return _errorMessage!;
+    if (_callManager.isFallbackActive && _state == CallState.connecting) {
+      return 'Connecting via backup relay...';
+    }
     switch (_state) {
       case CallState.idle:
         return 'Ready';
@@ -237,17 +240,25 @@ class _InAppCallScreenState extends State<InAppCallScreen>
                         color: Colors.white.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
                           Icon(
-                            Icons.shield_outlined,
+                            _callManager.isFallbackActive
+                                ? Icons.sync_problem_rounded
+                                : Icons.shield_outlined,
                             size: 14,
-                            color: Colors.cyanAccent,
+                            color: _callManager.isFallbackActive
+                                ? Colors.amberAccent
+                                : Colors.cyanAccent,
                           ),
-                          SizedBox(width: 6),
+                          const SizedBox(width: 6),
                           Text(
-                            'Encrypted In-App Call',
-                            style: TextStyle(
+                            _callManager.isFallbackActive
+                                ? 'Backup Relay (3rd-Party)'
+                                : (_callManager.providerType == CallProviderType.webrtc
+                                    ? 'P2P Encrypted (WebRTC)'
+                                    : 'Direct Relay (3rd-Party SDK)'),
+                            style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,

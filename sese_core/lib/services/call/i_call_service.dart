@@ -14,6 +14,25 @@ enum CallProviderType {
   zego,
 }
 
+/// Routing policy for placing and managing in-app VoIP calls.
+enum CallRoutingMode {
+  /// Automatic / Smart Fallback (Default):
+  /// Tries our custom WebRTC setup first (using Google's free public STUN servers:
+  /// 'stun:stun.l.google.com:19302' and 'stun:stun1.l.google.com:19302').
+  /// If the connection fails, times out, or fails ICE gathering due to mobile
+  /// network NAT/firewall blocks, it automatically drops over to the third-party
+  /// API backend seamlessly without dropping the user experience.
+  smartFallback,
+
+  /// Custom P2P Only:
+  /// Uses strictly our free WebRTC implementation with zero vendor cost.
+  customP2pOnly,
+
+  /// Third-Party API Only:
+  /// Forces the use of the plug-and-play third-party calling SDK.
+  thirdPartyOnly,
+}
+
 /// Lifecycle states of an in-app VoIP call session.
 enum CallState {
   /// No call is currently active.
@@ -85,6 +104,9 @@ class CallSession {
   /// Whether device loudspeaker is currently active.
   final bool isSpeakerOn;
 
+  /// Whether smart fallback to third-party provider is currently active for this session.
+  final bool isFallbackActive;
+
   /// Reason for call termination, if applicable.
   final String? endReason;
 
@@ -106,6 +128,7 @@ class CallSession {
     this.endedAt,
     this.isMuted = false,
     this.isSpeakerOn = false,
+    this.isFallbackActive = false,
     this.endReason,
     this.metadata = const {},
   });
@@ -125,6 +148,7 @@ class CallSession {
     DateTime? endedAt,
     bool? isMuted,
     bool? isSpeakerOn,
+    bool? isFallbackActive,
     String? endReason,
     Map<String, dynamic>? metadata,
   }) {
@@ -143,6 +167,7 @@ class CallSession {
       endedAt: endedAt ?? this.endedAt,
       isMuted: isMuted ?? this.isMuted,
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
+      isFallbackActive: isFallbackActive ?? this.isFallbackActive,
       endReason: endReason ?? this.endReason,
       metadata: metadata ?? this.metadata,
     );
