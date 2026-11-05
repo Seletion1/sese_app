@@ -207,12 +207,12 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
 
   Future<void> _captureAdminLivePhoto() async {
     try {
-      final XFile? photo = await _picker.pickImage(
+      final XFile? photo = await ImageCompressionService.pickAndCompressImage(
         source: ImageSource.camera,
+        picker: _picker,
         preferredCameraDevice: CameraDevice.front,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
+        maxDimension: 1280,
+        quality: 80,
       );
 
       if (photo == null) return;

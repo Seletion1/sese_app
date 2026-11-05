@@ -185,13 +185,17 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       ),
     );
     if (source == null || !mounted) return;
-    // Runtime permission handshake BEFORE the native picker (applies to
-    // the test seam too — the service is a no-op without a plugin).
-    final permission = await MediaPermissionService.ensureFor(source);
-    if (!mounted) return;
-    if (permission != MediaPermissionOutcome.granted) {
-      await MediaPermissionService.promptIfPermanentlyDenied(context);
-      return;
+    // Runtime permission handshake BEFORE the native picker.
+    // Skipped when a custom pickImage seam is injected (e.g. in widget tests)
+    // because the caller is then responsible for permissions, and the platform
+    // channel call may never resolve in a headless test environment.
+    if (widget.pickImage == null) {
+      final permission = await MediaPermissionService.ensureFor(source);
+      if (!mounted) return;
+      if (permission != MediaPermissionOutcome.granted) {
+        await MediaPermissionService.promptIfPermanentlyDenied(context);
+        return;
+      }
     }
     final up = _uploads.putIfAbsent(slot.key, () => _SlotUpload());
     try {

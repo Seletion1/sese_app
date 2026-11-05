@@ -33,8 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.convertSeseCoins = exports.settleSplitPayment = exports.respondSplitPayment = exports.requestSplitPayment = exports.transferWalletFunds = exports.lookupP2pRecipient = exports.settleTransfer = exports.processWalletWithdrawal = exports.verifyBankAccount = exports.resolveBankAccount = exports.paystackBanks = exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = exports.scheduledDailyLimitsReset = exports.getUserFinancialLimits = exports.getCyclePeriodKey = exports.resolveDynamicStreakRewards = exports.evaluateAndGrantStreakRewards = exports.backfillDriverTripHistory = exports.onTripWrittenForDriverHistory = exports.scheduledResetStreaks = exports.onTripCancelled = exports.onTripCompleted = exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = exports.submitCancellationFeedback = exports.submitTripRating = exports.onTripChatMessage = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.confirmCashCancellation = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = void 0;
-exports.calculateFare = exports.registerVehicle = exports.updateProfile = exports.registerUser = exports.checkIdentifierAvailability = exports.verifyEmailOtp = exports.sendEmailOtp = exports.sendTransactionalEmail = exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = exports.onDriverCreated = exports.onUserCreated = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.verifyTransactionPin = exports.setTransactionPin = exports.googleMapsProxy = exports.triggerExchangeRatesSync = exports.syncGlobalExchangeRates = exports.sendTargetedBroadcast = exports.deleteAccount = exports.onAgentReplied = exports.onSupportMessageCreated = void 0;
+exports.reviewCustomerVerification = exports.verifyTransactionPin = exports.setTransactionPin = exports.googleMapsProxy = exports.sendTargetedBroadcast = exports.deleteAccount = exports.onAgentReplied = exports.onSupportMessageCreated = exports.settleTransfer = exports.processWalletWithdrawal = exports.verifyBankAccount = exports.resolveBankAccount = exports.paystackBanks = exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = exports.getCyclePeriodKey = exports.resolveDynamicStreakRewards = exports.evaluateAndGrantStreakRewards = exports.backfillDriverTripHistory = exports.onTripWrittenForDriverHistory = exports.scheduledResetStreaks = exports.onTripCancelled = exports.onTripCompleted = exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = exports.submitCancellationFeedback = exports.submitTripRating = exports.onTripChatMessage = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.confirmCashCancellation = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = void 0;
+exports.calculateFare = exports.registerVehicle = exports.updateProfile = exports.registerUser = exports.checkIdentifierAvailability = exports.verifyEmailOtp = exports.sendEmailOtp = exports.sendTransactionalEmail = exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = exports.onDriverCreated = exports.onUserCreated = exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = void 0;
 const admin = __importStar(require("firebase-admin"));
 // DEPLOYMENT CREDENTIAL-PROBE GUARD.
 // `admin.initializeApp()` calls google-auth-library, which probes the GCE
@@ -100,9 +100,6 @@ var streakRewards_1 = require("./streakRewards");
 Object.defineProperty(exports, "evaluateAndGrantStreakRewards", { enumerable: true, get: function () { return streakRewards_1.evaluateAndGrantStreakRewards; } });
 Object.defineProperty(exports, "resolveDynamicStreakRewards", { enumerable: true, get: function () { return streakRewards_1.resolveDynamicStreakRewards; } });
 Object.defineProperty(exports, "getCyclePeriodKey", { enumerable: true, get: function () { return streakRewards_1.getCyclePeriodKey; } });
-var financialLimits_1 = require("./financialLimits");
-Object.defineProperty(exports, "getUserFinancialLimits", { enumerable: true, get: function () { return financialLimits_1.getUserFinancialLimits; } });
-Object.defineProperty(exports, "scheduledDailyLimitsReset", { enumerable: true, get: function () { return financialLimits_1.scheduledDailyLimitsReset; } });
 var payments_1 = require("./payments");
 Object.defineProperty(exports, "initializePayment", { enumerable: true, get: function () { return payments_1.initializePayment; } });
 Object.defineProperty(exports, "initializePaystackTopUp", { enumerable: true, get: function () { return payments_1.initializePaystackTopUp; } });
@@ -114,13 +111,6 @@ Object.defineProperty(exports, "resolveBankAccount", { enumerable: true, get: fu
 Object.defineProperty(exports, "verifyBankAccount", { enumerable: true, get: function () { return payouts_1.verifyBankAccount; } });
 Object.defineProperty(exports, "processWalletWithdrawal", { enumerable: true, get: function () { return payouts_1.processWalletWithdrawal; } });
 Object.defineProperty(exports, "settleTransfer", { enumerable: true, get: function () { return payouts_1.settleTransfer; } });
-var peerPayments_1 = require("./peerPayments");
-Object.defineProperty(exports, "lookupP2pRecipient", { enumerable: true, get: function () { return peerPayments_1.lookupP2pRecipient; } });
-Object.defineProperty(exports, "transferWalletFunds", { enumerable: true, get: function () { return peerPayments_1.transferWalletFunds; } });
-Object.defineProperty(exports, "requestSplitPayment", { enumerable: true, get: function () { return peerPayments_1.requestSplitPayment; } });
-Object.defineProperty(exports, "respondSplitPayment", { enumerable: true, get: function () { return peerPayments_1.respondSplitPayment; } });
-Object.defineProperty(exports, "settleSplitPayment", { enumerable: true, get: function () { return peerPayments_1.settleSplitPayment; } });
-Object.defineProperty(exports, "convertSeseCoins", { enumerable: true, get: function () { return peerPayments_1.convertSeseCoins; } });
 // NOTE: `onSupportTicketReply` was removed. It was bound to
 // `support_tickets/{ticketId}/messages`, a legacy collection nothing writes
 // to any more (the app and hub both use `support_chats`), so it was dead code
@@ -135,9 +125,6 @@ Object.defineProperty(exports, "deleteAccount", { enumerable: true, get: functio
 // Granular targeted push broadcast engine (admin console + inbox).
 var broadcast_1 = require("./broadcast");
 Object.defineProperty(exports, "sendTargetedBroadcast", { enumerable: true, get: function () { return broadcast_1.sendTargetedBroadcast; } });
-var exchangeRates_1 = require("./exchangeRates");
-Object.defineProperty(exports, "syncGlobalExchangeRates", { enumerable: true, get: function () { return exchangeRates_1.syncGlobalExchangeRates; } });
-Object.defineProperty(exports, "triggerExchangeRatesSync", { enumerable: true, get: function () { return exchangeRates_1.triggerExchangeRatesSync; } });
 // Google Maps Platform proxy: the only server holder of the web-services
 // key. Clients call it for autocomplete/details/geocode/directions — the
 // key never ships in client code. See googleMaps.ts for the key-delivery

@@ -14,7 +14,6 @@ import '../models/trip_models.dart';
 import '../services/trip_service.dart';
 import 'cancel_trip_dialog.dart';
 import 'mutual_profile_modal.dart';
-import 'split_request_sheet.dart';
 import 'trip_chat_screen.dart';
 import 'trip_rating_dialog.dart';
 import '../services/trip_rating_service.dart';
@@ -1692,34 +1691,6 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
                       ),
                     ],
                   ),
-                  OutlinedButton.icon(
-                    key: const Key('split_fare_button'),
-                    icon: const Icon(Icons.group_add_outlined, size: 16),
-                    label: const Text('Split Fare',
-                        style: TextStyle(fontSize: 12)),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onPressed: () async {
-                      final splitId = await SplitRequestSheet.show(
-                        context,
-                        tripId: widget.trip.tripId,
-                      );
-                      if (splitId != null && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Invites sent. The split activates once everyone accepts.',
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
                 ],
               ),
 
@@ -1866,6 +1837,14 @@ class _AcceptedDriverSheet extends StatefulWidget {
 
 class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   bool _hidePhones = false;
+  late final DraggableScrollableController _sheetController =
+      DraggableScrollableController();
+
+  @override
+  void dispose() {
+    _sheetController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -2172,6 +2151,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return DraggableScrollableSheet(
+      controller: _sheetController,
       initialChildSize: 0.38,
       minChildSize: 0.18,
       maxChildSize: 0.88,
@@ -2211,7 +2191,17 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 // Full-width grabbable header touch handle area
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {},
+                  onTap: () {
+                    if (_sheetController.isAttached) {
+                      final current = _sheetController.size;
+                      final target = current > 0.35 ? 0.18 : 0.65;
+                      _sheetController.animateTo(
+                        target,
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOutCubic,
+                      );
+                    }
+                  },
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(vertical: 2),

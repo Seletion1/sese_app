@@ -206,41 +206,6 @@ class _DriverProfileApprovalsTabState
     }
   }
 
-  void _showImage(String title, String url) {
-    if (url.isEmpty) return;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 48, 8),
-              child: Text(title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 15)),
-            ),
-            Flexible(
-              child: Image.network(url,
-                  cacheWidth: 1024,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('Could not load image.'),
-                      )),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
@@ -355,29 +320,22 @@ class _DriverProfileApprovalsTabState
                       runSpacing: 8,
                       children: [
                         if ((data['idFrontUrl'] ?? '').toString().isNotEmpty)
-                          ActionChip(
-                            avatar: const Icon(Icons.badge_outlined,
-                                size: 16),
-                            label: const Text('ID Front'),
-                            onPressed: () => _showImage('ID Front',
-                                data['idFrontUrl'].toString()),
+                          CachedDocumentThumbnailChip(
+                            imageUrl: data['idFrontUrl'].toString(),
+                            label: 'ID Front',
+                            fallbackIcon: Icons.badge_outlined,
                           ),
                         if ((data['idBackUrl'] ?? '').toString().isNotEmpty)
-                          ActionChip(
-                            avatar: const Icon(Icons.badge_outlined,
-                                size: 16),
-                            label: const Text('ID Back'),
-                            onPressed: () => _showImage('ID Back',
-                                data['idBackUrl'].toString()),
+                          CachedDocumentThumbnailChip(
+                            imageUrl: data['idBackUrl'].toString(),
+                            label: 'ID Back',
+                            fallbackIcon: Icons.badge_outlined,
                           ),
                         if ((data['selfieUrl'] ?? '').toString().isNotEmpty)
-                          ActionChip(
-                            avatar: const Icon(
-                                Icons.photo_camera_outlined,
-                                size: 16),
-                            label: const Text('Live Selfie'),
-                            onPressed: () => _showImage('Live Selfie',
-                                data['selfieUrl'].toString()),
+                          CachedDocumentThumbnailChip(
+                            imageUrl: data['selfieUrl'].toString(),
+                            label: 'Live Selfie',
+                            fallbackIcon: Icons.photo_camera_outlined,
                           ),
                       ],
                     ),

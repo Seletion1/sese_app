@@ -494,16 +494,13 @@ class _AgentApplicationDetailDialogState
             child: SizedBox(
               height: 180,
               child: url.isNotEmpty
-                  ? Image.network(
-                      url,
+                  ? CachedDocumentThumbnail(
+                      imageUrl: url,
+                      title: title,
+                      width: double.infinity,
+                      height: 180,
+                      borderRadius: 0,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const Center(
-                        child: Icon(Icons.broken_image_outlined, size: 40),
-                      ),
-                      loadingBuilder: (_, child, progress) {
-                        if (progress == null) return child;
-                        return const Center(child: CircularProgressIndicator());
-                      },
                     )
                   : const Center(
                       child: Text('No image uploaded', style: TextStyle(fontSize: 12)),

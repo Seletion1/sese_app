@@ -41,7 +41,6 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const transactionPin_1 = require("./transactionPin");
 const accountGuard_1 = require("./accountGuard");
-const financialLimits_1 = require("./financialLimits");
 const db = () => admin.firestore();
 const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== void 0 ? _a : "https://api.paystack.co";
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
@@ -307,19 +306,6 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
             throw new https_1.HttpsError("failed-precondition", "Your balance is too low for this withdrawal.");
         }
-        // Server-enforced financial limits check for withdrawals
-        await (0, financialLimits_1.assertWithdrawalAllowed)({
-            uid,
-            amountKobo,
-            currency: "NGN",
-            tx,
-        });
-        await (0, financialLimits_1.recordDailyUsage)({
-            uid,
-            type: "withdrawal",
-            amountKobo,
-            tx,
-        });
         tx.update(walletRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
             mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),

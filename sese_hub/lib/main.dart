@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,19 +18,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Enable aggressive offline persistence for instant Hub loads.
-  try {
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-    );
-  } catch (e) {
-    debugPrint('Hub Firestore persistence error: $e');
-  }
-
-  // Prime local storage cache.
-  await LocalCacheService.instance.init();
-
   if (kDebugMode) {
     debugPrint(
       'sese_hub pinned App Check debug token: '
@@ -43,16 +32,40 @@ void main() async {
       debugPrint('AppCheck pin error: $e');
     }
   }
-  // App Check is enforced on Firestore: without an activated provider
-  // (e.g. the verification queue) every read fails PERMISSION_DENIED.
-  await FirebaseAppCheck.instance.activate(
-    providerAndroid: kDebugMode
-        ? AndroidDebugProvider()
-        : const AndroidPlayIntegrityProvider(),
-    providerApple: kDebugMode
-        ? AppleDebugProvider()
-        : const AppleDeviceCheckProvider(),
-  );
+  // App Check is enforced on Firestore: MUST be activated BEFORE
+  // any Firestore settings or network calls so all requests carry attestation headers.
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? AndroidDebugProvider(debugToken: AppCheckConfig.seseHubDebugToken)
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: kDebugMode
+          ? AppleDebugProvider(debugToken: AppCheckConfig.seseHubDebugToken)
+          : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+    );
+  } catch (e) {
+    debugPrint('Hub AppCheck activate error: $e');
+  }
+
+  // Execute client-side zero-trust security & anti-tampering verification.
+  final securityResult =
+      await SecurityBootstrapService.instance.verifyAppIntegrity();
+
+  // Enable aggressive offline persistence for instant Hub loads.
+  try {
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+  } catch (e) {
+    debugPrint('Hub Firestore persistence error: $e');
+  }
+
+  // Prime local storage cache.
+  await LocalCacheService.instance.init();
+
+  // Prime server-driven assets cache in persistent storage.
+  unawaited(IconCacheService.instance.initialize());
 
   // Prime cached country code for phone and regional config fields.
   await CountryDetectionService.instance.detectCountryCode();
@@ -65,7 +78,7 @@ void main() async {
   // ignore: discarded_futures
   PushNotificationService.init(onTap: _handlePushTap);
 
-  runApp(const MyApp(showSplash: true));
+  runApp(MyApp(showSplash: true, securityResult: securityResult));
 }
 
 /// Routes hub notification taps (logged; shells resolve live streams).
@@ -77,12 +90,14 @@ class MyApp extends StatefulWidget {
   final AuthRepository? authRepository;
   final HubAccessService? accessService;
   final bool showSplash;
+  final SecurityCheckResult? securityResult;
 
   const MyApp({
     super.key,
     this.authRepository,
     this.accessService,
     this.showSplash = false,
+    this.securityResult,
   });
 
   @override
@@ -96,6 +111,18 @@ class _MyAppState extends State<MyApp> {
     // Best-effort restore of the persisted appearance (defaults to
     // ThemeMode.system, which adopts the OS Dark/Light preference).
     ThemeController.instance.load();
+
+    if (widget.securityResult?.hasViolation == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.securityResult != null) {
+          // ignore: discarded_futures
+          SecurityBootstrapService.instance.showSecurityModal(
+            context,
+            widget.securityResult!,
+          );
+        }
+      });
+    }
   }
 
   @override

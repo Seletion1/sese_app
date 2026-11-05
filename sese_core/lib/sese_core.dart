@@ -1,22 +1,14 @@
 export 'utils/safe_json.dart';
 export 'financial/financial_config.dart';
 export 'financial/financial_config_service.dart';
-export 'financial/financial_limits_config.dart';
-export 'financial/financial_limits_service.dart';
-export 'financial/exchange_rates.dart';
-export 'financial/exchange_rate_service.dart';
 export 'financial/wallet_calculation_engine.dart';
-export 'widgets/multi_currency_display.dart';
 export 'recommendations/vehicle_recommendation_config.dart';
 export 'recommendations/vehicle_recommendation_engine.dart';
 export 'recommendations/vehicle_recommendation_service.dart';
 export 'referral/referral_code.dart';
 export 'referral/referral_service.dart';
 export 'wallet/bank_service.dart';
-export 'wallet/p2p_service.dart';
 export 'wallet/payout_queue_service.dart';
-export 'wallet/sese_coin_service.dart';
-export 'wallet/split_service.dart';
 export 'wallet/transaction_pin_service.dart';
 export 'wallet/withdrawal_service.dart';
 export 'auth/auth_repository.dart';
@@ -40,6 +32,7 @@ export 'models/vehicle_verification_model.dart';
 export 'models/vehicle_catalog.dart';
 export 'services/image_compression_service.dart';
 export 'widgets/document_upload_card.dart';
+export 'widgets/cached_document_thumbnail.dart';
 // Re-export image_picker types so dependents that go through ImageCompressionService
 // don't need a direct `package:image_picker` dependency in their pubspec.
 export 'package:image_picker/image_picker.dart'
@@ -104,6 +97,8 @@ export 'widgets/in_app_call_screen.dart';
 export 'widgets/incoming_call_overlay.dart';
 export 'widgets/sese_shimmer.dart';
 export 'services/local_cache_service.dart';
+export 'services/security_bootstrap_service.dart';
+export 'services/fake_gps_guard.dart';
 export 'utils/optimistic_state.dart';
 
 /// A Calculator.

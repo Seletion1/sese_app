@@ -46,6 +46,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
   late LatLng _position;
   final SeSeMapController _mapController = SeSeMapController();
+  bool _hasShownMockWarning = false;
 
   /// Live GPS subscription feeding the blue dot + camera follow. Cancelled
   /// in dispose; never throws (platform absence keeps the seeded default).
@@ -121,6 +122,17 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           ),
         ).listen((fix) {
           if (!mounted) return;
+          if (fix.isMocked) {
+            debugPrint('CustomerHomeMapScreen: Mock Location / Fake GPS detected!');
+            if (!_hasShownMockWarning) {
+              _hasShownMockWarning = true;
+              // ignore: discarded_futures
+              FakeGpsGuard.instance.showMockLocationWarning(context).then((_) {
+                _hasShownMockWarning = false;
+              });
+            }
+            return;
+          }
           setState(() {
             _position = LatLng(fix.latitude, fix.longitude);
           });

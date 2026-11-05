@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/models/admin_application.dart';
+import 'package:sese_core/services/image_compression_service.dart';
 
 /// Service managing Agent ("Become an Admin / Work With Us") submissions,
 /// storage uploads, device fingerprinting, and hub approval workflows.
@@ -49,16 +50,18 @@ class AdminApplicationService {
   }) async {
     final ref = _storage.ref().child('admin_applications/$uid/$fileName');
     final metadata = SettableMetadata(contentType: 'image/jpeg');
-    UploadTask task;
 
+    Uint8List rawBytes;
     if (fileData is Uint8List) {
-      task = ref.putData(fileData, metadata);
+      rawBytes = fileData;
     } else if (fileData is File) {
-      task = ref.putFile(fileData, metadata);
+      rawBytes = await fileData.readAsBytes();
     } else {
       throw ArgumentError('Unsupported file format for document upload.');
     }
 
+    final compressed = await ImageCompressionService.compressBytes(rawBytes);
+    final task = ref.putData(compressed, metadata);
     final snap = await task;
     return await snap.ref.getDownloadURL();
   }

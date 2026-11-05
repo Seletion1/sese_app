@@ -41,7 +41,6 @@ const https_1 = require("firebase-functions/v2/https");
 const payouts_1 = require("./payouts");
 const transactionPin_1 = require("./transactionPin");
 const accountGuard_1 = require("./accountGuard");
-const financialLimits_1 = require("./financialLimits");
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
  *
@@ -168,12 +167,6 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
     const tripId = typeof d.tripId === "string" ? d.tripId.trim() : "";
     if (purpose === "trip_payment" && !tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required for trip payments.");
-    }
-    // Server-enforced financial limits check for wallet top-ups
-    if (purpose === "wallet_topup") {
-        await db().runTransaction(async (tx) => {
-            await (0, financialLimits_1.assertTopUpAllowed)({ uid, amountKobo, currency: "NGN", tx });
-        });
     }
     const email = (_c = request.auth.token.email) !== null && _c !== void 0 ? _c : (typeof d.email === "string" ? d.email.trim() : "");
     if (!email || !email.includes("@")) {
@@ -321,14 +314,6 @@ async function settleIntent(reference, verifiedAmountKobo) {
                 currency: "NGN",
                 note: `Recovered ₦${(recoveredKobo / 100).toLocaleString("en-NG")} of split debt from this top-up.`,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-        }
-        if (intent["purpose"] === "wallet_topup") {
-            await (0, financialLimits_1.recordDailyUsage)({
-                uid,
-                type: "topup",
-                amountKobo: verifiedAmountKobo,
-                tx,
             });
         }
         tx.update(intentRef, {

@@ -165,6 +165,10 @@ class LocationService {
             timeLimit: Duration(seconds: 8),
           ),
         );
+        if (pos.isMocked) {
+          debugPrint('LocationService: Fake GPS / Mock Location detected.');
+          return _cachedLastKnown;
+        }
         _cachedLastKnown = LatLng(pos.latitude, pos.longitude);
         return _cachedLastKnown;
       } catch (_) {

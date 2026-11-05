@@ -51,6 +51,39 @@ void main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // App Check attestation is ENFORCED on Firestore: MUST be activated BEFORE
+  // any Firestore settings or network calls so the very first request carries attestation headers.
+  if (kDebugMode) {
+    debugPrint(
+      'sese_ride pinned App Check debug token: '
+      '${AppCheckConfig.seseRideDebugToken}',
+    );
+    try {
+      await const MethodChannel('com.sesetech.sese_ride/app_check').invokeMethod(
+        'pinDebugToken',
+        {'token': AppCheckConfig.seseRideDebugToken},
+      );
+    } catch (e) {
+      debugPrint('AppCheck pin error: $e');
+    }
+  }
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: kDebugMode
+          ? AndroidDebugProvider(debugToken: AppCheckConfig.seseRideDebugToken)
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: kDebugMode
+          ? AppleDebugProvider(debugToken: AppCheckConfig.seseRideDebugToken)
+          : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+    );
+  } catch (e) {
+    debugPrint('AppCheck activate error: $e');
+  }
+
+  // Execute client-side zero-trust security & anti-tampering verification.
+  final securityResult =
+      await SecurityBootstrapService.instance.verifyAppIntegrity();
+
   // Enable aggressive offline persistence for zero latency on app launch.
   try {
     FirebaseFirestore.instance.settings = const Settings(
@@ -73,37 +106,6 @@ void main() async {
     await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(false);
   } catch (e) {
     debugPrint('Analytics init error: $e');
-  }
-
-  // App Check attestation is ENFORCED on Firestore: without an activated
-  // provider every read fails with PERMISSION_DENIED. Debug builds use the
-  // pinned debug token (see AppCheckConfig + MainActivity seeding);
-  // release builds use Play Integrity / App Attest.
-  if (kDebugMode) {
-    debugPrint(
-      'sese_ride pinned App Check debug token: '
-      '${AppCheckConfig.seseRideDebugToken}',
-    );
-    try {
-      await const MethodChannel('com.sesetech.sese_ride/app_check').invokeMethod(
-        'pinDebugToken',
-        {'token': AppCheckConfig.seseRideDebugToken},
-      );
-    } catch (e) {
-      debugPrint('AppCheck pin error: $e');
-    }
-  }
-  try {
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: kDebugMode
-          ? AndroidDebugProvider()
-          : const AndroidPlayIntegrityProvider(),
-      providerApple: kDebugMode
-          ? AppleDebugProvider()
-          : const AppleDeviceCheckProvider(),
-    );
-  } catch (e) {
-    debugPrint('AppCheck activate error: $e');
   }
 
   // Detect user's country/dial code at startup (primary: locale, fallback: timezone, default: NG).
@@ -163,7 +165,11 @@ void main() async {
   // experience. The native Android window is now a plain solid-colour fill
   // (matching system theme) so there is no double-splash; it fades seamlessly
   // into the Flutter splash logo on the first engine frame.
-  runApp(MyApp(showSplash: true, installedVersion: installedVersion));
+  runApp(MyApp(
+    showSplash: true,
+    installedVersion: installedVersion,
+    securityResult: securityResult,
+  ));
 }
 
 /// Reads the running build's version, or `''` when the platform channel is
@@ -203,12 +209,14 @@ class MyApp extends StatefulWidget {
   /// which `_AppGuard` treats as "supported" so a platform-channel failure can
   /// never lock users out of the app.
   final String? installedVersion;
+  final SecurityCheckResult? securityResult;
 
   const MyApp({
     super.key,
     this.authRepository,
     this.showSplash = false,
     this.installedVersion,
+    this.securityResult,
   });
 
   @override
@@ -221,6 +229,19 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     // Best-effort restore of the persisted theme (defaults to system).
     ThemeController.instance.load();
+
+    if (widget.securityResult?.hasViolation == true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = IncomingCallOverlay.navigatorKey.currentContext;
+        if (ctx != null && widget.securityResult != null) {
+          // ignore: discarded_futures
+          SecurityBootstrapService.instance.showSecurityModal(
+            ctx,
+            widget.securityResult!,
+          );
+        }
+      });
+    }
   }
 
   @override

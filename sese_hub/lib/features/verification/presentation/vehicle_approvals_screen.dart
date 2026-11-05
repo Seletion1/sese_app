@@ -169,83 +169,6 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
     } catch (_) {}
   }
 
-  /// Full-screen tap-to-expand viewer for any uploaded document/photo.
-  void _showImageModal(String title, String imageUrl) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 48, 8),
-                    child: Text(title,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15)),
-                  ),
-                  Flexible(
-                    child: Image.network(
-                      imageUrl,
-                      cacheWidth: 1024,
-                      fit: BoxFit.contain,
-                      loadingBuilder: (c, child, progress) =>
-                          progress == null
-                              ? child
-                              : const Padding(
-                                  padding: EdgeInsets.all(48),
-                                  child: Center(
-                                      child: CircularProgressIndicator()),
-                                ),
-                      errorBuilder: (_, _, _) => const Padding(
-                        padding: EdgeInsets.all(48),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.broken_image_outlined,
-                                size: 64, color: Colors.grey),
-                            SizedBox(height: 12),
-                            Text(
-                              'Preview unavailable — open the URL directly '
-                              'from the document chip.',
-                              textAlign: TextAlign.center,
-                              style:
-                                  TextStyle(color: Colors.grey, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: SelectableText(
-                      imageUrl,
-                      style:
-                          TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // Full operational actions for every staffer who can see this desk —
@@ -529,21 +452,11 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
             ),
           ),
           if (licenseUrl != null && licenseUrl.isNotEmpty)
-            Flexible(
-              child: TextButton(
-                onPressed: () =>
-                    _showImageModal('Vehicle License — ${veh.licensePlate}',
-                        licenseUrl!),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  visualDensity: VisualDensity.compact,
-                ),
-                child: const Text(
-                  'View License',
-                  softWrap: false,
-                  overflow: TextOverflow.visible,
-                ),
-              ),
+            CachedDocumentThumbnailChip(
+              imageUrl: licenseUrl,
+              label: 'View License',
+              title: 'Vehicle License — ${veh.licensePlate}',
+              fallbackIcon: Icons.badge_outlined,
             ),
         ],
       ),
@@ -587,11 +500,11 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
           spacing: 8,
           runSpacing: 6,
           children: entries.map((e) {
-            return ActionChip(
-              avatar: const Icon(Icons.image_outlined, size: 16),
-              label: Text(e.key),
-              onPressed: () => _showImageModal(
-                  '${veh.displayTitle} — ${e.key}', e.value),
+            return CachedDocumentThumbnailChip(
+              imageUrl: e.value,
+              label: e.key,
+              title: '${veh.displayTitle} — ${e.key}',
+              fallbackIcon: Icons.image_outlined,
             );
           }).toList(),
         );

@@ -82,11 +82,11 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
     required Function(XFile file) onPicked,
   }) async {
     try {
-      final picked = await _picker.pickImage(
+      final picked = await ImageCompressionService.pickAndCompressImage(
         source: source,
-        imageQuality: 85,
-        maxWidth: 1200,
-        maxHeight: 1200,
+        picker: _picker,
+        maxDimension: 1280,
+        quality: 80,
       );
       if (picked != null) {
         setState(() => onPicked(picked));

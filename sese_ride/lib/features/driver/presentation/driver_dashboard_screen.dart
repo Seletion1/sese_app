@@ -19,6 +19,7 @@ import '../services/driver_fleet_service.dart';
 import '../services/driver_overlay_service.dart';
 import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
+import '../services/navigation_launcher_service.dart';
 import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
 import 'widgets/driver_active_trip_card.dart';
@@ -1236,158 +1237,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) {
-        var selected = vehicles.firstWhere(
-          (v) => v.isActiveSelected,
-          orElse: () => vehicles.first,
-        );
-        final plateController = TextEditingController();
-        String? plateError;
-
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                16,
-                20,
-                MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    'Select Session Vehicle',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Choose vehicle and type its exact plate number to confirm.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 12),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: RadioGroup<VehicleModel>(
-                        groupValue: selected,
-                        onChanged: (val) {
-                          if (val != null) {
-                            setSheetState(() {
-                              selected = val;
-                              plateError = null;
-                            });
-                          }
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: vehicles.map((veh) {
-                            final isSelected = selected.id == veh.id;
-                            return RadioListTile<VehicleModel>(
-                              value: veh,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                veh.displayTitle,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              subtitle: Text(
-                                'Category: ${veh.category.displayName} '
-                                '${veh.tier != null ? "• ${veh.tier!.defaultDisplayName}" : ""}',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              secondary: Icon(
-                                veh.category == VehicleCategory.car
-                                    ? Icons.directions_car
-                                    : Icons.two_wheeler,
-                                color: isSelected
-                                    ? Theme.of(ctx).colorScheme.primary
-                                    : Colors.grey,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Confirm Plate Number:',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    key: const Key('plate_verification_input'),
-                    controller: plateController,
-                    autocorrect: false,
-                    textCapitalization: TextCapitalization.characters,
-                    decoration: InputDecoration(
-                      hintText: 'Type plate number (e.g. ${selected.licensePlate})',
-                      errorText: plateError,
-                      border: const OutlineInputBorder(),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
-                    onChanged: (_) {
-                      if (plateError != null) {
-                        setSheetState(() => plateError = null);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Cancel'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: FilledButton(
-                          key: const Key('confirm_vehicle_online_button'),
-                          onPressed: () {
-                            final typed = plateController.text
-                                .trim()
-                                .replaceAll(RegExp(r'[\s\-]'), '')
-                                .toUpperCase();
-                            final expected = selected.licensePlate
-                                .trim()
-                                .replaceAll(RegExp(r'[\s\-]'), '')
-                                .toUpperCase();
-                            if (typed != expected) {
-                              setSheetState(() {
-                                plateError =
-                                    'Plate number does not match (${selected.licensePlate})';
-                              });
-                              return;
-                            }
-                            Navigator.pop(ctx, selected);
-                          },
-                          child: const Text('Confirm & Go Online'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      builder: (ctx) => _SessionVehiclePickerSheet(vehicles: vehicles),
     );
   }
 
@@ -1947,7 +1797,27 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                       color: isDark ? Colors.white70 : Colors.black87,
                       size: 22,
                     ),
-                    onPressed: () {},
+                    onPressed: () {
+                      final isHeadingToPickup =
+                          active.status == TripStatus.driverAccepted ||
+                          active.status == TripStatus.driverArriving ||
+                          active.status == TripStatus.driverArrived;
+                      NavigationLauncherService.showNavigationChooser(
+                        context: context,
+                        destinationLat: isHeadingToPickup
+                            ? active.pickupLat
+                            : active.dropoffLat,
+                        destinationLng: isHeadingToPickup
+                            ? active.pickupLng
+                            : active.dropoffLng,
+                        destinationAddress: isHeadingToPickup
+                            ? active.pickupAddress
+                            : active.dropoffAddress,
+                        isHeadingToPickup: isHeadingToPickup,
+                        driverPosition: _driverPosition,
+                        trip: active,
+                      );
+                    },
                   ),
                 ),
               ),
@@ -3019,3 +2889,188 @@ class _DocExpiryBanner extends StatelessWidget {
     );
   }
 }
+
+// ============================================================================
+// _SessionVehiclePickerSheet — proper StatefulWidget so plateController is
+// always disposed when the bottom sheet is dismissed (fixes the TextEditingController
+// memory leak that the previous StatefulBuilder approach left unresolved).
+// ============================================================================
+
+class _SessionVehiclePickerSheet extends StatefulWidget {
+  const _SessionVehiclePickerSheet({required this.vehicles});
+  final List<VehicleModel> vehicles;
+
+  @override
+  State<_SessionVehiclePickerSheet> createState() =>
+      _SessionVehiclePickerSheetState();
+}
+
+class _SessionVehiclePickerSheetState
+    extends State<_SessionVehiclePickerSheet> {
+  late VehicleModel _selected;
+  final _plateController = TextEditingController();
+  String? _plateError;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.vehicles.firstWhere(
+      (v) => v.isActiveSelected,
+      orElse: () => widget.vehicles.first,
+    );
+  }
+
+  @override
+  void dispose() {
+    _plateController.dispose();
+    super.dispose();
+  }
+
+  void _onConfirm() {
+    final typed = _plateController.text
+        .trim()
+        .replaceAll(RegExp(r'[\s\-]'), '')
+        .toUpperCase();
+    final expected = _selected.licensePlate
+        .trim()
+        .replaceAll(RegExp(r'[\s\-]'), '')
+        .toUpperCase();
+    if (typed != expected) {
+      setState(() {
+        _plateError =
+            'Plate number does not match (${_selected.licensePlate})';
+      });
+      return;
+    }
+    Navigator.pop(context, _selected);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        16,
+        20,
+        MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const Text(
+            'Select Session Vehicle',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Choose vehicle and type its exact plate number to confirm.',
+            style: TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          Flexible(
+            child: SingleChildScrollView(
+              child: RadioGroup<VehicleModel>(
+                groupValue: _selected,
+                onChanged: (val) {
+                  if (val != null) {
+                    setState(() {
+                      _selected = val;
+                      _plateError = null;
+                    });
+                  }
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: widget.vehicles.map((veh) {
+                    final isSelected = _selected.id == veh.id;
+                    return RadioListTile<VehicleModel>(
+                      value: veh,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        veh.displayTitle,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Category: ${veh.category.displayName} '
+                        '${veh.tier != null ? "• ${veh.tier!.defaultDisplayName}" : ""}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      secondary: Icon(
+                        veh.category == VehicleCategory.car
+                            ? Icons.directions_car
+                            : Icons.two_wheeler,
+                        color: isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'Confirm Plate Number:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            key: const Key('plate_verification_input'),
+            controller: _plateController,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              hintText:
+                  'Type plate number (e.g. ${_selected.licensePlate})',
+              errorText: _plateError,
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onChanged: (_) {
+              if (_plateError != null) {
+                setState(() => _plateError = null);
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  key: const Key('confirm_vehicle_online_button'),
+                  onPressed: _onConfirm,
+                  child: const Text('Confirm & Go Online'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+

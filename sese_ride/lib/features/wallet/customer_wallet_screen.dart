@@ -3,10 +3,7 @@ import 'package:sese_core/sese_core.dart';
 
 import '../payments/payment_service.dart';
 import '../payments/top_up_sheet.dart';
-import 'p2p_transfer_sheet.dart';
 import 'withdrawal_sheet.dart';
-
-import 'sese_coin_header.dart';
 
 /// Wallet & Payments for every user (customers and drivers): live balance,
 /// Paystack top-up, and transaction history.
@@ -67,14 +64,6 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
     );
   }
 
-  Future<void> _transfer() async {
-    final name = await P2pTransferSheet.show(context, user: widget.user);
-    if (name == null || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Sent. $name has been credited.')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final displayName =
@@ -82,12 +71,6 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Wallet & Payments'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(child: SeseCoinHeader(uid: widget.user.uid)),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -110,34 +93,18 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
                     builder: (context, snap) {
                       final kobo = snap.data ?? 0;
                       _currentBalanceKobo = kobo;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            PaymentService.formatNaira(kobo / 100.0),
-                            style: const TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          MultiCurrencyDisplay.fromKobo(
-                            amountKobo: kobo,
-                            targetCurrencyCode: 'USD',
-                            baseStyle: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            inline: false,
-                          ),
-                        ],
+                      return Text(
+                        PaymentService.formatNaira(kobo / 100.0),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                        ),
                       );
                     },
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Hi $displayName, manage your funds or send money to SeSe users.',
+                    'Hi $displayName, manage your funds here.',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 16),
@@ -161,16 +128,6 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.tonalIcon(
-                      key: const Key('wallet_p2p_button'),
-                      icon: const Icon(Icons.send_to_mobile_outlined, size: 18),
-                      label: const Text('Send to User (P2P)'),
-                      onPressed: _transfer,
-                    ),
                   ),
                 ],
               ),

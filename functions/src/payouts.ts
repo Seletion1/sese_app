@@ -2,7 +2,6 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
-import { assertWithdrawalAllowed, recordDailyUsage } from "./financialLimits";
 
 const db = () => admin.firestore();
 
@@ -388,20 +387,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
           "Your balance is too low for this withdrawal."
         );
       }
-
-      // Server-enforced financial limits check for withdrawals
-      await assertWithdrawalAllowed({
-        uid,
-        amountKobo,
-        currency: "NGN",
-        tx,
-      });
-      await recordDailyUsage({
-        uid,
-        type: "withdrawal",
-        amountKobo,
-        tx,
-      });
 
       tx.update(walletRef, {
         balance: admin.firestore.FieldValue.increment(-amountKobo),

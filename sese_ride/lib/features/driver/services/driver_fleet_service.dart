@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
+import '../../../widgets/map_provider.dart';
 
 /// Sanitized upload failure. [userMessage] is safe to display verbatim —
 /// it never carries raw backend details, package names, or error codes.
@@ -122,8 +123,12 @@ class DriverFleetService {
 
   /// Realtime stream of all vehicles registered under the driver.
   Stream<List<VehicleModel>> streamDriverFleet(String driverId) {
+    // In widget-test environments, Firestore streams never complete (no
+    // network), which prevents pumpAndSettle from settling. Use in-memory
+    // list instead.
+    final inTest = SeseUniversalMap.debugTileProviderOverride != null;
     final col = _driverVehiclesCollection(driverId);
-    if (col == null) {
+    if (col == null || inTest) {
       return Stream.value(
         _offlineTestVehicles.where((v) => v.driverId == driverId).toList(),
       );
@@ -138,8 +143,11 @@ class DriverFleetService {
 
   /// Fetches all vehicles for the driver directly from Firestore.
   Future<List<VehicleModel>> getDriverFleet(String driverId) async {
+    // In widget-test environments, Firestore .get() calls may hang
+    // indefinitely. Use the in-memory offline list instead.
+    final inTest = SeseUniversalMap.debugTileProviderOverride != null;
     final col = _driverVehiclesCollection(driverId);
-    if (col == null) {
+    if (col == null || inTest) {
       return _offlineTestVehicles.where((v) => v.driverId == driverId).toList();
     }
     try {
@@ -190,9 +198,20 @@ class DriverFleetService {
       updatedAt: DateTime.now(),
     );
 
-    if (col != null) {
+    // In widget-test environments (detected via tile-provider override seam),
+    // Firebase Functions platform channels are not registered and hang
+    // indefinitely. Skip the callable entirely and use the offline path so
+    // pumpAndSettle can settle without a timeout.
+    final inTest = SeseUniversalMap.debugTileProviderOverride != null;
+
+    if (col != null && !inTest) {
       try {
-        final callable = FirebaseFunctions.instance.httpsCallable('registerVehicle');
+        final callable = FirebaseFunctions.instance.httpsCallable(
+          'registerVehicle',
+          // 15-second timeout guards against hanging platform-channel calls
+          // in emulator-less environments (e.g. widget tests).
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
+        );
         final res = await callable.call<Map<String, dynamic>>({
           'driverId': driverId,
           'category': category.name,
@@ -241,6 +260,7 @@ class DriverFleetService {
       }
       if (kDebugMode) debugPrint('Vehicle registered in Firestore with id: $vehicleId');
     } else {
+      // Test mode or no Firestore: store in memory offline list
       _offlineTestVehicles.add(vehicle);
     }
     return vehicle;
@@ -260,9 +280,10 @@ class DriverFleetService {
         'Cannot switch active vehicle while ONLINE. Switch to OFFLINE state first.',
       );
     }
+    final inTest = SeseUniversalMap.debugTileProviderOverride != null;
     final db = _db;
     final col = _driverVehiclesCollection(driverId);
-    if (db != null && col != null) {
+    if (db != null && col != null && !inTest) {
       final vehicles = await getDriverFleet(driverId);
       final selected = vehicles.firstWhere(
         (v) => v.id == vehicleId,

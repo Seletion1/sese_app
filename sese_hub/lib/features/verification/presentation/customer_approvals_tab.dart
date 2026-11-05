@@ -114,41 +114,6 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
     }
   }
 
-  void _showImage(String title, String url) {
-    if (url.isEmpty) return;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 48, 8),
-              child: Text(title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 15)),
-            ),
-            Flexible(
-              child: Image.network(url,
-                  cacheWidth: 1024,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('Could not load image.'),
-                      )),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Close'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
@@ -374,10 +339,10 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
 
   Widget _docChip(String label, IconData icon, String url) {
     if (url.isEmpty) return const SizedBox.shrink();
-    return ActionChip(
-      avatar: Icon(icon, size: 16),
-      label: Text(label),
-      onPressed: () => _showImage(label, url),
+    return CachedDocumentThumbnailChip(
+      imageUrl: url,
+      label: label,
+      fallbackIcon: icon,
     );
   }
 }

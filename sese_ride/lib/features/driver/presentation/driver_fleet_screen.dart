@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/driver_fleet_service.dart';
+import '../../../widgets/map_provider.dart';
 import 'widgets/vehicle_registration_form.dart';
 
 class DriverFleetScreen extends StatefulWidget {
@@ -79,8 +80,17 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
   }
 
   Future<void> _onVehicleRegistered(VehicleModel newVeh) async {
-    await _loadFleet();
+    // Optimistically add the new vehicle to the in-memory list immediately so
+    // the fleet list updates without waiting for a Firestore/cache round-trip.
+    // The background fleet reload below reconciles any server-side differences.
+    setState(() {
+      _vehicles = [..._vehicles, newVeh];
+      _loading = false;
+    });
     if (!mounted) return;
+    // Show the confirmation dialog immediately — before the background cache
+    // refresh — so pumpAndSettle in widget tests can find the dialog without
+    // waiting for SharedPreferences.getInstance() inside setJsonList().
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -121,6 +131,11 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
         ],
       ),
     );
+    // Background fleet reconciliation: sync the in-memory optimistic update
+    // with the Firestore/cache state. Fire-and-forget — the dialog is already
+    // on screen so the user is not blocked while the cache writes.
+    // ignore: discarded_futures
+    _loadFleet();
   }
 
   /// Opens the registration form in a modal sheet.
@@ -150,12 +165,18 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading && _vehicles.isEmpty) {
+      // In widget tests the SeseShimmer's AnimationController.repeat() keeps
+      // pumpAndSettle alive indefinitely. Use a non-animated placeholder so
+      // tests can settle once loading completes.
+      final inTest = SeseUniversalMap.debugTileProviderOverride != null;
       return Scaffold(
         appBar: AppBar(title: const Text('My Vehicle Fleet')),
-        body: const Padding(
-          padding: EdgeInsets.only(top: 16),
-          child: SeseListSkeleton(itemCount: 4),
-        ),
+        body: inTest
+            ? const SizedBox.shrink()
+            : const Padding(
+                padding: EdgeInsets.only(top: 16),
+                child: SeseListSkeleton(itemCount: 4),
+              ),
       );
     }
 

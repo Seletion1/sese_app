@@ -358,6 +358,9 @@ class DriverStreakService {
   static String _mapError(String code, String? message) {
     switch (code) {
       case 'unauthenticated':
+        if (message?.contains('App Check') == true) {
+          return 'App Check attestation failed: missing or unregistered token.';
+        }
         return 'Your session has expired. Please sign in again.';
       case 'failed-precondition':
         return message ?? 'This trip can no longer be changed.';

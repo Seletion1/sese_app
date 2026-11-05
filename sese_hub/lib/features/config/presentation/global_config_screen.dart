@@ -125,8 +125,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _agentReferralCommissionRateCtrl = TextEditingController(text: '2.0');
   final _standardReferralDurationDaysCtrl = TextEditingController(text: '365');
   final _agentReferralDurationDaysCtrl = TextEditingController(text: '547');
-  final _minConvertibleBonusCtrl = TextEditingController(text: '5000');
-  final _maxBonusThresholdCtrl = TextEditingController(text: '10000');
   final _minPayoutThresholdCtrl = TextEditingController(text: '20000');
 
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
@@ -274,8 +272,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _agentReferralCommissionRateCtrl.dispose();
     _standardReferralDurationDaysCtrl.dispose();
     _agentReferralDurationDaysCtrl.dispose();
-    _minConvertibleBonusCtrl.dispose();
-    _maxBonusThresholdCtrl.dispose();
     _minPayoutThresholdCtrl.dispose();
     _paystackPublicKeyCtrl.dispose();
     _paystackSecretKeyCtrl.dispose();
@@ -443,8 +439,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _agentReferralCommissionRateCtrl.text = (finConfig.agentReferralCommissionRate * 100).toStringAsFixed(2);
       _standardReferralDurationDaysCtrl.text = finConfig.standardReferralDurationDays.toString();
       _agentReferralDurationDaysCtrl.text = finConfig.agentReferralDurationDays.toString();
-      _minConvertibleBonusCtrl.text = finConfig.minConvertibleBonus.toStringAsFixed(0);
-      _maxBonusThresholdCtrl.text = finConfig.maxBonusThreshold.toStringAsFixed(0);
       _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
 
       // ── Populate Financial Limits panel from Firestore snapshot ──────────────
@@ -774,10 +768,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_standardReferralDurationDaysCtrl.text.trim()) ?? 365,
           agentReferralDurationDays:
               int.tryParse(_agentReferralDurationDaysCtrl.text.trim()) ?? 547,
-          minConvertibleBonus:
-              double.tryParse(_minConvertibleBonusCtrl.text.trim()) ?? 5000.0,
-          maxBonusThreshold:
-              double.tryParse(_maxBonusThresholdCtrl.text.trim()) ?? 10000.0,
           minPayoutThreshold:
               double.tryParse(_minPayoutThresholdCtrl.text.trim()) ?? 20000.0,
         ),
@@ -1012,7 +1002,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   // P2P Wallet Rules Controllers
   final _p2pMinDriverTripsCtrl = TextEditingController(text: '3');
   final _p2pMaxLimitCtrl = TextEditingController(text: '20000');
-  bool _p2pAdminOverrideEnabled = true;
+  final bool _p2pAdminOverrideEnabled = true;
 
   // Residual Referral Revenue Controls
   final _platformBaseCommissionCtrl = TextEditingController(text: '20.0');
@@ -1126,10 +1116,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           permission: secConfigWallet,
           child: sectionScroll([
             _buildFinancialConfigCard(),
-            const SizedBox(height: 20),
-            _buildP2pWalletRulesCard(),
-            const SizedBox(height: 20),
-            _buildFinancialLimitsCard(),
           ]),
         ),
         HubModuleSection(
@@ -2002,30 +1988,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                 _CappedField(
                   preferredWidth: 220,
                   child: TextFormField(
-                    controller: _minConvertibleBonusCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Min Convertible Bonus',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _maxBonusThresholdCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Auto-Convert Bonus Cap',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
                     controller: _minPayoutThresholdCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
@@ -2036,77 +1998,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   ),
                 ),
               ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildP2pWalletRulesCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.swap_horizontal_circle_outlined,
-                    color: Colors.blue),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Dynamic P2P Wallet Transfer Settings',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    softWrap: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Configures P2P receiver eligibility guards, transaction caps, and admin overrides.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _p2pMinDriverTripsCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Min Driver Trips to Receive',
-                      suffixText: 'trips',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _p2pMaxLimitCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Single Transaction P2P Limit',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Admin Override Enabled'),
-              subtitle: const Text('Allows staff/admins to send P2P transfers bypassing trip minimums.'),
-              value: _p2pAdminOverrideEnabled,
-              onChanged: (v) => setState(() => _p2pAdminOverrideEnabled = v),
             ),
           ],
         ),
@@ -3396,293 +3287,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Financial Limits & Anti-Fraud Engine Panel
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Renders the Financial Limits & Anti-Fraud Engine adjustment panel.
-  ///
-  /// All values are entered in Naira (no currency prefix — staff enter plain
-  /// numbers) and persisted to `/system_config/financial_limits` via
-  /// [_saveConfig]. The backend `financialLimits.ts` callable reads the same
-  /// document and converts limits to Kobo before enforcing them, so the Hub
-  /// panel operates entirely in human-readable Naira amounts.
-  ///
-  /// KYC-tiered fields (Unverified / Verified) map to the `verified` flag on
-  /// the user's Firestore profile; the backend selects the appropriate cap at
-  /// runtime based on the caller's KYC status.
-  Widget _buildFinancialLimitsCard() {
-    const fw = 200.0; // preferred field width — shrinks on narrow phones
-
-    /// Helper to build a consistently-styled numeric TextFormField inside a
-    /// [_CappedField] widget that constrains width on small screens.
-    Widget limField({
-      required String label,
-      required TextEditingController ctrl,
-      String suffix = '',
-      String? helper,
-    }) {
-      return _CappedField(
-        preferredWidth: fw,
-        child: TextFormField(
-          controller: ctrl,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: label,
-            suffixText: suffix,
-            helperText: helper,
-            helperMaxLines: 2,
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Header ──────────────────────────────────────────────────────
-            Row(
-              children: [
-                const Icon(Icons.shield_outlined, color: Colors.deepOrange),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Financial Limits & Anti-Fraud Engine',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    softWrap: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Server-enforced daily limits, single-transaction caps, wallet balance '
-              'ceilings, and KYC-tiered thresholds. Changes take effect immediately on '
-              'the next transaction attempt. All amounts are in Naira; the backend '
-              'converts to Kobo and scales to other currencies via the live '
-              'exchange-rate service.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-
-            // ── Global Floor Limits ──────────────────────────────────────────
-            const Text(
-              'Global Floor Limits',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                limField(
-                  label: 'Min Withdrawal',
-                  ctrl: _minWithdrawalFloorCtrl,
-                  suffix: '',
-                  helper: 'Minimum single withdrawal (all roles)',
-                ),
-                limField(
-                  label: 'Min P2P Transfer',
-                  ctrl: _minP2pTransferFloorCtrl,
-                  suffix: '',
-                  helper: 'Minimum P2P send amount (all roles)',
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // ── Customer Limits ──────────────────────────────────────────────
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              initiallyExpanded: true,
-              title: const Text(
-                'Customer Limits',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              children: [
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    limField(
-                      label: 'Min Top-up',
-                      ctrl: _custMinTopUpCtrl,
-                      helper: 'Minimum single top-up',
-                    ),
-                    limField(
-                      label: 'Max Single Top-up',
-                      ctrl: _custMaxSingleTopUpCtrl,
-                      helper: 'Cap per top-up transaction',
-                    ),
-                    limField(
-                      label: 'Max Daily Top-ups',
-                      ctrl: _custMaxDailyTopUpCountCtrl,
-                      suffix: '/ day',
-                      helper: 'Frequency cap on top-up attempts',
-                    ),
-                    limField(
-                      label: 'Balance Cap (Unverified)',
-                      ctrl: _custMaxBalanceUnverifiedCtrl,
-                      helper: 'Max wallet balance without KYC',
-                    ),
-                    limField(
-                      label: 'Balance Cap (Verified)',
-                      ctrl: _custMaxBalanceVerifiedCtrl,
-                      helper: 'Max wallet balance after KYC',
-                    ),
-                    limField(
-                      label: 'Daily P2P (Unverified)',
-                      ctrl: _custMaxDailyP2pUnverifiedCtrl,
-                      helper: 'Daily P2P send cap without KYC',
-                    ),
-                    limField(
-                      label: 'Daily P2P (Verified)',
-                      ctrl: _custMaxDailyP2pVerifiedCtrl,
-                      helper: 'Daily P2P send cap after KYC',
-                    ),
-                    limField(
-                      label: 'Daily Withdrawal (Unverified)',
-                      ctrl: _custMaxDailyWithdrawalUnverifiedCtrl,
-                      helper: 'Daily withdrawal cap without KYC',
-                    ),
-                    limField(
-                      label: 'Daily Withdrawal (Verified)',
-                      ctrl: _custMaxDailyWithdrawalVerifiedCtrl,
-                      helper: 'Daily withdrawal cap after KYC',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-            const Divider(),
-
-            // ── Driver Limits ────────────────────────────────────────────────
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text(
-                'Driver Limits',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              children: [
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    limField(
-                      label: 'Min Top-up',
-                      ctrl: _drvMinTopUpCtrl,
-                      helper: 'Minimum single top-up',
-                    ),
-                    limField(
-                      label: 'Max Single Top-up',
-                      ctrl: _drvMaxSingleTopUpCtrl,
-                      helper: 'Cap per top-up transaction',
-                    ),
-                    limField(
-                      label: 'Max Daily Top-ups',
-                      ctrl: _drvMaxDailyTopUpCountCtrl,
-                      suffix: '/ day',
-                      helper: 'Frequency cap on top-up attempts',
-                    ),
-                    limField(
-                      label: 'Balance Cap (Unverified)',
-                      ctrl: _drvMaxBalanceUnverifiedCtrl,
-                      helper: 'Max wallet balance without KYC',
-                    ),
-                    limField(
-                      label: 'Balance Cap (Verified)',
-                      ctrl: _drvMaxBalanceVerifiedCtrl,
-                      helper: 'Max wallet balance after KYC',
-                    ),
-                    limField(
-                      label: 'Daily P2P (Unverified)',
-                      ctrl: _drvMaxDailyP2pUnverifiedCtrl,
-                      helper: 'Daily P2P send cap without KYC',
-                    ),
-                    limField(
-                      label: 'Daily P2P (Verified)',
-                      ctrl: _drvMaxDailyP2pVerifiedCtrl,
-                      helper: 'Daily P2P send cap after KYC',
-                    ),
-                    limField(
-                      label: 'Daily Withdrawal (Unverified)',
-                      ctrl: _drvMaxDailyWithdrawalUnverifiedCtrl,
-                      helper: 'Daily withdrawal cap without KYC',
-                    ),
-                    limField(
-                      label: 'Daily Withdrawal (Verified)',
-                      ctrl: _drvMaxDailyWithdrawalVerifiedCtrl,
-                      helper: 'Daily withdrawal cap after KYC',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-            const Divider(),
-
-            // ── Hub Admin Limits ─────────────────────────────────────────────
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: const Text(
-                'Hub Admin Limits',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-              ),
-              children: [
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    limField(
-                      label: 'Min Top-up',
-                      ctrl: _adminMinTopUpCtrl,
-                      helper: 'Minimum single top-up',
-                    ),
-                    limField(
-                      label: 'Max Single Top-up',
-                      ctrl: _adminMaxSingleTopUpCtrl,
-                      helper: 'Cap per top-up transaction',
-                    ),
-                    limField(
-                      label: 'Max Daily Top-ups',
-                      ctrl: _adminMaxDailyTopUpCountCtrl,
-                      suffix: '/ day',
-                      helper: 'Frequency cap on top-up attempts',
-                    ),
-                    limField(
-                      label: 'Balance Cap',
-                      ctrl: _adminMaxBalanceCtrl,
-                      helper: 'Max wallet balance (admin)',
-                    ),
-                    limField(
-                      label: 'Daily P2P Cap',
-                      ctrl: _adminMaxDailyP2pCtrl,
-                      helper: 'Daily P2P send cap (admin)',
-                    ),
-                    limField(
-                      label: 'Daily Withdrawal Cap',
-                      ctrl: _adminMaxDailyWithdrawalCtrl,
-                      helper: 'Daily withdrawal cap (admin)',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 /// Fixed-preferred-width field box that shrinks to fit narrow screens.

@@ -2,8 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// Admin & Staff Hub view exposing full wallet balances (`mainWalletBalance`,
-/// `seseCoinBalance`, total) and live transaction history for any user.
+/// Admin & Staff Hub view exposing the unified wallet balance and live
+/// transaction history for any user.
+///
+/// Reads `wallets/{uid}` directly — no client-side coin/dual-wallet logic.
+/// The balance shown is the single source of truth written by Cloud Functions.
 class HubUserWalletCard extends StatelessWidget {
   final String userId;
   final FirebaseFirestore? firestore;
@@ -24,7 +27,8 @@ class HubUserWalletCard extends StatelessWidget {
 
   static String _formatNaira(double amount) {
     final intPart = amount.floor();
-    final decimalPart = ((amount - intPart) * 100).round().toString().padLeft(2, '0');
+    final decimalPart =
+        ((amount - intPart) * 100).round().toString().padLeft(2, '0');
     final formattedInt = intPart.toString().replaceAllMapped(
       RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
       (Match m) => '${m[1]},',
@@ -32,12 +36,33 @@ class HubUserWalletCard extends StatelessWidget {
     return '₦$formattedInt.$decimalPart';
   }
 
+  /// Reads the unified wallet balance from `wallets/{uid}`.
+  ///
+  /// Merges `mainWalletBalance` (Naira float) and the legacy `balance` (kobo
+  /// int) field so both old and new Firestore documents are displayed correctly.
+  Stream<double> _balanceStream() {
+    final db = _db;
+    if (db == null || userId.isEmpty) return Stream.value(0.0);
+    return db.collection('wallets').doc(userId).snapshots().map((doc) {
+      final data = doc.data();
+      if (data == null) return 0.0;
+      // Prefer the Naira float field written by recent Cloud Functions.
+      if (data['mainWalletBalance'] is num) {
+        return (data['mainWalletBalance'] as num).toDouble();
+      }
+      // Legacy documents only carry `balance` in kobo.
+      if (data['balance'] is num) {
+        return (data['balance'] as num).toDouble() / 100.0;
+      }
+      return 0.0;
+    }).handleError((Object _) => 0.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (userId.isEmpty) {
       return const SizedBox.shrink();
     }
-    final coinService = SeseCoinService(_db);
 
     return Card(
       key: Key('hub_user_wallet_card_$userId'),
@@ -47,75 +72,42 @@ class HubUserWalletCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: const [
+            const Row(
+              children: [
                 Icon(Icons.account_balance_wallet_outlined, size: 20),
                 SizedBox(width: 8),
                 Text(
-                  'User Wallet & Balances',
+                  'User Wallet & Balance',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const Divider(height: 24),
-            StreamBuilder<DualWallet>(
-              stream: coinService.walletStream(userId),
+            StreamBuilder<double>(
+              stream: _balanceStream(),
               builder: (context, snap) {
-                final wallet = snap.data ?? const DualWallet();
+                final balance = snap.data ?? 0.0;
                 return Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    color:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Column(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Main Cash Wallet:'),
-                          Text(
-                            _formatNaira(wallet.mainWalletBalance),
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                      const Text(
+                        'Wallet Balance:',
+                        style: TextStyle(fontWeight: FontWeight.w600),
                       ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: const [
-                              Text('🪙 ', style: TextStyle(fontSize: 14)),
-                              Text('SeSe Coin Bonus:'),
-                            ],
-                          ),
-                          Text(
-                            _formatNaira(wallet.seseCoinBalance),
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amber.shade900,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Total Balance:',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            _formatNaira(wallet.total),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Colors.green,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        _formatNaira(balance),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.green,
+                        ),
                       ),
                     ],
                   ),
@@ -138,7 +130,8 @@ class HubUserWalletCard extends StatelessWidget {
   Widget _buildTransactionHistory(BuildContext context) {
     final db = _db;
     if (db == null) {
-      return const Text('Firestore unavailable.', style: TextStyle(color: Colors.grey));
+      return const Text('Firestore unavailable.',
+          style: TextStyle(color: Colors.grey));
     }
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -172,7 +165,8 @@ class HubUserWalletCard extends StatelessWidget {
           itemBuilder: (context, index) {
             final data = docs[index].data();
             final type = (data['type'] ?? 'transaction').toString();
-            final label = (data['label'] ?? data['paymentReference'] ?? type).toString();
+            final label =
+                (data['label'] ?? data['paymentReference'] ?? type).toString();
             final createdAt = data['createdAt'];
             DateTime? dt;
             if (createdAt is Timestamp) dt = createdAt.toDate();
@@ -198,16 +192,20 @@ class HubUserWalletCard extends StatelessWidget {
                 color: isCredit ? Colors.green : Colors.red,
                 size: 18,
               ),
-              title: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+              title: Text(label,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500)),
               subtitle: dt != null
-                  ? Text('${dt.toLocal()}'.split('.').first, style: const TextStyle(fontSize: 11))
+                  ? Text('$dt'.split('.').first,
+                      style: const TextStyle(fontSize: 11))
                   : null,
               trailing: Text(
                 '${isCredit ? '+' : '-'}${_formatNaira(amount)}',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.bold,
-                  color: isCredit ? Colors.green.shade700 : Colors.red.shade700,
+                  color:
+                      isCredit ? Colors.green.shade700 : Colors.red.shade700,
                 ),
               ),
             );

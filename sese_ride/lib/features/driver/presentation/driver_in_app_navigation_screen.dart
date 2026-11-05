@@ -63,6 +63,7 @@ class _DriverInAppNavigationScreenState
   StreamSubscription<Position>? _positionSub;
   LatLng _currentPosition = const LatLng(0, 0);
   double _speedKmh = 0.0;
+  bool _hasShownMockWarning = false;
 
   List<LatLng> _routePoints = [];
   List<RouteStep> _routeSteps = [];
@@ -117,6 +118,17 @@ class _DriverInAppNavigationScreenState
       ),
     ).listen((pos) {
       if (!mounted) return;
+      if (pos.isMocked) {
+        debugPrint('DriverInAppNavigationScreen: Mock Location / Fake GPS detected!');
+        if (!_hasShownMockWarning) {
+          _hasShownMockWarning = true;
+          // ignore: discarded_futures
+          FakeGpsGuard.instance.showMockLocationWarning(context).then((_) {
+            _hasShownMockWarning = false;
+          });
+        }
+        return;
+      }
       final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
         _currentPosition = newPos;
@@ -425,7 +437,16 @@ class _DriverInAppNavigationScreenState
                   heroTag: 'nav_layers_btn',
                   icon: Icons.layers_outlined,
                   tooltip: 'Map layers',
-                  onTap: () {},
+                  onTap: () {
+                    final activeProvider = MapConfigController.instance.effectiveProviderType.name.toUpperCase();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Active navigation map engine: $activeProvider'),
+                        duration: const Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 _NavFab(

@@ -5,7 +5,6 @@ import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { settleTransfer } from "./payouts";
 import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
-import { assertTopUpAllowed, recordDailyUsage } from "./financialLimits";
 
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
@@ -185,13 +184,6 @@ export const initializePayment = onCall<InitializePaymentData>(
         "invalid-argument",
         "tripId is required for trip payments."
       );
-    }
-
-    // Server-enforced financial limits check for wallet top-ups
-    if (purpose === "wallet_topup") {
-      await db().runTransaction(async (tx) => {
-        await assertTopUpAllowed({ uid, amountKobo, currency: "NGN", tx });
-      });
     }
 
     const email =
@@ -376,15 +368,6 @@ async function settleIntent(
         currency: "NGN",
         note: `Recovered ₦${(recoveredKobo / 100).toLocaleString("en-NG")} of split debt from this top-up.`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    }
-
-    if (intent["purpose"] === "wallet_topup") {
-      await recordDailyUsage({
-        uid,
-        type: "topup",
-        amountKobo: verifiedAmountKobo,
-        tx,
       });
     }
 

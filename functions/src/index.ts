@@ -74,11 +74,6 @@ export {
 } from "./streakRewards";
 
 export {
-  getUserFinancialLimits,
-  scheduledDailyLimitsReset,
-} from "./financialLimits";
-
-export {
   initializePayment,
   initializePaystackTopUp,
   verifyPayment,
@@ -93,15 +88,6 @@ export {
   settleTransfer,
 } from "./payouts";
 
-export {
-  lookupP2pRecipient,
-  transferWalletFunds,
-  requestSplitPayment,
-  respondSplitPayment,
-  settleSplitPayment,
-  convertSeseCoins,
-} from "./peerPayments";
-
 // NOTE: `onSupportTicketReply` was removed. It was bound to
 // `support_tickets/{ticketId}/messages`, a legacy collection nothing writes
 // to any more (the app and hub both use `support_chats`), so it was dead code
@@ -114,11 +100,6 @@ export { deleteAccount } from "./deleteAccount";
 
 // Granular targeted push broadcast engine (admin console + inbox).
 export { sendTargetedBroadcast } from "./broadcast";
-
-export {
-  syncGlobalExchangeRates,
-  triggerExchangeRatesSync,
-} from "./exchangeRates";
 
 // Google Maps Platform proxy: the only server holder of the web-services
 // key. Clients call it for autocomplete/details/geocode/directions — the

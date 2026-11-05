@@ -229,27 +229,6 @@ service cloud.firestore {
           get(/databases/$(database)/documents/trips/$(tripId)).data.customerId == request.auth.uid);
       allow create, update, delete: if false;
     }
-    // Split-payment intents, created exclusively server-side by
-    // `requestSplitPayment` (Admin SDK). The requester and every invited
-    // co-payer may read the intent and their own part row to track status;
-    // all writes (including accept/decline) go through `respondSplitPayment`
-    // so consent and state stay transactional. Nobody can forge or mutate
-    // a split from the client.
-    match /split_payments/{splitId} {
-      allow read: if isSuperAdmin() || isOperationsAdmin() ||
-        (isAuthenticated() && resource.data.requesterId == request.auth.uid) ||
-        (isAuthenticated() && exists(/databases/$(database)/documents/split_payments/$(splitId)/parts/$(request.auth.uid)));
-      allow create, update, delete: if false;
-
-      match /parts/{userId} {
-        allow read: if isSuperAdmin() || isOperationsAdmin() ||
-          (isAuthenticated() && (
-            userId == request.auth.uid ||
-            get(/databases/$(database)/documents/split_payments/$(splitId)).data.requesterId == request.auth.uid
-          ));
-        allow create, update, delete: if false;
-      }
-    }
     match /terms_documents/{docId} {
       allow read: if isAdminAuthClaim();
       allow write: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings'));
@@ -1423,8 +1402,8 @@ service cloud.firestore {
     function isPublicSystemConfig(docId) {
       return docId in ['config', 'payments', 'gateways', 'delivery_modes',
         'referral_settings', 'referral_rates', 'dispatch_settings',
-        'ride_split', 'wallet_rules', 'kyc_rules', 'dispatch_rules',
-        'remote_keys', 'exchange_rates', 'financial_limits'];
+        'wallet_rules', 'kyc_rules', 'dispatch_rules',
+        'remote_keys'];
     }
     match /system_config/{docId} {
       allow read: if isAuthenticated() && isPublicSystemConfig(docId);

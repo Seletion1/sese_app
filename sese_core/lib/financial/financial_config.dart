@@ -5,6 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// All values are editable in sese_hub (Financial Settings tab) without an
 /// app release. Clients and Cloud Functions fall back to these compiled
 /// defaults when the document is missing/unreadable.
+///
+/// Only contains parameters relevant to the unified wallet: commission
+/// rates, minimum online balance, minimum withdrawal floor, referral
+/// configuration, and minimum payout threshold.
 class FinancialConfig {
   /// Minimum withdrawable-cash balance required for a driver to go ONLINE
   /// and receive dispatches. Default ₦1.00.
@@ -25,15 +29,11 @@ class FinancialConfig {
   /// Agent referral eligibility window in days. Default 547 (~1.5 years).
   final int agentReferralDurationDays;
 
-  /// Manual "Convert to Wallet" unlock threshold. Default ₦5,000.00.
-  final double minConvertibleBonus;
-
-  /// Auto-convert cap: entire seseCoinBalance moves to mainWalletBalance
-  /// once reached. Default ₦10,000.00.
-  final double maxBonusThreshold;
-
   /// Weekly payout-desk eligibility floor. Default ₦20,000.00.
   final double minPayoutThreshold;
+
+  /// Minimum withdrawal amount in Naira. Default ₦100.00.
+  final double minWithdrawalNaira;
 
   const FinancialConfig({
     this.minWalletBalanceToOnline = 1.0,
@@ -42,9 +42,8 @@ class FinancialConfig {
     this.agentReferralCommissionRate = 0.02,
     this.standardReferralDurationDays = 365,
     this.agentReferralDurationDays = 547,
-    this.minConvertibleBonus = 5000.0,
-    this.maxBonusThreshold = 10000.0,
     this.minPayoutThreshold = 20000.0,
+    this.minWithdrawalNaira = 100.0,
   });
 
   factory FinancialConfig.fromMap(Map<String, dynamic>? map) {
@@ -60,9 +59,8 @@ class FinancialConfig {
       agentReferralCommissionRate: d('agentReferralCommissionRate', 0.02),
       standardReferralDurationDays: i('standardReferralDurationDays', 365),
       agentReferralDurationDays: i('agentReferralDurationDays', 547),
-      minConvertibleBonus: d('minConvertibleBonus', 5000.0),
-      maxBonusThreshold: d('maxBonusThreshold', 10000.0),
       minPayoutThreshold: d('minPayoutThreshold', 20000.0),
+      minWithdrawalNaira: d('minWithdrawalNaira', 100.0),
     );
   }
 
@@ -73,9 +71,8 @@ class FinancialConfig {
         'agentReferralCommissionRate': agentReferralCommissionRate,
         'standardReferralDurationDays': standardReferralDurationDays,
         'agentReferralDurationDays': agentReferralDurationDays,
-        'minConvertibleBonus': minConvertibleBonus,
-        'maxBonusThreshold': maxBonusThreshold,
         'minPayoutThreshold': minPayoutThreshold,
+        'minWithdrawalNaira': minWithdrawalNaira,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -86,9 +83,8 @@ class FinancialConfig {
     double? agentReferralCommissionRate,
     int? standardReferralDurationDays,
     int? agentReferralDurationDays,
-    double? minConvertibleBonus,
-    double? maxBonusThreshold,
     double? minPayoutThreshold,
+    double? minWithdrawalNaira,
   }) {
     return FinancialConfig(
       minWalletBalanceToOnline:
@@ -102,9 +98,8 @@ class FinancialConfig {
           standardReferralDurationDays ?? this.standardReferralDurationDays,
       agentReferralDurationDays:
           agentReferralDurationDays ?? this.agentReferralDurationDays,
-      minConvertibleBonus: minConvertibleBonus ?? this.minConvertibleBonus,
-      maxBonusThreshold: maxBonusThreshold ?? this.maxBonusThreshold,
       minPayoutThreshold: minPayoutThreshold ?? this.minPayoutThreshold,
+      minWithdrawalNaira: minWithdrawalNaira ?? this.minWithdrawalNaira,
     );
   }
 }
@@ -161,19 +156,14 @@ class FinancialFieldMeta {
       isInt: true,
     ),
     FinancialFieldMeta(
-      key: 'minConvertibleBonus',
-      label: 'Min convertible bonus (₦)',
-      help: '"Convert to Wallet" unlocks at this SeSe Coin balance.',
-    ),
-    FinancialFieldMeta(
-      key: 'maxBonusThreshold',
-      label: 'Auto-convert cap (₦)',
-      help: 'Entire bonus auto-moves to cash wallet at this balance.',
-    ),
-    FinancialFieldMeta(
       key: 'minPayoutThreshold',
       label: 'Weekly payout floor (₦)',
       help: 'Payout Desk lists users at or above this cash balance.',
+    ),
+    FinancialFieldMeta(
+      key: 'minWithdrawalNaira',
+      label: 'Minimum withdrawal (₦)',
+      help: 'Withdrawal rejected below this amount.',
     ),
   ];
 }
