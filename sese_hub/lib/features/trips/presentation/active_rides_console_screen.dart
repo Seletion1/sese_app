@@ -506,9 +506,9 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final fareAmount = (data['fareAmount'] is num) ? (data['fareAmount'] as num).toDouble() : 0.0;
     final customerName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
     final driverName = (data['driverName'] ?? data['driver']?['name'] ?? 'Unassigned').toString();
-    final deliveryPin = (data['deliveryPin'] ?? data['order']?['deliveryPin'] ?? '').toString();
     final isSplit = data['isSplitPayment'] == true || data['paymentSplit'] != null;
-    final requirePin = data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
+    final requirePin = data['deliveryPinRequired'] == true || data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
+    final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
     final isScheduled = data['isScheduled'] == true || status.toLowerCase().contains('scheduled');
     final scheduledDate = _parseDate(data['scheduledPickupTime'] ?? data['scheduledAt']);
     final pickup = (data['pickupAddress'] ?? 'Pickup').toString();
@@ -603,24 +603,40 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(
-                    color: requirePin || deliveryPin.isNotEmpty ? Colors.amber.shade100 : Colors.grey.shade200,
+                    color: isPinVerified
+                        ? Colors.green.shade100
+                        : (requirePin ? Colors.amber.shade100 : Colors.grey.shade200),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: requirePin || deliveryPin.isNotEmpty ? Colors.amber.shade700 : Colors.grey.shade400),
+                    border: Border.all(
+                      color: isPinVerified
+                          ? Colors.green.shade700
+                          : (requirePin ? Colors.amber.shade700 : Colors.grey.shade400),
+                    ),
                   ),
                   child: Column(
                     children: [
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.lock, size: 14, color: Colors.amber.shade900),
+                          Icon(
+                            Icons.lock,
+                            size: 14,
+                            color: isPinVerified
+                                ? Colors.green.shade900
+                                : (requirePin ? Colors.amber.shade900 : Colors.grey.shade700),
+                          ),
                           const SizedBox(width: 4),
                           Text(
-                            deliveryPin.isNotEmpty ? deliveryPin : (requirePin ? 'PIN REQ' : 'PIN OFF'),
+                            isPinVerified
+                                ? 'VERIFIED'
+                                : (requirePin ? 'PIN REQ' : 'PIN OFF'),
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2,
-                              color: Colors.amber.shade900,
+                              color: isPinVerified
+                                  ? Colors.green.shade900
+                                  : (requirePin ? Colors.amber.shade900 : Colors.grey.shade700),
                             ),
                           ),
                         ],
@@ -661,8 +677,8 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final driverName = (data['driverName'] ?? data['driver']?['name'] ?? 'Unassigned').toString();
     final driverPhone = (data['driverPhone'] ?? 'N/A').toString();
     final vehiclePlate = (data['vehiclePlate'] ?? data['licensePlate'] ?? 'N/A').toString();
-    final deliveryPin = (data['deliveryPin'] ?? data['order']?['deliveryPin'] ?? 'None').toString();
-    final requirePin = data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
+    final requirePin = data['deliveryPinRequired'] == true || data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
+    final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
     final isScheduled = data['isScheduled'] == true || (data['status'] ?? '').toString().toLowerCase().contains('scheduled');
     final scheduledDate = _parseDate(data['scheduledPickupTime'] ?? data['scheduledAt']);
     final pickup = (data['pickupAddress'] ?? 'Pickup address').toString();
@@ -717,34 +733,55 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                                 ),
                                 const SizedBox(height: 2),
-                                Text(
-                                  requirePin || deliveryPin != 'None'
-                                      ? 'CUSTOMER PIN: $deliveryPin'
-                                      : 'PIN Protection is not required for this trip.',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 2.0,
-                                    color: Colors.amber.shade900,
+                                if (!requirePin)
+                                  Text(
+                                    'PIN Protection is not required for this trip.',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  )
+                                else
+                                  FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                    future: _db.collection('delivery_pins').doc(tripId).get(),
+                                    builder: (context, snapshot) {
+                                      final pin = (snapshot.data?.data()?['pin'] ?? '').toString();
+                                      final pinDisplay = pin.isNotEmpty ? pin : (snapshot.connectionState == ConnectionState.waiting ? 'Loading...' : 'None');
+                                      return Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              'CUSTOMER PIN: $pinDisplay${isPinVerified ? ' (VERIFIED)' : ''}',
+                                              style: TextStyle(
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 1.5,
+                                                color: isPinVerified ? Colors.green.shade900 : Colors.amber.shade900,
+                                              ),
+                                            ),
+                                          ),
+                                          if (pin.isNotEmpty)
+                                            IconButton.filledTonal(
+                                              icon: const Icon(Icons.copy),
+                                              tooltip: 'Copy Security PIN',
+                                              onPressed: () {
+                                                Clipboard.setData(ClipboardData(text: pin));
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text('PIN $pin copied to clipboard!'),
+                                                    backgroundColor: Colors.green.shade800,
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                        ],
+                                      );
+                                    },
                                   ),
-                                ),
                               ],
                             ),
                           ),
-                          if (deliveryPin.isNotEmpty && deliveryPin != 'None')
-                            IconButton.filledTonal(
-                              icon: const Icon(Icons.copy),
-                              tooltip: 'Copy Security PIN',
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: deliveryPin));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('PIN $deliveryPin copied to clipboard!'),
-                                    backgroundColor: Colors.green.shade800,
-                                  ),
-                                );
-                              },
-                            ),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -761,7 +798,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'Support Operator Hotline Guide: If the customer is temporarily unreachable at pickup or drop-off, verify the driver\'s registered identity and verbally provide this 4-digit PIN ($deliveryPin) to authorize order handover.',
+                                'Support Operator Hotline Guide: If the customer is temporarily unreachable at pickup or drop-off, verify the driver\'s registered identity and verbally provide the 4-digit PIN displayed above to authorize order handover.',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: Colors.brown.shade900,

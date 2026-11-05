@@ -752,8 +752,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             name: customerName,
             fullName: customerName,
             phone: customerPhone,
-        }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, deliveryPin: pinCode, order: {
-            deliveryPin: pinCode,
+        }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, order: {
             requireDeliveryPin: isPinRequired,
         } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_1 = (_0 = d.vehicleCategory) !== null && _0 !== void 0 ? _0 : d.category) !== null && _1 !== void 0 ? _1 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
         paymentMode,

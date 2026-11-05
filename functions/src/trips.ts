@@ -915,9 +915,7 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     ...maskedPhoneMap,
     deliveryPinRequired: isPinRequired,
     deliveryPinVerified: !isPinRequired,
-    deliveryPin: pinCode,
     order: {
-      deliveryPin: pinCode,
       requireDeliveryPin: isPinRequired,
     },
     ...(splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {}),

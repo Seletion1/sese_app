@@ -224,7 +224,7 @@ service cloud.firestore {
     // so there is deliberately no driver branch here. `verifyDeliveryPin`
     // reads it via Admin SDK.
     match /delivery_pins/{tripId} {
-      allow read: if isSuperAdmin() || isOperationsAdmin() ||
+      allow read: if isSuperAdmin() || isOperationsAdmin() || isHubStaff() ||
         (isAuthenticated() &&
           get(/databases/$(database)/documents/trips/$(tripId)).data.customerId == request.auth.uid);
       allow create, update, delete: if false;

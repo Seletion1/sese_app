@@ -478,7 +478,8 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
                       final dropoff = (t['dropoffAddress'] ?? 'Dropoff').toString();
                       final date = _parseDate(t['createdAt']);
                       final driverName = (t['driverName'] ?? t['driver']?['name'] ?? 'Unassigned').toString();
-                      final pin = (t['deliveryPin'] ?? t['order']?['deliveryPin'] ?? '').toString();
+                      final requirePin = t['deliveryPinRequired'] == true || t['requireDeliveryPin'] == true || t['forceDeliveryPinSystemWide'] == true;
+                      final isPinVerified = t['deliveryPinVerified'] == true || t['deliveryPinSkipped'] == true;
 
                       return Card(
                         margin: const EdgeInsets.symmetric(vertical: 5),
@@ -534,21 +535,21 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  if (pin.isNotEmpty) ...[
+                                  if (requirePin) ...[
                                     const SizedBox(width: 8),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.amber.shade100,
+                                        color: isPinVerified ? Colors.green.shade100 : Colors.amber.shade100,
                                         borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.amber.shade600),
+                                        border: Border.all(color: isPinVerified ? Colors.green.shade600 : Colors.amber.shade600),
                                       ),
                                       child: Text(
-                                        'PIN: $pin',
+                                        isPinVerified ? 'PIN VERIFIED' : 'PIN REQ',
                                         style: TextStyle(
                                           fontSize: 10,
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.amber.shade900,
+                                          color: isPinVerified ? Colors.green.shade900 : Colors.amber.shade900,
                                         ),
                                       ),
                                     ),

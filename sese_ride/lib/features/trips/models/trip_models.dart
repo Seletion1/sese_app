@@ -731,7 +731,7 @@ class ActiveTrip {
           n(map['splitPayment']?['senderShare'])?.toDouble(),
       receiverShareAmount: n(map['receiverShareAmount'])?.toDouble() ??
           n(map['splitPayment']?['receiverShare'])?.toDouble(),
-      deliveryPin: (map['deliveryPin'] ?? map['order']?['deliveryPin'])?.toString(),
+      deliveryPin: null,
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
           map['forceDeliveryPinSystemWide'] == true,

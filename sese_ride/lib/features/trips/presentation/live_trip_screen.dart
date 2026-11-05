@@ -1396,15 +1396,21 @@ class _BidCard extends StatelessWidget {
   }
 }
 
+Stream<DocumentSnapshot<Map<String, dynamic>>> _deliveryPinStream(String tripId) {
+  try {
+    return FirebaseFirestore.instance
+        .collection('delivery_pins')
+        .doc(tripId)
+        .snapshots();
+  } catch (_) {
+    return const Stream.empty();
+  }
+}
+
 // ── Delivery PIN banner ────────────────────────────────────────────────────────
 
 /// Prominently surfaces the 4-digit delivery security PIN to the customer
 /// so they can share it with the driver at drop-off.
-///
-/// Appears only when [ActiveTrip.deliveryPinRequired] is true and the trip
-/// has a server-issued [ActiveTrip.deliveryPin]. The server generates this
-/// PIN inside `createTrip` when the customer opted-in or when the Hub's
-/// `forceDeliveryPinSystemWide` flag is active.
 class _DeliveryPinBanner extends StatelessWidget {
   final String pin;
 
@@ -1694,11 +1700,19 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
                 ],
               ),
 
-              if (widget.trip.deliveryPinRequired &&
-                  widget.trip.deliveryPin != null &&
-                  widget.trip.deliveryPin!.trim().isNotEmpty) ...[
+              if (widget.trip.deliveryPinRequired && !widget.trip.deliveryPinVerified) ...[
                 const SizedBox(height: 12),
-                _DeliveryPinBanner(pin: widget.trip.deliveryPin!),
+                StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: _deliveryPinStream(widget.trip.tripId),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData || snapshot.data?.data() == null) {
+                      return const SizedBox.shrink();
+                    }
+                    final pin = (snapshot.data!.data()?['pin'] ?? '').toString();
+                    if (pin.isEmpty) return const SizedBox.shrink();
+                    return _DeliveryPinBanner(pin: pin);
+                  },
+                ),
               ],
 
               // Pending driver bids carousel
@@ -2441,6 +2455,23 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 // Payment Breakdown Banner
                 if (_buildCustomerPaymentBreakdown(trip) != null) ...[
                   _buildCustomerPaymentBreakdown(trip)!,
+                  const SizedBox(height: 8),
+                ],
+
+                // Delivery Security PIN Banner
+                if (trip.deliveryPinRequired && !trip.deliveryPinVerified) ...[
+                  StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: _deliveryPinStream(trip.tripId),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData || snapshot.data?.data() == null) {
+                        return const SizedBox.shrink();
+                      }
+                      final pin = (snapshot.data!.data()?['pin'] ?? '').toString();
+                      if (pin.isEmpty) return const SizedBox.shrink();
+                      return _DeliveryPinBanner(pin: pin);
+                    },
+                  ),
+                  const SizedBox(height: 8),
                 ],
 
                 // d. Route Details
