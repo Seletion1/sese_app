@@ -549,8 +549,11 @@ service cloud.firestore {
       );
       // On creation, driver cannot pre-seed approved verification or inflated trip stats
       allow create: if isAuthenticated() && request.auth.uid == userId && isNotSuspended() &&
-        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING']) &&
+        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
+        (!request.resource.data.keys().hasAny(['isProfileVerified']) || request.resource.data.isProfileVerified == false) &&
+        (!request.resource.data.keys().hasAny(['isVehicleVerified']) || request.resource.data.isVehicleVerified == false) &&
+        (!request.resource.data.keys().hasAny(['canGoOnline']) || request.resource.data.canGoOnline == false) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0);
       // Owner may update their profile, but cannot self-approve verification or alter safety/ratings
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidDriverProfileUpdate()) ||
@@ -700,7 +703,8 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['isSuspended']) || request.resource.data.isSuspended == false) &&
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
-        (!request.resource.data.keys().hasAny(['role', 'cancelStats', 'balance', 'mainWalletBalance']));
+        (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['customer', 'user']) &&
+        (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
