@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
@@ -140,6 +141,33 @@ class LiveTripScreen extends StatelessWidget {
                 onClose: () => _handleBackPress(context),
               );
             }
+
+            String? currentUid;
+            try {
+              currentUid = FirebaseAuth.instance.currentUser?.uid;
+            } catch (_) {}
+
+            final isCustomer = currentUid == null || trip.customerId == currentUid;
+            final isAssignedDriver = currentUid != null &&
+                (trip.driver?.driverId == currentUid || trip.driverId == currentUid) &&
+                (trip.status == TripStatus.driverAccepted ||
+                    trip.status == TripStatus.driverArriving ||
+                    trip.status == TripStatus.driverArrived ||
+                    trip.status == TripStatus.inProgress ||
+                    trip.status == TripStatus.cancelledWaitingCashSettlement) &&
+                !trip.isDriverSkipped(currentUid) &&
+                !trip.isDriverRejected(currentUid);
+
+            // Read-only safety guard: if viewer is authenticated as a non-customer user and NOT the assigned driver on an active trip
+            // (e.g. an unassigned driver opening an old, skipped, or broadcast trip link),
+            // render a static read-only summary view rather than customer dispatch controls.
+            if (currentUid != null && !isCustomer && !isAssignedDriver) {
+              return _ReadOnlyTripSummaryView(
+                trip: trip,
+                onClose: () => _handleBackPress(context),
+              );
+            }
+
             if (trip.status == TripStatus.completed) {
               return _CompletedTripView(trip: trip);
             }
@@ -1142,7 +1170,7 @@ class _BidCarouselState extends State<_BidCarousel> {
       stream: widget.repository.bidsStream(widget.trip.tripId),
       builder: (context, snapshot) {
         final allPendingBids = snapshot.data
-                ?.where((b) => b.status == BidStatus.pending)
+                ?.where((b) => b.status == BidStatus.pending && !b.isExpired)
                 .toList() ??
             const [];
 
@@ -1191,6 +1219,7 @@ class _BidCarouselState extends State<_BidCarousel> {
                 itemBuilder: (ctx, i) {
                   final bid = visibleBids[i];
                   return _BidCard(
+                    key: ValueKey('bid_card_${bid.bidId}'),
                     bid: bid,
                     onAccept: () => _accept(ctx, bid.driverId),
                     onReject: () => _reject(ctx, bid.driverId),
@@ -1227,29 +1256,65 @@ class _BidCarouselState extends State<_BidCarousel> {
   }
 }
 
-/// Compact multi-bid row item card (Requirement 2 & Screenshot reference).
-class _BidCard extends StatelessWidget {
+/// Compact multi-bid row item card with live ticking synchronized countdown.
+class _BidCard extends StatefulWidget {
   final BidModel bid;
   final VoidCallback onAccept;
   final VoidCallback onReject;
 
   const _BidCard({
+    super.key,
     required this.bid,
     required this.onAccept,
     required this.onReject,
   });
 
   @override
+  State<_BidCard> createState() => _BidCardState();
+}
+
+class _BidCardState extends State<_BidCard> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTicker();
+  }
+
+  void _startTicker() {
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (widget.bid.isExpired) {
+        timer.cancel();
+      }
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (widget.bid.isExpired) return const SizedBox.shrink();
+    final remainingSec = widget.bid.remainingSeconds;
     final cs = Theme.of(context).colorScheme;
-    final fareLabel = bid.fareFormatted.isNotEmpty
-        ? bid.fareFormatted
-        : '₦${bid.offeredFare.toStringAsFixed(0)}';
+    final fareLabel = widget.bid.fareFormatted.isNotEmpty
+        ? widget.bid.fareFormatted
+        : '₦${widget.bid.offeredFare.toStringAsFixed(0)}';
 
     final vehicleDetails = [
-      if (bid.etaMinutes != null) '~${bid.etaMinutes} min away',
-      bid.vehicleModel,
-      bid.plateNumber,
+      if (widget.bid.etaMinutes != null) '~${widget.bid.etaMinutes} min away',
+      widget.bid.vehicleModel,
+      widget.bid.plateNumber,
     ].where((s) => s.trim().isNotEmpty).join(' · ');
 
     return Card(
@@ -1266,13 +1331,13 @@ class _BidCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Row 1: Avatar + Driver Name + Bid Price directly alongside
+            // Row 1: Avatar + Driver Name + Bid Price & Live Countdown
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 UserAvatar(
-                  displayName: bid.driverName,
-                  photoUrl: bid.photoUrl,
+                  displayName: widget.bid.driverName,
+                  photoUrl: widget.bid.photoUrl,
                   radius: 16,
                 ),
                 const SizedBox(width: 8),
@@ -1285,7 +1350,7 @@ class _BidCard extends StatelessWidget {
                           children: [
                             Flexible(
                               child: Text(
-                                bid.driverName,
+                                widget.bid.driverName,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
@@ -1293,7 +1358,7 @@ class _BidCard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (bid.isVerifiedDriver) ...[
+                            if (widget.bid.isVerifiedDriver) ...[
                               const SizedBox(width: 4),
                               const Icon(
                                 Icons.verified,
@@ -1305,13 +1370,52 @@ class _BidCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        fareLabel,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: AppColors.seseGold,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: remainingSec <= 3
+                                  ? Colors.red.withValues(alpha: 0.15)
+                                  : AppColors.seseGold.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.timer_outlined,
+                                  size: 11,
+                                  color: remainingSec <= 3
+                                      ? Colors.red
+                                      : AppColors.seseGold,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${remainingSec}s',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: remainingSec <= 3
+                                        ? Colors.red
+                                        : AppColors.seseGold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            fareLabel,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: AppColors.seseGold,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1320,15 +1424,16 @@ class _BidCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
 
-            // Row 2: Distance, Vehicle Model & Plate details on bottom secondary line
+            // Row 2: Distance, Vehicle Model & Plate details
             Row(
               children: [
-                if (bid.rating > 0) ...[
+                if (widget.bid.rating > 0) ...[
                   const Icon(Icons.star, size: 12, color: Colors.amber),
                   const SizedBox(width: 2),
                   Text(
-                    bid.rating.toStringAsFixed(1),
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                    widget.bid.rating.toStringAsFixed(1),
+                    style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(width: 6),
                   Text('·', style: TextStyle(color: cs.onSurfaceVariant)),
@@ -1355,7 +1460,8 @@ class _BidCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: onAccept,
+                    key: Key('accept_bid_button_${widget.bid.driverId}'),
+                    onPressed: widget.onAccept,
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
@@ -1366,13 +1472,16 @@ class _BidCard extends StatelessWidget {
                       ),
                     ),
                     icon: const Icon(Icons.check, size: 14),
-                    label: const Text('Accept', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    label: const Text('Accept',
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: onReject,
+                    key: Key('reject_bid_button_${widget.bid.driverId}'),
+                    onPressed: widget.onReject,
                     style: OutlinedButton.styleFrom(
                       padding: EdgeInsets.zero,
                       minimumSize: const Size(0, 32),
@@ -3247,6 +3356,185 @@ class _WaitingFeeSettlementSheet extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Read-only trip summary displayed when a non-customer and non-assigned driver
+/// views a live/historical trip (e.g. from history logs or deep-links).
+/// Strictly prevents any state leakage or attempts to perform customer/driver actions.
+class _ReadOnlyTripSummaryView extends StatelessWidget {
+  final ActiveTrip trip;
+  final VoidCallback onClose;
+
+  const _ReadOnlyTripSummaryView({
+    required this.trip,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fareStr = trip.fareFormatted.isNotEmpty
+        ? trip.fareFormatted
+        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: theme.cardColor,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.receipt_long, color: AppColors.seseGold),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Trip Summary',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Read-Only',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Colors.blue),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'This is a read-only record. You are not actively assigned to manage this trip.',
+                        style: TextStyle(fontSize: 12, color: Colors.blue),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    trip.serviceType == 'ride' ? 'Ride-Hailing' : 'Package Delivery',
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  ),
+                  Text(
+                    fareStr,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                      color: AppColors.seseGold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Icon(Icons.circle, size: 10, color: Colors.green),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Pickup', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(
+                          trip.pickupAddress.isEmpty ? 'Pickup location' : trip.pickupAddress,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Icon(Icons.location_on, size: 12, color: Colors.red),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Destination', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(
+                          trip.dropoffAddress.isEmpty ? 'Drop-off destination' : trip.dropoffAddress,
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: onClose,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text('Back'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

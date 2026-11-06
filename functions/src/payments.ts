@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 
 import { settleTransfer } from "./payouts";
@@ -48,37 +48,8 @@ async function paystackSecret(): Promise<string> {
     return envSecret.trim();
   }
 
-  const docPaths = [
-    "system_config/remote_keys",
-    "system_config/financial",
-    "system_config/keys",
-    "system_configs/global_default",
-  ];
-
-  for (const docPath of docPaths) {
-    try {
-      const snap = await db().doc(docPath).get();
-      if (snap.exists) {
-        const data = snap.data();
-        if (data) {
-          const raw =
-            data.paystackSecretKey ??
-            data.paystack_secret_key ??
-            data.secret_key;
-          if (typeof raw === "string" && raw.trim()) {
-            return raw.trim();
-          }
-        }
-      }
-    } catch (e) {
-      console.error(`Failed to read ${docPath} for paystackSecretKey:`, e);
-    }
-  }
-
-  // No valid secret anywhere: fail fast with a machine-readable code instead
-  // of calling Paystack with a dead key (which surfaces as a confusing
-  // "Invalid key"). Rotate/paste the current test secret from the Paystack
-  // dashboard into `functions/.env` as PAYSTACK_API_KEY and redeploy.
+  // Paystack secret key must NOT be read from client-accessible Firestore documents.
+  // It is strictly populated via environment variables or Secret Manager.
   throw new HttpsError("failed-precondition", "PAYSTACK_NOT_CONFIGURED");
 }
 
@@ -468,7 +439,15 @@ export const paystackWebhook = onRequest(async (req, res) => {
     (req as unknown as { rawBody?: Buffer }).rawBody ??
     Buffer.from(JSON.stringify(req.body ?? {}));
   const expected = createHmac("sha512", secret).update(rawBody).digest("hex");
-  if (!signature || signature !== expected) {
+
+  const sigBuf = Buffer.from(signature, "hex");
+  const expBuf = Buffer.from(expected, "hex");
+  if (
+    !signature ||
+    sigBuf.length === 0 ||
+    sigBuf.length !== expBuf.length ||
+    !timingSafeEqual(sigBuf, expBuf)
+  ) {
     res.status(401).send("Invalid signature");
     return;
   }

@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
+import 'driver_active_bid_lock_card.dart';
 import 'low_balance_dialog.dart';
 import 'verified_customer_badge.dart';
 
@@ -25,6 +27,9 @@ class OrderCard extends StatefulWidget {
   final String currencySymbol;
   final DriverStreakService streakService;
 
+  /// Active pending unexpired bid for this driver across any trip, if any.
+  final BidModel? activeDriverBid;
+
   /// Tag from `[DriverStreakState.streakLabel]` for the driver's current
   /// commission tier, shown as a small badge on the card.
   final String streakTag;
@@ -38,6 +43,7 @@ class OrderCard extends StatefulWidget {
     required this.driverPosition,
     required this.currencySymbol,
     required this.streakService,
+    this.activeDriverBid,
     required this.streakTag,
     this.tripRepository,
   });
@@ -627,52 +633,78 @@ class _OrderCardState extends State<OrderCard> {
               ],
             ),
             const SizedBox(height: 10),
-            // ── CTAs: Accept + Bid Custom Fare ────────────────────────────
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: FilledButton.icon(
-                    icon: _sending
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.check),
-                    label: Text(_sending ? 'Claiming…' : 'Accept'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      minimumSize: const Size.fromHeight(44),
-                    ),
-                    onPressed: (_sending || _bidding) ? null : _accept,
+            // ── CTAs: Accept + Bid Custom Fare / Driver Lockout Card ──────
+            if (widget.activeDriverBid != null && !widget.activeDriverBid!.isExpired) ...[
+              if (widget.activeDriverBid!.tripId == trip.tripId)
+                DriverActiveBidLockCard(activeBid: widget.activeDriverBid!)
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.lock_clock, size: 16, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Bidding locked (${widget.activeDriverBid!.remainingSeconds}s remaining on active bid)',
+                          style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: OutlinedButton.icon(
-                    icon: _bidding
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.edit_note, size: 18),
-                    label: Text(
-                      _bidding ? 'Bidding…' : 'Bid Fare',
-                      style: const TextStyle(fontSize: 12),
+            ] else ...[
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: FilledButton.icon(
+                      icon: _sending
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.check),
+                      label: Text(_sending ? 'Claiming…' : 'Accept'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.green.shade700,
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      onPressed: (_sending || _bidding) ? null : _accept,
                     ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                      side: BorderSide.none,
-                      backgroundColor:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                    ),
-                    onPressed: (_sending || _bidding) ? null : _showBidDialog,
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton.icon(
+                      icon: _bidding
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.edit_note, size: 18),
+                      label: Text(
+                        _bidding ? 'Bidding…' : 'Bid Fare',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                        side: BorderSide.none,
+                        backgroundColor:
+                            Theme.of(context).colorScheme.surfaceContainerHighest,
+                      ),
+                      onPressed: (_sending || _bidding) ? null : _showBidDialog,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

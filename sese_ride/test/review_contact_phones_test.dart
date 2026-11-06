@@ -94,6 +94,10 @@ class _FakeTripRepository implements TripRepository {
 
   @override
   Stream<List<BidModel>> bidsStream(String tripId) => Stream.value(const []);
+
+  @override
+  Stream<BidModel?> activeDriverBidStream(String driverId) =>
+      Stream.value(null);
 }
 
 void main() {

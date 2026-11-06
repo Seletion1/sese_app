@@ -32,12 +32,14 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateFareToken = generateFareToken;
 exports.verifyFareToken = verifyFareToken;
 const crypto = __importStar(require("crypto"));
-const FARE_SIGNING_SECRET = (_a = process.env.FARE_SIGNING_SECRET) !== null && _a !== void 0 ? _a : "sese-default-insecure-fare-token-secret-change-me";
+if (!process.env.FARE_SIGNING_SECRET) {
+    throw new Error("FARE_SIGNING_SECRET is required");
+}
+const FARE_SIGNING_SECRET = process.env.FARE_SIGNING_SECRET;
 /**
  * Creates a signed base64 HMAC-SHA256 token encoding the authoritative fare calculation.
  * The client cannot forge or alter the fares without invalidating the token.

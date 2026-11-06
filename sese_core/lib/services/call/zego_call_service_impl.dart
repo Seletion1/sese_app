@@ -105,7 +105,7 @@ class ZegoCallServiceImpl implements ICallService {
     if (!config.hasValidZegoCredentials) {
       _setCallState(CallState.error);
       throw StateError(
-        'ZegoCloud App ID and App Sign must be configured in Hub Settings > Calling Configuration before initiating calls.',
+        'ZegoCloud App ID must be configured in Hub Settings > Calling Configuration before initiating calls.',
       );
     }
 
@@ -168,7 +168,7 @@ class ZegoCallServiceImpl implements ICallService {
     final config = _configRepo.currentConfig;
     if (!config.hasValidZegoCredentials) {
       _setCallState(CallState.error);
-      throw StateError('ZegoCloud App ID and App Sign must be configured in Hub Settings.');
+      throw StateError('ZegoCloud App ID must be configured in Hub Settings.');
     }
 
     final micStatus = await Permission.microphone.request();

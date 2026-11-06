@@ -46,6 +46,7 @@ export {
   increaseTripFare,
   keepSearchingTrip,
   verifyDeliveryPin,
+  skipDeliveryPin,
   hubForceCompleteTrip,
   hubCancelRefundTrip,
   hubManualPinBypass,
@@ -55,6 +56,8 @@ export {
 } from "./trips";
 
 export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
+
+export { getZegoToken } from "./callTokens";
 
 export {
   onTripCompleted,

@@ -32,6 +32,7 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendTargetedBroadcast = void 0;
 const admin = __importStar(require("firebase-admin"));
@@ -62,7 +63,7 @@ const https_1 = require("firebase-functions/v2/https");
  * get the inbox record (pull) but no push.
  */
 const db = () => admin.firestore();
-const OWNER_EMAIL = "bamiduromichael2@gmail.com";
+const OWNER_EMAIL = ((_a = process.env.OWNER_EMAIL) !== null && _a !== void 0 ? _a : "").trim().toLowerCase();
 const BROADCAST_PERM = "broadcast_notifications";
 /** Hard fan-out ceiling per broadcast (FCM multicast limit is 500). */
 const MAX_TARGETS = 500;

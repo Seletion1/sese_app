@@ -71,6 +71,8 @@ interface DispatchTuning {
   recycleWindowMs: number;
   maxRecycles: number;
   maxOfferBoostPct: number;
+  bidCountdownMs: number;
+  bidCountdownSec: number;
 }
 
 const DEFAULT_TUNING: DispatchTuning = {
@@ -84,6 +86,8 @@ const DEFAULT_TUNING: DispatchTuning = {
   recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
   maxRecycles: DEFAULT_MAX_RECYCLES,
   maxOfferBoostPct: 100,
+  bidCountdownMs: 10 * 1000,
+  bidCountdownSec: 10,
 };
 
 let tuningCache: { at: number; value: DispatchTuning } | null = null;
@@ -113,6 +117,9 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       1,
       50
     );
+    const bidCountdownSec = Math.round(
+      num(d.bidCountdownSec ?? d.bidCountdownSeconds, 10, 5, 60)
+    );
     const value: DispatchTuning = {
       dispatchRadiusKm: tier3Radius,
       tier1RadiusKm: Math.min(
@@ -127,6 +134,8 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
       maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
       maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
+      bidCountdownMs: bidCountdownSec * 1000,
+      bidCountdownSec: bidCountdownSec,
     };
     tuningCache = { at: Date.now(), value };
     return value;
@@ -675,14 +684,18 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     : 0;
 
   const rawProposedFare = typeof (d as any).proposedFare === "number" ? Number((d as any).proposedFare) : 0;
-  const proposedFare = Math.max(rawProposedFare, customPrimaryFare, primaryBaselineFare);
+  // Maximum custom fare cap: 10x baseline fare or 500,000 max to prevent absurd/hostile inputs.
+  const maxFareCap = Math.max(primaryBaselineFare * 10, 500_000);
+  const boundedProposedFare = Math.min(Math.max(rawProposedFare, 0), maxFareCap);
+  const proposedFare = Math.max(boundedProposedFare, customPrimaryFare, primaryBaselineFare);
 
-  // Update tier entries in fareTiers to reflect custom/proposed fares
+  // Update tier entries in fareTiers to reflect custom/proposed fares (never below baseline)
   const updatedFareTiers = verified.tiers.map((t) => {
     const customForTier = typeof customTierFares[t.tierId] === "number" ? Number(customTierFares[t.tierId]) : 0;
+    const boundedCustom = Math.min(Math.max(customForTier, 0), maxFareCap);
     let tierFare = t.fareAmount;
-    if (customForTier > tierFare) {
-      tierFare = customForTier;
+    if (boundedCustom > tierFare) {
+      tierFare = boundedCustom;
     }
     if (t.tierId === primaryTier && proposedFare > tierFare) {
       tierFare = proposedFare;
@@ -755,8 +768,20 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
         "Split payment requires both parties to be registered users. Ask the receiver to sign up, or select 'Sender Pays' / 'Receiver Pays'."
       );
     }
-    const senderShare = Number((d as any).senderShareAmount ?? baselineFare / 2);
-    const receiverShare = Number((d as any).receiverShareAmount ?? baselineFare / 2);
+    // Server-authoritative split share validation: ensure senderShare + receiverShare equals proposedFare.
+    let senderShare = Number((d as any).senderShareAmount ?? 0);
+    let receiverShare = Number((d as any).receiverShareAmount ?? 0);
+    if (
+      !Number.isFinite(senderShare) ||
+      !Number.isFinite(receiverShare) ||
+      senderShare <= 0 ||
+      receiverShare <= 0 ||
+      Math.abs((senderShare + receiverShare) - proposedFare) > 0.01
+    ) {
+      senderShare = Math.round((proposedFare / 2) * 100) / 100;
+      receiverShare = Math.round((proposedFare - senderShare) * 100) / 100;
+    }
+
     splitPaymentData = {
       status: "pending_receiver_consent",
       senderShare,
@@ -2131,7 +2156,7 @@ export const cancelTrip = onCall(async (request) => {
 
   const callerId = request.auth.uid;
   const isCustomer = data.customerId === callerId;
-  const isDriver = data.driver?.driverId === callerId;
+  const isDriver = data.driver?.driverId === callerId || data.driverId === callerId;
 
   if (!isCustomer && !isDriver) {
     throw new HttpsError("permission-denied", "Not your trip.");
@@ -2502,6 +2527,29 @@ export const submitBid = onCall(async (request) => {
     );
   }
 
+  // Single Active Bid Guard: check if driver already has an unexpired pending bid
+  const currentTime = Date.now();
+  const existingPendingBids = await db()
+    .collectionGroup("bids")
+    .where("driverId", "==", driverId)
+    .where("status", "==", "pending")
+    .get();
+
+  for (const bDoc of existingPendingBids.docs) {
+    const bData = bDoc.data();
+    const expMs = bData.expiresAt?.toMillis?.() ?? 0;
+    if (expMs > currentTime) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You already have an active bid waiting for a customer decision."
+      );
+    }
+  }
+
+  const tuning = await getDispatchTuning();
+  const expiresAtMs = currentTime + tuning.bidCountdownMs;
+  const expiresAt = admin.firestore.Timestamp.fromMillis(expiresAtMs);
+
   const snapshot = await driverSnapshot(driverId);
   const bidRef = tripRef.collection("bids").doc(driverId);
 
@@ -2509,6 +2557,7 @@ export const submitBid = onCall(async (request) => {
     bidId: driverId,
     tripId,
     driverId,
+    customerId: String(tripData.customerId ?? ""),
     driverName: snapshot.fullName,
     photoUrl: snapshot.photoUrl,
     rating: snapshot.rating,
@@ -2519,6 +2568,8 @@ export const submitBid = onCall(async (request) => {
     offeredFare: roundedOfferedFare,
     etaMinutes: typeof etaMinutes === "number" ? etaMinutes : 5,
     status: "pending",
+    bidCountdownSeconds: tuning.bidCountdownSec,
+    expiresAt,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -3318,25 +3369,59 @@ export const submitCancellationFeedback = onCall(async (request) => {
  * - `drivers/{ratedUserId}`: (if isRatedUserDriver) totalRatingSum, totalRatingCount, averageRating, rating
  */
 export const submitTripRating = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "User must be authenticated.");
+  }
+
   const tripId = String(request.data?.tripId ?? "").trim();
-  const raterId = String(request.auth?.uid ?? request.data?.raterId ?? "").trim();
+  const raterId = request.auth.uid;
   const ratedUserId = String(request.data?.ratedUserId ?? "").trim();
   const rating = Number(request.data?.rating);
   const comment = String(request.data?.comment ?? "").trim();
-  const isRatedUserDriver = Boolean(request.data?.isRatedUserDriver);
   const lowRatingReasons = Array.isArray(request.data?.lowRatingReasons)
     ? request.data.lowRatingReasons.map((r: any) => String(r).trim()).filter(Boolean)
     : [];
 
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
-  if (!raterId) throw new HttpsError("unauthenticated", "User must be authenticated.");
   if (!ratedUserId) throw new HttpsError("invalid-argument", "ratedUserId is required.");
+  if (raterId === ratedUserId) {
+    throw new HttpsError("invalid-argument", "Cannot rate yourself.");
+  }
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
     throw new HttpsError("invalid-argument", "rating must be an integer between 1 and 5.");
   }
   if (comment.length > 500) {
     throw new HttpsError("invalid-argument", "comment must be at most 500 characters.");
   }
+
+  // Fetch trip to verify caller participation and target user validity
+  const tripSnap = await db().collection("trips").doc(tripId).get();
+  if (!tripSnap.exists) {
+    throw new HttpsError("not-found", "Trip not found.");
+  }
+  const tripData = tripSnap.data() || {};
+  const customerId = String(tripData.customerId ?? "").trim();
+  const driverId = String(tripData.driver?.driverId ?? tripData.driverId ?? "").trim();
+
+  const isCallerCustomer = raterId === customerId;
+  const isCallerDriver = raterId === driverId;
+
+  if (!isCallerCustomer && !isCallerDriver) {
+    throw new HttpsError(
+      "permission-denied",
+      "You are not a participant in this trip."
+    );
+  }
+
+  const expectedRatedUserId = isCallerCustomer ? driverId : customerId;
+  if (ratedUserId !== expectedRatedUserId) {
+    throw new HttpsError(
+      "permission-denied",
+      "Rated user was not a participant in this trip."
+    );
+  }
+
+  const isRatedUserDriver = isCallerCustomer;
 
   const ratingDocId = `${tripId}_${raterId}`;
   const ratingRef = db().collection("ratings").doc(ratingDocId);
@@ -3433,6 +3518,9 @@ export const skipDeliveryPin = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "driver");
+
   const driverId = request.auth.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
   if (!tripId) {
@@ -3444,8 +3532,9 @@ export const skipDeliveryPin = onCall(async (request) => {
   if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
   const data = snap.data()!;
 
-  // Gate 1: caller must be the assigned driver.
-  if (data.driver?.driverId !== driverId) {
+  // Gate 1: caller must be the assigned driver (supports both nested driver.driverId and flat driverId schemas).
+  const assignedDriverId = data.driver?.driverId ?? data.driverId;
+  if (assignedDriverId !== driverId) {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
 

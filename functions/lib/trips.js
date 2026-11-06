@@ -94,6 +94,8 @@ const DEFAULT_TUNING = {
     recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
     maxRecycles: DEFAULT_MAX_RECYCLES,
     maxOfferBoostPct: 100,
+    bidCountdownMs: 10 * 1000,
+    bidCountdownSec: 10,
 };
 let tuningCache = null;
 /**
@@ -102,7 +104,7 @@ let tuningCache = null;
  * falls back to the compiled defaults, so dispatch never stalls.
  */
 async function getDispatchTuning() {
-    var _a, _b;
+    var _a, _b, _c;
     try {
         if (tuningCache && Date.now() - tuningCache.at < 60 * 1000) {
             return tuningCache.value;
@@ -116,6 +118,7 @@ async function getDispatchTuning() {
             ? Math.min(max, Math.max(min, v))
             : fb;
         const tier3Radius = num((_a = d.tier3RadiusKm) !== null && _a !== void 0 ? _a : d.dispatchRadiusKm, DEFAULT_DISPATCH_RADIUS_KM, 1, 50);
+        const bidCountdownSec = Math.round(num((_b = d.bidCountdownSec) !== null && _b !== void 0 ? _b : d.bidCountdownSeconds, 10, 5, 60));
         const value = {
             dispatchRadiusKm: tier3Radius,
             tier1RadiusKm: Math.min(num(d.tier1RadiusKm, DEFAULT_TIER1_RADIUS_KM, 1, 50), tier3Radius),
@@ -127,12 +130,14 @@ async function getDispatchTuning() {
             recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
             maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
             maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
+            bidCountdownMs: bidCountdownSec * 1000,
+            bidCountdownSec: bidCountdownSec,
         };
         tuningCache = { at: Date.now(), value };
         return value;
     }
-    catch (_c) {
-        return (_b = tuningCache === null || tuningCache === void 0 ? void 0 : tuningCache.value) !== null && _b !== void 0 ? _b : DEFAULT_TUNING;
+    catch (_d) {
+        return (_c = tuningCache === null || tuningCache === void 0 ? void 0 : tuningCache.value) !== null && _c !== void 0 ? _c : DEFAULT_TUNING;
     }
 }
 const LIVE_STATUSES = [
@@ -544,13 +549,17 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         ? Number(customTierFares[primaryTier])
         : 0;
     const rawProposedFare = typeof d.proposedFare === "number" ? Number(d.proposedFare) : 0;
-    const proposedFare = Math.max(rawProposedFare, customPrimaryFare, primaryBaselineFare);
-    // Update tier entries in fareTiers to reflect custom/proposed fares
+    // Maximum custom fare cap: 10x baseline fare or 500,000 max to prevent absurd/hostile inputs.
+    const maxFareCap = Math.max(primaryBaselineFare * 10, 500000);
+    const boundedProposedFare = Math.min(Math.max(rawProposedFare, 0), maxFareCap);
+    const proposedFare = Math.max(boundedProposedFare, customPrimaryFare, primaryBaselineFare);
+    // Update tier entries in fareTiers to reflect custom/proposed fares (never below baseline)
     const updatedFareTiers = verified.tiers.map((t) => {
         const customForTier = typeof customTierFares[t.tierId] === "number" ? Number(customTierFares[t.tierId]) : 0;
+        const boundedCustom = Math.min(Math.max(customForTier, 0), maxFareCap);
         let tierFare = t.fareAmount;
-        if (customForTier > tierFare) {
-            tierFare = customForTier;
+        if (boundedCustom > tierFare) {
+            tierFare = boundedCustom;
         }
         if (t.tierId === primaryTier && proposedFare > tierFare) {
             tierFare = proposedFare;
@@ -612,8 +621,17 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         if (!recSnap) {
             throw new https_1.HttpsError("invalid-argument", "Split payment requires both parties to be registered users. Ask the receiver to sign up, or select 'Sender Pays' / 'Receiver Pays'.");
         }
-        const senderShare = Number((_p = d.senderShareAmount) !== null && _p !== void 0 ? _p : baselineFare / 2);
-        const receiverShare = Number((_q = d.receiverShareAmount) !== null && _q !== void 0 ? _q : baselineFare / 2);
+        // Server-authoritative split share validation: ensure senderShare + receiverShare equals proposedFare.
+        let senderShare = Number((_p = d.senderShareAmount) !== null && _p !== void 0 ? _p : 0);
+        let receiverShare = Number((_q = d.receiverShareAmount) !== null && _q !== void 0 ? _q : 0);
+        if (!Number.isFinite(senderShare) ||
+            !Number.isFinite(receiverShare) ||
+            senderShare <= 0 ||
+            receiverShare <= 0 ||
+            Math.abs((senderShare + receiverShare) - proposedFare) > 0.01) {
+            senderShare = Math.round((proposedFare / 2) * 100) / 100;
+            receiverShare = Math.round((proposedFare - senderShare) * 100) / 100;
+        }
         splitPaymentData = {
             status: "pending_receiver_consent",
             senderShare,
@@ -1762,7 +1780,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
     const data = snap.data();
     const callerId = request.auth.uid;
     const isCustomer = data.customerId === callerId;
-    const isDriver = ((_c = data.driver) === null || _c === void 0 ? void 0 : _c.driverId) === callerId;
+    const isDriver = ((_c = data.driver) === null || _c === void 0 ? void 0 : _c.driverId) === callerId || data.driverId === callerId;
     if (!isCustomer && !isDriver) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
@@ -2000,7 +2018,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 /** Driver submits a custom fare bid on an open trip document */
 exports.submitBid = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in to bid.");
     }
@@ -2061,12 +2079,30 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
     if (!allowedStatuses.includes(String(tripData.status))) {
         throw new https_1.HttpsError("failed-precondition", "This trip is no longer open for bidding.");
     }
+    // Single Active Bid Guard: check if driver already has an unexpired pending bid
+    const currentTime = Date.now();
+    const existingPendingBids = await db()
+        .collectionGroup("bids")
+        .where("driverId", "==", driverId)
+        .where("status", "==", "pending")
+        .get();
+    for (const bDoc of existingPendingBids.docs) {
+        const bData = bDoc.data();
+        const expMs = (_m = (_l = (_k = bData.expiresAt) === null || _k === void 0 ? void 0 : _k.toMillis) === null || _l === void 0 ? void 0 : _l.call(_k)) !== null && _m !== void 0 ? _m : 0;
+        if (expMs > currentTime) {
+            throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
+        }
+    }
+    const tuning = await getDispatchTuning();
+    const expiresAtMs = currentTime + tuning.bidCountdownMs;
+    const expiresAt = admin.firestore.Timestamp.fromMillis(expiresAtMs);
     const snapshot = await driverSnapshot(driverId);
     const bidRef = tripRef.collection("bids").doc(driverId);
     await bidRef.set({
         bidId: driverId,
         tripId,
         driverId,
+        customerId: String((_o = tripData.customerId) !== null && _o !== void 0 ? _o : ""),
         driverName: snapshot.fullName,
         photoUrl: snapshot.photoUrl,
         rating: snapshot.rating,
@@ -2077,6 +2113,8 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         offeredFare: roundedOfferedFare,
         etaMinutes: typeof etaMinutes === "number" ? etaMinutes : 5,
         status: "pending",
+        bidCountdownSeconds: tuning.bidCountdownSec,
+        expiresAt,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -2093,17 +2131,17 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         : vehicleDetails;
     // Rich counter-bid alert: in-app notification + FCM push to the customer
     // with complete driver details, ETA, vehicle info, offered fare, and Accept/Reject payload
-    await notifyCustomer(String((_k = tripData.customerId) !== null && _k !== void 0 ? _k : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
+    await notifyCustomer(String((_p = tripData.customerId) !== null && _p !== void 0 ? _p : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
         driverId,
         driverName: String(snapshot.fullName),
-        driverPhoto: String((_l = snapshot.photoUrl) !== null && _l !== void 0 ? _l : ""),
-        driverRating: String((_m = snapshot.rating) !== null && _m !== void 0 ? _m : 0),
+        driverPhoto: String((_q = snapshot.photoUrl) !== null && _q !== void 0 ? _q : ""),
+        driverRating: String((_r = snapshot.rating) !== null && _r !== void 0 ? _r : 0),
         offeredFare: String(roundedOfferedFare),
         offeredFareFormatted: `₦${Number(roundedOfferedFare).toLocaleString()}`,
         etaMinutes: String(etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5),
-        vehicleModel: String((_o = snapshot.vehicleModel) !== null && _o !== void 0 ? _o : ""),
-        vehicleColor: String((_p = snapshot.vehicleColor) !== null && _p !== void 0 ? _p : ""),
-        plateNumber: String((_q = snapshot.plateNumber) !== null && _q !== void 0 ? _q : ""),
+        vehicleModel: String((_s = snapshot.vehicleModel) !== null && _s !== void 0 ? _s : ""),
+        vehicleColor: String((_t = snapshot.vehicleColor) !== null && _t !== void 0 ? _t : ""),
+        plateNumber: String((_u = snapshot.plateNumber) !== null && _u !== void 0 ? _u : ""),
         vehicleDetails: vehicleStr,
     });
     return { ok: true, bidId: driverId };
@@ -2742,28 +2780,49 @@ exports.submitCancellationFeedback = (0, https_1.onCall)(async (request) => {
  * - `drivers/{ratedUserId}`: (if isRatedUserDriver) totalRatingSum, totalRatingCount, averageRating, rating
  */
 exports.submitTripRating = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "User must be authenticated.");
+    }
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
-    const raterId = String((_f = (_d = (_c = request.auth) === null || _c === void 0 ? void 0 : _c.uid) !== null && _d !== void 0 ? _d : (_e = request.data) === null || _e === void 0 ? void 0 : _e.raterId) !== null && _f !== void 0 ? _f : "").trim();
-    const ratedUserId = String((_h = (_g = request.data) === null || _g === void 0 ? void 0 : _g.ratedUserId) !== null && _h !== void 0 ? _h : "").trim();
-    const rating = Number((_j = request.data) === null || _j === void 0 ? void 0 : _j.rating);
-    const comment = String((_l = (_k = request.data) === null || _k === void 0 ? void 0 : _k.comment) !== null && _l !== void 0 ? _l : "").trim();
-    const isRatedUserDriver = Boolean((_m = request.data) === null || _m === void 0 ? void 0 : _m.isRatedUserDriver);
-    const lowRatingReasons = Array.isArray((_o = request.data) === null || _o === void 0 ? void 0 : _o.lowRatingReasons)
+    const raterId = request.auth.uid;
+    const ratedUserId = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.ratedUserId) !== null && _d !== void 0 ? _d : "").trim();
+    const rating = Number((_e = request.data) === null || _e === void 0 ? void 0 : _e.rating);
+    const comment = String((_g = (_f = request.data) === null || _f === void 0 ? void 0 : _f.comment) !== null && _g !== void 0 ? _g : "").trim();
+    const lowRatingReasons = Array.isArray((_h = request.data) === null || _h === void 0 ? void 0 : _h.lowRatingReasons)
         ? request.data.lowRatingReasons.map((r) => String(r).trim()).filter(Boolean)
         : [];
     if (!tripId)
         throw new https_1.HttpsError("invalid-argument", "tripId is required.");
-    if (!raterId)
-        throw new https_1.HttpsError("unauthenticated", "User must be authenticated.");
     if (!ratedUserId)
         throw new https_1.HttpsError("invalid-argument", "ratedUserId is required.");
+    if (raterId === ratedUserId) {
+        throw new https_1.HttpsError("invalid-argument", "Cannot rate yourself.");
+    }
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
         throw new https_1.HttpsError("invalid-argument", "rating must be an integer between 1 and 5.");
     }
     if (comment.length > 500) {
         throw new https_1.HttpsError("invalid-argument", "comment must be at most 500 characters.");
     }
+    // Fetch trip to verify caller participation and target user validity
+    const tripSnap = await db().collection("trips").doc(tripId).get();
+    if (!tripSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Trip not found.");
+    }
+    const tripData = tripSnap.data() || {};
+    const customerId = String((_j = tripData.customerId) !== null && _j !== void 0 ? _j : "").trim();
+    const driverId = String((_m = (_l = (_k = tripData.driver) === null || _k === void 0 ? void 0 : _k.driverId) !== null && _l !== void 0 ? _l : tripData.driverId) !== null && _m !== void 0 ? _m : "").trim();
+    const isCallerCustomer = raterId === customerId;
+    const isCallerDriver = raterId === driverId;
+    if (!isCallerCustomer && !isCallerDriver) {
+        throw new https_1.HttpsError("permission-denied", "You are not a participant in this trip.");
+    }
+    const expectedRatedUserId = isCallerCustomer ? driverId : customerId;
+    if (ratedUserId !== expectedRatedUserId) {
+        throw new https_1.HttpsError("permission-denied", "Rated user was not a participant in this trip.");
+    }
+    const isRatedUserDriver = isCallerCustomer;
     const ratingDocId = `${tripId}_${raterId}`;
     const ratingRef = db().collection("ratings").doc(ratingDocId);
     const userRef = db().collection("users").doc(ratedUserId);
@@ -2840,10 +2899,12 @@ exports.submitTripRating = (0, https_1.onCall)(async (request) => {
  * gate only. The permanent audit trail is the real safeguard.
  */
 exports.skipDeliveryPin = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
+    (0, accountGuard_1.enforceAppCheck)(request);
+    await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "driver");
     const driverId = request.auth.uid;
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
     if (!tripId) {
@@ -2854,12 +2915,13 @@ exports.skipDeliveryPin = (0, https_1.onCall)(async (request) => {
     if (!snap.exists)
         throw new https_1.HttpsError("not-found", "Trip not found.");
     const data = snap.data();
-    // Gate 1: caller must be the assigned driver.
-    if (((_c = data.driver) === null || _c === void 0 ? void 0 : _c.driverId) !== driverId) {
+    // Gate 1: caller must be the assigned driver (supports both nested driver.driverId and flat driverId schemas).
+    const assignedDriverId = (_d = (_c = data.driver) === null || _c === void 0 ? void 0 : _c.driverId) !== null && _d !== void 0 ? _d : data.driverId;
+    if (assignedDriverId !== driverId) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
     // Gate 2: delivery trips only.
-    const serviceType = String((_d = data.serviceType) !== null && _d !== void 0 ? _d : "ride");
+    const serviceType = String((_e = data.serviceType) !== null && _e !== void 0 ? _e : "ride");
     if (serviceType === "ride") {
         throw new https_1.HttpsError("failed-precondition", "Passenger trips do not use a delivery PIN.");
     }
@@ -2876,7 +2938,7 @@ exports.skipDeliveryPin = (0, https_1.onCall)(async (request) => {
     // If `startedAt` is absent we fall back to `updatedAt` as a conservative
     // proxy — the server can never be tricked into skipping prematurely.
     const skipWaitMs = 10 * 60 * 1000; // 10 minutes
-    const startedAtMs = (_k = (_g = (_f = (_e = data.startedAt) === null || _e === void 0 ? void 0 : _e.toMillis) === null || _f === void 0 ? void 0 : _f.call(_e)) !== null && _g !== void 0 ? _g : (_j = (_h = data.updatedAt) === null || _h === void 0 ? void 0 : _h.toMillis) === null || _j === void 0 ? void 0 : _j.call(_h)) !== null && _k !== void 0 ? _k : Date.now();
+    const startedAtMs = (_l = (_h = (_g = (_f = data.startedAt) === null || _f === void 0 ? void 0 : _f.toMillis) === null || _g === void 0 ? void 0 : _g.call(_f)) !== null && _h !== void 0 ? _h : (_k = (_j = data.updatedAt) === null || _j === void 0 ? void 0 : _j.toMillis) === null || _k === void 0 ? void 0 : _k.call(_j)) !== null && _l !== void 0 ? _l : Date.now();
     const elapsedMs = nowMs() - startedAtMs;
     if (elapsedMs < skipWaitMs) {
         const remainingSec = Math.ceil((skipWaitMs - elapsedMs) / 1000);

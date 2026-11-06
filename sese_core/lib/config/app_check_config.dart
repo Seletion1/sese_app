@@ -17,16 +17,20 @@ import 'package:flutter/foundation.dart';
 /// builds and never commit real tokens to a public repo. If one leaks,
 /// delete it in the Firebase console and generate a new one.
 abstract final class AppCheckConfig {
-  /// Debug token pinned to sese_hub.
+  /// Debug token for sese_hub (injected via --dart-define=SESE_HUB_APP_CHECK_DEBUG_TOKEN=...).
   static String get seseHubDebugToken {
     assert(!kReleaseMode, 'Debug tokens must not be present in release builds');
-    return kReleaseMode ? '' : 'e1d8dc46-7c7d-48da-a9fd-e34592249fc5';
+    return kReleaseMode
+        ? ''
+        : const String.fromEnvironment('SESE_HUB_APP_CHECK_DEBUG_TOKEN');
   }
 
-  /// Debug token pinned to sese_ride.
+  /// Debug token for sese_ride (injected via --dart-define=SESE_RIDE_APP_CHECK_DEBUG_TOKEN=...).
   static String get seseRideDebugToken {
     assert(!kReleaseMode, 'Debug tokens must not be present in release builds');
-    return kReleaseMode ? '' : 'cba5fa66-ef47-4b2f-83c1-4f05d2f035ad';
+    return kReleaseMode
+        ? ''
+        : const String.fromEnvironment('SESE_RIDE_APP_CHECK_DEBUG_TOKEN');
   }
 
   /// Returns the pinned debug token for [appId] (`sese_hub` / `sese_ride`).

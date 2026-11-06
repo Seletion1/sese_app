@@ -164,6 +164,46 @@ interface ReviewDriverData {
 }
 
 /**
+ * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
+ * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
+ * or an active record in `hub_staff/{email}` collection.
+ */
+async function assertHubStaffOrAdmin(
+  callerUid: string,
+  callerEmail: string,
+  token: Record<string, unknown>
+): Promise<void> {
+  const role = String(token.role ?? token.adminRole ?? "").toUpperCase();
+  const isSuperOrAdmin =
+    token.admin === true ||
+    token.adminAuth === true ||
+    role === "SUPER_ADMIN" ||
+    role === "ROLE_SUPER_ADMIN" ||
+    role === "SUPER" ||
+    role === "ADMIN";
+
+  if (isSuperOrAdmin) {
+    return;
+  }
+
+  if (callerEmail) {
+    try {
+      const snap = await db().collection("hub_staff").doc(callerEmail).get();
+      if (snap.exists && snap.data()?.active !== false) {
+        return;
+      }
+    } catch (e) {
+      console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${callerEmail}:`, e);
+    }
+  }
+
+  throw new HttpsError(
+    "permission-denied",
+    "Only Hub staff or administrators can review verification."
+  );
+}
+
+/**
  * Callable: reviewCustomerVerification
  *
  * Hub admins call this to approve or reject customer KYC verification.
@@ -176,9 +216,22 @@ export const reviewCustomerVerification = onCall<ReviewCustomerData>(
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
 
+    const callerUid = request.auth.uid;
+    const callerEmail = (request.auth.token?.email ?? "").trim().toLowerCase();
+    const token = request.auth.token ?? {};
+
+    await assertHubStaffOrAdmin(callerUid, callerEmail, token);
+
     const { userId, approved, rejectionReason } = request.data ?? {};
     if (!userId) {
       throw new HttpsError("invalid-argument", "userId is required.");
+    }
+
+    if (userId === callerUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Self-Verification Lock: Users cannot review or approve their own verification status."
+      );
     }
 
     const userRef = db().collection("users").doc(userId);
@@ -305,9 +358,22 @@ export const reviewDriverVerification = onCall<ReviewDriverData>(
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
 
+    const callerUid = request.auth.uid;
+    const callerEmail = (request.auth.token?.email ?? "").trim().toLowerCase();
+    const token = request.auth.token ?? {};
+
+    await assertHubStaffOrAdmin(callerUid, callerEmail, token);
+
     const { driverId, approved, rejectionReason } = request.data ?? {};
     if (!driverId) {
       throw new HttpsError("invalid-argument", "driverId is required.");
+    }
+
+    if (driverId === callerUid) {
+      throw new HttpsError(
+        "permission-denied",
+        "Self-Verification Lock: Drivers cannot review or approve their own verification status."
+      );
     }
 
     const driverRef = db().collection("drivers").doc(driverId);

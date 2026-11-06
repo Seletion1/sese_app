@@ -331,7 +331,8 @@ export const hubSetDriverOnlineStatus = onCall<HubSetDriverOnlineStatusData>(asy
   const isSuperOrAdmin =
     token.admin === true ||
     token.adminAuth === true ||
-    callerEmail === "bamiduromichael2@gmail.com";
+    token.role === "SUPER_ADMIN" ||
+    (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
 
   if (!isSuperOrAdmin) {
     let isStaff = false;

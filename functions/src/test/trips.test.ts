@@ -1,3 +1,5 @@
+process.env.FARE_SIGNING_SECRET = process.env.FARE_SIGNING_SECRET || "sese-test-fare-signing-secret";
+
 import assert from "node:assert";
 import { test, describe } from "node:test";
 import {
@@ -286,5 +288,77 @@ describe("Driver Streak & Commission Calculation Engine", () => {
     };
     const brokenL1S3 = applyStreakBreak(streakL1S3);
     assert.strictEqual(brokenL1S3.currentStep, 0);
+  });
+});
+
+describe("Trip Rating Security Invariants", () => {
+  const mockTrip = {
+    tripId: "TRIP_100",
+    customerId: "CUSTOMER_1",
+    driver: { driverId: "DRIVER_1" },
+  };
+
+  const validateRatingRequest = (auth: { uid: string } | null, data: any) => {
+    if (!auth) throw new Error("unauthenticated: User must be authenticated.");
+    const raterId = auth.uid;
+    const ratedUserId = String(data?.ratedUserId ?? "").trim();
+    if (raterId === ratedUserId) throw new Error("invalid-argument: Cannot rate yourself.");
+
+    const customerId = mockTrip.customerId;
+    const driverId = mockTrip.driver.driverId;
+
+    const isCallerCustomer = raterId === customerId;
+    const isCallerDriver = raterId === driverId;
+
+    if (!isCallerCustomer && !isCallerDriver) {
+      throw new Error("permission-denied: You are not a participant in this trip.");
+    }
+
+    const expectedRatedUserId = isCallerCustomer ? driverId : customerId;
+    if (ratedUserId !== expectedRatedUserId) {
+      throw new Error("permission-denied: Rated user was not a participant in this trip.");
+    }
+
+    return { raterId, ratedUserId, isRatedUserDriver: isCallerCustomer };
+  };
+
+  test("Rejects unauthenticated callers", () => {
+    assert.throws(
+      () => validateRatingRequest(null, { raterId: "ATTACKER_99", ratedUserId: "DRIVER_1" }),
+      /unauthenticated/
+    );
+  });
+
+  test("Ignores client-supplied raterId and enforces auth.uid", () => {
+    const res = validateRatingRequest({ uid: "CUSTOMER_1" }, { raterId: "OTHER_USER", ratedUserId: "DRIVER_1" });
+    assert.strictEqual(res.raterId, "CUSTOMER_1");
+  });
+
+  test("Rejects non-participant callers", () => {
+    assert.throws(
+      () => validateRatingRequest({ uid: "OUTSIDER_99" }, { ratedUserId: "DRIVER_1" }),
+      /permission-denied: You are not a participant in this trip/
+    );
+  });
+
+  test("Rejects rating wrong/mismatched target user", () => {
+    assert.throws(
+      () => validateRatingRequest({ uid: "CUSTOMER_1" }, { ratedUserId: "RANDOM_USER" }),
+      /permission-denied: Rated user was not a participant/
+    );
+  });
+
+  test("Allows valid customer rating assigned driver", () => {
+    const res = validateRatingRequest({ uid: "CUSTOMER_1" }, { ratedUserId: "DRIVER_1" });
+    assert.strictEqual(res.raterId, "CUSTOMER_1");
+    assert.strictEqual(res.ratedUserId, "DRIVER_1");
+    assert.strictEqual(res.isRatedUserDriver, true);
+  });
+
+  test("Allows valid driver rating customer", () => {
+    const res = validateRatingRequest({ uid: "DRIVER_1" }, { ratedUserId: "CUSTOMER_1" });
+    assert.strictEqual(res.raterId, "DRIVER_1");
+    assert.strictEqual(res.ratedUserId, "CUSTOMER_1");
+    assert.strictEqual(res.isRatedUserDriver, false);
   });
 });

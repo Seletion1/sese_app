@@ -16,13 +16,14 @@ service cloud.firestore {
         (getUserRole() == 'SUPER_ADMIN' || getUserRole() == 'ROLE_SUPER_ADMIN' || isOwnerEmail());
     }
 
-    // Bootstrap backstop: the primary owner is the implicit SUPER_ADMIN even
-    // before custom claims are minted (fresh sign-in, token not yet
-    // refreshed). Mirrors OWNER_EMAIL in functions + AdminAccessService.
     function isOwnerEmail() {
-      return isAuthenticated() &&
-        request.auth.token.email != null &&
-        request.auth.token.email.lower() == 'bamiduromichael2@gmail.com';
+      return isAuthenticated() && (
+        getUserRole() == 'SUPER_ADMIN' ||
+        getUserRole() == 'ROLE_SUPER_ADMIN' ||
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'SUPER_ADMIN' ||
+        request.auth.token.role == 'super_admin'
+      );
     }
 
     function isOperationsAdmin() {
@@ -57,10 +58,20 @@ service cloud.firestore {
     function isHubStaff() {
       return isAuthenticated() &&
         request.auth.token.email != null &&
-        (exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email)) ||
-          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower())) ||
-          exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email)));
+        (
+          (exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())) &&
+           get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())).data.get('active', true) == true &&
+           get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())).data.get('status', 'active') == 'active') ||
+          (exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email)) &&
+           get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email)).data.get('active', true) == true &&
+           get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email)).data.get('status', 'active') == 'active') ||
+          (exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower())) &&
+           get(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower())).data.get('active', true) == true &&
+           get(/databases/$(database)/documents/admin_users/$(request.auth.token.email.lower())).data.get('status', 'active') == 'active') ||
+          (exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email)) &&
+           get(/databases/$(database)/documents/admin_users/$(request.auth.token.email)).data.get('active', true) == true &&
+           get(/databases/$(database)/documents/admin_users/$(request.auth.token.email)).data.get('status', 'active') == 'active')
+        );
     }
 
     function isOwner(userId) {
@@ -92,9 +103,12 @@ service cloud.firestore {
     }
 
     function isPrimaryHubOwner() {
-      return isAuthenticated() &&
-        request.auth.token.email != null &&
-        request.auth.token.email.lower() == 'bamiduromichael2@gmail.com';
+      return isSuperAdmin() ||
+        (isAuthenticated() && (
+          request.auth.token.admin == true ||
+          request.auth.token.role == 'SUPER_ADMIN' ||
+          request.auth.token.role == 'super_admin'
+        ));
     }
 
     // PROMPT 22: fleet operator is a user whose `fleet_operators/{uid}`
@@ -433,17 +447,29 @@ service cloud.firestore {
            driverId == request.auth.uid ||
            isAgent() || isHubStaff() || isAdminAuthClaim());
 
-        // Verified online driver may write ONLY their own bid document.
+        // Verified online driver may write ONLY their own bid document on an open, unassigned trip.
         allow create, update: if isAuthenticated() && isNotSuspended() &&
           driverId == request.auth.uid &&
           request.resource.data.driverId == request.auth.uid &&
           request.resource.data.status == 'pending' &&
           request.resource.data.offeredFare is number &&
           request.resource.data.offeredFare >=
-            get(/databases/$(database)/documents/trips/$(tripId)).data.get('baselineFare', get(/databases/$(database)/documents/trips/$(tripId)).data.get('fareAmount', 0));
+            get(/databases/$(database)/documents/trips/$(tripId)).data.get('baselineFare', get(/databases/$(database)/documents/trips/$(tripId)).data.get('fareAmount', 0)) &&
+          get(/databases/$(database)/documents/trips/$(tripId)).data.get('status', '') in ['SEARCHING_DRIVER', 'WAITING_FOR_ACCEPTANCE', 'MARKETPLACE_OPEN', 'MARKETPLACE_LIST', 'needs_customer_action', 'bidding'] &&
+          get(/databases/$(database)/documents/trips/$(tripId)).data.get('driverId', '') == '';
 
         // Only Cloud Functions (Admin SDK) may delete or reject bids.
         allow delete: if false;
+      }
+
+      // Collection group rule for driver active bids query across trips.
+      match /{path=**}/bids/{driverId} {
+        allow read: if isAuthenticated() && (
+          driverId == request.auth.uid ||
+          resource.data.driverId == request.auth.uid ||
+          resource.data.customerId == request.auth.uid ||
+          isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin()
+        );
       }
 
       // ── Tri-Party Trip Chat (`trips/{tripId}/messages/{messageId}`) ─────
@@ -517,8 +543,10 @@ service cloud.firestore {
             ]);
       }
 
-      // Driver can read their own document; public/active drivers can be read for matchmaking
-      allow read: if isAuthenticated();
+      // Full driver profile with sensitive PII (license, NIN, phone, address) readable only by owner or staff
+      allow read: if isAuthenticated() && (
+        isOwner(userId) || isHubStaff() || isAdminAuthClaim() || isSuperAdmin() || isOperationsAdmin() || isAgent()
+      );
       // On creation, driver cannot pre-seed approved verification or inflated trip stats
       allow create: if isAuthenticated() && request.auth.uid == userId && isNotSuspended() &&
         (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING']) &&
@@ -743,7 +771,7 @@ service cloud.firestore {
     match /ratings/{ratingId} {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isNotSuspended() &&
-        (request.resource.data.raterId == request.auth.uid || request.auth.uid != null);
+        request.resource.data.raterId == request.auth.uid;
       allow update, delete: if isSuperAdmin();
     }
 
@@ -762,8 +790,7 @@ service cloud.firestore {
          request.auth.token.email.lower() == staffEmail.lower());
       allow create, update: if isPrimaryHubOwner() &&
         request.resource.data.email == staffEmail &&
-        request.resource.data.role in ['Super', 'Admin', 'Agent'] &&
-        request.resource.data.assignedBy == 'bamiduromichael2@gmail.com';
+        request.resource.data.role in ['Super', 'Admin', 'Agent'];
       allow delete: if isPrimaryHubOwner();
     }
 
@@ -1447,6 +1474,13 @@ service cloud.firestore {
       allow write: if isAdminAuthClaim() &&
         claimsScopeContains(scopeCodeOf('manageSystemSettings'));
     }
+    // `call_secrets`: server-only ZegoCloud AppSign & VoIP secrets.
+    // Standard authenticated users (riders/drivers) MUST NOT read AppSign.
+    match /system_config/call_secrets {
+      allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
+      allow write: if isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
     // `exchange_rate_secrets`: server-only exchange-rate API credentials.
     // Never readable by standard or hub users.
     match /system_config/exchange_rate_secrets {
@@ -1668,7 +1702,7 @@ service cloud.firestore {
     }
 
     match /phone_lookup/{phoneId} {
-      allow read: if isAuthenticated() && isNotSuspended();
+      allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin() || isOperationsAdmin();
       allow write: if false;
     }
 

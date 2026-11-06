@@ -449,6 +449,18 @@ class ActiveTrip {
     return null;
   }
 
+  /// True if [driverId] has skipped or ignored this trip.
+  bool isDriverSkipped(String driverId) {
+    final action = driverRejectionAction(driverId);
+    return action == 'skipped' || action == 'ignored' || action == 'timeout';
+  }
+
+  /// True if [driverId] has rejected or declined this trip.
+  bool isDriverRejected(String driverId) {
+    final action = driverRejectionAction(driverId);
+    return action == 'rejected' || action == 'declined';
+  }
+
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
   /// trips must never auto-start (departure protection).
   bool get isPrepaidTrip {

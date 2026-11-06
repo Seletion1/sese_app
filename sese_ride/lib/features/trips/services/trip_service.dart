@@ -78,6 +78,9 @@ abstract class TripRepository {
   /// Only pending bids are relevant for the carousel; accepted/rejected
   /// are included so the UI can reflect outcomes in real time.
   Stream<List<BidModel>> bidsStream(String tripId);
+
+  /// Stream of active unexpired pending bid for a driver across all trips, if any.
+  Stream<BidModel?> activeDriverBidStream(String driverId);
 }
 
 /// Production transport: `createTrip` callable + Firestore snapshots.
@@ -382,6 +385,28 @@ class FirestoreTripRepository implements TripRepository {
         .map((snap) => snap.docs
             .map((d) => BidModel.fromMap(d.id, d.data()))
             .toList());
+  }
+
+  @override
+  Stream<BidModel?> activeDriverBidStream(String driverId) {
+    if (driverId.isEmpty) return Stream.value(null);
+    return _db
+        .collectionGroup('bids')
+        .where('driverId', isEqualTo: driverId)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) {
+      for (final doc in snap.docs) {
+        final bid = BidModel.fromMap(doc.id, doc.data());
+        if (!bid.isExpired) {
+          return bid;
+        }
+      }
+      return null;
+    }).handleError((err) {
+      debugPrint('activeDriverBidStream error: $err');
+      return null;
+    });
   }
 
   static String _mapError(String code, String? message) {

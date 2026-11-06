@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -40,6 +41,19 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
 
   Future<void> _loadConfig() async {
     final config = await _configRepo.loadConfig();
+    String? secretAppSign;
+    try {
+      final secretsSnap = await FirebaseFirestore.instance
+          .collection('system_config')
+          .doc('call_secrets')
+          .get();
+      if (secretsSnap.exists && secretsSnap.data() != null) {
+        secretAppSign = secretsSnap.data()?['zegoAppSign']?.toString();
+      }
+    } catch (e) {
+      debugPrint('CallingConfigScreen: error fetching call secrets: $e');
+    }
+
     if (!mounted) return;
     setState(() {
       _selectedRoutingMode = config.routingMode;
@@ -47,8 +61,8 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
       if (config.zegoAppId != null) {
         _appIdController.text = config.zegoAppId.toString();
       }
-      if (config.zegoAppSign != null) {
-        _appSignController.text = config.zegoAppSign!;
+      if (secretAppSign != null && secretAppSign.isNotEmpty) {
+        _appSignController.text = secretAppSign;
       }
       _isLoading = false;
     });
@@ -64,10 +78,34 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
       routingMode: _selectedRoutingMode,
       fallbackTimeoutSeconds: parsedTimeout,
       zegoAppId: parsedAppId,
-      zegoAppSign: parsedAppSign.isEmpty ? null : parsedAppSign,
+      zegoAppSign: null,
     );
 
     await _configRepo.saveConfig(updated);
+
+    // Persist secret AppSign to restricted system_config/call_secrets
+    try {
+      if (parsedAppSign.isNotEmpty) {
+        await FirebaseFirestore.instance
+            .collection('system_config')
+            .doc('call_secrets')
+            .set({
+          'zegoAppSign': parsedAppSign,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else {
+        await FirebaseFirestore.instance
+            .collection('system_config')
+            .doc('call_secrets')
+            .set({
+          'zegoAppSign': FieldValue.delete(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint('CallingConfigScreen: error persisting call secrets: $e');
+    }
+
     await _callManager.switchRoutingMode(_selectedRoutingMode);
 
     if (mounted) {

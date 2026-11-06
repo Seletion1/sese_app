@@ -28,8 +28,13 @@ service firebase.storage {
     function isHubStaffClaim() {
       return request.auth != null && (
         request.auth.token.admin == true ||
-        (request.auth.token.adminAuth == true &&
-         request.auth.token.role != null)
+        request.auth.token.adminAuth == true ||
+        (request.auth.token.role != null &&
+         request.auth.token.role in [
+           'SUPER_ADMIN', 'OPERATIONS_ADMIN', 'AGENT', 'FINANCE_ADMIN',
+           'DISPATCH_OPERATIONS', 'ROLE_SUPER_ADMIN', 'ROLE_CUSTOMER_SUPPORT',
+           'ROLE_DRIVER_SUPPORT'
+         ])
       );
     }
 

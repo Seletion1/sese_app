@@ -14,7 +14,7 @@ void main() {
         const MaterialApp(
           home: Scaffold(
             body: AddStaffDialog(
-              provisionerEmail: 'bamiduromichael2@gmail.com',
+              provisionerEmail: 'admin@sese.app',
               accessService: HubAccessService(),
             ),
           ),

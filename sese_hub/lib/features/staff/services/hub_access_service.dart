@@ -3,10 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// The single permanent Super Admin authority. Only this email bootstraps
-/// the system and may provision staff — enforced client-side here AND
-/// server-side in `firestore.rules` (`match /hub_staff/{staffEmail}`).
-const String primaryOwnerEmail = 'bamiduromichael2@gmail.com';
+/// Configurable primary owner authority email (overridable via --dart-define).
+const String primaryOwnerEmail = String.fromEnvironment(
+  'PRIMARY_OWNER_EMAIL',
+  defaultValue: '',
+);
 
 /// Full-screen denial shown when the signed-in email has no hub_staff
 /// record or no active permissions.
@@ -228,8 +229,10 @@ List<HubTab> visibleTabs({
 }
 
 /// True when [email] is the primary owner (case-insensitive, trimmed).
-bool isPrimaryOwnerEmail(String? email) =>
-    (email ?? '').trim().toLowerCase() == primaryOwnerEmail;
+bool isPrimaryOwnerEmail(String? email) {
+  if (primaryOwnerEmail.isEmpty) return false;
+  return (email ?? '').trim().toLowerCase() == primaryOwnerEmail.toLowerCase();
+}
 
 /// Parses a `hub_staff` role string (`Super`/`Admin`/`Agent`,
 /// case-insensitive) into a [UserRole]. Returns null for anything else —
@@ -448,7 +451,19 @@ class HubAccessService {
 
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user != null) await user.getIdToken(true);
+      if (user != null) {
+        final idToken = await user.getIdTokenResult(true);
+        if (idToken.claims?['admin'] == true ||
+            idToken.claims?['role'] == 'SUPER_ADMIN' ||
+            idToken.claims?['role'] == 'super_admin') {
+          return HubAccessResult.qualified(
+            role: UserRole.superRole,
+            isOwner: true,
+            assignedPermissions: hubModuleCatalog.keys.toList(),
+            countryScope: countryScopeGlobal,
+          );
+        }
+      }
     } catch (e) {
       debugPrint('HubAccessService: pre-check token refresh failed: $e');
     }

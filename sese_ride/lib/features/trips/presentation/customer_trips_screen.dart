@@ -168,13 +168,32 @@ class _TripFeedCard extends StatelessWidget {
         ? trip.fareFormatted
         : '₦${trip.fareAmount.toStringAsFixed(0)}';
 
+    final isAssignedDriver = isDriver &&
+        (trip.driver?.driverId == currentUserId || trip.driverId == currentUserId);
+    final isSkippedOrRejected = isDriver &&
+        (trip.driverRejectionAction(currentUserId) != null ||
+            trip.isDriverSkipped(currentUserId) ||
+            trip.isDriverRejected(currentUserId));
+
+    final isDriverActiveTrip = isAssignedDriver &&
+        !isSkippedOrRejected &&
+        (trip.status == TripStatus.driverAccepted ||
+            trip.status == TripStatus.driverArriving ||
+            trip.status == TripStatus.driverArrived ||
+            trip.status == TripStatus.inProgress ||
+            trip.status == TripStatus.cancelledWaitingCashSettlement);
+
+    final shouldNavigateToLive = isDriver
+        ? isDriverActiveTrip
+        : trip.isCustomerLive;
+
     return Card(
       elevation: 1.5,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: () {
-          if (trip.isLive) {
+          if (shouldNavigateToLive) {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => LiveTripScreen(
@@ -299,7 +318,7 @@ class _TripFeedCard extends StatelessWidget {
                     isDriver: isDriver,
                     driverAction: isDriver ? trip.driverRejectionAction(currentUserId) : null,
                   ),
-                  if (trip.isLive)
+                  if (shouldNavigateToLive)
                     const Row(
                       children: [
                         Text(

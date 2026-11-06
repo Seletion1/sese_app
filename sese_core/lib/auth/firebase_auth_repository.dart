@@ -17,10 +17,9 @@ import '../referral/referral_code.dart';
 /// Role resolution order for an authenticated [fb.User]:
 /// 1. Check `users/{uid}` — customer / driver accounts self-registered in sese_ride.
 /// 2. Check `drivers/{uid}` — legacy driver documents.
-/// 3. Check Firebase ID-token custom claims (`role` claim set by Cloud Functions).
+/// 3. Check Firebase ID-token custom claims (`admin`, `role` claims set by Cloud Functions).
 /// 4. Check `admin_users/{email}` — hub staff provisioned via sese_hub.
-/// 5. Owner email bootstrap (`bamiduromichael2@gmail.com` -> superRole).
-/// 6. Default -> [UserRole.customer].
+/// 5. Default -> [UserRole.customer].
 class FirebaseAuthRepository implements AuthRepository {
   /// Default Web OAuth Client ID associated with the `sese-ride` Firebase project.
   /// Required by Google Play Services on Android to return an OpenID Connect `idToken`.
@@ -1016,24 +1015,23 @@ class FirebaseAuthRepository implements AuthRepository {
     fb.User firebaseUser, {
     UserRole? selectedRole,
   }) async {
-    // 1. Owner email bootstrap — always treated as Super Admin immediately.
-    if (firebaseUser.email?.toLowerCase() == 'bamiduromichael2@gmail.com') {
-      return AppUser(
-        uid: firebaseUser.uid,
-        fullName: firebaseUser.displayName ?? 'Super Admin',
-        email: firebaseUser.email!,
-        phoneNumber: firebaseUser.phoneNumber ?? '',
-        role: UserRole.superRole,
-        isActive: true,
-        createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
-        photoUrl: firebaseUser.photoURL ?? '',
-      );
-    }
-
-    // 2. Check Firebase ID-token custom claims (set by Cloud Functions for hub staff).
+    // 1. Check Firebase ID-token custom claims (set by Cloud Functions for super admin & hub staff).
     try {
       final idToken = await firebaseUser.getIdTokenResult();
+      final isAdminClaim = idToken.claims?['admin'] == true;
       final claimRole = idToken.claims?['role'] as String?;
+      if (isAdminClaim || claimRole == 'SUPER_ADMIN' || claimRole == 'super_admin') {
+        return AppUser(
+          uid: firebaseUser.uid,
+          fullName: firebaseUser.displayName ?? 'Super Admin',
+          email: firebaseUser.email ?? '',
+          phoneNumber: firebaseUser.phoneNumber ?? '',
+          role: UserRole.superRole,
+          isActive: true,
+          createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
+          photoUrl: firebaseUser.photoURL ?? '',
+        );
+      }
       if (claimRole != null) {
         final userRole = _claimToUserRole(claimRole);
         return AppUser(

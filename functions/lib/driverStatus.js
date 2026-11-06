@@ -303,7 +303,8 @@ exports.hubSetDriverOnlineStatus = (0, https_1.onCall)(async (request) => {
     const token = (_b = request.auth.token) !== null && _b !== void 0 ? _b : {};
     const isSuperOrAdmin = token.admin === true ||
         token.adminAuth === true ||
-        callerEmail === "bamiduromichael2@gmail.com";
+        token.role === "SUPER_ADMIN" ||
+        (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     if (!isSuperOrAdmin) {
         let isStaff = false;
         if (callerEmail) {

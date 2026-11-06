@@ -29,7 +29,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 
 const db = () => admin.firestore();
 
-const OWNER_EMAIL = "bamiduromichael2@gmail.com";
+const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
 const BROADCAST_PERM = "broadcast_notifications";
 
 /** Hard fan-out ceiling per broadcast (FCM multicast limit is 500). */

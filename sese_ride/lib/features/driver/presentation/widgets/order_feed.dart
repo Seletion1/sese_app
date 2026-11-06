@@ -4,30 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../core/services/remote_config_service.dart';
+import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
+import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import 'order_card.dart';
 import 'order_empty_state.dart';
 import 'order_pool_sheet.dart';
 
 /// Vertical feed of incoming ride offers on the driver Home tab.
-///
-/// Fills the space between the GO ONLINE pill and the streak banner:
-/// - Merges Tier 1 (exclusive ping) + Tier 3 (Order Pool broadcast)
-///   offers into one scrollable list.
-/// - Inserts each new trip at the **top** of the feed so older offers stay
-///   discoverable below.
-/// - Floating "Show new requests" pill appears only when new trips arrive
-///   while the driver is scrolled down; tapping it jumps to the top.
-///
-/// The caller (dashboard scaffold) is responsible for keeping this widget
-/// between the status pill and the fixed streak banner.
 class OrderFeed extends StatefulWidget {
   final String driverId;
   final LatLng driverPosition;
   final String currencySymbol;
   final String streakTag;
   final DriverStreakService streakService;
+  final TripRepository? tripRepository;
   final bool isOnline;
 
   const OrderFeed({
@@ -37,6 +29,7 @@ class OrderFeed extends StatefulWidget {
     required this.currencySymbol,
     required this.streakTag,
     required this.streakService,
+    this.tripRepository,
     required this.isOnline,
   });
 
@@ -178,29 +171,33 @@ class OrderFeedState extends State<OrderFeed> {
     if (!widget.isOnline) {
       return const SizedBox.shrink();
     }
-    return StreamBuilder<ActiveTrip?>(
-      stream: widget.streakService.pingStream(widget.driverId),
-      builder: (context, pingSnap) {
-        return StreamBuilder<List<ActiveTrip>>(
-          stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
-          builder: (context, marketSnap) {
-            final offers = _mergedOffers(
-              pingSnap.data,
-              marketSnap.data ?? const [],
-            );
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _maybeMarkUnseen(offers.length);
-            });
-            // AnimatedSwitcher cross-fades between the pulsing radar
-            // empty state and the order list, so the first pooled order
-            // renders smoothly in place of the "Searching" widget.
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 350),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: offers.isEmpty
-                  ? const OrderEmptyState(key: ValueKey('empty_state'))
-                  : _buildOfferList(offers),
+    final repo = widget.tripRepository ?? FirestoreTripRepository();
+    return StreamBuilder<BidModel?>(
+      stream: repo.activeDriverBidStream(widget.driverId),
+      builder: (context, bidSnap) {
+        final activeBid = bidSnap.data;
+        return StreamBuilder<ActiveTrip?>(
+          stream: widget.streakService.pingStream(widget.driverId),
+          builder: (context, pingSnap) {
+            return StreamBuilder<List<ActiveTrip>>(
+              stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
+              builder: (context, marketSnap) {
+                final offers = _mergedOffers(
+                  pingSnap.data,
+                  marketSnap.data ?? const [],
+                );
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) _maybeMarkUnseen(offers.length);
+                });
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 350),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  child: offers.isEmpty
+                      ? const OrderEmptyState(key: ValueKey('empty_state'))
+                      : _buildOfferList(offers, activeBid),
+                );
+              },
             );
           },
         );
@@ -210,7 +207,7 @@ class OrderFeedState extends State<OrderFeed> {
 
   /// Scrollable order-card list with the floating "Show new requests" pill.
   /// Keyed so [AnimatedSwitcher] can cross-fade it against the empty state.
-  Widget _buildOfferList(List<ActiveTrip> offers) {
+  Widget _buildOfferList(List<ActiveTrip> offers, BidModel? activeBid) {
     return Stack(
       key: const ValueKey('offer_list'),
       children: [
@@ -224,7 +221,9 @@ class OrderFeedState extends State<OrderFeed> {
             driverPosition: widget.driverPosition,
             currencySymbol: widget.currencySymbol,
             streakService: widget.streakService,
+            activeDriverBid: activeBid,
             streakTag: widget.streakTag,
+            tripRepository: widget.tripRepository,
           ),
         ),
         if (_unseenNew > 0)

@@ -46,6 +46,10 @@ class MockTripRepository implements TripRepository {
 
   @override
   Future<void> keepSearchingTrip(String tripId) async {}
+
+  @override
+  Stream<BidModel?> activeDriverBidStream(String driverId) =>
+      Stream.value(null);
 }
 
 void main() {

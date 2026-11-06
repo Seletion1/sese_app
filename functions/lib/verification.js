@@ -159,6 +159,36 @@ exports.onDriverCreated = (0, firestore_1.onDocumentCreated)("drivers/{driverId}
     }
 });
 /**
+ * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
+ * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
+ * or an active record in `hub_staff/{email}` collection.
+ */
+async function assertHubStaffOrAdmin(callerUid, callerEmail, token) {
+    var _a, _b, _c;
+    const role = String((_b = (_a = token.role) !== null && _a !== void 0 ? _a : token.adminRole) !== null && _b !== void 0 ? _b : "").toUpperCase();
+    const isSuperOrAdmin = token.admin === true ||
+        token.adminAuth === true ||
+        role === "SUPER_ADMIN" ||
+        role === "ROLE_SUPER_ADMIN" ||
+        role === "SUPER" ||
+        role === "ADMIN";
+    if (isSuperOrAdmin) {
+        return;
+    }
+    if (callerEmail) {
+        try {
+            const snap = await db().collection("hub_staff").doc(callerEmail).get();
+            if (snap.exists && ((_c = snap.data()) === null || _c === void 0 ? void 0 : _c.active) !== false) {
+                return;
+            }
+        }
+        catch (e) {
+            console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${callerEmail}:`, e);
+        }
+    }
+    throw new https_1.HttpsError("permission-denied", "Only Hub staff or administrators can review verification.");
+}
+/**
  * Callable: reviewCustomerVerification
  *
  * Hub admins call this to approve or reject customer KYC verification.
@@ -166,20 +196,27 @@ exports.onDriverCreated = (0, firestore_1.onDocumentCreated)("drivers/{driverId}
  * Rejecting stores a structured rejection reason and sends an FCM push notification.
  */
 exports.reviewCustomerVerification = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
     }
-    const { userId, approved, rejectionReason } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
+    const callerUid = request.auth.uid;
+    const callerEmail = ((_b = (_a = request.auth.token) === null || _a === void 0 ? void 0 : _a.email) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
+    const token = (_c = request.auth.token) !== null && _c !== void 0 ? _c : {};
+    await assertHubStaffOrAdmin(callerUid, callerEmail, token);
+    const { userId, approved, rejectionReason } = (_d = request.data) !== null && _d !== void 0 ? _d : {};
     if (!userId) {
         throw new https_1.HttpsError("invalid-argument", "userId is required.");
+    }
+    if (userId === callerUid) {
+        throw new https_1.HttpsError("permission-denied", "Self-Verification Lock: Users cannot review or approve their own verification status.");
     }
     const userRef = db().collection("users").doc(userId);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
         throw new https_1.HttpsError("not-found", "User document not found.");
     }
-    const userData = (_b = userSnap.data()) !== null && _b !== void 0 ? _b : {};
+    const userData = (_e = userSnap.data()) !== null && _e !== void 0 ? _e : {};
     if (approved && userData.createdByAdminId && userData.createdByAdminId === request.auth.uid) {
         throw new https_1.HttpsError("failed-precondition", "Self-Verification Lock: Admin who created this account cannot self-approve verification.");
     }
@@ -272,20 +309,27 @@ exports.reviewCustomerVerification = (0, https_1.onCall)(async (request) => {
  * Hub admins call this to approve or reject driver profile onboarding documents.
  */
 exports.reviewDriverVerification = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
     }
-    const { driverId, approved, rejectionReason } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
+    const callerUid = request.auth.uid;
+    const callerEmail = ((_b = (_a = request.auth.token) === null || _a === void 0 ? void 0 : _a.email) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
+    const token = (_c = request.auth.token) !== null && _c !== void 0 ? _c : {};
+    await assertHubStaffOrAdmin(callerUid, callerEmail, token);
+    const { driverId, approved, rejectionReason } = (_d = request.data) !== null && _d !== void 0 ? _d : {};
     if (!driverId) {
         throw new https_1.HttpsError("invalid-argument", "driverId is required.");
+    }
+    if (driverId === callerUid) {
+        throw new https_1.HttpsError("permission-denied", "Self-Verification Lock: Drivers cannot review or approve their own verification status.");
     }
     const driverRef = db().collection("drivers").doc(driverId);
     const driverSnap = await driverRef.get();
     if (!driverSnap.exists) {
         throw new https_1.HttpsError("not-found", "Driver document not found.");
     }
-    const driverData = (_b = driverSnap.data()) !== null && _b !== void 0 ? _b : {};
+    const driverData = (_e = driverSnap.data()) !== null && _e !== void 0 ? _e : {};
     if (approved && driverData.createdByAdminId && driverData.createdByAdminId === request.auth.uid) {
         throw new https_1.HttpsError("failed-precondition", "Self-Verification Lock: Admin who created this driver account cannot self-approve verification.");
     }

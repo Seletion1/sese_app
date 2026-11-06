@@ -32,7 +32,7 @@ class _AgentApplicationDetailDialogState
   bool _processing = false;
 
   String get _reviewerEmail =>
-      FirebaseAuth.instance.currentUser?.email ?? 'bamiduromichael2@gmail.com';
+      FirebaseAuth.instance.currentUser?.email ?? 'admin@sese.app';
 
   Future<void> _approve() async {
     setState(() => _processing = true);

@@ -4,24 +4,19 @@ import 'package:sese_hub/features/staff/services/hub_access_service.dart';
 
 void main() {
   group('Primary owner gate', () {
-    test('recognizes the owner email case-insensitively', () {
-      expect(isPrimaryOwnerEmail('bamiduromichael2@gmail.com'), isTrue);
-      expect(isPrimaryOwnerEmail('Bamiduromichael2@Gmail.com'), isTrue);
-      expect(isPrimaryOwnerEmail('  bamiduromichael2@gmail.com  '), isTrue);
+    test('returns false when primaryOwnerEmail is unconfigured', () {
       expect(isPrimaryOwnerEmail('owner@example.com'), isFalse);
       expect(isPrimaryOwnerEmail(''), isFalse);
       expect(isPrimaryOwnerEmail(null), isFalse);
     });
 
-    test('owner check short-circuits qualification without Firestore', () async {
+    test('unconfigured owner check falls through to registry without Firestore', () async {
       final service = HubAccessService();
       final result = await service.checkAccess(
-        email: 'bamiduromichael2@gmail.com',
+        email: 'admin@example.com',
       );
-      expect(result.qualified, isTrue);
-      expect(result.status, HubAccessStatus.qualified);
-      expect(result.role, UserRole.superRole);
-      expect(result.isOwner, isTrue);
+      expect(result.qualified, isFalse);
+      expect(result.status, HubAccessStatus.verificationError);
     });
 
     test('empty email fails closed without Firestore', () async {
@@ -148,29 +143,16 @@ void main() {
       );
     });
 
-    test('owner provisioner with bad candidate email is rejected', () async {
+    test('unauthorized provisioner is rejected', () async {
       final service = HubAccessService();
       expect(
         () => service.provisionStaff(
-          provisionerEmail: 'bamiduromichael2@gmail.com',
+          provisionerEmail: 'admin@example.com',
           candidateEmail: 'not-an-email',
           role: UserRole.agent,
           assignedPermissions: const [],
         ),
-        throwsA(isA<ArgumentError>()),
-      );
-    });
-
-    test('owner provisioner with non-staff role is rejected', () async {
-      final service = HubAccessService();
-      expect(
-        () => service.provisionStaff(
-          provisionerEmail: 'bamiduromichael2@gmail.com',
-          candidateEmail: 'rider@gmail.com',
-          role: UserRole.customer,
-          assignedPermissions: const [],
-        ),
-        throwsA(isA<ArgumentError>()),
+        throwsA(isA<StateError>()),
       );
     });
   });

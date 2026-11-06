@@ -6,6 +6,8 @@ import {
   IdentifierEntry,
 } from "./uniqueIdentifiers";
 
+const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
+
 function db() {
   return admin.firestore();
 }
@@ -22,6 +24,71 @@ function normPhone(phone?: string): string {
   return cleaned;
 }
 
+/**
+ * Asserts that the caller is authenticated as a staff member or administrator
+ * with authority to manage users (or holding Super/Admin status or user_onboarding scope).
+ */
+async function assertStaffWithManageUsersScope(
+  auth: { uid: string; token: Record<string, unknown> } | undefined
+): Promise<void> {
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const token = auth.token ?? {};
+  const email = String(token.email ?? "").trim().toLowerCase();
+
+  // Fast path 1: Primary owner email (if configured in env)
+  if (OWNER_EMAIL && email === OWNER_EMAIL) return;
+
+  // Fast path 2: Custom claims indicating Super Admin / Admin
+  const claimRole = String(token.role ?? token.adminRole ?? "").toUpperCase();
+  const isSuperOrAdminClaim =
+    token.admin === true ||
+    token.adminAuth === true ||
+    claimRole === "SUPER_ADMIN" ||
+    claimRole === "ROLE_SUPER_ADMIN" ||
+    claimRole === "SUPER" ||
+    claimRole === "ADMIN";
+
+  if (isSuperOrAdminClaim) return;
+
+  // Database lookup in hub_staff/{email}
+  if (email) {
+    try {
+      const snap = await db().collection("hub_staff").doc(email).get();
+      if (snap.exists) {
+        const data = snap.data();
+        if (data?.active !== false) {
+          const staffRole = String(data?.role ?? "").toUpperCase();
+          if (staffRole === "SUPER" || staffRole === "ADMIN" || staffRole === "SUPER_ADMIN") {
+            return;
+          }
+          const perms: unknown = data?.assignedPermissions;
+          const grants = Array.isArray(perms)
+            ? perms.map((p) => String(p).toLowerCase())
+            : [];
+          if (
+            grants.includes("manageusers") ||
+            grants.includes("manage_users") ||
+            grants.includes("user_onboarding") ||
+            grants.includes("staff_manage")
+          ) {
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`assertStaffWithManageUsersScope: hub_staff lookup failed for ${email}:`, e);
+    }
+  }
+
+  throw new HttpsError(
+    "permission-denied",
+    "Only Hub staff members or administrators with user management scope can perform onboarding actions."
+  );
+}
+
 // ── 1. lookupAccountForOnboarding ──────────────────────────────────────────
 
 interface LookupData {
@@ -29,9 +96,7 @@ interface LookupData {
 }
 
 export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Authentication required.");
-  }
+  await assertStaffWithManageUsersScope(request.auth as any);
 
   const identifier = String(request.data?.identifier ?? "").trim();
   if (!identifier) {
@@ -120,9 +185,7 @@ interface SendOtpData {
 }
 
 export const sendOnboardingOtp = onCall<SendOtpData>(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Authentication required.");
-  }
+  await assertStaffWithManageUsersScope(request.auth as any);
 
   const identifier = String(request.data?.identifier ?? "").trim();
   if (!identifier) {
@@ -138,14 +201,15 @@ export const sendOnboardingOtp = onCall<SendOtpData>(async (request) => {
     verified: false,
     expiresAt,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    createdByAdminId: request.auth.uid,
+    createdByAdminId: request.auth!.uid,
   });
+
+  console.log(`[sendOnboardingOtp] OTP generated for ${identifier}: ${otp}`);
 
   return {
     success: true,
     identifier,
     message: `OTP dispatched to ${identifier}.`,
-    devOtpHint: otp,
   };
 });
 
@@ -155,9 +219,7 @@ interface VerifyOtpData {
 }
 
 export const verifyOnboardingOtp = onCall<VerifyOtpData>(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Authentication required.");
-  }
+  await assertStaffWithManageUsersScope(request.auth as any);
 
   const identifier = String(request.data?.identifier ?? "").trim().toLowerCase();
   const otp = String(request.data?.otp ?? "").trim();
@@ -227,11 +289,9 @@ interface AdminRegisterUserData {
 }
 
 export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Admin authentication required.");
-  }
+  await assertStaffWithManageUsersScope(request.auth as any);
 
-  const adminUid = request.auth.uid;
+  const adminUid = request.auth!.uid;
   const data = request.data ?? {};
 
   const role = data.role === "driver" ? "driver" : "customer";
@@ -329,8 +389,8 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
         phoneNumberE164: normPhoneStr,
         ...(normEmailStr ? { email: normEmailStr } : {}),
         role,
-        customerVerificationStatus: "verified",
-        isVerifiedCustomer: true,
+        customerVerificationStatus: "pending_verification",
+        isVerifiedCustomer: false,
         address: data.address ?? "",
         ...(normNinStr ? { ninNumber: normNinStr } : {}),
         createdByAdminId: adminUid,
@@ -405,7 +465,7 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
     await admin.auth().setCustomUserClaims(uid, {
       ...(authUser.customClaims || {}),
       role,
-      isVerified: true,
+      isVerified: false,
     });
   } catch (e) {
     console.warn(`adminRegisterUser: setCustomUserClaims failed: ${e}`);

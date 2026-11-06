@@ -70,38 +70,13 @@ const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== vo
 const MIN_AMOUNT_KOBO = 10000;
 const MAX_AMOUNT_KOBO = 50000000;
 async function paystackSecret() {
-    var _a, _b, _c;
+    var _a;
     const envSecret = (_a = process.env.PAYSTACK_API_KEY) !== null && _a !== void 0 ? _a : process.env.PAYSTACK_SECRET_KEY;
     if (envSecret && envSecret.trim()) {
         return envSecret.trim();
     }
-    const docPaths = [
-        "system_config/remote_keys",
-        "system_config/financial",
-        "system_config/keys",
-        "system_configs/global_default",
-    ];
-    for (const docPath of docPaths) {
-        try {
-            const snap = await db().doc(docPath).get();
-            if (snap.exists) {
-                const data = snap.data();
-                if (data) {
-                    const raw = (_c = (_b = data.paystackSecretKey) !== null && _b !== void 0 ? _b : data.paystack_secret_key) !== null && _c !== void 0 ? _c : data.secret_key;
-                    if (typeof raw === "string" && raw.trim()) {
-                        return raw.trim();
-                    }
-                }
-            }
-        }
-        catch (e) {
-            console.error(`Failed to read ${docPath} for paystackSecretKey:`, e);
-        }
-    }
-    // No valid secret anywhere: fail fast with a machine-readable code instead
-    // of calling Paystack with a dead key (which surfaces as a confusing
-    // "Invalid key"). Rotate/paste the current test secret from the Paystack
-    // dashboard into `functions/.env` as PAYSTACK_API_KEY and redeploy.
+    // Paystack secret key must NOT be read from client-accessible Firestore documents.
+    // It is strictly populated via environment variables or Secret Manager.
     throw new https_1.HttpsError("failed-precondition", "PAYSTACK_NOT_CONFIGURED");
 }
 function newReference(uid) {
@@ -396,7 +371,12 @@ exports.paystackWebhook = (0, https_1.onRequest)(async (req, res) => {
     const signature = String((_a = req.headers["x-paystack-signature"]) !== null && _a !== void 0 ? _a : "");
     const rawBody = (_b = req.rawBody) !== null && _b !== void 0 ? _b : Buffer.from(JSON.stringify((_c = req.body) !== null && _c !== void 0 ? _c : {}));
     const expected = (0, node_crypto_1.createHmac)("sha512", secret).update(rawBody).digest("hex");
-    if (!signature || signature !== expected) {
+    const sigBuf = Buffer.from(signature, "hex");
+    const expBuf = Buffer.from(expected, "hex");
+    if (!signature ||
+        sigBuf.length === 0 ||
+        sigBuf.length !== expBuf.length ||
+        !(0, node_crypto_1.timingSafeEqual)(sigBuf, expBuf)) {
         res.status(401).send("Invalid signature");
         return;
     }

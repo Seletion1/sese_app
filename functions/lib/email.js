@@ -141,7 +141,7 @@ exports.sendTransactionalEmail = (0, https_1.onCall)(async (request) => {
         request.auth.token.role === "SUPER_ADMIN" ||
         request.auth.token.role === "OPERATIONS_ADMIN" ||
         request.auth.token.role === "AGENT" ||
-        callerEmail === "bamiduromichael2@gmail.com";
+        (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     // If not staff/admin, users can ONLY send receipts/notifications to their OWN registered email address
     if (!isAdminOrStaff) {
         const recipients = Array.isArray(to) ? to.map((e) => e.trim().toLowerCase()) : [to.trim().toLowerCase()];

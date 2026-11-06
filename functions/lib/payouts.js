@@ -452,32 +452,37 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
  * for all Paystack events.
  */
 async function settleTransfer(reference, outcome, reason) {
-    const snap = await db().collection("payout_requests").doc(reference).get();
-    if (!snap.exists)
-        return;
-    const row = snap.data();
-    if (row["status"] === outcome)
-        return;
-    if (row["status"] === "refunded" && outcome === "success") {
-        console.error(`[payouts] CRITICAL: Payout ${reference} succeeded on Paystack but had already been marked refunded!`);
-        await db().collection("failed_payouts_dlq").doc(`${reference}_double_payout_alert`).set({
-            type: "DOUBLE_PAYOUT_DETECTED",
-            severity: "CRITICAL",
-            reference,
-            userId: row["userId"],
-            amountKobo: row["amountKobo"],
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        return;
-    }
-    const walletRef = db().collection("wallets").doc(String(row["userId"]));
-    const ledgerRef = walletRef
-        .collection("transactions")
-        .doc(String(row["requestId"]));
+    const payoutRef = db().collection("payout_requests").doc(reference);
     await db().runTransaction(async (tx) => {
-        var _a;
+        var _a, _b, _c, _d;
+        const snap = await tx.get(payoutRef);
+        if (!snap.exists)
+            return;
+        const row = snap.data();
+        const currentStatus = String((_a = row["status"]) !== null && _a !== void 0 ? _a : "");
+        if (currentStatus === outcome || currentStatus === "completed")
+            return;
+        if (currentStatus === "refunded" && outcome === "success") {
+            console.error(`[payouts] CRITICAL: Payout ${reference} succeeded on Paystack but had already been marked refunded!`);
+            const alertRef = db().collection("failed_payouts_dlq").doc(`${reference}_double_payout_alert`);
+            tx.set(alertRef, {
+                type: "DOUBLE_PAYOUT_DETECTED",
+                severity: "CRITICAL",
+                reference,
+                userId: row["userId"],
+                amountKobo: row["amountKobo"],
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            return;
+        }
+        const userId = String((_b = row["userId"]) !== null && _b !== void 0 ? _b : "");
+        const requestId = String((_c = row["requestId"]) !== null && _c !== void 0 ? _c : "");
+        const walletRef = db().collection("wallets").doc(userId);
+        const ledgerRef = walletRef.collection("transactions").doc(requestId);
+        // Perform all transactional reads upfront before issuing writes.
+        await tx.get(walletRef);
         if (outcome === "success") {
-            tx.update(snap.ref, {
+            tx.update(payoutRef, {
                 status: "completed",
                 settledAt: admin.firestore.FieldValue.serverTimestamp(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -486,7 +491,7 @@ async function settleTransfer(reference, outcome, reason) {
             return;
         }
         // Failed AFTER the debit committed: refund it.
-        const amountKobo = Number((_a = row["amountKobo"]) !== null && _a !== void 0 ? _a : 0);
+        const amountKobo = Number((_d = row["amountKobo"]) !== null && _d !== void 0 ? _d : 0);
         if (amountKobo > 0) {
             tx.update(walletRef, {
                 balance: admin.firestore.FieldValue.increment(amountKobo),
@@ -505,7 +510,7 @@ async function settleTransfer(reference, outcome, reason) {
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
             });
         }
-        tx.update(snap.ref, {
+        tx.update(payoutRef, {
             status: "refunded",
             failureReason: reason.slice(0, 500),
             settledAt: admin.firestore.FieldValue.serverTimestamp(),

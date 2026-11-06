@@ -71,30 +71,26 @@ const https_1 = require("firebase-functions/v2/https");
 /**
  * Enforces Firebase App Check on the incoming callable request.
  *
- * In PRODUCTION (`NODE_ENV === 'production'` or `ENFORCE_APP_CHECK === 'true'`)
- * this is a hard gate — any request without a verified App Check token is
- * rejected with `app-check-token-expired` / `unauthenticated`.
+ * App Check enforcement is ENABLED BY DEFAULT in all environments. Any
+ * request without a verified App Check token is rejected with `unauthenticated`.
  *
- * In development / CI (`ENFORCE_APP_CHECK === 'false'` or missing + not
- * production) the check is logged but not enforced, to avoid blocking local
- * emulator runs.
+ * To disable enforcement during local development or emulator runs, set
+ * `DISABLE_APP_CHECK=true` in the environment.
  *
  * @param request - The `CallableRequest` received by the Cloud Function.
- * @throws {HttpsError} `unauthenticated` when enforcement is on and the token
- *   is absent or invalid.
+ * @throws {HttpsError} `unauthenticated` when App Check token is absent or invalid.
  */
 function enforceAppCheck(request) {
-    const enforce = process.env.ENFORCE_APP_CHECK === "true" ||
-        process.env.NODE_ENV === "production";
+    const enforce = process.env.DISABLE_APP_CHECK !== "true";
     if (!enforce) {
-        // Non-production: warn but allow (emulator / CI convenience).
+        // Explicitly disabled for dev / emulator convenience.
         if (!request.app) {
-            console.warn("[accountGuard] App Check token missing — would block in production. " +
-                "Set ENFORCE_APP_CHECK=true or NODE_ENV=production to harden.");
+            console.warn("[accountGuard] App Check enforcement explicitly disabled (DISABLE_APP_CHECK=true). " +
+                "App Check token missing for request.");
         }
         return;
     }
-    // Production hard gate.
+    // Hard gate by default.
     if (!request.app) {
         throw new https_1.HttpsError("unauthenticated", "Request is missing a valid App Check token. " +
             "Only genuine SeseRide app builds are allowed to call this endpoint.");
@@ -138,9 +134,9 @@ async function requireAccountActive(uid, role = "any") {
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
-        // Firestore read failure: fail OPEN toward the user (degraded mode) so a
-        // transient Firestore outage does not block all payments. Log for ops.
-        console.error(`[accountGuard] users/${uid} read failed — failing open: ${e}`);
+        // Genuine Firestore infrastructure read failure: fail OPEN toward the user
+        // (degraded mode) so a transient outage does not block all payments. Log loudly for ops.
+        console.error(`[accountGuard] CRITICAL INFRA ERROR: users/${uid} read failed — failing open: ${e}`);
     }
     // ── 2. Additionally check driver record when role === 'driver' ────────────
     if (role === "driver") {
@@ -153,7 +149,7 @@ async function requireAccountActive(uid, role = "any") {
         catch (e) {
             if (e instanceof https_1.HttpsError)
                 throw e;
-            console.error(`[accountGuard] drivers/${uid} read failed — failing open: ${e}`);
+            console.error(`[accountGuard] CRITICAL INFRA ERROR: drivers/${uid} read failed — failing open: ${e}`);
         }
     }
 }

@@ -32,11 +32,13 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const uniqueIdentifiers_1 = require("./uniqueIdentifiers");
+const OWNER_EMAIL = ((_a = process.env.OWNER_EMAIL) !== null && _a !== void 0 ? _a : "").trim().toLowerCase();
 function db() {
     return admin.firestore();
 }
@@ -52,11 +54,63 @@ function normPhone(phone) {
     }
     return cleaned;
 }
-exports.lookupAccountForOnboarding = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f;
-    if (!request.auth) {
+/**
+ * Asserts that the caller is authenticated as a staff member or administrator
+ * with authority to manage users (or holding Super/Admin status or user_onboarding scope).
+ */
+async function assertStaffWithManageUsersScope(auth) {
+    var _a, _b, _c, _d, _e;
+    if (!auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
     }
+    const token = (_a = auth.token) !== null && _a !== void 0 ? _a : {};
+    const email = String((_b = token.email) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
+    // Fast path 1: Primary owner email (if configured in env)
+    if (OWNER_EMAIL && email === OWNER_EMAIL)
+        return;
+    // Fast path 2: Custom claims indicating Super Admin / Admin
+    const claimRole = String((_d = (_c = token.role) !== null && _c !== void 0 ? _c : token.adminRole) !== null && _d !== void 0 ? _d : "").toUpperCase();
+    const isSuperOrAdminClaim = token.admin === true ||
+        token.adminAuth === true ||
+        claimRole === "SUPER_ADMIN" ||
+        claimRole === "ROLE_SUPER_ADMIN" ||
+        claimRole === "SUPER" ||
+        claimRole === "ADMIN";
+    if (isSuperOrAdminClaim)
+        return;
+    // Database lookup in hub_staff/{email}
+    if (email) {
+        try {
+            const snap = await db().collection("hub_staff").doc(email).get();
+            if (snap.exists) {
+                const data = snap.data();
+                if ((data === null || data === void 0 ? void 0 : data.active) !== false) {
+                    const staffRole = String((_e = data === null || data === void 0 ? void 0 : data.role) !== null && _e !== void 0 ? _e : "").toUpperCase();
+                    if (staffRole === "SUPER" || staffRole === "ADMIN" || staffRole === "SUPER_ADMIN") {
+                        return;
+                    }
+                    const perms = data === null || data === void 0 ? void 0 : data.assignedPermissions;
+                    const grants = Array.isArray(perms)
+                        ? perms.map((p) => String(p).toLowerCase())
+                        : [];
+                    if (grants.includes("manageusers") ||
+                        grants.includes("manage_users") ||
+                        grants.includes("user_onboarding") ||
+                        grants.includes("staff_manage")) {
+                        return;
+                    }
+                }
+            }
+        }
+        catch (e) {
+            console.error(`assertStaffWithManageUsersScope: hub_staff lookup failed for ${email}:`, e);
+        }
+    }
+    throw new https_1.HttpsError("permission-denied", "Only Hub staff members or administrators with user management scope can perform onboarding actions.");
+}
+exports.lookupAccountForOnboarding = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d, _e, _f;
+    await assertStaffWithManageUsersScope(request.auth);
     const identifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim();
     if (!identifier) {
         throw new https_1.HttpsError("invalid-argument", "Phone number or email is required.");
@@ -135,9 +189,7 @@ exports.lookupAccountForOnboarding = (0, https_1.onCall)(async (request) => {
 });
 exports.sendOnboardingOtp = (0, https_1.onCall)(async (request) => {
     var _a, _b;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
+    await assertStaffWithManageUsersScope(request.auth);
     const identifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim();
     if (!identifier) {
         throw new https_1.HttpsError("invalid-argument", "Identifier is required.");
@@ -152,18 +204,16 @@ exports.sendOnboardingOtp = (0, https_1.onCall)(async (request) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdByAdminId: request.auth.uid,
     });
+    console.log(`[sendOnboardingOtp] OTP generated for ${identifier}: ${otp}`);
     return {
         success: true,
         identifier,
         message: `OTP dispatched to ${identifier}.`,
-        devOtpHint: otp,
     };
 });
 exports.verifyOnboardingOtp = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
+    await assertStaffWithManageUsersScope(request.auth);
     const identifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
     const otp = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.otp) !== null && _d !== void 0 ? _d : "").trim();
     if (!identifier || !otp) {
@@ -194,9 +244,7 @@ exports.verifyOnboardingOtp = (0, https_1.onCall)(async (request) => {
 });
 exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Admin authentication required.");
-    }
+    await assertStaffWithManageUsersScope(request.auth);
     const adminUid = request.auth.uid;
     const data = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     const role = data.role === "driver" ? "driver" : "customer";
@@ -282,7 +330,7 @@ exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
         const now = admin.firestore.FieldValue.serverTimestamp();
         // 2. ALL WRITES: user doc, driver doc, vehicle doc
         tx.set(userRef, Object.assign(Object.assign(Object.assign(Object.assign({ uid,
-            fullName, phoneNumber: normPhoneStr, phoneNumberE164: normPhoneStr }, (normEmailStr ? { email: normEmailStr } : {})), { role, customerVerificationStatus: "verified", isVerifiedCustomer: true, address: (_b = data.address) !== null && _b !== void 0 ? _b : "" }), (normNinStr ? { ninNumber: normNinStr } : {})), { createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
+            fullName, phoneNumber: normPhoneStr, phoneNumberE164: normPhoneStr }, (normEmailStr ? { email: normEmailStr } : {})), { role, customerVerificationStatus: "pending_verification", isVerifiedCustomer: false, address: (_b = data.address) !== null && _b !== void 0 ? _b : "" }), (normNinStr ? { ninNumber: normNinStr } : {})), { createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
         if (role === "driver") {
             const driverRef = db().collection("drivers").doc(uid);
             tx.set(driverRef, Object.assign(Object.assign({ driverId: uid, fullName, phone: normPhoneStr }, (normEmailStr ? { email: normEmailStr } : {})), { licenseNumber: (_d = (_c = data.driverDetails) === null || _c === void 0 ? void 0 : _c.licenseNumber) !== null && _d !== void 0 ? _d : "", licenseExpiry: (_f = (_e = data.driverDetails) === null || _e === void 0 ? void 0 : _e.licenseExpiry) !== null && _f !== void 0 ? _f : "", verificationStatus: "pending_verification", isProfileVerified: false, vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered", photoUrl: (_g = data.livePhotoUrl) !== null && _g !== void 0 ? _g : "", createdByAdminId: adminUid, createdAt: now, updatedAt: now }), { merge: true });
@@ -319,7 +367,7 @@ exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
     });
     // Set Auth Custom Claims
     try {
-        await admin.auth().setCustomUserClaims(uid, Object.assign(Object.assign({}, (authUser.customClaims || {})), { role, isVerified: true }));
+        await admin.auth().setCustomUserClaims(uid, Object.assign(Object.assign({}, (authUser.customClaims || {})), { role, isVerified: false }));
     }
     catch (e) {
         console.warn(`adminRegisterUser: setCustomUserClaims failed: ${e}`);

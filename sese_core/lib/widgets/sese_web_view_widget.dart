@@ -12,6 +12,7 @@ import 'sese_web_error_widget.dart';
 class SeseWebViewWidget extends StatefulWidget {
   final String initialUrl;
   final String? appBarTitle;
+  final Set<String>? allowedDomains;
   final NavigationDecision Function(NavigationRequest request)? onNavigationRequest;
   final void Function(String url)? onPageFinished;
   final VoidCallback? onGoBack;
@@ -21,6 +22,7 @@ class SeseWebViewWidget extends StatefulWidget {
     super.key,
     required this.initialUrl,
     this.appBarTitle,
+    this.allowedDomains,
     this.onNavigationRequest,
     this.onPageFinished,
     this.onGoBack,
@@ -119,7 +121,14 @@ class _SeseWebViewWidgetState extends State<SeseWebViewWidget> {
           },
           onNavigationRequest: (request) {
             if (widget.onNavigationRequest != null) {
-              return widget.onNavigationRequest!(request);
+              final decision = widget.onNavigationRequest!(request);
+              if (decision == NavigationDecision.prevent) {
+                return NavigationDecision.prevent;
+              }
+            }
+            if (!_isHostAllowed(request.url)) {
+              debugPrint('SeseWebViewWidget: Blocked navigation to unpermitted host: ${request.url}');
+              return NavigationDecision.prevent;
             }
             return NavigationDecision.navigate;
           },
@@ -129,14 +138,40 @@ class _SeseWebViewWidgetState extends State<SeseWebViewWidget> {
     _loadUrl();
   }
 
+  static const Set<String> _defaultAllowedDomains = {
+    'paystack.co',
+    'paystack.com',
+    'firebaseapp.com',
+    'web.app',
+    'sese.app',
+    'sese.com',
+    'sese.ng',
+    'google.com',
+    'accounts.google.com',
+    'mycover.ai',
+    'octamile.com',
+  };
+
+  bool _isHostAllowed(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasAuthority) return false;
+    // Enforce HTTPS for remote webview loads to prevent plain-text intercept/injection.
+    if (uri.scheme != 'https' && uri.host != 'localhost' && uri.host != '127.0.0.1') return false;
+    final host = uri.host.toLowerCase();
+    final allowed = widget.allowedDomains ?? _defaultAllowedDomains;
+    return allowed.any((domain) => host == domain || host.endsWith('.$domain'));
+  }
+
   Future<void> _loadUrl() async {
     final uri = Uri.tryParse(widget.initialUrl);
-    if (uri == null || !uri.hasScheme) {
+    if (uri == null || !uri.hasScheme || !_isHostAllowed(widget.initialUrl)) {
       if (mounted) {
         setState(() {
           _hasError = true;
           _isLoading = false;
-          _errorMessage = 'Invalid web address (URL).';
+          _errorMessage = uri != null && !_isHostAllowed(widget.initialUrl)
+              ? 'Access denied: domain (${uri.host}) is not permitted.'
+              : 'Invalid web address (URL).';
         });
       }
       return;

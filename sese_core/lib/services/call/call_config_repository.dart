@@ -55,10 +55,11 @@ class CallConfig {
 
   /// True if ZegoCloud credentials are valid and ready for SDK initialization.
   bool get hasValidZegoCredentials {
-    return zegoAppId != null &&
-        zegoAppId! > 0 &&
-        zegoAppSign != null &&
-        zegoAppSign!.trim().length >= 32;
+    if (zegoAppId == null || zegoAppId! <= 0) return false;
+    if (zegoAppSign != null && zegoAppSign!.isNotEmpty) {
+      return zegoAppSign!.trim().length >= 32;
+    }
+    return true;
   }
 
   CallConfig copyWith({
@@ -94,7 +95,8 @@ class CallConfig {
       'providerType': providerType.name,
       'fallbackTimeoutSeconds': fallbackTimeoutSeconds,
       'zegoAppId': zegoAppId,
-      'zegoAppSign': zegoAppSign,
+      // Note: zegoAppSign is intentionally omitted from toMap() to prevent
+      // exposing secret credentials in public Firestore docs (system_settings/calling).
       'stunServers': stunServers,
       'enableDiagnostics': enableDiagnostics,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -139,8 +141,6 @@ class CallConfig {
       appId = int.tryParse(rawAppId.trim());
     }
 
-    final appSign = map['zegoAppSign']?.toString().trim();
-
     List<String> stuns = defaultGoogleStunServers;
     if (map['stunServers'] is List) {
       final parsedList = (map['stunServers'] as List)
@@ -156,7 +156,7 @@ class CallConfig {
       routingMode: routingMode,
       fallbackTimeoutSeconds: timeout,
       zegoAppId: appId,
-      zegoAppSign: appSign?.isEmpty ?? true ? null : appSign,
+      zegoAppSign: null,
       stunServers: stuns,
       enableDiagnostics: map['enableDiagnostics'] == true,
     );
@@ -218,7 +218,6 @@ class CallConfigRepository {
 
       final fallbackTimeout = prefs.getInt(_kPrefFallbackTimeout) ?? 10;
       final zegoAppId = prefs.getInt(_kPrefZegoAppId);
-      final zegoAppSign = prefs.getString(_kPrefZegoAppSign);
       final stunList = prefs.getStringList(_kPrefStunServers);
       final diagnostics = prefs.getBool(_kPrefDiagnostics) ?? false;
 
@@ -226,7 +225,7 @@ class CallConfigRepository {
         routingMode: mode,
         fallbackTimeoutSeconds: fallbackTimeout,
         zegoAppId: zegoAppId,
-        zegoAppSign: zegoAppSign,
+        zegoAppSign: null,
         stunServers: stunList != null && stunList.isNotEmpty
             ? stunList
             : CallConfig.defaultGoogleStunServers,
@@ -263,7 +262,6 @@ class CallConfigRepository {
           if (remoteConfig.routingMode != _currentConfig.routingMode ||
               remoteConfig.fallbackTimeoutSeconds != _currentConfig.fallbackTimeoutSeconds ||
               remoteConfig.zegoAppId != _currentConfig.zegoAppId ||
-              remoteConfig.zegoAppSign != _currentConfig.zegoAppSign ||
               !listEquals(remoteConfig.stunServers, _currentConfig.stunServers)) {
             _currentConfig = remoteConfig;
             _controller.add(remoteConfig);
@@ -292,11 +290,8 @@ class CallConfigRepository {
         await prefs.remove(_kPrefZegoAppId);
       }
 
-      if (config.zegoAppSign != null && config.zegoAppSign!.isNotEmpty) {
-        await prefs.setString(_kPrefZegoAppSign, config.zegoAppSign!);
-      } else {
-        await prefs.remove(_kPrefZegoAppSign);
-      }
+      // Security: Always purge secret AppSign key from local SharedPreferences
+      await prefs.remove(_kPrefZegoAppSign);
 
       await prefs.setStringList(_kPrefStunServers, config.stunServers);
       await prefs.setBool(_kPrefDiagnostics, config.enableDiagnostics);

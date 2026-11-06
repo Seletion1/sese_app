@@ -1,7 +1,9 @@
 import * as crypto from "crypto";
 
-const FARE_SIGNING_SECRET =
-  process.env.FARE_SIGNING_SECRET ?? "sese-default-insecure-fare-token-secret-change-me";
+if (!process.env.FARE_SIGNING_SECRET) {
+  throw new Error("FARE_SIGNING_SECRET is required");
+}
+const FARE_SIGNING_SECRET = process.env.FARE_SIGNING_SECRET;
 
 export interface FareTokenPayload {
   uid: string;

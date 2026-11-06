@@ -37,7 +37,7 @@ void main() {
       expect(validConfig.hasValidZegoCredentials, isTrue);
     });
 
-    test('serializes toMap and deserializes fromMap with all 3 routing modes', () {
+    test('serializes toMap and deserializes fromMap with all 3 routing modes (omits secret zegoAppSign)', () {
       // 1. smartFallback
       const c1 = CallConfig(
         routingMode: CallRoutingMode.smartFallback,
@@ -49,12 +49,13 @@ void main() {
       expect(map1['routingMode'], equals('smartFallback'));
       expect(map1['providerType'], equals('webrtc'));
       expect(map1['fallbackTimeoutSeconds'], equals(15));
+      expect(map1.containsKey('zegoAppSign'), isFalse);
 
       final deserialized1 = CallConfig.fromMap(map1);
       expect(deserialized1.routingMode, equals(CallRoutingMode.smartFallback));
       expect(deserialized1.fallbackTimeoutSeconds, equals(15));
       expect(deserialized1.zegoAppId, equals(98765));
-      expect(deserialized1.zegoAppSign, equals('abcdef0123456789abcdef0123456789'));
+      expect(deserialized1.zegoAppSign, isNull);
 
       // 2. customP2pOnly
       const c2 = CallConfig(routingMode: CallRoutingMode.customP2pOnly);
@@ -92,14 +93,14 @@ void main() {
       });
     });
 
-    test('loads saved preferences on initialize', () async {
+    test('loads saved preferences on initialize and purges legacy AppSign', () async {
       final repo = CallConfigRepository.instance;
       final config = await repo.loadConfig();
 
       expect(config.routingMode, equals(CallRoutingMode.customP2pOnly));
       expect(config.fallbackTimeoutSeconds, equals(12));
       expect(config.zegoAppId, equals(55555));
-      expect(config.zegoAppSign, equals('0123456789abcdef0123456789abcdef'));
+      expect(config.zegoAppSign, isNull);
     });
 
     test('saveConfig updates currentConfig and notifies listeners', () async {
