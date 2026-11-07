@@ -70,4 +70,10 @@ node_modules/
 
 # macOS
 .DS_Store
+*.hprof
+.gradle/
+build/
+.idea/
+local.properties
+
 

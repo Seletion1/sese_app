@@ -65,6 +65,18 @@ class RoleController extends ChangeNotifier {
     }
   }
 
+  /// Synchronous cache lookup for instantaneous 0ms frame-1 UI rendering.
+  UserRole getCachedRoleSync(String userId, UserRole fallbackRole) {
+    final cachedStr = LocalCacheService.instance.getString(_localModeKey(userId)) ??
+        LocalCacheService.instance.getString(_fallbackLocalModeKey);
+    final role = _modeFromString(cachedStr);
+    if (role != null) {
+      _currentRole = role;
+      return role;
+    }
+    return _currentRole != UserRole.customer ? _currentRole : fallbackRole;
+  }
+
   /// Restores the last user-selected ride mode, choosing the newest local or
   /// server snapshot so offline mode changes survive relaunch and later sync.
   Future<UserRole> restoreSession({
@@ -168,6 +180,8 @@ class RoleController extends ChangeNotifier {
     }
 
     final updatedAtMs = DateTime.now().millisecondsSinceEpoch;
+    LocalCacheService.instance.setString(_localModeKey(userId), role.name);
+    LocalCacheService.instance.setString(_fallbackLocalModeKey, role.name);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_localModeKey(userId), role.name);

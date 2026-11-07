@@ -688,8 +688,9 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
           return const HubSessionExpiredView(
               contextLabel: 'active chats');
         }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const SeseListSkeleton(itemCount: 4);
         }
         final docs = snapshot.data?.docs ?? [];
         final sortedDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)

@@ -73,6 +73,9 @@ void main() async {
   // Initialize enterprise silent crash logging & error recovery handlers.
   CrashReporterService.initialize(appName: 'sese_hub');
 
+  // Start background network reachability monitoring for instant top warning banner.
+  NetworkStatusService.instance.startMonitoring();
+
   // Unified high-priority push (escalations, announcements) with chime.
   // Staff topics subscribe after qualification (dashboard shell).
   // ignore: discarded_futures
@@ -140,6 +143,9 @@ class _MyAppState extends State<MyApp> {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
+          builder: (context, child) => NetworkStatusBannerWrapper(
+            child: child ?? const SizedBox.shrink(),
+          ),
           home: widget.showSplash
               ? SeSeSplashScreen(
                   nextScreen: gate,
@@ -291,10 +297,17 @@ class _AuthGateState extends State<_AuthGate> {
           return _NoRoleAssigned(auth: _authRepo);
         }
 
+        final cachedAccess = LocalCacheService.instance
+            .getJsonMap('cached_hub_access_${email.toLowerCase()}');
+        final cachedResult =
+            cachedAccess != null ? HubAccessResult.fromMap(cachedAccess) : null;
+
         return FutureBuilder<HubAccessResult>(
           future: _check(email),
+          initialData: cachedResult,
           builder: (context, accessSnap) {
-            if (accessSnap.connectionState == ConnectionState.waiting) {
+            if (accessSnap.connectionState == ConnectionState.waiting &&
+                !accessSnap.hasData) {
               return const _HubGateLoading(label: 'Verifying staff access…');
             }
             final result = accessSnap.data;
@@ -363,22 +376,46 @@ class _HubGateLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFB800)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SeSeLogo(
+                variant: SeSeLogoVariant.hub,
+                size: 48,
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(label, textAlign: TextAlign.center),
-          ],
+              const SizedBox(height: 24),
+              SizedBox(
+                width: 140,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    minHeight: 3,
+                    backgroundColor: isDark
+                        ? const Color(0xFF262626)
+                        : const Color(0xFFE5E5E5),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFFFFB800),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -11,6 +11,7 @@ import '../models/driver_verification.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../referral/referral_code.dart';
+import '../services/local_cache_service.dart';
 
 /// Production [AuthRepository] backed by Firebase Auth + Cloud Firestore.
 ///
@@ -89,9 +90,22 @@ class FirebaseAuthRepository implements AuthRepository {
     return auth.authStateChanges().asyncMap((firebaseUser) async {
       if (firebaseUser == null) return null;
       try {
-        return await _fetchAppUser(firebaseUser);
+        final user = await _fetchAppUser(firebaseUser);
+        LocalCacheService.instance.setJsonMap(
+          'cached_app_user_${firebaseUser.uid}',
+          user.toMap(),
+        );
+        return user;
       } catch (e) {
         debugPrint('FirebaseAuthRepository.authStateChanges error: $e');
+        final cached = LocalCacheService.instance.getJsonMap(
+          'cached_app_user_${firebaseUser.uid}',
+        );
+        if (cached != null) {
+          try {
+            return AppUser.fromMap(cached);
+          } catch (_) {}
+        }
         return null;
       }
     });
@@ -1015,13 +1029,24 @@ class FirebaseAuthRepository implements AuthRepository {
     fb.User firebaseUser, {
     UserRole? selectedRole,
   }) async {
+    // 0. Prime from instant local cache for zero-latency hydration.
+    final cachedData = LocalCacheService.instance.getJsonMap(
+      'cached_app_user_${firebaseUser.uid}',
+    );
+    AppUser? cachedUser;
+    if (cachedData != null) {
+      try {
+        cachedUser = AppUser.fromMap(cachedData);
+      } catch (_) {}
+    }
+
     // 1. Check Firebase ID-token custom claims (set by Cloud Functions for super admin & hub staff).
     try {
       final idToken = await firebaseUser.getIdTokenResult();
       final isAdminClaim = idToken.claims?['admin'] == true;
       final claimRole = idToken.claims?['role'] as String?;
       if (isAdminClaim || claimRole == 'SUPER_ADMIN' || claimRole == 'super_admin') {
-        return AppUser(
+        final adminUser = AppUser(
           uid: firebaseUser.uid,
           fullName: firebaseUser.displayName ?? 'Super Admin',
           email: firebaseUser.email ?? '',
@@ -1031,10 +1056,15 @@ class FirebaseAuthRepository implements AuthRepository {
           createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
           photoUrl: firebaseUser.photoURL ?? '',
         );
+        LocalCacheService.instance.setJsonMap(
+          'cached_app_user_${firebaseUser.uid}',
+          adminUser.toMap(),
+        );
+        return adminUser;
       }
       if (claimRole != null) {
         final userRole = _claimToUserRole(claimRole);
-        return AppUser(
+        final claimedUser = AppUser(
           uid: firebaseUser.uid,
           fullName: firebaseUser.displayName ?? firebaseUser.email ?? '',
           email: firebaseUser.email ?? '',
@@ -1044,6 +1074,11 @@ class FirebaseAuthRepository implements AuthRepository {
           createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
           photoUrl: firebaseUser.photoURL ?? '',
         );
+        LocalCacheService.instance.setJsonMap(
+          'cached_app_user_${firebaseUser.uid}',
+          claimedUser.toMap(),
+        );
+        return claimedUser;
       }
     } catch (e) {
       debugPrint('FirebaseAuthRepository._fetchAppUser: claims error $e');
@@ -1063,7 +1098,7 @@ class FirebaseAuthRepository implements AuthRepository {
           if (adminDoc.exists && adminDoc.data() != null) {
             final data = adminDoc.data()!;
             final roleStr = (data['role'] as String? ?? 'agent').toLowerCase();
-            return AppUser(
+            final staffUser = AppUser(
               uid: firebaseUser.uid,
               fullName: firebaseUser.displayName ??
                   data['fullName'] ??
@@ -1075,6 +1110,11 @@ class FirebaseAuthRepository implements AuthRepository {
               createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
               photoUrl: (data['photoUrl'] ?? data['photoURL'] ?? firebaseUser.photoURL ?? '').toString(),
             );
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              staffUser.toMap(),
+            );
+            return staffUser;
           }
         } catch (e) {
           debugPrint('FirebaseAuthRepository._fetchAppUser admin_users error: $e');
@@ -1098,6 +1138,10 @@ class FirebaseAuthRepository implements AuthRepository {
           );
           final existing = AppUser.fromMap(data);
           _logRoleSelection(existing.role, selectedRole);
+          LocalCacheService.instance.setJsonMap(
+            'cached_app_user_${firebaseUser.uid}',
+            existing.toMap(),
+          );
           return existing;
         }
       } catch (e) {
@@ -1118,11 +1162,20 @@ class FirebaseAuthRepository implements AuthRepository {
           );
           final existing = AppUser.fromMap(data);
           _logRoleSelection(existing.role, selectedRole);
+          LocalCacheService.instance.setJsonMap(
+            'cached_app_user_${firebaseUser.uid}',
+            existing.toMap(),
+          );
           return existing;
         }
       } catch (e) {
         debugPrint('FirebaseAuthRepository._fetchAppUser users error: $e');
       }
+    }
+
+    // If network / Firestore reads were unavailable, seamlessly fall back to local cache.
+    if (cachedUser != null) {
+      return cachedUser;
     }
 
     // 6. New user (no Firestore doc):

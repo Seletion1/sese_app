@@ -2149,13 +2149,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               color: Theme.of(context).colorScheme.surfaceContainerHighest
                   .withValues(alpha: 0.3),
               alignment: Alignment.center,
-              child: SeseUniversalMap.debugTileProviderOverride != null
-                  ? const SizedBox.shrink()
-                  : const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+              child: const SizedBox.shrink(),
             ),
           ),
 

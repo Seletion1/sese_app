@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/sese_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Paystack key policy (do NOT hardcode keys here):
@@ -282,17 +283,22 @@ class PaymentService {
 
   PaymentsBackend get _ops => _backend ?? _FunctionsPaymentsBackend();
 
-  /// Live wallet balance in kobo. Denied/unavailable reads resolve to 0
-  /// and end instead of retrying forever.
+  /// Live wallet balance in kobo with instant local cache fallback.
   Stream<int> walletBalanceKoboStream(String uid) {
+    final cachedBal =
+        LocalCacheService.instance.getInt('wallet_balance_kobo_$uid') ?? 0;
     final db = _db;
-    if (db == null || uid.isEmpty) return Stream.value(0);
+    if (db == null || uid.isEmpty) return Stream.value(cachedBal);
     return db
         .collection('wallets')
         .doc(uid)
         .snapshots()
-        .map((doc) => ((doc.data()?['balance'] as num?) ?? 0).toInt())
-        .handleError((Object _) => 0);
+        .map((doc) {
+          final bal = ((doc.data()?['balance'] as num?) ?? cachedBal).toInt();
+          LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
+          return bal;
+        })
+        .handleError((Object _) => cachedBal);
   }
 
   /// Wallet history, newest first. Denied/unavailable reads resolve to

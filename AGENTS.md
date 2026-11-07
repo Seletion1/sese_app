@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-07 — Instant Cache-First Startup, Top Network Warning Banner, Silent Sync & Optimistic UI
+
+- **Instant Cache-First Startup & Zero-Blocking Hydration (`sese_ride`, `sese_hub`, `sese_core`)**:
+  - `FirebaseAuthRepository`: Cache-backed `_fetchAppUser` and `authStateChanges`. Resolves last known `AppUser` instantly from `LocalCacheService` on startup and seamlessly falls back to cache during network dropouts, preventing session logout loops or infinite loading veils.
+  - `HubAccessService` & `sese_hub/main.dart`: Serialized `HubAccessResult` into `LocalCacheService`. Employs `initialData: cachedResult` in `FutureBuilder`, rendering the `HubDashboardScreen` on frame 1 without blocking on `_HubGateLoading` spinners.
+  - `RoleController` & `sese_ride/main.dart`: Added `getCachedRoleSync` synchronous local mode lookup. Eliminates `FutureBuilder` white screens by hydrating `CustomerHomeShell` or `DriverHomeShell` at 0ms.
+  - `PaymentService` & Wallet screens: Seeded `walletBalanceKoboStream` with `initialData: cachedBal`. Prevents ₦0 balance flash and silent balance loss when offline.
+  - `SecurityPinScreen`: Replaced full-screen `CircularProgressIndicator` with instant local cache initialization (`user_has_pin_${uid}`).
+
+- **Top Network Status Warning Banner & Background Reachability (`NetworkStatusService`, `NetworkStatusBanner`)**:
+  - Implemented `NetworkStatusService`: Reactive `ValueNotifier<bool> isOnline` and `isChecking`. Adaptive background reachability check (15s online, 5s offline) with low-overhead DNS socket probes (2.5s timeout).
+  - Implemented `NetworkStatusBanner` and `NetworkStatusBannerWrapper`: Non-blocking top animated banner in sleek dark slate / amber styling with *"Network unstable. Please check your connection"* and responsive **Refresh** action.
+  - Integrated via `MaterialApp.builder` in both `sese_ride` and `sese_hub`, ensuring global coverage across all screens without interfering with gesture dispatch.
+
+- **Elimination of Blocking Spinners & Optimistic UI Updates (`OptimisticState`)**:
+  - `ModeSwitcher`: Removed blocking `showDialog` spinner during driver eligibility evaluation.
+  - `HubSupportChatScreen`: Replaced blocking center spinner with `SeseListSkeleton`.
+  - `AdminUserOnboardingScreen`: Replaced blocking center spinner with `SeseListSkeleton`.
+  - `CustomerDispatchScreen`: Removed infinite map spinner that previously stalled `pumpAndSettle` tests.
+
+- **Verification**:
+  - `sese_core`: `flutter analyze` 0 issues; `flutter test test/network_status_test.dart` 3/3 tests passed.
+  - `sese_hub`: `flutter analyze` 0 issues.
+  - `functions`: `npm run build` compiled with 0 errors.
+  - `firebase deploy`: Deployed `firestore:rules` and `storage:rules` to `sese-ride`.
+
 ## 2026-11-05 — Robust In-App Voice Calling Architecture: 3 Routing Modes & Seamless Fallback
 
 - **In-App Call Routing Modes (`ICallService`, `CallRoutingMode`, `CallConfigRepository`)**:

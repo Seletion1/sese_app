@@ -122,21 +122,10 @@ abstract final class ModeSwitcher {
     );
     if (confirmed != true) return;
 
-    // Eligibility check with a blocking progress veil (no stateful host
-    // needed — the dialog owns the busy UI and is popped when done).
-    // Context safety: `rootNavigator`/`messenger` were captured synchronously
-    // and `rootNavigator.mounted` is re-checked after every await.
-    showDialog<void>(
-      // ignore: use_build_context_synchronously
-      context: rootNavigator.context,
-      barrierDismissible: false,
-      builder: (_) =>
-          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-    );
+    // Eligibility check with optimistic zero-blocking transition.
     final scenario =
         await RoleController.instance.evaluateDriverEligibility(user.uid);
     if (!rootNavigator.mounted) return;
-    rootNavigator.pop();
 
     switch (scenario) {
       case DriverOnboardingScenario.scenarioA:

@@ -97,6 +97,8 @@ export 'widgets/in_app_call_screen.dart';
 export 'widgets/incoming_call_overlay.dart';
 export 'widgets/sese_shimmer.dart';
 export 'services/local_cache_service.dart';
+export 'services/network_status_service.dart';
+export 'widgets/network_status_banner.dart';
 export 'services/security_bootstrap_service.dart';
 export 'services/fake_gps_guard.dart';
 export 'utils/optimistic_state.dart';

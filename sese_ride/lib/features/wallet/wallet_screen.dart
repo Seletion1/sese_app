@@ -118,6 +118,9 @@ class WalletScreenState extends State<WalletScreen> {
             StreamBuilder<int>(
               stream:
                   _payments.walletBalanceKoboStream(widget.user.uid),
+              initialData: LocalCacheService.instance
+                      .getInt('wallet_balance_kobo_${widget.user.uid}') ??
+                  0,
               builder: (context, snap) {
                 final kobo = snap.data ?? 0;
                 _currentBalanceKobo = kobo;

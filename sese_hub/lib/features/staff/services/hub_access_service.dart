@@ -407,6 +407,39 @@ class HubAccessResult {
           assignedPermissions: assignedPermissions,
           countryScope: countryScope,
         );
+
+  Map<String, dynamic> toMap() => {
+        'status': status.name,
+        'role': role.name,
+        'isOwner': isOwner,
+        'record': record?.toMap(),
+        'assignedPermissions': assignedPermissions,
+        'countryScope': countryScope,
+      };
+
+  static HubAccessResult? fromMap(Map<String, dynamic> map) {
+    try {
+      final role = UserRoleExtension.fromString(map['role'] ?? 'customer');
+      final isOwner = map['isOwner'] == true;
+      final assignedPermissions =
+          (map['assignedPermissions'] as List?)?.cast<String>() ?? [];
+      final countryScope =
+          (map['countryScope'] ?? countryScopeGlobal).toString();
+      HubStaffRecord? record;
+      if (map['record'] is Map<String, dynamic>) {
+        record = HubStaffRecord.fromMap(map['record'] as Map<String, dynamic>);
+      }
+      return HubAccessResult.qualified(
+        role: role,
+        isOwner: isOwner,
+        record: record,
+        assignedPermissions: assignedPermissions,
+        countryScope: countryScope,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 /// Zero-trust gate for Sese Hub access.
@@ -449,6 +482,11 @@ class HubAccessService {
       return const HubAccessResult.unqualified();
     }
 
+    final cacheKey = 'cached_hub_access_${clean.toLowerCase()}';
+    final cachedData = LocalCacheService.instance.getJsonMap(cacheKey);
+    final cachedResult =
+        cachedData != null ? HubAccessResult.fromMap(cachedData) : null;
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
@@ -456,12 +494,14 @@ class HubAccessService {
         if (idToken.claims?['admin'] == true ||
             idToken.claims?['role'] == 'SUPER_ADMIN' ||
             idToken.claims?['role'] == 'super_admin') {
-          return HubAccessResult.qualified(
+          final res = HubAccessResult.qualified(
             role: UserRole.superRole,
             isOwner: true,
             assignedPermissions: hubModuleCatalog.keys.toList(),
             countryScope: countryScopeGlobal,
           );
+          LocalCacheService.instance.setJsonMap(cacheKey, res.toMap());
+          return res;
         }
       }
     } catch (e) {
@@ -471,19 +511,22 @@ class HubAccessService {
     // Owner bootstrap: permanent Super authority, no document required —
     // full access to every module (all catalog grants, including broadcast).
     if (isPrimaryOwnerEmail(clean)) {
-      return HubAccessResult.qualified(
+      final res = HubAccessResult.qualified(
         role: UserRole.superRole,
         isOwner: true,
         assignedPermissions: hubModuleCatalog.keys.toList(),
         countryScope: countryScopeGlobal,
       );
+      LocalCacheService.instance.setJsonMap(cacheKey, res.toMap());
+      return res;
     }
 
     final db = _db;
     if (db == null) {
-      // Firestore unreachable (offline / not initialized): we cannot prove
-      // anything either way, so this is a verification error — the session
-      // must NOT be revoked for it.
+      // Firestore unreachable: fall back to cached qualified access if available
+      if (cachedResult != null && cachedResult.qualified) {
+        return cachedResult;
+      }
       debugPrint(
         'HubAccessService.checkAccess: Firestore unavailable for "$clean" '
         '-> verification error (session preserved).',
@@ -504,6 +547,7 @@ class HubAccessService {
           if (!record.active) {
             debugPrint(
                 'HubAccessService.checkAccess: "$docId" is inactive -> not registered.');
+            LocalCacheService.instance.remove(cacheKey);
             return const HubAccessResult.unqualified();
           }
           final role = parseHubStaffRole(record.roleRaw);
@@ -511,15 +555,18 @@ class HubAccessService {
             debugPrint(
                 'HubAccessService.checkAccess: "$docId" has unknown role '
                 '"${record.roleRaw}" -> not registered.');
+            LocalCacheService.instance.remove(cacheKey);
             return const HubAccessResult.unqualified();
           }
-          return HubAccessResult.qualified(
+          final res = HubAccessResult.qualified(
             role: role,
             isOwner: false,
             record: record,
             assignedPermissions: record.assignedPermissions,
             countryScope: record.countryScope,
           );
+          LocalCacheService.instance.setJsonMap(cacheKey, res.toMap());
+          return res;
         }
       } catch (e) {
         // Read failure (network / PERMISSION_DENIED / App Check): remember
@@ -531,12 +578,19 @@ class HubAccessService {
       }
     }
     if (readError != null) {
+      if (cachedResult != null && cachedResult.qualified) {
+        debugPrint(
+          'HubAccessService.checkAccess: read failed, falling back to cached qualified access for "$clean"',
+        );
+        return cachedResult;
+      }
       debugPrint(
         'HubAccessService.checkAccess: could not verify "$clean" '
         '(read error) -> verification error (session preserved).',
       );
       return HubAccessResult.verificationError(readError);
     }
+    LocalCacheService.instance.remove(cacheKey);
     debugPrint(
         'HubAccessService.checkAccess: no hub_staff record for "$clean" -> not registered.');
     return const HubAccessResult.unqualified();

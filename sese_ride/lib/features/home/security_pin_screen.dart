@@ -45,6 +45,12 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
   @override
   void initState() {
     super.initState();
+    final cached =
+        LocalCacheService.instance.getBool('user_has_pin_${widget.uid}');
+    if (cached != null) {
+      _hasExistingPin = cached;
+      _loading = false;
+    }
     _load();
   }
 
@@ -58,12 +64,18 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
 
   Future<void> _load() async {
     try {
-      _hasExistingPin = await _pinService.hasPin(widget.uid);
+      final hasPin = await _pinService.hasPin(widget.uid);
+      LocalCacheService.instance.setBool('user_has_pin_${widget.uid}', hasPin);
+      if (mounted) {
+        setState(() {
+          _hasExistingPin = hasPin;
+          _loading = false;
+        });
+      }
     } catch (_) {
       // Degrade gracefully in tests or offline — the server arbitrates.
-      _hasExistingPin = false;
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _save() async {
@@ -102,6 +114,8 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
         currentPin: _hasExistingPin ? oldPin : null,
         newPin: pin,
       );
+
+      LocalCacheService.instance.setBool('user_has_pin_${widget.uid}', true);
 
       if (mounted) {
         setState(() => _hasExistingPin = true);

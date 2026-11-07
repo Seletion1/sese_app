@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:sese_core/sese_core.dart';
 import '../services/hub_onboarding_service.dart';
 import 'widgets/onboarding_wizard_dialog.dart';
 import '../../verification/presentation/agent_applications_tab.dart';
@@ -260,7 +261,7 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
                   return Text('Error loading pending users: ${snapshot.error}');
                 }
                 if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                  return const SeseListSkeleton(itemCount: 3);
                 }
 
                 final docs = snapshot.data!.docs;

@@ -166,6 +166,9 @@ void main() async {
     appVersion: installedVersion,
   );
 
+  // Start background network reachability monitoring for instant top warning banner.
+  NetworkStatusService.instance.startMonitoring();
+
   // showSplash: true — the Flutter SeSeSplashScreen is the ONLY branded
   // experience. The native Android window is now a plain solid-colour fill
   // (matching system theme) so there is no double-splash; it fades seamlessly
@@ -270,7 +273,9 @@ class _MyAppState extends State<MyApp> {
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
           builder: (context, child) => IncomingCallOverlay(
-            child: child ?? const SizedBox.shrink(),
+            child: NetworkStatusBannerWrapper(
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
           home: widget.showSplash
               ? SeSeSplashScreen(
@@ -415,10 +420,14 @@ class _AuthGateState extends State<_AuthGate> {
               },
             );
           }
+          final cachedMode = RoleController.instance
+              .getCachedRoleSync(user.uid, user.role);
           return FutureBuilder<UserRole>(
             future: _modeRestoreFuture,
+            initialData: cachedMode,
             builder: (context, modeSnapshot) {
-              if (modeSnapshot.connectionState != ConnectionState.done) {
+              if (modeSnapshot.connectionState != ConnectionState.done &&
+                  !modeSnapshot.hasData) {
                 return const Scaffold(body: SizedBox.shrink());
               }
               return ListenableBuilder(
