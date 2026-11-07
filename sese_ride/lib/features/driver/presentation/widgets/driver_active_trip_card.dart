@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../../../core/services/call_service.dart';
+import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/presentation/mutual_profile_modal.dart';
 import '../../../trips/presentation/trip_chat_screen.dart';
@@ -42,6 +43,12 @@ class DriverActiveTripCard extends StatefulWidget {
   /// cockpit refines from the live stream when this is absent).
   final LatLng? driverPosition;
 
+  /// Road-accurate navigation polyline points for calculating real-time remaining distance and ETA.
+  final List<LatLng> routePoints;
+
+  /// Real-time vehicle speed in km/h derived from device GPS updates.
+  final double currentSpeedKmh;
+
   /// Test seam: inject a fake proximity service (skips device GPS).
   final ProximityTriggerService Function({
     required void Function() onArrive,
@@ -71,6 +78,8 @@ class DriverActiveTripCard extends StatefulWidget {
     this.waitThresholdMinutes = 10,
     this.driverId = '',
     this.driverPosition,
+    this.routePoints = const [],
+    this.currentSpeedKmh = 0.0,
     this.proximityFactory,
     this.autoArrivalEnabled = true,
     this.autoArrivalCountdownSeconds = 5,
@@ -1172,8 +1181,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  static const double _sheetCollapsedSize = 0.10;
-  static const double _sheetStandardSize = 0.42;
+  static const double _sheetCollapsedSize = 0.18;
+  static const double _sheetStandardSize = 0.44;
   static const double _sheetExpandedSize = 0.88;
 
   void _toggleInternalSheet() {
@@ -1181,7 +1190,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     if (!ctrl.isAttached) return;
     try {
       final current = ctrl.size;
-      final target = current <= 0.20 ? _sheetStandardSize : _sheetCollapsedSize;
+      final target = current <= 0.22 ? _sheetStandardSize : _sheetCollapsedSize;
       ctrl.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
@@ -1223,13 +1232,30 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       if (trip.durationMins > 0) return '${trip.durationMins.round()} min';
       return '— min';
     }
-    final distM = const Distance().as(
-      LengthUnit.Meter,
-      driverPos,
-      LatLng(destLat, destLng),
-    );
-    final distKm = distM / 1000.0;
-    final etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+
+    double distKm;
+    if (widget.routePoints.isNotEmpty) {
+      final distM = LocationService.calculateRemainingRouteDistanceM(
+        driverPos,
+        widget.routePoints,
+        fallbackDestination: LatLng(destLat, destLng),
+      );
+      distKm = distM / 1000.0;
+    } else {
+      final distM = const Distance().as(
+        LengthUnit.Meter,
+        driverPos,
+        LatLng(destLat, destLng),
+      );
+      distKm = distM / 1000.0;
+    }
+
+    // Dynamic ETA derived from live vehicle speed when in motion (>15 km/h),
+    // otherwise falling back to realistic city traffic transit speed (25 km/h).
+    final effectiveSpeed = (widget.currentSpeedKmh > 15.0)
+        ? widget.currentSpeedKmh
+        : 25.0;
+    final etaMin = (distKm / effectiveSpeed * 60).ceil().clamp(1, 999);
     return '$etaMin min';
   }
 
@@ -1243,12 +1269,25 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       if (trip.distanceKm > 0) return '${trip.distanceKm.toStringAsFixed(1)} km';
       return '— km';
     }
-    final distM = const Distance().as(
-      LengthUnit.Meter,
-      driverPos,
-      LatLng(destLat, destLng),
-    );
-    final distKm = distM / 1000.0;
+
+    double distKm;
+    double distM;
+    if (widget.routePoints.isNotEmpty) {
+      distM = LocationService.calculateRemainingRouteDistanceM(
+        driverPos,
+        widget.routePoints,
+        fallbackDestination: LatLng(destLat, destLng),
+      );
+      distKm = distM / 1000.0;
+    } else {
+      distM = const Distance().as(
+        LengthUnit.Meter,
+        driverPos,
+        LatLng(destLat, destLng),
+      );
+      distKm = distM / 1000.0;
+    }
+
     if (distKm < 1.0) {
       return '${distM.round()} m';
     }
@@ -1263,13 +1302,26 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     int etaMin = trip.durationMins > 0 ? trip.durationMins.round() : 5;
     if (driverPos != null && driverPos.latitude != 0 && destLat != 0.0) {
-      final distM = const Distance().as(
-        LengthUnit.Meter,
-        driverPos,
-        LatLng(destLat, destLng),
-      );
-      final distKm = distM / 1000.0;
-      etaMin = (distKm / 30.0 * 60).ceil().clamp(1, 999);
+      double distKm;
+      if (widget.routePoints.isNotEmpty) {
+        final distM = LocationService.calculateRemainingRouteDistanceM(
+          driverPos,
+          widget.routePoints,
+          fallbackDestination: LatLng(destLat, destLng),
+        );
+        distKm = distM / 1000.0;
+      } else {
+        final distM = const Distance().as(
+          LengthUnit.Meter,
+          driverPos,
+          LatLng(destLat, destLng),
+        );
+        distKm = distM / 1000.0;
+      }
+      final effectiveSpeed = (widget.currentSpeedKmh > 15.0)
+          ? widget.currentSpeedKmh
+          : 25.0;
+      etaMin = (distKm / effectiveSpeed * 60).ceil().clamp(1, 999);
     }
     final arrivalTime = DateTime.now().add(Duration(minutes: etaMin));
     final h = arrivalTime.hour.toString().padLeft(2, '0');
@@ -1420,12 +1472,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (trip.status == TripStatus.inProgress ||
-                              trip.status == TripStatus.driverArriving ||
-                              trip.status == TripStatus.driverAccepted) ...[
-                            _buildTelemetryStrip(trip, isDark),
-                            const SizedBox(height: 6),
-                          ],
                           Row(
                             children: [
                               Expanded(
@@ -1458,6 +1504,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
+                          ],
+                          if (trip.status == TripStatus.inProgress ||
+                              trip.status == TripStatus.driverArriving ||
+                              trip.status == TripStatus.driverAccepted) ...[
+                            const SizedBox(height: 6),
+                            _buildTelemetryStrip(trip, isDark),
                           ],
                         ],
                       ),

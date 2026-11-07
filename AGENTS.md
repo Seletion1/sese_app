@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-07 — Real-Time Live Navigation Telemetry, Bottom-Center Camera Lock & Turn-by-Turn Guidance
+
+- **Bottom-Center Camera Lock & Navigation Arrow Marker (`driver_dashboard_screen.dart`, `map_provider.dart`, `osm_map_view.dart`)**:
+  - The instant a trip transitions to `in_progress`, the camera viewpoint automatically anchors to bottom-center via `recenterToBottomCenter(driverPosition, zoom: 17.0)` with `_isFollowingUser = true`.
+  - Continuous movement updates follow the vehicle using `followToBottomCenter(newPos, zoom: 17.0)` so the driver's location stays centered at the bottom of the viewport above the collapsed sheet.
+  - Implemented dynamic Navigation Arrow `BitmapDescriptor` for Google Maps (`_GoogleMapBranchState`) with an electric blue disc, white border, and forward-pointing navigation chevron anchored at `(0.5, 0.5)`. Replaces generic teardrop pins on Google Maps while matching OpenStreetMap's navigation chevron.
+  - Set `showMyLocation: !hasActiveTrip` during active trips, eliminating duplicate overlapping blue dots under the navigation arrow.
+
+- **Real-Time Telemetry & Collapsed Sheet HUD (`driver_active_trip_card.dart`, `driver_dashboard_screen.dart`)**:
+  - Speedometer: Replaced static speed display with real-time GPS calculations. Computes `pos.speed * 3.6` (m/s to km/h) with automatic time-and-distance delta fallbacks (`(distM / dtSec) * 3.6`) when GPS hardware omits native speed. Positioned dynamically above the collapsed bottom sheet.
+  - Live Route Metrics: Connected `DriverActiveTripCard` directly to `_activeRoutePoints` and `currentSpeedKmh`. Calculates real road distance via `LocationService.calculateRemainingRouteDistanceM` along the polyline path, dynamic duration based on effective driving speed, and dynamic clock arrival time (`DateTime.now().add(...)`).
+  - Collapsed Sheet HUD: Re-ordered the header to place the telemetry strip (`🚗 25 min • 12.4 km • 🕒 03:10`) immediately beneath the stage title and subtitle. Adjusted `_sheetCollapsedSize` from `0.10` to `0.18`, ensuring the live telemetry strip is 100% visible at all times on the collapsed header without requiring drivers to expand the sheet.
+
+- **Real Turn-by-Turn Dynamic Guidance Banner (`location_service.dart`, `driver_dashboard_screen.dart`)**:
+  - Implemented road bearing change analysis in `LocationService._generateFallbackSteps` to detect real turns from polyline vertices (slight right, right, sharp right, slight left, left, sharp left, arrive).
+  - Enhanced `RouteStep.formatDynamicInstruction`:
+    - Immediate turns (<25m): direct maneuver verbs (e.g. "Turn right onto Broad St", "Arriving at destination").
+    - Upcoming turns (>=30m): dynamic distance instructions (e.g. "In 150m, turn right", "In 1.2km, arrive at destination").
+  - Top turn navigation banner displays live maneuver instructions, maneuver turn arrow icons (`_guidanceManeuverIcon`), and destination address.
+
+- **Verification**:
+  - Static analysis: `flutter analyze` 0 issues across `sese_core`, `sese_hub`, `sese_ride`.
+  - Tests: `sese_ride/test/driver_navigation_telemetry_test.dart` (5/5 passed), `test/driver_active_trip_card_test.dart` & `test/driver_full_screen_nav_test.dart` (9/9 passed).
+  - Functions: `npm run build` compiled clean with 0 errors.
+  - Firebase: Deployed `firestore:rules` and `storage:rules`.
+
 ## 2026-11-07 — Instant Cache-First Startup, Top Network Warning Banner, Silent Sync & Optimistic UI
 
 - **Instant Cache-First Startup & Zero-Blocking Hydration (`sese_ride`, `sese_hub`, `sese_core`)**:

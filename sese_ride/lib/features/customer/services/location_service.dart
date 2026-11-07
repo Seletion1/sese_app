@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -820,49 +821,118 @@ class LocationService {
     return result;
   }
 
+  static double _calculateBearing(LatLng start, LatLng end) {
+    final startLat = start.latitude * (math.pi / 180.0);
+    final startLng = start.longitude * (math.pi / 180.0);
+    final endLat = end.latitude * (math.pi / 180.0);
+    final endLng = end.longitude * (math.pi / 180.0);
+
+    final dLng = endLng - startLng;
+    final y = math.sin(dLng) * math.cos(endLat);
+    final x = math.cos(startLat) * math.sin(endLat) -
+        math.sin(startLat) * math.cos(endLat) * math.cos(dLng);
+
+    final bearing = math.atan2(y, x) * (180.0 / math.pi);
+    return (bearing + 360.0) % 360.0;
+  }
+
   static List<RouteStep> _generateFallbackSteps(
       List<LatLng> points, LatLng pickup, LatLng dropoff) {
     if (points.length < 2) return [];
     final totalM = const Distance().as(LengthUnit.Meter, pickup, dropoff);
-    if (totalM < 300) {
+    if (totalM < 80) {
       return [
         RouteStep(
-          location: pickup,
-          instruction: 'Proceed directly to destination',
-          maneuverType: 'straight',
+          location: dropoff,
+          instruction: 'Arrive at destination',
+          maneuverType: 'arrive',
           maneuverModifier: 'straight',
           distanceMeters: totalM,
         ),
       ];
     }
-    final midIdx = (points.length / 2).floor();
-    final midPoint = points[midIdx];
-    final d1 = const Distance().as(LengthUnit.Meter, pickup, midPoint);
-    final d2 = const Distance().as(LengthUnit.Meter, midPoint, dropoff);
 
-    return [
+    final List<RouteStep> steps = [];
+    steps.add(
       RouteStep(
         location: pickup,
         instruction: 'Head toward destination',
         maneuverType: 'depart',
         maneuverModifier: 'straight',
-        distanceMeters: d1,
+        distanceMeters: const Distance().as(LengthUnit.Meter, pickup, points.first),
       ),
-      RouteStep(
-        location: midPoint,
-        instruction: 'Continue straight on route',
-        maneuverType: 'straight',
-        maneuverModifier: 'straight',
-        distanceMeters: d2,
-      ),
+    );
+
+    LatLng lastManeuverPoint = pickup;
+
+    // Detect distinct turns by scanning bearing changes across consecutive segments
+    for (int i = 1; i < points.length - 1; i++) {
+      final prev = points[i - 1];
+      final curr = points[i];
+      final next = points[i + 1];
+
+      final distFromLastManeuver =
+          const Distance().as(LengthUnit.Meter, lastManeuverPoint, curr);
+      // Suppress turns closer than 35m from previous maneuver to prevent spamming
+      if (distFromLastManeuver < 35.0) continue;
+
+      final b1 = _calculateBearing(prev, curr);
+      final b2 = _calculateBearing(curr, next);
+
+      var diff = (b2 - b1 + 360.0) % 360.0;
+      if (diff > 180.0) diff -= 360.0;
+
+      if (diff.abs() >= 28.0) {
+        String instruction;
+        String modifier;
+
+        if (diff > 28.0 && diff <= 65.0) {
+          modifier = 'slight right';
+          instruction = 'Turn slight right';
+        } else if (diff > 65.0 && diff <= 125.0) {
+          modifier = 'right';
+          instruction = 'Turn right';
+        } else if (diff > 125.0) {
+          modifier = 'sharp right';
+          instruction = 'Turn sharp right';
+        } else if (diff < -28.0 && diff >= -65.0) {
+          modifier = 'slight left';
+          instruction = 'Turn slight left';
+        } else if (diff < -65.0 && diff >= -125.0) {
+          modifier = 'left';
+          instruction = 'Turn left';
+        } else {
+          modifier = 'sharp left';
+          instruction = 'Turn sharp left';
+        }
+
+        steps.add(
+          RouteStep(
+            location: curr,
+            instruction: instruction,
+            maneuverType: 'turn',
+            maneuverModifier: modifier,
+            distanceMeters: distFromLastManeuver,
+          ),
+        );
+        lastManeuverPoint = curr;
+      }
+    }
+
+    // Always append final arrival step at dropoff
+    final remainingToDropoff =
+        const Distance().as(LengthUnit.Meter, lastManeuverPoint, dropoff);
+    steps.add(
       RouteStep(
         location: dropoff,
         instruction: 'Arrive at destination',
         maneuverType: 'arrive',
         maneuverModifier: 'straight',
-        distanceMeters: 0,
+        distanceMeters: remainingToDropoff,
       ),
-    ];
+    );
+
+    return steps;
   }
 
   /// Queries the OSRM public routing engine for a driving route.
@@ -937,7 +1007,7 @@ class RouteStep {
   /// Formats step instruction dynamically with live distance to the maneuver.
   String formatDynamicInstruction(double distM) {
     if (maneuverType == 'arrive') {
-      if (distM < 30) return 'Arrive at destination';
+      if (distM < 30) return 'Arriving at destination';
       final distStr = distM < 1000
           ? '${distM.round()}m'
           : '${(distM / 1000).toStringAsFixed(1)}km';
@@ -955,6 +1025,10 @@ class RouteStep {
     final baseText = instruction.isNotEmpty
         ? instruction
         : (streetName.isNotEmpty ? 'Continue on $streetName' : 'Head toward destination');
+
+    if (distM < 25) {
+      return baseText;
+    }
 
     if (baseText.toLowerCase().startsWith('turn') ||
         baseText.toLowerCase().startsWith('continue') ||

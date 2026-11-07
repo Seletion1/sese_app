@@ -138,6 +138,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   List<RouteStep> _activeRouteSteps = [];
   RouteStep? _currentGuidanceStep;
   double _currentSpeedKmh = 0.0;
+  DateTime? _lastGpsFixTime;
+  LatLng? _lastGpsPosition;
   DateTime? _lastRouteFetchTime;
   final Set<String> _ratedTripDocIds = {};
 
@@ -145,17 +147,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (_activeRouteSteps.isEmpty || driverPos.latitude == 0) return;
     RouteStep? nextStep;
     double minUpcomingDist = double.infinity;
-    for (final step in _activeRouteSteps) {
+
+    // Scan steps along the route for the immediate upcoming maneuver ahead
+    for (int i = 0; i < _activeRouteSteps.length; i++) {
+      final step = _activeRouteSteps[i];
       final distM = const Distance().as(LengthUnit.Meter, driverPos, step.location);
-      if (distM < minUpcomingDist) {
+      if (distM < minUpcomingDist && distM >= 10.0) {
         minUpcomingDist = distM;
         nextStep = step;
+        break;
       }
     }
-    if (nextStep != null && nextStep != _currentGuidanceStep) {
-      setState(() {
-        _currentGuidanceStep = nextStep;
-      });
+
+    // If past all intermediate turns, lock to the final destination arrival step
+    if (nextStep == null && _activeRouteSteps.isNotEmpty) {
+      nextStep = _activeRouteSteps.last;
+    }
+
+    if (nextStep != null) {
+      _currentGuidanceStep = nextStep;
     }
   }
 
@@ -232,11 +242,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         LatLng(destLat, destLng),
       );
       if (mounted && details.points.isNotEmpty) {
-        setState(() {
-          _activeRoutePoints = details.points;
-          _activeRouteSteps = details.steps;
-        });
+        _activeRoutePoints = details.points;
+        _activeRouteSteps = details.steps;
         _updateCurrentGuidanceStep(_driverPosition);
+        setState(() {});
       }
     } catch (_) {}
   }
@@ -645,23 +654,26 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         (pos) {
           if (!mounted) return;
           final newPos = LatLng(pos.latitude, pos.longitude);
+          final now = DateTime.now();
           double speedKmh = 0.0;
           if (pos.speed > 0) {
             speedKmh = (pos.speed * 3.6).clamp(0.0, 200.0);
-          } else if (_lastRouteFetchTime != null && _driverPosition.latitude != 0) {
-            final dtSec = DateTime.now().difference(_lastRouteFetchTime!).inMilliseconds / 1000.0;
-            if (dtSec > 0.5 && dtSec < 10.0) {
-              final distM = const Distance().as(LengthUnit.Meter, _driverPosition, newPos);
+          } else if (_lastGpsFixTime != null && _lastGpsPosition != null) {
+            final dtSec = now.difference(_lastGpsFixTime!).inMilliseconds / 1000.0;
+            if (dtSec > 0.4 && dtSec < 8.0) {
+              final distM = const Distance().as(LengthUnit.Meter, _lastGpsPosition!, newPos);
               speedKmh = ((distM / dtSec) * 3.6).clamp(0.0, 200.0);
             }
           }
+          _lastGpsFixTime = now;
+          _lastGpsPosition = newPos;
+
+          _updateCurrentGuidanceStep(newPos);
 
           setState(() {
             _driverPosition = newPos;
             _currentSpeedKmh = speedKmh;
           });
-
-          _updateCurrentGuidanceStep(newPos);
 
           // Live map camera follow during active trip or when set to follow
           if (_isFollowingUser) {
@@ -726,8 +738,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
   }
 
-  static const double _sheetCollapsedSize = 0.10;
-  static const double _sheetStandardSize = 0.42;
+  static const double _sheetCollapsedSize = 0.18;
+  static const double _sheetStandardSize = 0.44;
 
   void _collapseActiveTripSheet() {
     if (!_activeTripSheetController.isAttached) return;
@@ -755,7 +767,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (!_activeTripSheetController.isAttached) return;
     try {
       final current = _activeTripSheetController.size;
-      final target = current <= 0.20 ? _sheetStandardSize : _sheetCollapsedSize;
+      final target = current <= 0.22 ? _sheetStandardSize : _sheetCollapsedSize;
       _activeTripSheetController.animateTo(
         target,
         duration: const Duration(milliseconds: 300),
@@ -1554,7 +1566,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               _autoCollapseSheetOnActiveTrip();
               if (active.status == TripStatus.inProgress &&
                   _driverPosition.latitude != 0.0) {
-                _mapController.followToBottomCenter(_driverPosition, zoom: 17.0);
+                _isFollowingUser = true;
+                _mapController.recenterToBottomCenter(_driverPosition, zoom: 17.0);
               }
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
@@ -1705,7 +1718,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             if (active != null && active.status == TripStatus.inProgress)
               Positioned(
                 left: 14,
-                bottom: 140,
+                bottom: MediaQuery.sizeOf(context).height * _sheetCollapsedSize + 16,
                 child: Container(
                   key: const Key('hud_speed_limit_badge'),
                   padding:
@@ -2018,7 +2031,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       initialCenter: _driverPosition,
       initialZoom: hasActiveTrip ? 16.5 : 15.0,
       isDarkOverride: isDark,
-      showMyLocation: true,
+      showMyLocation: !hasActiveTrip,
       showRecenterFab: false,
       userLocation: _driverPosition,
       markers: markers,
@@ -2229,9 +2242,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       }
       return _currentGuidanceStep!.instruction;
     }
+    if (_activeRouteSteps.isNotEmpty) {
+      final step = _activeRouteSteps.first;
+      if (_driverPosition.latitude != 0.0) {
+        final distM = const Distance().as(
+          LengthUnit.Meter,
+          _driverPosition,
+          step.location,
+        );
+        return step.formatDynamicInstruction(distM);
+      }
+      return step.instruction;
+    }
     return active.status == TripStatus.inProgress
-        ? 'Navigation: En Route to Drop-off'
-        : 'Navigation: En Route to Pickup';
+        ? 'Continue straight to drop-off'
+        : 'Head toward pickup location';
   }
 
   IconData _guidanceManeuverIcon(ActiveTrip active) {
@@ -2445,6 +2470,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           waitThresholdMinutes: cfg.noShowWaitMinutes,
           driverId: widget.driverId,
           driverPosition: _driverPosition,
+          routePoints: _activeRoutePoints,
+          currentSpeedKmh: _currentSpeedKmh,
           autoArrivalEnabled: cfg.autoArrivalEnabled,
           autoArrivalCountdownSeconds: cfg.autoArrivalCountdownSeconds,
           sheetController: _activeTripSheetController,

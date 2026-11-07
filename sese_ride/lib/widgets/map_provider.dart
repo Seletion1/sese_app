@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -751,12 +752,67 @@ class _GoogleMapBranch extends StatefulWidget {
 
 class _GoogleMapBranchState extends State<_GoogleMapBranch> {
   late LatLng _currentCenter;
+  static gmaps.BitmapDescriptor? _navArrowDescriptor;
 
   @override
   void initState() {
     super.initState();
     _currentCenter = widget.initialCenter;
     _ensureAndroidHybridComposition();
+    _initNavArrowDescriptor();
+  }
+
+  Future<void> _initNavArrowDescriptor() async {
+    if (_navArrowDescriptor != null) return;
+    try {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      const size = 128.0;
+      final center = Offset(size / 2, size / 2);
+      final radius = size / 2 - 12.0;
+
+      // Drop shadow
+      final shadowPaint = Paint()
+        ..color = Colors.black38
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      canvas.drawCircle(center.translate(0, 4), radius, shadowPaint);
+
+      // Outer white rim
+      final borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(center, radius, borderPaint);
+
+      // Inner electric blue disc
+      final innerPaint = Paint()
+        ..color = const Color(0xFF2563EB)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(center, radius - 8.0, innerPaint);
+
+      // Forward-pointing white navigation chevron/arrow
+      final path = ui.Path();
+      path.moveTo(center.dx, center.dy - radius * 0.55);
+      path.lineTo(center.dx + radius * 0.45, center.dy + radius * 0.45);
+      path.lineTo(center.dx, center.dy + radius * 0.15);
+      path.lineTo(center.dx - radius * 0.45, center.dy + radius * 0.45);
+      path.close();
+
+      final arrowPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(path, arrowPaint);
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(size.toInt(), size.toInt());
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null) {
+        _navArrowDescriptor =
+            gmaps.BitmapDescriptor.bytes(byteData.buffer.asUint8List());
+        if (mounted) setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Failed to create nav arrow descriptor: $e');
+    }
   }
 
   @override
@@ -845,10 +901,19 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
           gmaps.Marker(
             markerId: gmaps.MarkerId(m.id),
             position: _toG(m.point),
-            icon: gmaps.BitmapDescriptor.defaultMarkerWithHue(
-              _hueFor(m.color, m.label),
-            ),
-            infoWindow: (m.label != null && m.label!.isNotEmpty)
+            icon: (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW') &&
+                    _navArrowDescriptor != null
+                ? _navArrowDescriptor!
+                : gmaps.BitmapDescriptor.defaultMarkerWithHue(
+                    _hueFor(m.color, m.label),
+                  ),
+            anchor: (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW')
+                ? const Offset(0.5, 0.5)
+                : const Offset(0.5, 1.0),
+            infoWindow: (m.label != null &&
+                    m.label!.isNotEmpty &&
+                    m.label != 'NAV' &&
+                    m.label != 'NAVIGATION_ARROW')
                 ? gmaps.InfoWindow(title: m.label)
                 : gmaps.InfoWindow.noText,
           ),

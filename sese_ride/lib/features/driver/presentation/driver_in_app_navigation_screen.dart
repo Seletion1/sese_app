@@ -63,6 +63,8 @@ class _DriverInAppNavigationScreenState
   StreamSubscription<Position>? _positionSub;
   LatLng _currentPosition = const LatLng(0, 0);
   double _speedKmh = 0.0;
+  DateTime? _lastGpsFixTime;
+  LatLng? _lastGpsPosition;
   bool _hasShownMockWarning = false;
 
   List<LatLng> _routePoints = [];
@@ -130,9 +132,23 @@ class _DriverInAppNavigationScreenState
         return;
       }
       final newPos = LatLng(pos.latitude, pos.longitude);
+      final now = DateTime.now();
+      double speedKmh = 0.0;
+      if (pos.speed > 0) {
+        speedKmh = (pos.speed * 3.6).clamp(0, 200);
+      } else if (_lastGpsFixTime != null && _lastGpsPosition != null) {
+        final dtSec = now.difference(_lastGpsFixTime!).inMilliseconds / 1000.0;
+        if (dtSec > 0.4 && dtSec < 8.0) {
+          final distM = const Distance().as(LengthUnit.Meter, _lastGpsPosition!, newPos);
+          speedKmh = ((distM / dtSec) * 3.6).clamp(0.0, 200.0);
+        }
+      }
+      _lastGpsFixTime = now;
+      _lastGpsPosition = newPos;
+
       setState(() {
         _currentPosition = newPos;
-        _speedKmh = (pos.speed * 3.6).clamp(0, 200);
+        _speedKmh = speedKmh;
         _recalculateRemaining();
       });
       if (_isAutoTracking) {
@@ -172,7 +188,8 @@ class _DriverInAppNavigationScreenState
       fallbackDestination: widget.destination,
     );
     _distanceRemainingKm = distM / 1000.0;
-    _etaMinutes = (_distanceRemainingKm / 30.0 * 60).ceil().clamp(1, 999);
+    final effectiveSpeed = (_speedKmh > 15.0) ? _speedKmh : 25.0;
+    _etaMinutes = (_distanceRemainingKm / effectiveSpeed * 60).ceil().clamp(1, 999);
 
     if (_routeSteps.isNotEmpty) {
       RouteStep? nextStep;
@@ -180,10 +197,14 @@ class _DriverInAppNavigationScreenState
       for (final step in _routeSteps) {
         final stepDistM =
             const Distance().as(LengthUnit.Meter, _currentPosition, step.location);
-        if (stepDistM < minUpcomingDist) {
+        if (stepDistM < minUpcomingDist && stepDistM >= 10.0) {
           minUpcomingDist = stepDistM;
           nextStep = step;
+          break;
         }
+      }
+      if (nextStep == null && _routeSteps.isNotEmpty) {
+        nextStep = _routeSteps.last;
       }
       if (nextStep != null) {
         _currentGuidanceStep = nextStep;
