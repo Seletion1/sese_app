@@ -1,9 +1,15 @@
 import * as crypto from "crypto";
 
-if (!process.env.FARE_SIGNING_SECRET) {
-  throw new Error("FARE_SIGNING_SECRET is required");
+function getFareSigningSecret(): string {
+  const secret = process.env.FARE_SIGNING_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === "test") {
+      return "sese-test-fare-signing-secret-key-12345";
+    }
+    throw new Error("FARE_SIGNING_SECRET is required");
+  }
+  return secret;
 }
-const FARE_SIGNING_SECRET = process.env.FARE_SIGNING_SECRET;
 
 export interface FareTokenPayload {
   uid: string;
@@ -22,7 +28,7 @@ export interface FareTokenPayload {
  */
 export function generateFareToken(payload: FareTokenPayload): string {
   const json = JSON.stringify(payload);
-  const hmac = crypto.createHmac("sha256", FARE_SIGNING_SECRET);
+  const hmac = crypto.createHmac("sha256", getFareSigningSecret());
   hmac.update(json);
   const signature = hmac.digest("hex");
   const encodedData = Buffer.from(json, "utf-8").toString("base64url");
@@ -38,7 +44,7 @@ export function verifyFareToken(token: string, maxAgeMs = 30 * 60 * 1000): FareT
     if (!encodedData || !signature) return null;
 
     const json = Buffer.from(encodedData, "base64url").toString("utf-8");
-    const hmac = crypto.createHmac("sha256", FARE_SIGNING_SECRET);
+    const hmac = crypto.createHmac("sha256", getFareSigningSecret());
     hmac.update(json);
     const expectedSig = hmac.digest("hex");
 

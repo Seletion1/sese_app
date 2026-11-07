@@ -345,6 +345,44 @@ function extractStructuredAddress(results: unknown[], fallbackCoord: string): st
   return rawFormatted || fallbackCoord;
 }
 
+/**
+ * Sliding-window rate limiter per UID to protect against billing exhaustion
+ * and scraping loops on upstream Google Maps APIs.
+ */
+interface RateLimitBucket {
+  timestamps: number[];
+}
+const proxyRateLimits = new Map<string, RateLimitBucket>();
+const PROXY_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const PROXY_MAX_REQUESTS_PER_WINDOW = 60; // Max 60 requests/minute per UID
+
+export function checkProxyRateLimit(uid: string): void {
+  const now = Date.now();
+  const bucket = proxyRateLimits.get(uid) ?? { timestamps: [] };
+  const validTimestamps = bucket.timestamps.filter(
+    (t) => now - t < PROXY_RATE_LIMIT_WINDOW_MS
+  );
+  if (validTimestamps.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many location searches. Please wait a moment."
+    );
+  }
+  validTimestamps.push(now);
+  proxyRateLimits.set(uid, { timestamps: validTimestamps });
+
+  if (proxyRateLimits.size > 10000) {
+    for (const [key, val] of proxyRateLimits.entries()) {
+      if (
+        val.timestamps.length === 0 ||
+        now - val.timestamps[val.timestamps.length - 1] > PROXY_RATE_LIMIT_WINDOW_MS
+      ) {
+        proxyRateLimits.delete(key);
+      }
+    }
+  }
+}
+
 export const googleMapsProxy = onCall<ProxyRequest>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to search.");
@@ -352,6 +390,7 @@ export const googleMapsProxy = onCall<ProxyRequest>(async (request) => {
 
   // ── Security gates (protect against quota scrapers & unauthorized bots) ──
   enforceAppCheck(request);
+  checkProxyRateLimit(request.auth.uid);
   await requireAccountActive(request.auth.uid, "any");
   const data = request.data ?? {};
   const action = data.action;

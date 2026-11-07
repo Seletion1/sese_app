@@ -207,7 +207,7 @@ exports.verifyBankAccount = (0, https_1.onCall)(async (request) => {
     }
     const bankCode = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.bankCode) !== null && _b !== void 0 ? _b : "").trim();
     const accountNumber = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.accountNumber) !== null && _d !== void 0 ? _d : "").trim();
-    if (!/^\d{3}$/.test(bankCode)) {
+    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
         throw new https_1.HttpsError("invalid-argument", "Select a bank first.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {
@@ -268,7 +268,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
     }
     const bankCode = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.bankCode) !== null && _e !== void 0 ? _e : "").trim();
     const accountNumber = String((_g = (_f = request.data) === null || _f === void 0 ? void 0 : _f.accountNumber) !== null && _g !== void 0 ? _g : "").trim();
-    if (!/^\d{3}$/.test(bankCode)) {
+    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
         throw new https_1.HttpsError("invalid-argument", "Select a valid bank.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {

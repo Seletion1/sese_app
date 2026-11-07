@@ -224,7 +224,7 @@ export const verifyBankAccount = onCall<ResolveBankAccountData>(
     const bankCode = String(request.data?.bankCode ?? "").trim();
     const accountNumber = String(request.data?.accountNumber ?? "").trim();
 
-    if (!/^\d{3}$/.test(bankCode)) {
+    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
       throw new HttpsError("invalid-argument", "Select a bank first.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {
@@ -325,7 +325,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
     const bankCode = String(request.data?.bankCode ?? "").trim();
     const accountNumber = String(request.data?.accountNumber ?? "").trim();
-    if (!/^\d{3}$/.test(bankCode)) {
+    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
       throw new HttpsError("invalid-argument", "Select a valid bank.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {

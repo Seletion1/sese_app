@@ -72,6 +72,36 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-07 — Critical Security Hardening, KYC Escalation Seal, Fintech Bank Code & Quota Protection
+
+- **KYC Verification Privilege Escalation Closed (`firestore.rules`)**:
+  - Sealed client write vulnerability in `match /users/{userId}`: added `verificationStatus`, `customerVerificationStatus`, and `isVerified` to the blacklisted keys in `isValidUserProfileUpdate()`.
+  - Added creation guards on `users/{userId}` to prevent malicious clients from pre-seeding approved verification statuses (`['pending', 'unverified', 'PENDING', 'pending_onboarding']`) or `isVerified: false`.
+  - Blocks client auto-approval and prevents the `onUserVerificationUpdated` trigger from minting unauthorized `isVerified: true` custom claims.
+
+- **Fintech & Digital Bank Payout Validation (`functions/src/payouts.ts`)**:
+  - Expanded bank code validation regex from 3-digit only (`/^\d{3}$/`) to alphanumeric 3 to 6 characters (`/^[a-zA-Z0-9]{3,6}$/`) across `verifyBankAccount` and `processWalletWithdrawal`.
+  - Enables seamless withdrawals and account name verification for popular Nigerian digital banks & MFBs (Moniepoint `50515`, Kuda `50211`, OPay `999992`, PalmPay `999991`, VFD `090110`).
+
+- **Google Maps Proxy Rate Limiting & Billing Protection (`functions/src/googleMaps.ts`)**:
+  - Implemented in-memory sliding-window rate limiter `checkProxyRateLimit(uid)` enforcing a cap of 60 requests per minute per user ID.
+  - Automatically sweeps stale buckets to prevent memory leaks while throttling high-frequency scraping or automated billing exhaustion attacks on upstream Google Maps APIs.
+
+- **Storage Rules Trip Media Safe Navigation (`storage.rules`)**:
+  - Hardened `isTripParty(tripId)` in Cloud Storage security rules with safe `.data.get('driverId', '')` and `.data.get('driver', {})` lookups.
+  - Prevents CEL evaluation crashes and runtime 403 access denials when viewing trip photos for trips with flat `driverId` fields.
+
+- **Resilient Fare Token Signing Initialization (`functions/src/fareToken.ts`)**:
+  - Replaced top-level throw on `FARE_SIGNING_SECRET` with lazy evaluation helper `getFareSigningSecret()`.
+  - Allows clean module loading, function discovery, and unit test execution without crashing the Node.js container during cold starts.
+
+- **Verification & Deployment**:
+  - Backend tests: `npm test` in `functions` ran 23 test suites and 65 tests, **65/65 passed (0 failed)**.
+  - Core tests: `flutter test` in `sese_core` ran 124 tests, **124/124 passed (0 failed)**; `flutter analyze` 0 issues.
+  - Hub tests: `flutter test` in `sese_hub` ran 55 tests, **55/55 passed (0 failed)**; `flutter analyze` 0 issues.
+  - Ride tests: `flutter test` in `sese_ride` ran 23 tests, **23/23 passed (0 failed)**; `flutter analyze` 0 issues.
+  - Firebase: Successfully deployed `firestore:rules`, `storage:rules`, and Cloud Functions (`googleMapsProxy`, `verifyBankAccount`, `resolveBankAccount`, `processWalletWithdrawal`, `calculateFare`, `createTrip`).
+
 ## 2026-11-07 — Real-Time Live Navigation Telemetry, Bottom-Center Camera Lock & Turn-by-Turn Guidance
 
 - **Bottom-Center Camera Lock & Navigation Arrow Marker (`driver_dashboard_screen.dart`, `map_provider.dart`, `osm_map_view.dart`)**:

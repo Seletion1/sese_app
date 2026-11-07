@@ -36,17 +36,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateFareToken = generateFareToken;
 exports.verifyFareToken = verifyFareToken;
 const crypto = __importStar(require("crypto"));
-if (!process.env.FARE_SIGNING_SECRET) {
-    throw new Error("FARE_SIGNING_SECRET is required");
+function getFareSigningSecret() {
+    const secret = process.env.FARE_SIGNING_SECRET;
+    if (!secret) {
+        if (process.env.NODE_ENV === "test") {
+            return "sese-test-fare-signing-secret-key-12345";
+        }
+        throw new Error("FARE_SIGNING_SECRET is required");
+    }
+    return secret;
 }
-const FARE_SIGNING_SECRET = process.env.FARE_SIGNING_SECRET;
 /**
  * Creates a signed base64 HMAC-SHA256 token encoding the authoritative fare calculation.
  * The client cannot forge or alter the fares without invalidating the token.
  */
 function generateFareToken(payload) {
     const json = JSON.stringify(payload);
-    const hmac = crypto.createHmac("sha256", FARE_SIGNING_SECRET);
+    const hmac = crypto.createHmac("sha256", getFareSigningSecret());
     hmac.update(json);
     const signature = hmac.digest("hex");
     const encodedData = Buffer.from(json, "utf-8").toString("base64url");
@@ -61,7 +67,7 @@ function verifyFareToken(token, maxAgeMs = 30 * 60 * 1000) {
         if (!encodedData || !signature)
             return null;
         const json = Buffer.from(encodedData, "base64url").toString("utf-8");
-        const hmac = crypto.createHmac("sha256", FARE_SIGNING_SECRET);
+        const hmac = crypto.createHmac("sha256", getFareSigningSecret());
         hmac.update(json);
         const expectedSig = hmac.digest("hex");
         if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {

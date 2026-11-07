@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.googleMapsProxy = void 0;
+exports.checkProxyRateLimit = checkProxyRateLimit;
 const https_1 = require("firebase-functions/v2/https");
 const mapQuotas_1 = require("./mapQuotas");
 const accountGuard_1 = require("./accountGuard");
@@ -220,6 +221,28 @@ function extractStructuredAddress(results, fallbackCoord) {
     }
     return rawFormatted || fallbackCoord;
 }
+const proxyRateLimits = new Map();
+const PROXY_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const PROXY_MAX_REQUESTS_PER_WINDOW = 60; // Max 60 requests/minute per UID
+function checkProxyRateLimit(uid) {
+    var _a;
+    const now = Date.now();
+    const bucket = (_a = proxyRateLimits.get(uid)) !== null && _a !== void 0 ? _a : { timestamps: [] };
+    const validTimestamps = bucket.timestamps.filter((t) => now - t < PROXY_RATE_LIMIT_WINDOW_MS);
+    if (validTimestamps.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
+        throw new https_1.HttpsError("resource-exhausted", "Too many location searches. Please wait a moment.");
+    }
+    validTimestamps.push(now);
+    proxyRateLimits.set(uid, { timestamps: validTimestamps });
+    if (proxyRateLimits.size > 10000) {
+        for (const [key, val] of proxyRateLimits.entries()) {
+            if (val.timestamps.length === 0 ||
+                now - val.timestamps[val.timestamps.length - 1] > PROXY_RATE_LIMIT_WINDOW_MS) {
+                proxyRateLimits.delete(key);
+            }
+        }
+    }
+}
 exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
@@ -227,6 +250,7 @@ exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
     }
     // ── Security gates (protect against quota scrapers & unauthorized bots) ──
     (0, accountGuard_1.enforceAppCheck)(request);
+    checkProxyRateLimit(request.auth.uid);
     await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "any");
     const data = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     const action = data.action;

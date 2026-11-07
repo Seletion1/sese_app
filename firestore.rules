@@ -690,7 +690,8 @@ service cloud.firestore {
               'isSuspended', 'role', 'completedTrips', 'completedTripCount',
               'outstandingNegativeBalance', 'cancelStats', 'rating',
               'averageRating', 'totalRatings', 'totalRatingSum',
-              'totalRatingCount', 'balance', 'mainWalletBalance'
+              'totalRatingCount', 'balance', 'mainWalletBalance',
+              'verificationStatus', 'customerVerificationStatus', 'isVerified'
             ]);
       }
 
@@ -704,6 +705,9 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
         (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['customer', 'user']) &&
+        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
+        (!request.resource.data.keys().hasAny(['customerVerificationStatus']) || request.resource.data.customerVerificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
+        (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||

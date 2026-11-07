@@ -183,7 +183,13 @@ service firebase.storage {
         ).data.customerId == request.auth.uid ||
         firestore.get(
           /databases/(default)/documents/trips/$(tripId)
-        ).data.driver.driverId == request.auth.uid);
+        ).data.get('driverId', '') == request.auth.uid ||
+        (firestore.get(
+          /databases/(default)/documents/trips/$(tripId)
+        ).data.get('driver', {}) is map &&
+        firestore.get(
+          /databases/(default)/documents/trips/$(tripId)
+        ).data.driver.get('driverId', '') == request.auth.uid));
     }
     match /trip_media/{tripId}/{allPaths=**} {
       allow read: if request.auth != null &&
