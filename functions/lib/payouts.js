@@ -453,8 +453,15 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
  */
 async function settleTransfer(reference, outcome, reason) {
     const payoutRef = db().collection("payout_requests").doc(reference);
+    const payoutLedgerRef = db().collection("wallet_ledger").doc(`payout_${reference}_${outcome}`);
     await db().runTransaction(async (tx) => {
         var _a, _b, _c, _d;
+        // ── Idempotency Check (wallet_ledger) ──────────────────────────────
+        const ledgerSnap = await tx.get(payoutLedgerRef);
+        if (ledgerSnap.exists) {
+            console.log(`[payouts] Duplicate webhook processing blocked for payout ledger: payout_${reference}_${outcome}`);
+            return;
+        }
         const snap = await tx.get(payoutRef);
         if (!snap.exists)
             return;
@@ -488,6 +495,11 @@ async function settleTransfer(reference, outcome, reason) {
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             tx.update(ledgerRef, { status: "completed" });
+            tx.set(payoutLedgerRef, {
+                status: "completed",
+                reference,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            });
             return;
         }
         // Failed AFTER the debit committed: refund it.
@@ -517,6 +529,12 @@ async function settleTransfer(reference, outcome, reason) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.update(ledgerRef, { status: "refunded" });
+        tx.set(payoutLedgerRef, {
+            status: "refunded",
+            reference,
+            reason: reason.slice(0, 500),
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
     });
 }
 /**

@@ -307,8 +307,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final resp = _fareResponse;
     if (resp == null || resp.tiers.isEmpty) return 0.0;
     if (_selectedModeIndex == 0) {
-      if (_selectedDeliveryCategories.isNotEmpty) {
-        final cat = _selectedDeliveryCategories.first;
+      final cat = _selectedDeliveryCategories.firstOrNull;
+      if (cat != null) {
         final tierId = _deliveryTierIds[cat] ?? cat.name;
         // Prefer the customer's custom (surged) fare for this tier when set.
         if (_customTierFares.containsKey(tierId)) {
@@ -318,8 +318,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         if (t != null) return t.fareAmount;
       }
     } else {
-      if (_orderedRideTierIds.isNotEmpty) {
-        final firstTierId = _orderedRideTierIds.first;
+      final firstTierId = _orderedRideTierIds.firstOrNull;
+      if (firstTierId != null) {
         if (_customTierFares.containsKey(firstTierId)) {
           return _customTierFares[firstTierId]!;
         }
@@ -327,7 +327,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         if (t != null) return t.fareAmount;
       }
     }
-    return resp.tiers.first.fareAmount;
+    return resp.tiers.firstOrNull?.fareAmount ?? 0.0;
   }
 
   // ── Remote config (HUB overrides: splitPaymentMasterEnabled, forceDeliveryPinSystemWide)
@@ -1326,9 +1326,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               final rec = response.recommendedTier;
               _selectedRideTierIds.add(
                 rec?.tierId ??
-                    (response.tiers.isNotEmpty
-                        ? response.tiers.first.tierId
-                        : 'comfort'),
+                    response.tiers.firstOrNull?.tierId ??
+                    'comfort',
               );
             }
           }

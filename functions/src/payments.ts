@@ -240,8 +240,16 @@ async function settleIntent(
   verifiedAmountKobo: number
 ): Promise<{ settled: boolean; creditedKobo: number }> {
   const intentRef = db().collection("payment_intents").doc(reference);
+  const ledgerRef = db().collection("wallet_ledger").doc(reference);
 
   return db().runTransaction(async (tx) => {
+    // ── Idempotency Check (wallet_ledger) ──────────────────────────────
+    const ledgerSnap = await tx.get(ledgerRef);
+    if (ledgerSnap.exists) {
+      console.log(`[payments] Duplicate webhook / settlement processing blocked for ledger: ${reference}`);
+      return { settled: false, creditedKobo: 0 };
+    }
+
     const snap = await tx.get(intentRef);
     if (!snap.exists) {
       throw new HttpsError("not-found", "Payment reference not found.");
@@ -346,6 +354,14 @@ async function settleIntent(
       status: "SUCCEEDED",
       settledAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    tx.set(ledgerRef, {
+      status: "success",
+      reference,
+      userId: uid,
+      amountKobo: verifiedAmountKobo,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return { settled: true, creditedKobo: verifiedAmountKobo };

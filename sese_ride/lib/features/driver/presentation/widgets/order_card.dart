@@ -106,10 +106,8 @@ class _OrderCardState extends State<OrderCard> {
 
   String get _categoryLabel {
     final tiers = widget.trip.tierIds;
-    if (tiers.isEmpty) {
-      return widget.trip.serviceType == 'send_item' ? 'Courier' : 'Ride';
-    }
-    return tiers.first;
+    return tiers.firstOrNull ??
+        (widget.trip.serviceType == 'send_item' ? 'Courier' : 'Ride');
   }
 
   String _fmt(double amount) {

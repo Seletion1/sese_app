@@ -727,11 +727,9 @@ class ActiveTrip {
           (map['paymentMethod'] ?? map['paymentPlan'] ?? 'cash').toString(),
       vehicleCategory: (map['vehicleCategory'] ??
               map['category'] ??
-              ((map['selectedTiers'] is List && (map['selectedTiers'] as List).isNotEmpty)
-                  ? (map['selectedTiers'] as List).first
-                  : (map['tierIds'] is List && (map['tierIds'] as List).isNotEmpty)
-                      ? (map['tierIds'] as List).first
-                      : ''))
+              (map['selectedTiers'] as List?)?.firstOrNull ??
+              (map['tierIds'] as List?)?.firstOrNull ??
+              '')
           .toString(),
       splitEnabled: map['splitEnabled'] == true ||
           map['splitPayment'] != null ||

@@ -1698,6 +1698,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // `wallet_ledger`: server-only double-entry and idempotency ledger.
+    // Written exclusively server-side via Cloud Functions Admin SDK.
+    // Authenticated users read only their own entries; Super Admins and Hub
+    // staff read for audit and balance reconciliation.
+    match /wallet_ledger/{ledgerId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid ||
+         isSuperAdmin() ||
+         isHubStaff() ||
+         isOperationsAdmin() ||
+         isAdminAuthClaim());
+      allow create, update, delete: if false;
+    }
+
     match /wallet_configs/{configId} {
       allow read: if isAuthenticated() && isNotSuspended();
       allow create, update, delete: if isSuperAdmin();

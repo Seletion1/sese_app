@@ -272,7 +272,8 @@ class _DefaultHttpClient implements http.Client {
   const _DefaultHttpClient();
 
   @override
-  Future<http.Response> get(Uri url, {Map<String, String>? headers}) => http.get(url, headers: headers);
+  Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
+      http.get(url, headers: headers).timeout(const Duration(seconds: 10));
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

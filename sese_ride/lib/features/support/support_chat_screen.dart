@@ -908,6 +908,7 @@ class _AudioPlayerBubbleState extends State<_AudioPlayerBubble> {
   late Duration _total;
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _posSub;
+  StreamSubscription<void>? _completeSub;
 
   @override
   void initState() {
@@ -919,7 +920,7 @@ class _AudioPlayerBubbleState extends State<_AudioPlayerBubble> {
     _posSub = _player.onPositionChanged.listen((d) {
       if (mounted) setState(() => _position = d);
     });
-    _player.onPlayerComplete.listen((_) {
+    _completeSub = _player.onPlayerComplete.listen((_) {
       if (mounted) setState(() => _position = Duration.zero);
     });
   }
@@ -928,6 +929,7 @@ class _AudioPlayerBubbleState extends State<_AudioPlayerBubble> {
   void dispose() {
     _stateSub?.cancel();
     _posSub?.cancel();
+    _completeSub?.cancel();
     _player.dispose();
     super.dispose();
   }

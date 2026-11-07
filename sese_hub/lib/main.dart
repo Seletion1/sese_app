@@ -1,12 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
@@ -18,44 +15,19 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  if (kDebugMode) {
-    debugPrint(
-      'sese_hub pinned App Check debug token: '
-      '${AppCheckConfig.seseHubDebugToken}',
-    );
-    try {
-      await const MethodChannel('com.sesetech.sese_hub/app_check').invokeMethod(
-        'pinDebugToken',
-        {'token': AppCheckConfig.seseHubDebugToken},
-      );
-    } catch (e) {
-      debugPrint('AppCheck pin error: $e');
-    }
-  }
   // App Check is enforced on Firestore: MUST be activated BEFORE
   // any Firestore settings or network calls so all requests carry attestation headers.
-  try {
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: kDebugMode
-          ? AndroidDebugProvider(debugToken: AppCheckConfig.seseHubDebugToken)
-          : const AndroidPlayIntegrityProvider(),
-      providerApple: kDebugMode
-          ? AppleDebugProvider(debugToken: AppCheckConfig.seseHubDebugToken)
-          : const AppleAppAttestWithDeviceCheckFallbackProvider(),
-    );
-  } catch (e) {
-    debugPrint('Hub AppCheck activate error: $e');
-  }
+  await AppCheckService.initialize(appId: 'sese_hub');
 
   // Execute client-side zero-trust security & anti-tampering verification.
   final securityResult =
       await SecurityBootstrapService.instance.verifyAppIntegrity();
 
-  // Enable aggressive offline persistence for instant Hub loads (100MB bounded cache).
+  // Enable aggressive offline persistence for instant Hub loads with unlimited cache.
   try {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: 100 * 1024 * 1024,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
   } catch (e) {
     debugPrint('Hub Firestore persistence error: $e');

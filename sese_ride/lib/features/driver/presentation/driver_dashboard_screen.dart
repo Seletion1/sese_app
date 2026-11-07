@@ -2941,10 +2941,21 @@ class _SessionVehiclePickerSheetState
   @override
   void initState() {
     super.initState();
-    _selected = widget.vehicles.firstWhere(
-      (v) => v.isActiveSelected,
-      orElse: () => widget.vehicles.first,
-    );
+    final active = widget.vehicles.firstWhereOrNull((v) => v.isActiveSelected);
+    _selected = active ??
+        widget.vehicles.firstOrNull ??
+        VehicleModel(
+          id: '',
+          driverId: '',
+          category: VehicleCategory.car,
+          make: '',
+          model: '',
+          year: 2020,
+          licensePlate: '',
+          color: '',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
   }
 
   @override

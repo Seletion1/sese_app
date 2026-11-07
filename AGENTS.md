@@ -72,6 +72,43 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-07 — Production Failure Points Hardening: Rules Deployment, Defensive State, Idempotent Payments & App Check
+
+- **1. Pre-flight Deployment & StreamBuilder Error Boundary (`scripts/preflight_deploy.sh`, `safe_stream_builder.dart`)**:
+  - Implemented `scripts/preflight_deploy.sh` (executable): enforces strict pre-flight deployment of `firestore:rules` and `storage` before or alongside frontend releases.
+  - Implemented `SafeStreamBuilder<T>` (aliased as `FirestoreStreamBuilder<T>`) in `sese_core`: intercepts `FirebaseException` with `permission-denied` or `unauthenticated` during security rule propagation lags and renders a non-crashing, reassuring status indicator (`"Syncing system configurations..."`) or custom fallback rather than throwing red screens / breaking the widget tree. Supports instant cache hydration via `initialData` and automatic `SeseListSkeleton` placeholders.
+  - Added security rules in `firestore.rules` for `/wallet_ledger/{ledgerId}`: server-only write (`allow create, update, delete: if false;`), read restricted to owners, Hub staff, Super Admins, and Operations Admins. Deployed directly to Firebase.
+
+- **2. Safe Collection Access & Defensive Model Parsing (`safe_collection.dart`, `safe_json.dart`, `trip_models.dart`, `order_card.dart`, `driver_dashboard_screen.dart`)**:
+  - Created `SafeListAccess<T>` and `SafeIterableAccess<T>` in `sese_core`: adds `firstOrNull`, `lastOrNull`, `singleOrNull`, `getOrNull(index)`, `firstWhereOrNull`, `safeFirst`, and `safeFirstWhere`.
+  - Replaced dangerous `.first` calls across `sese_ride` (`order_card.dart`, `trip_models.dart`, `driver_dashboard_screen.dart`, `customer_dispatch_screen.dart`, `online_verification_shield_modal.dart`), preventing `StateError: Bad state: No element` crashes on empty collections.
+  - Enhanced `safe_json.dart` with defensive parsers: `safeString`, `safeBool`, `safeDateTime`, `safeList`, and `safeMap`.
+
+- **3. Payment Webhook Idempotency & Concurrency Isolation (`payments.ts`, `payouts.ts`)**:
+  - Added `wallet_ledger/{reference}` idempotency ledger check and atomic transactional recording in `settleIntent` (`payments.ts`) and `settleTransfer` (`payouts.ts`).
+  - Webhooks and client verify callers that race or fire duplicate events are atomically intercepted (`ledgerDoc.exists`), returning idempotent 200 responses to Paystack without double-crediting wallets or corrupting ledger states.
+
+- **4. Background Location & Stream Memory Leak Elimination (`driver_active_trip_card.dart`, `hub_support_chat_screen.dart`, `support_chat_screen.dart`)**:
+  - Bound all previously floating audio player completion listeners (`_player.onPlayerComplete.listen`) to `_completeSub` across `hub_support_chat_screen.dart` and `support_chat_screen.dart`, with explicit cancellation in `dispose()`.
+  - Added explicit `_proximitySub = _proximity!.updates.listen(...)` in `DriverActiveTripCard` with clean cancellation in `dispose()`, preventing orphaned proximity subscriptions and memory leaks.
+
+- **5. Environment-Isolated App Check Service (`app_check_service.dart`, `sese_ride/main.dart`, `sese_hub/main.dart`)**:
+  - Created `AppCheckService` in `sese_core`: decouples debug attestation from release builds (`AndroidPlayIntegrityProvider` and `AppleAppAttestWithDeviceCheckFallbackProvider` in release; debug token pinning strictly in debug).
+  - Built-in token refresh listener (`onTokenChange`) handles token rotation seamlessly without unauthenticated rejections.
+  - Refactored `sese_ride/main.dart` and `sese_hub/main.dart` to initialize via `AppCheckService.initialize`.
+
+- **6. Network Adaptability, Timeouts & Unbounded Offline Persistence (`main.dart`, `network_timeout_helper.dart`, `mapbox_service.dart`)**:
+  - Set Firestore offline persistence to `Settings.CACHE_SIZE_UNLIMITED` across both apps, ensuring active trip data, routes, and user profile caches are never prematurely evicted.
+  - Created `NetworkTimeoutHelper.withTimeout`: wraps async requests with configurable bounded timeouts, probes reachability in the background to update the Top Network Warning Banner, and supports instant fallback to cached values.
+  - Added 10-second timeout to `_DefaultHttpClient` in `MapboxService` to prevent indefinite hangs on slow mobile networks.
+
+- **Verification & Deployment**:
+  - Backend: `npm test` in `functions` ran 23 suites, 65 tests, **65/65 passed (0 failed)**.
+  - Core: `flutter test` in `sese_core` ran 131 tests (including 8 new resilience and safety tests), **131/131 passed (0 failed)**; `flutter analyze` 0 issues.
+  - Hub: `flutter analyze` 0 issues.
+  - Ride: `flutter test` ran 13 navigation telemetry & active card tests, **13/13 passed (0 failed)**; `flutter analyze` 0 issues.
+  - Firebase: Deployed `firestore:rules` and Cloud Functions (`paystackWebhook`, `verifyPayment`, `processWalletWithdrawal`) to `sese-ride`.
+
 ## 2026-11-07 — Critical Security Hardening, KYC Escalation Seal, Fintech Bank Code & Quota Protection
 
 - **KYC Verification Privilege Escalation Closed (`firestore.rules`)**:

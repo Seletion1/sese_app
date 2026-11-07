@@ -100,6 +100,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   int _countdownSecondsRemaining = 5;
   Timer? _countdownTicker;
   ProximityTriggerService? _proximity;
+  StreamSubscription<ProximityUpdate>? _proximitySub;
   ProximityUpdate? _prox;
   late final DraggableScrollableController _internalSheetController;
 
@@ -127,7 +128,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       onAutoStart: _handleAutoStart,
       onPaymentBlock: _handlePaymentBlock,
     );
-    _proximity!.updates.listen((u) {
+    _proximitySub = _proximity!.updates.listen((u) {
       if (mounted) {
         setState(() {
           _prox = u;
@@ -183,6 +184,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   void dispose() {
     _countdownTicker?.cancel();
     _countdownTicker = null;
+    _proximitySub?.cancel();
+    _proximitySub = null;
     _proximity?.dispose();
     _proximity = null;
     _internalSheetController.dispose();

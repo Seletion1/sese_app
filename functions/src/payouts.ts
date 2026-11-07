@@ -566,8 +566,16 @@ export async function settleTransfer(
   reason: string
 ): Promise<void> {
   const payoutRef = db().collection("payout_requests").doc(reference);
+  const payoutLedgerRef = db().collection("wallet_ledger").doc(`payout_${reference}_${outcome}`);
 
   await db().runTransaction(async (tx) => {
+    // ── Idempotency Check (wallet_ledger) ──────────────────────────────
+    const ledgerSnap = await tx.get(payoutLedgerRef);
+    if (ledgerSnap.exists) {
+      console.log(`[payouts] Duplicate webhook processing blocked for payout ledger: payout_${reference}_${outcome}`);
+      return;
+    }
+
     const snap = await tx.get(payoutRef);
     if (!snap.exists) return;
     const row = snap.data()!;
@@ -603,6 +611,11 @@ export async function settleTransfer(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       tx.update(ledgerRef, { status: "completed" });
+      tx.set(payoutLedgerRef, {
+        status: "completed",
+        reference,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
       return;
     }
 
@@ -636,6 +649,12 @@ export async function settleTransfer(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     tx.update(ledgerRef, { status: "refunded" });
+    tx.set(payoutLedgerRef, {
+      status: "refunded",
+      reference,
+      reason: reason.slice(0, 500),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
   });
 }
 

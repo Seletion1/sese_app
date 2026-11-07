@@ -49,9 +49,7 @@ class _OnlineVerificationShieldModalState
   @override
   void initState() {
     super.initState();
-    if (widget.verifiedVehicles.isNotEmpty) {
-      _selectedVehicle = widget.verifiedVehicles.first;
-    }
+    _selectedVehicle = widget.verifiedVehicles.firstOrNull;
   }  @override
   void dispose() {
     _shieldPlateController.dispose();

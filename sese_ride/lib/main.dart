@@ -1,12 +1,10 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -58,42 +56,17 @@ void main() async {
 
   // App Check attestation is ENFORCED on Firestore: MUST be activated BEFORE
   // any Firestore settings or network calls so the very first request carries attestation headers.
-  if (kDebugMode) {
-    debugPrint(
-      'sese_ride pinned App Check debug token: '
-      '${AppCheckConfig.seseRideDebugToken}',
-    );
-    try {
-      await const MethodChannel('com.sesetech.sese_ride/app_check').invokeMethod(
-        'pinDebugToken',
-        {'token': AppCheckConfig.seseRideDebugToken},
-      );
-    } catch (e) {
-      debugPrint('AppCheck pin error: $e');
-    }
-  }
-  try {
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: kDebugMode
-          ? AndroidDebugProvider(debugToken: AppCheckConfig.seseRideDebugToken)
-          : const AndroidPlayIntegrityProvider(),
-      providerApple: kDebugMode
-          ? AppleDebugProvider(debugToken: AppCheckConfig.seseRideDebugToken)
-          : const AppleAppAttestWithDeviceCheckFallbackProvider(),
-    );
-  } catch (e) {
-    debugPrint('AppCheck activate error: $e');
-  }
+  await AppCheckService.initialize(appId: 'sese_ride');
 
   // Execute client-side zero-trust security & anti-tampering verification.
   final securityResult =
       await SecurityBootstrapService.instance.verifyAppIntegrity();
 
-  // Enable aggressive offline persistence for zero latency on app launch (100MB bounded cache).
+  // Enable persistent offline cache with unbounded capacity for instant zero-latency startup.
   try {
     FirebaseFirestore.instance.settings = const Settings(
       persistenceEnabled: true,
-      cacheSizeBytes: 100 * 1024 * 1024,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
     );
   } catch (e) {
     debugPrint('Firestore persistence setting error: $e');
