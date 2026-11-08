@@ -181,7 +181,6 @@ const LIVE_STATUSES: TripStatusWire[] = [
  *   - driver_counter_bid         — driver offered a custom fare in marketplace
  *   - trip_chat_message          — in-trip chat message (peer or support)
  *   - broadcast                  — Hub-wide or targeted broadcast from admin
- *   - P2P_TRANSFER_RECEIVED      — wallet transfer confirmation
  *   - support_escalated          — live support agent joined the chat
  *   - support_reply              — agent replied to support ticket
  */
@@ -192,7 +191,6 @@ const INBOX_TYPES = new Set([
   "driver_counter_bid",
   "trip_chat_message",
   "broadcast",
-  "P2P_TRANSFER_RECEIVED",
   "split_payment_request",
   "support_escalated",
   "support_reply",

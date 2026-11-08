@@ -300,8 +300,7 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
     if (val > maxAllowedFare) {
       final maxFormatted = '₦${maxAllowedFare.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
       setState(
-        () => _error =
-            'Offer boost cannot exceed 100% above original base fare (max $maxFormatted).',
+        () => _error = 'Max offer: $maxFormatted',
       );
       return;
     }
@@ -3249,8 +3248,7 @@ void _showBoostFareDialog(
                       return;
                     }
                     if (val > maxAllowedFare) {
-                      setDlg(() => error =
-                          'Offer boost cannot exceed 100% above original base fare (max $maxFormatted).');
+                      setDlg(() => error = 'Max offer: $maxFormatted');
                       return;
                     }
                     setDlg(() => loading = true);

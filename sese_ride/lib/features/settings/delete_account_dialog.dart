@@ -291,7 +291,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'For your security, accounts cannot be deleted until all financial settlements and active rides are finalized.',
+                      'Account cannot be deleted while rides or settlements are active.',
                       style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
@@ -302,7 +302,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'This action is irreversible. Your account will be immediately deactivated and scheduled for 30-day regulatory compliance archival.',
+                        'This action is permanent. Your account will be deactivated immediately.',
                         style: TextStyle(fontSize: 13, color: Colors.black87),
                       ),
                       const SizedBox(height: 16),

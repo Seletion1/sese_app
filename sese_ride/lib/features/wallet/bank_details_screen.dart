@@ -123,7 +123,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Bank details saved and verified.')),
+            content: Text('Bank details saved.')),
       );
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -131,8 +131,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
       debugPrint('BankDetailsScreen save error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-              'Unable to save bank details. Please check connection and try again.'),
+          content: Text('Could not save bank details. Try again.'),
         ),
       );
     } finally {
@@ -154,9 +153,7 @@ class _BankDetailsScreenState extends State<BankDetailsScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 const Text(
-                  'Payouts and withdrawals settle to this verified account. '
-                  'Required if you have active referrals or a withdrawable '
-                  'balance.',
+                  'Withdrawals settle directly to this verified account.',
                   style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
                 const SizedBox(height: 12),

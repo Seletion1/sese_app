@@ -167,7 +167,7 @@ const Map<String, String> hubModuleCatalog = {
   permPayouts: 'Payout Desk',
   permEditFares: 'Edit Fares & Pricing',
   permSuspendUsers: 'Suspend Users & Drivers',
-  permP2pLimits: 'P2P Limits & Wallet Rules',
+  permP2pLimits: 'Financial Limits & Wallet Rules',
   permDocumentReview: 'Document Review & KYC',
   permBroadcast: 'Broadcast Notifications',
   permStaffManage: 'Staff Management',

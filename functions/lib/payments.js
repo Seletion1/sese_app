@@ -116,7 +116,7 @@ async function paystackGet(path, secret) {
  * Returns `{ authorizationUrl, accessCode, reference }`.
  */
 exports.initializePayment = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to pay.");
     }
@@ -133,17 +133,83 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
     const d = (_b = request.data) !== null && _b !== void 0 ? _b : {};
     const amountKobo = typeof d.amountKobo === "number" ? Math.round(d.amountKobo) : NaN;
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_AMOUNT_KOBO) {
-        throw new https_1.HttpsError("invalid-argument", "Minimum payment is ₦100. Enter a valid amount.");
+        throw new https_1.HttpsError("invalid-argument", "Min payment ₦100");
     }
     if (amountKobo > MAX_AMOUNT_KOBO) {
-        throw new https_1.HttpsError("invalid-argument", "Maximum payment per transaction is ₦500,000.");
+        throw new https_1.HttpsError("invalid-argument", "Max payment ₦500,000");
     }
     const purpose = d.purpose === "trip_payment" ? "trip_payment" : "wallet_topup";
+    // ── Financial Rules & Business Limits Gate ─────────────────────────
+    if (purpose === "wallet_topup") {
+        let maxAccountBalance = 50000;
+        let maxSingleTopUp = 20000;
+        let dailyTopUpFrequency = 5;
+        try {
+            const finDoc = await db().collection("system_configs").doc("financials").get();
+            if (finDoc.exists) {
+                const finData = (_c = finDoc.data()) !== null && _c !== void 0 ? _c : {};
+                if (typeof finData["maxAccountBalance"] === "number") {
+                    maxAccountBalance = finData["maxAccountBalance"];
+                }
+                if (typeof finData["maxSingleTopUp"] === "number") {
+                    maxSingleTopUp = finData["maxSingleTopUp"];
+                }
+                if (typeof finData["dailyTopUpFrequency"] === "number") {
+                    dailyTopUpFrequency = finData["dailyTopUpFrequency"];
+                }
+            }
+        }
+        catch (e) {
+            console.warn(`[initializePayment] financials config read fallback: ${e}`);
+        }
+        // 1. Max Single Top-Up
+        const maxSingleKobo = Math.round(maxSingleTopUp * 100);
+        if (amountKobo > maxSingleKobo) {
+            throw new https_1.HttpsError("invalid-argument", `Max top-up ₦${maxSingleTopUp.toLocaleString("en-NG")}`);
+        }
+        // 2. Max Account Balance Cap
+        try {
+            const walletDoc = await db().collection("wallets").doc(uid).get();
+            if (walletDoc.exists) {
+                const wData = (_d = walletDoc.data()) !== null && _d !== void 0 ? _d : {};
+                const currentBalKobo = typeof wData["mainWalletBalance"] === "number"
+                    ? Math.round(wData["mainWalletBalance"] * 100)
+                    : (typeof wData["balance"] === "number" ? Math.round(wData["balance"]) : 0);
+                const maxBalanceKobo = Math.round(maxAccountBalance * 100);
+                if (currentBalKobo + amountKobo > maxBalanceKobo) {
+                    throw new https_1.HttpsError("failed-precondition", `Max balance ₦${maxAccountBalance.toLocaleString("en-NG")}`);
+                }
+            }
+        }
+        catch (e) {
+            if (e instanceof https_1.HttpsError)
+                throw e;
+            console.warn(`[initializePayment] wallet balance check warning: ${e}`);
+        }
+        // 3. Daily Top-Up Frequency (Max times per 24 hours)
+        try {
+            const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const dailyTopUpsSnap = await db()
+                .collection("payment_intents")
+                .where("userId", "==", uid)
+                .where("purpose", "==", "wallet_topup")
+                .where("createdAt", ">=", oneDayAgo)
+                .get();
+            if (dailyTopUpsSnap.size >= dailyTopUpFrequency) {
+                throw new https_1.HttpsError("resource-exhausted", "Daily limit reached");
+            }
+        }
+        catch (e) {
+            if (e instanceof https_1.HttpsError)
+                throw e;
+            console.warn(`[initializePayment] daily frequency check warning: ${e}`);
+        }
+    }
     const tripId = typeof d.tripId === "string" ? d.tripId.trim() : "";
     if (purpose === "trip_payment" && !tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required for trip payments.");
     }
-    const email = (_c = request.auth.token.email) !== null && _c !== void 0 ? _c : (typeof d.email === "string" ? d.email.trim() : "");
+    const email = (_e = request.auth.token.email) !== null && _e !== void 0 ? _e : (typeof d.email === "string" ? d.email.trim() : "");
     if (!email || !email.includes("@")) {
         throw new https_1.HttpsError("invalid-argument", "A valid email is required for the receipt.");
     }
@@ -178,8 +244,8 @@ exports.initializePayment = (0, https_1.onCall)(async (request) => {
                 purpose,
             },
         }, secret);
-        accessCode = String((_d = data["access_code"]) !== null && _d !== void 0 ? _d : "");
-        authorizationUrl = String((_e = data["authorization_url"]) !== null && _e !== void 0 ? _e : "");
+        accessCode = String((_f = data["access_code"]) !== null && _f !== void 0 ? _f : "");
+        authorizationUrl = String((_g = data["authorization_url"]) !== null && _g !== void 0 ? _g : "");
         if (!authorizationUrl) {
             throw new https_1.HttpsError("internal", "Paystack returned no checkout URL.");
         }

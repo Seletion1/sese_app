@@ -81,9 +81,15 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   Future<void> _start() async {
     final amount = _amount;
     final min = _config.minTopUpAmount;
+    final max = _config.maxSingleTopUp;
     if (amount == null || amount < min) {
       final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
-      setState(() => _error = 'Minimum top-up amount is ₦$minStr.');
+      setState(() => _error = 'Min: ₦$minStr');
+      return;
+    }
+    if (amount > max) {
+      final maxStr = max >= 1000 ? '20,000' : max.toStringAsFixed(0);
+      setState(() => _error = 'Max: ₦$maxStr');
       return;
     }
 
@@ -159,7 +165,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Payment verified — wallet updated.')),
+            content: Text('Wallet credited')),
       );
     } on PaymentException catch (e) {
       if (!mounted) return;
@@ -174,9 +180,11 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final pending = _pending;
     final min = _config.minTopUpAmount;
+    final max = _config.maxSingleTopUp;
     final canProceed = !_busy &&
         _amount != null &&
-        _amount! >= min;
+        _amount! >= min &&
+        _amount! <= max;
     return SafeArea(
       child: Padding(
         // 16px side gutters: chips, input, and Pay button span
@@ -259,8 +267,9 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
                 decoration: InputDecoration(
-                  labelText: 'Amount (₦)',
-                  hintText: 'Min ₦${min.toStringAsFixed(0)}',
+                  labelText: 'Amount',
+                  hintText: 'Min ₦${min >= 1000 ? "1,300" : min.toStringAsFixed(0)}',
+                  helperText: 'Max: ₦${max >= 1000 ? "20,000" : max.toStringAsFixed(0)}',
                   prefixText: '₦ ',
                   filled: true,
                   fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -294,7 +303,10 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                     _selectedQuick = null;
                     if (parsed != null && parsed < min) {
                       final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
-                      _error = 'Minimum top-up amount is ₦$minStr.';
+                      _error = 'Min: ₦$minStr';
+                    } else if (parsed != null && parsed > max) {
+                      final maxStr = max >= 1000 ? '20,000' : max.toStringAsFixed(0);
+                      _error = 'Max: ₦$maxStr';
                     } else {
                       _error = null;
                     }
@@ -322,7 +334,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Secured by Paystack. Card, transfer, USSD accepted.',
+                'Secured by Paystack • Card, Transfer, USSD',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
@@ -335,8 +347,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Text(
-                  'Checkout is open in your browser. Complete the payment '
-                  'there, return here, then verify below.',
+                  'Complete payment in your browser, then tap verify below.',
                   style: TextStyle(fontSize: 13),
                 ),
               ),

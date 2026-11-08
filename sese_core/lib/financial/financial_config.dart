@@ -35,6 +35,18 @@ class FinancialConfig {
   /// Minimum withdrawal amount in Naira. Default ₦100.00.
   final double minWithdrawalNaira;
 
+  /// Maximum wallet balance cap in Naira. Default ₦50,000.00.
+  final double maxAccountBalance;
+
+  /// Maximum single deposit / top-up in Naira. Default ₦20,000.00.
+  final double maxSingleTopUp;
+
+  /// Maximum top-up operations permitted per 24 hours. Default 5.
+  final int dailyTopUpFrequency;
+
+  /// Maximum cumulative withdrawal permitted per 24 hours in Naira. Default ₦20,000.00.
+  final double maxDailyWithdrawal;
+
   const FinancialConfig({
     this.minWalletBalanceToOnline = 1.0,
     this.minTopUpAmount = 1300.0,
@@ -44,6 +56,10 @@ class FinancialConfig {
     this.agentReferralDurationDays = 547,
     this.minPayoutThreshold = 20000.0,
     this.minWithdrawalNaira = 100.0,
+    this.maxAccountBalance = 50000.0,
+    this.maxSingleTopUp = 20000.0,
+    this.dailyTopUpFrequency = 5,
+    this.maxDailyWithdrawal = 20000.0,
   });
 
   factory FinancialConfig.fromMap(Map<String, dynamic>? map) {
@@ -61,6 +77,10 @@ class FinancialConfig {
       agentReferralDurationDays: i('agentReferralDurationDays', 547),
       minPayoutThreshold: d('minPayoutThreshold', 20000.0),
       minWithdrawalNaira: d('minWithdrawalNaira', 100.0),
+      maxAccountBalance: d('maxAccountBalance', 50000.0),
+      maxSingleTopUp: d('maxSingleTopUp', 20000.0),
+      dailyTopUpFrequency: i('dailyTopUpFrequency', 5),
+      maxDailyWithdrawal: d('maxDailyWithdrawal', 20000.0),
     );
   }
 
@@ -73,6 +93,10 @@ class FinancialConfig {
         'agentReferralDurationDays': agentReferralDurationDays,
         'minPayoutThreshold': minPayoutThreshold,
         'minWithdrawalNaira': minWithdrawalNaira,
+        'maxAccountBalance': maxAccountBalance,
+        'maxSingleTopUp': maxSingleTopUp,
+        'dailyTopUpFrequency': dailyTopUpFrequency,
+        'maxDailyWithdrawal': maxDailyWithdrawal,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -85,6 +109,10 @@ class FinancialConfig {
     int? agentReferralDurationDays,
     double? minPayoutThreshold,
     double? minWithdrawalNaira,
+    double? maxAccountBalance,
+    double? maxSingleTopUp,
+    int? dailyTopUpFrequency,
+    double? maxDailyWithdrawal,
   }) {
     return FinancialConfig(
       minWalletBalanceToOnline:
@@ -100,6 +128,10 @@ class FinancialConfig {
           agentReferralDurationDays ?? this.agentReferralDurationDays,
       minPayoutThreshold: minPayoutThreshold ?? this.minPayoutThreshold,
       minWithdrawalNaira: minWithdrawalNaira ?? this.minWithdrawalNaira,
+      maxAccountBalance: maxAccountBalance ?? this.maxAccountBalance,
+      maxSingleTopUp: maxSingleTopUp ?? this.maxSingleTopUp,
+      dailyTopUpFrequency: dailyTopUpFrequency ?? this.dailyTopUpFrequency,
+      maxDailyWithdrawal: maxDailyWithdrawal ?? this.maxDailyWithdrawal,
     );
   }
 }
@@ -164,6 +196,27 @@ class FinancialFieldMeta {
       key: 'minWithdrawalNaira',
       label: 'Minimum withdrawal (₦)',
       help: 'Withdrawal rejected below this amount.',
+    ),
+    FinancialFieldMeta(
+      key: 'maxAccountBalance',
+      label: 'Max Account Balance (₦)',
+      help: 'Maximum wallet balance cap.',
+    ),
+    FinancialFieldMeta(
+      key: 'maxSingleTopUp',
+      label: 'Max Single Top-Up (₦)',
+      help: 'Single deposit ceiling.',
+    ),
+    FinancialFieldMeta(
+      key: 'dailyTopUpFrequency',
+      label: 'Daily Top-Up Frequency',
+      help: 'Max top-up transactions permitted per day.',
+      isInt: true,
+    ),
+    FinancialFieldMeta(
+      key: 'maxDailyWithdrawal',
+      label: 'Max Daily Withdrawal (₦)',
+      help: 'Maximum withdrawal permitted per day.',
     ),
   ];
 }

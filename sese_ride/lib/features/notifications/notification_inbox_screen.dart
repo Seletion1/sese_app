@@ -19,7 +19,6 @@ const Set<String> _kInboxTypes = {
   'driver_counter_bid',
   'trip_chat_message',
   'broadcast',
-  'P2P_TRANSFER_RECEIVED',
   'split_payment_request',
   'support_escalated',
   'support_reply',
@@ -48,8 +47,6 @@ IconData _iconForType(String type) {
       return Icons.chat_bubble_outline;
     case 'broadcast':
       return Icons.campaign_outlined;
-    case 'P2P_TRANSFER_RECEIVED':
-      return Icons.account_balance_wallet_outlined;
     case 'split_payment_request':
       return Icons.group_outlined;
     case 'support_escalated':

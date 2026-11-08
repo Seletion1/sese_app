@@ -126,6 +126,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _standardReferralDurationDaysCtrl = TextEditingController(text: '365');
   final _agentReferralDurationDaysCtrl = TextEditingController(text: '547');
   final _minPayoutThresholdCtrl = TextEditingController(text: '20000');
+  final _maxAccountBalanceCtrl = TextEditingController(text: '50000');
+  final _maxSingleTopUpCtrl = TextEditingController(text: '20000');
+  final _dailyTopUpFrequencyCtrl = TextEditingController(text: '5');
+  final _maxDailyWithdrawalCtrl = TextEditingController(text: '20000');
 
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
   final _paystackPublicKeyCtrl = TextEditingController();
@@ -240,6 +244,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _standardReferralDurationDaysCtrl.dispose();
     _agentReferralDurationDaysCtrl.dispose();
     _minPayoutThresholdCtrl.dispose();
+    _maxAccountBalanceCtrl.dispose();
+    _maxSingleTopUpCtrl.dispose();
+    _dailyTopUpFrequencyCtrl.dispose();
+    _maxDailyWithdrawalCtrl.dispose();
     _paystackPublicKeyCtrl.dispose();
     _paystackSecretKeyCtrl.dispose();
     _googleMapsApiKeyCtrl.dispose();
@@ -367,6 +375,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _standardReferralDurationDaysCtrl.text = finConfig.standardReferralDurationDays.toString();
       _agentReferralDurationDaysCtrl.text = finConfig.agentReferralDurationDays.toString();
       _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
+      _maxAccountBalanceCtrl.text = finConfig.maxAccountBalance.toStringAsFixed(0);
+      _maxSingleTopUpCtrl.text = finConfig.maxSingleTopUp.toStringAsFixed(0);
+      _dailyTopUpFrequencyCtrl.text = finConfig.dailyTopUpFrequency.toString();
+      _maxDailyWithdrawalCtrl.text = finConfig.maxDailyWithdrawal.toStringAsFixed(0);
       _loading = false;
     }
   });
@@ -627,15 +639,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         ),
       );
 
-      // Save P2P Wallet Rules
-      await widget.configService.saveP2pWalletRules(
-        P2pWalletRules(
-          minDriverTrips: int.tryParse(_p2pMinDriverTripsCtrl.text.trim()) ?? 3,
-          maxP2pLimitNaira: double.tryParse(_p2pMaxLimitCtrl.text.trim()) ?? 20000.0,
-          adminOverrideEnabled: _p2pAdminOverrideEnabled,
-        ),
-      );
-
       // Save Residual Referral Revenue Controls
       await widget.configService.saveReferralRevenueSettings(
         ReferralRevenueSettings(
@@ -662,6 +665,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_agentReferralDurationDaysCtrl.text.trim()) ?? 547,
           minPayoutThreshold:
               double.tryParse(_minPayoutThresholdCtrl.text.trim()) ?? 20000.0,
+          maxAccountBalance:
+              double.tryParse(_maxAccountBalanceCtrl.text.trim()) ?? 50000.0,
+          maxSingleTopUp:
+              double.tryParse(_maxSingleTopUpCtrl.text.trim()) ?? 20000.0,
+          dailyTopUpFrequency:
+              int.tryParse(_dailyTopUpFrequencyCtrl.text.trim()) ?? 5,
+          maxDailyWithdrawal:
+              double.tryParse(_maxDailyWithdrawalCtrl.text.trim()) ?? 20000.0,
         ),
       );
 
@@ -826,11 +837,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       if (mounted) setState(() => _saving = false);
     }
   }
-
-  // P2P Wallet Rules Controllers
-  final _p2pMinDriverTripsCtrl = TextEditingController(text: '3');
-  final _p2pMaxLimitCtrl = TextEditingController(text: '20000');
-  final bool _p2pAdminOverrideEnabled = true;
 
   // Residual Referral Revenue Controls
   final _platformBaseCommissionCtrl = TextEditingController(text: '20.0');
@@ -1797,6 +1803,54 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
                       labelText: 'Weekly Payout Floor',
+                      prefixText: '₦ ',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _maxAccountBalanceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Max Account Balance',
+                      prefixText: '₦ ',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _maxSingleTopUpCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Max Single Top-Up',
+                      prefixText: '₦ ',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _dailyTopUpFrequencyCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Daily Top-Up Limit',
+                      suffixText: 'times',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _maxDailyWithdrawalCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Max Daily Withdrawal',
                       prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),

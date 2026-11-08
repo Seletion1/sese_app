@@ -1154,7 +1154,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         builder: (ctx) => AlertDialog(
           title: const Text('Account Verification Required'),
           content: const Text(
-            'Under security policy, drivers cannot go online or receive orders until vehicle registration and verification are complete.\n\nPlease register a vehicle and upload all required documents to proceed with account verification.',
+            'Register and verify your vehicle to go online and receive orders.',
           ),
           actions: [
             TextButton(

@@ -72,6 +72,44 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — UX Micro-Copy & Rule-Abstraction Clean-up, Dynamic Financial Limits & Complete P2P Deletion
+
+- **1. Centralized Dynamic Financial Limits (`financial_config.dart`, `global_config_screen.dart`, `payments.ts`, `payouts.ts`)**:
+  - Centrally managed in `FinancialConfig` and dynamically configurable via SeSe Hub (`_buildFinancialConfigCard()`):
+    - Max Account Balance: ₦50,000 (`maxAccountBalance`)
+    - Max Single Top-Up: ₦20,000 (`maxSingleTopUp`)
+    - Daily Top-Up Frequency: 5 times max (`dailyTopUpFrequency`)
+    - Max Daily Withdrawal: ₦20,000 (`maxDailyWithdrawal`)
+  - Strictly enforced at Cloud Functions level in `payments.ts` (`initializePayment`) and `payouts.ts` (`processWalletWithdrawal`):
+    - Account balance cap: rejects if resulting balance exceeds ₦50,000 (`Max balance ₦...`).
+    - Top-up size: rejects if single top-up exceeds ₦20,000 (`Max top-up ₦...`).
+    - Top-up frequency: rejects if successful top-ups today >= 5 (`Daily limit reached`).
+    - Daily withdrawal limit: rejects if single withdrawal or 24-hour cumulative sum exceeds ₦20,000 (`Max withdrawal ₦...` / `Daily limit reached`).
+
+- **2. UX Micro-Copy Refactoring & Robotic Error Elimination**:
+  - Replaced long verbose rule paragraphs, robotic essays, and scolding error dumps with sleek minimalist helper text and concise feedback across `sese_ride` and `sese_hub`:
+    - Top-up sheet: `Amount` with `hintText: 'Min ₦1,300'`, `helperText: 'Max: ₦20,000'`. Clean toast: `'Wallet credited'`. Short Paystack info: `'Secured by Paystack • Card, Transfer, USSD'`.
+    - Withdrawal sheet: `helperText: 'Max: ₦20,000 daily'`, clean inline validation: `'Enter amount'`, `'Exceeds available balance'`, `'Max: ₦20,000'`, `'10-digit account required'`. Short footer: `'Direct bank transfer • Instant balance update'`.
+    - Bank details screen: Concise micro-copy: `'Withdrawals settle directly to this verified account.'` and clean toasts.
+    - Security PIN screen: Clean micro-copy securing wallet and withdrawals without verbose policy language.
+    - Live trip offer boost: Replaced essay with `'Max offer: $maxFormatted'`.
+    - Driver verification / fleet guards: Replaced policy essays with concise status: `'Pending verification. Orders unavailable until approved.'`.
+    - Driver dashboard offline banner: Replaced security wall text with `'Register and verify your vehicle to go online and receive orders.'`.
+    - Delete account confirmation: Replaced verbose system text with `'Account cannot be deleted while rides or settlements are active.'`.
+
+- **3. Complete Elimination of P2P Wallet Transfers & Legacy References**:
+  - Removed all peer-to-peer wallet transfer methods, legacy P2P rules, controllers, and references:
+    - Removed `saveP2pWalletRules` and `P2pWalletRules` from `system_config_service.dart` and `global_config_screen.dart`.
+    - Renamed Hub staff permission label to `'Financial Limits & Wallet Rules'`.
+    - Removed `P2P_TRANSFER_RECEIVED` notification inbox type from `trips.ts` and `notification_inbox_screen.dart`.
+    - Refactored PIN setup copy from "P2P transfers & withdrawals" to wallet & withdrawal security.
+    - Verified all non-call P2P references are eradicated across the ecosystem.
+
+- **4. Verification & Testing**:
+  - Cloud Functions: 23 suites, 65 tests passed (100%).
+  - `sese_core`: 136/136 tests passed (100%).
+  - Static Analysis: `flutter analyze` / `dart analyze` 0 issues across `sese_ride`, `sese_hub`, and `sese_core`.
+
 ## 2026-11-08 — Android Gradle Daemon Lock Recovery & Kotlin Version Alignment to 2.0.21
 
 - **1. Gradle Stale Lock Recovery**:

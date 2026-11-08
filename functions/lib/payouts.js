@@ -45,8 +45,6 @@ const db = () => admin.firestore();
 const PAYSTACK_BASE = (_a = process.env.PAYSTACK_BASE_URL) !== null && _a !== void 0 ? _a : "https://api.paystack.co";
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
 const MIN_WITHDRAWAL_KOBO = 10000;
-/** Ceiling per withdrawal: ₦500,000. Bounds blast radius of a bug or a hijack. */
-const MAX_WITHDRAWAL_KOBO = 50000000;
 function paystackSecret() {
     var _a;
     // NOTE: `PAYSTACK_SECRET_KEY` is still bound as a Secret Manager secret
@@ -239,7 +237,7 @@ exports.resolveBankAccount = exports.verifyBankAccount;
  *   6. On any failure after step 4, refund the debit.
  */
 exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -261,24 +259,63 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
             : NaN;
     const amountKobo = Math.round(rawKobo);
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_WITHDRAWAL_KOBO) {
-        throw new https_1.HttpsError("invalid-argument", "Minimum withdrawal is ₦100.");
+        throw new https_1.HttpsError("invalid-argument", "Min withdrawal ₦100");
     }
-    if (amountKobo > MAX_WITHDRAWAL_KOBO) {
-        throw new https_1.HttpsError("invalid-argument", "Maximum withdrawal per request is ₦500,000.");
+    // ── Dynamic Daily Withdrawal Limit ─────────────────────────────────
+    let maxDailyWithdrawal = 20000;
+    try {
+        const finDoc = await db().collection("system_configs").doc("financials").get();
+        if (finDoc.exists) {
+            const finData = (_d = finDoc.data()) !== null && _d !== void 0 ? _d : {};
+            if (typeof finData["maxDailyWithdrawal"] === "number") {
+                maxDailyWithdrawal = finData["maxDailyWithdrawal"];
+            }
+        }
     }
-    const bankCode = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.bankCode) !== null && _e !== void 0 ? _e : "").trim();
-    const accountNumber = String((_g = (_f = request.data) === null || _f === void 0 ? void 0 : _f.accountNumber) !== null && _g !== void 0 ? _g : "").trim();
+    catch (e) {
+        console.warn(`[processWalletWithdrawal] financials config read fallback: ${e}`);
+    }
+    const maxDailyKobo = Math.round(maxDailyWithdrawal * 100);
+    if (amountKobo > maxDailyKobo) {
+        throw new https_1.HttpsError("invalid-argument", `Max withdrawal ₦${maxDailyWithdrawal.toLocaleString("en-NG")}`);
+    }
+    // Cumulative 24-hour withdrawal limit check
+    try {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recentPayoutsSnap = await db()
+            .collection("payout_requests")
+            .where("userId", "==", uid)
+            .where("createdAt", ">=", oneDayAgo)
+            .get();
+        let dailyTotalKobo = 0;
+        for (const pDoc of recentPayoutsSnap.docs) {
+            const pData = pDoc.data();
+            if (pData["status"] !== "failed" && pData["status"] !== "refunded") {
+                dailyTotalKobo += Number((_e = pData["amountKobo"]) !== null && _e !== void 0 ? _e : 0);
+            }
+        }
+        if (dailyTotalKobo + amountKobo > maxDailyKobo) {
+            throw new https_1.HttpsError("failed-precondition", "Daily limit reached");
+        }
+    }
+    catch (e) {
+        if (e instanceof https_1.HttpsError)
+            throw e;
+        console.warn(`[processWalletWithdrawal] daily withdrawal sum warning: ${e}`);
+    }
+    const bankCode = String((_g = (_f = request.data) === null || _f === void 0 ? void 0 : _f.bankCode) !== null && _g !== void 0 ? _g : "").trim();
+    const accountNumber = String((_j = (_h = request.data) === null || _h === void 0 ? void 0 : _h.accountNumber) !== null && _j !== void 0 ? _j : "").trim();
     if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
         throw new https_1.HttpsError("invalid-argument", "Select a valid bank.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {
-        throw new https_1.HttpsError("invalid-argument", "Account number must be exactly 10 digits.");
+        throw new https_1.HttpsError("invalid-argument", "10-digit account required");
     }
     // 2. Resolve the account name server-side (never trust the client's).
     const resolved = await paystackGet(`/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`, secret);
-    const accountName = String((_h = resolved["account_name"]) !== null && _h !== void 0 ? _h : "");
+    const accountName = String((_k = resolved["account_name"]) !== null && _k !== void 0 ? _k : "");
     if (!accountName) {
-        throw new https_1.HttpsError("invalid-argument", "We could not verify that bank account. Check the number and bank.");
+        throw new https_1.HttpsError("invalid-argument", "Account not found");
     }
     // 3. Identity check against the registered profile name.
     const registered = await registeredName(uid);
@@ -286,8 +323,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("failed-precondition", "Add your full name to your profile before withdrawing.");
     }
     if (!accountNameMatches(registered, accountName)) {
-        throw new https_1.HttpsError("permission-denied", `This account is registered to a different name than your profile. `
-            + `Update your profile name or use the account matching your profile.`);
+        throw new https_1.HttpsError("permission-denied", `Name mismatch: account must match ${registered}`);
     }
     // 4. Debit inside a transaction: the re-read + conditional decrement is
     //    the concurrency lock that stops two withdrawals racing the balance.
@@ -304,7 +340,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         }
         const balanceKobo = Number((_a = walletSnap.data()["balance"]) !== null && _a !== void 0 ? _a : 0);
         if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
-            throw new https_1.HttpsError("failed-precondition", "Your balance is too low for this withdrawal.");
+            throw new https_1.HttpsError("failed-precondition", "Insufficient balance");
         }
         tx.update(walletRef, {
             balance: admin.firestore.FieldValue.increment(-amountKobo),
@@ -353,7 +389,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
             bank_code: bankCode,
             currency: "NGN",
         }, secret);
-        const recipientCode = String((_j = recipient["recipient_code"]) !== null && _j !== void 0 ? _j : "");
+        const recipientCode = String((_l = recipient["recipient_code"]) !== null && _l !== void 0 ? _l : "");
         if (!recipientCode) {
             throw new https_1.HttpsError("internal", "Paystack did not return a transfer recipient.");
         }
@@ -365,8 +401,8 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
             reason: "Sese Ride Wallet Payout",
             reference: requestId,
         }, secret);
-        const transferReference = String((_k = transfer["reference"]) !== null && _k !== void 0 ? _k : "");
-        const transferStatus = String((_l = transfer["status"]) !== null && _l !== void 0 ? _l : "");
+        const transferReference = String((_m = transfer["reference"]) !== null && _m !== void 0 ? _m : "");
+        const transferStatus = String((_o = transfer["status"]) !== null && _o !== void 0 ? _o : "");
         // `success` here means Paystack ACCEPTED the transfer, not that the
         // bank has paid out. The webhook settles the final state.
         const settled = transferStatus === "success";

@@ -308,9 +308,8 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
 
                 const SizedBox(height: 16),
                 Text(
-                  'Your 4-digit PIN is strictly dedicated to authorizing sensitive '
-                  'financial operations (P2P transfers & withdrawals). '
-                  'Keep it confidential and never share it.',
+                  'Your 4-digit PIN secures your wallet and withdrawals. '
+                  'Never share your PIN with anyone.',
                   style: TextStyle(
                     fontSize: 11,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,

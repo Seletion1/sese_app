@@ -11,9 +11,6 @@ const PAYSTACK_BASE =
 /** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
 const MIN_WITHDRAWAL_KOBO = 10_000;
 
-/** Ceiling per withdrawal: ₦500,000. Bounds blast radius of a bug or a hijack. */
-const MAX_WITHDRAWAL_KOBO = 50_000_000;
-
 
 function paystackSecret(): string {
   // NOTE: `PAYSTACK_SECRET_KEY` is still bound as a Secret Manager secret
@@ -313,14 +310,58 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_WITHDRAWAL_KOBO) {
       throw new HttpsError(
         "invalid-argument",
-        "Minimum withdrawal is ₦100."
+        "Min withdrawal ₦100"
       );
     }
-    if (amountKobo > MAX_WITHDRAWAL_KOBO) {
+
+    // ── Dynamic Daily Withdrawal Limit ─────────────────────────────────
+    let maxDailyWithdrawal = 20000;
+    try {
+      const finDoc = await db().collection("system_configs").doc("financials").get();
+      if (finDoc.exists) {
+        const finData = finDoc.data() ?? {};
+        if (typeof finData["maxDailyWithdrawal"] === "number") {
+          maxDailyWithdrawal = finData["maxDailyWithdrawal"];
+        }
+      }
+    } catch (e) {
+      console.warn(`[processWalletWithdrawal] financials config read fallback: ${e}`);
+    }
+
+    const maxDailyKobo = Math.round(maxDailyWithdrawal * 100);
+    if (amountKobo > maxDailyKobo) {
       throw new HttpsError(
         "invalid-argument",
-        "Maximum withdrawal per request is ₦500,000."
+        `Max withdrawal ₦${maxDailyWithdrawal.toLocaleString("en-NG")}`
       );
+    }
+
+    // Cumulative 24-hour withdrawal limit check
+    try {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentPayoutsSnap = await db()
+        .collection("payout_requests")
+        .where("userId", "==", uid)
+        .where("createdAt", ">=", oneDayAgo)
+        .get();
+
+      let dailyTotalKobo = 0;
+      for (const pDoc of recentPayoutsSnap.docs) {
+        const pData = pDoc.data();
+        if (pData["status"] !== "failed" && pData["status"] !== "refunded") {
+          dailyTotalKobo += Number(pData["amountKobo"] ?? 0);
+        }
+      }
+
+      if (dailyTotalKobo + amountKobo > maxDailyKobo) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Daily limit reached"
+        );
+      }
+    } catch (e) {
+      if (e instanceof HttpsError) throw e;
+      console.warn(`[processWalletWithdrawal] daily withdrawal sum warning: ${e}`);
     }
 
     const bankCode = String(request.data?.bankCode ?? "").trim();
@@ -331,7 +372,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     if (!/^\d{10}$/.test(accountNumber)) {
       throw new HttpsError(
         "invalid-argument",
-        "Account number must be exactly 10 digits."
+        "10-digit account required"
       );
     }
 
@@ -344,7 +385,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     if (!accountName) {
       throw new HttpsError(
         "invalid-argument",
-        "We could not verify that bank account. Check the number and bank."
+        "Account not found"
       );
     }
 
@@ -359,8 +400,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     if (!accountNameMatches(registered, accountName)) {
       throw new HttpsError(
         "permission-denied",
-        `This account is registered to a different name than your profile. `
-          + `Update your profile name or use the account matching your profile.`
+        `Name mismatch: account must match ${registered}`
       );
     }
 
@@ -384,7 +424,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
         throw new HttpsError(
           "failed-precondition",
-          "Your balance is too low for this withdrawal."
+          "Insufficient balance"
         );
       }
 

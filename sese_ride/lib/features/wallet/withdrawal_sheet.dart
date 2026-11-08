@@ -153,7 +153,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
     if (kobo == null) return;
 
     // Collect the transaction PIN — verified server-side inside
-    // `processWalletWithdrawal` before any debit. See the P2P sheet.
+    // `processWalletWithdrawal` before any debit.
     final transactionPin = await TransactionPinPrompt.collectPin(
       context,
       uid: widget.user.uid,
@@ -229,7 +229,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
                   child: Text(
-                    'Insufficient balance for withdrawal.',
+                    'Insufficient balance',
                     style: TextStyle(color: Colors.red),
                   ),
                 ),
@@ -243,17 +243,21 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
                 ],
                 decoration: const InputDecoration(
-                  labelText: 'Amount (₦)',
+                  labelText: 'Amount',
+                  helperText: 'Max: ₦20,000 daily',
                   prefixText: '₦ ',
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
                   final kobo = _amountKobo;
                   if (kobo == null || kobo <= 0) {
-                    return 'Enter an amount greater than zero.';
+                    return 'Enter amount';
                   }
                   if (kobo > _availableKobo) {
-                    return 'Amount exceeds your available balance.';
+                    return 'Exceeds available balance';
+                  }
+                  if (kobo > 2000000) {
+                    return 'Max: ₦20,000';
                   }
                   return null;
                 },
@@ -265,7 +269,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                 initialValue: _bankCode,
                 isExpanded: true,
                 decoration: const InputDecoration(
-                  labelText: 'Select Bank',
+                  labelText: 'Bank',
                   border: OutlineInputBorder(),
                 ),
                 items: _banks.isEmpty && !_loadingBanks
@@ -320,11 +324,11 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                 ),
                 validator: (value) {
                   if (value == null || value.trim().length != 10) {
-                    return 'Enter your 10-digit account number.';
+                    return '10-digit account required';
                   }
-                  if (_bankCode == null) return 'Select your bank first.';
+                  if (_bankCode == null) return 'Select bank first';
                   if (_resolvedName == null) {
-                    return _accountError ?? 'Verify your account to continue.';
+                    return _accountError ?? 'Verify account';
                   }
                   return null;
                 },
@@ -358,9 +362,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
-                      'This name differs from your profile '
-                      '(${widget.user.fullName}). Withdrawals can only be made '
-                      'to an account in your own name.',
+                      'Name mismatch: account must match ${widget.user.fullName}',
                       key: const Key('withdrawal_name_mismatch_warning'),
                       style: const TextStyle(
                           fontSize: 12, color: Colors.orange),
@@ -384,8 +386,8 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Funds are sent to your bank account. Your balance is reduced '
-                'immediately and refunded automatically if the transfer fails.',
+                'Direct bank transfer • Instant balance update',
+                textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
             ],

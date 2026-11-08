@@ -118,7 +118,7 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Text(
-                'Strict Verification Guard: Vehicle status is set to PENDING VERIFICATION. Under security policy, orders cannot be accepted while your account or vehicle is under verification.',
+                'Pending verification. Orders unavailable until approved.',
                 style: TextStyle(fontSize: 12, color: Colors.brown),
               ),
             ),
@@ -406,7 +406,7 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
                   child: Text(
                     vehicle.isApproved
                         ? 'Eligible for session dispatch.'
-                        : 'Strict Guard Active: Unverified vehicles cannot receive orders.',
+                        : 'Pending verification: orders unavailable',
                     style: TextStyle(
                       fontSize: 12,
                       color: vehicle.isApproved ? Colors.green.shade800 : Colors.brown,

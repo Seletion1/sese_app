@@ -137,18 +137,93 @@ export const initializePayment = onCall<InitializePaymentData>(
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_AMOUNT_KOBO) {
       throw new HttpsError(
         "invalid-argument",
-        "Minimum payment is ₦100. Enter a valid amount."
+        "Min payment ₦100"
       );
     }
     if (amountKobo > MAX_AMOUNT_KOBO) {
       throw new HttpsError(
         "invalid-argument",
-        "Maximum payment per transaction is ₦500,000."
+        "Max payment ₦500,000"
       );
     }
 
     const purpose: PaymentPurpose =
       d.purpose === "trip_payment" ? "trip_payment" : "wallet_topup";
+
+    // ── Financial Rules & Business Limits Gate ─────────────────────────
+    if (purpose === "wallet_topup") {
+      let maxAccountBalance = 50000;
+      let maxSingleTopUp = 20000;
+      let dailyTopUpFrequency = 5;
+      try {
+        const finDoc = await db().collection("system_configs").doc("financials").get();
+        if (finDoc.exists) {
+          const finData = finDoc.data() ?? {};
+          if (typeof finData["maxAccountBalance"] === "number") {
+            maxAccountBalance = finData["maxAccountBalance"];
+          }
+          if (typeof finData["maxSingleTopUp"] === "number") {
+            maxSingleTopUp = finData["maxSingleTopUp"];
+          }
+          if (typeof finData["dailyTopUpFrequency"] === "number") {
+            dailyTopUpFrequency = finData["dailyTopUpFrequency"];
+          }
+        }
+      } catch (e) {
+        console.warn(`[initializePayment] financials config read fallback: ${e}`);
+      }
+
+      // 1. Max Single Top-Up
+      const maxSingleKobo = Math.round(maxSingleTopUp * 100);
+      if (amountKobo > maxSingleKobo) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Max top-up ₦${maxSingleTopUp.toLocaleString("en-NG")}`
+        );
+      }
+
+      // 2. Max Account Balance Cap
+      try {
+        const walletDoc = await db().collection("wallets").doc(uid).get();
+        if (walletDoc.exists) {
+          const wData = walletDoc.data() ?? {};
+          const currentBalKobo = typeof wData["mainWalletBalance"] === "number"
+            ? Math.round(wData["mainWalletBalance"] * 100)
+            : (typeof wData["balance"] === "number" ? Math.round(wData["balance"]) : 0);
+          const maxBalanceKobo = Math.round(maxAccountBalance * 100);
+          if (currentBalKobo + amountKobo > maxBalanceKobo) {
+            throw new HttpsError(
+              "failed-precondition",
+              `Max balance ₦${maxAccountBalance.toLocaleString("en-NG")}`
+            );
+          }
+        }
+      } catch (e) {
+        if (e instanceof HttpsError) throw e;
+        console.warn(`[initializePayment] wallet balance check warning: ${e}`);
+      }
+
+      // 3. Daily Top-Up Frequency (Max times per 24 hours)
+      try {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const dailyTopUpsSnap = await db()
+          .collection("payment_intents")
+          .where("userId", "==", uid)
+          .where("purpose", "==", "wallet_topup")
+          .where("createdAt", ">=", oneDayAgo)
+          .get();
+
+        if (dailyTopUpsSnap.size >= dailyTopUpFrequency) {
+          throw new HttpsError(
+            "resource-exhausted",
+            "Daily limit reached"
+          );
+        }
+      } catch (e) {
+        if (e instanceof HttpsError) throw e;
+        console.warn(`[initializePayment] daily frequency check warning: ${e}`);
+      }
+    }
     const tripId = typeof d.tripId === "string" ? d.tripId.trim() : "";
     if (purpose === "trip_payment" && !tripId) {
       throw new HttpsError(

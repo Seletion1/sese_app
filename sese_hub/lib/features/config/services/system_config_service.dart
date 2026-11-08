@@ -220,21 +220,6 @@ class SystemConfigService {
     }
   }
 
-  /// Saves P2P transfer rules to system_config/wallet_rules.
-  Future<void> saveP2pWalletRules(P2pWalletRules rules) async {
-    try {
-      await (_firestore ?? FirebaseFirestore.instance)
-          .collection('system_config')
-          .doc('wallet_rules')
-          .set({
-        ...rules.toMap(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Error saving P2P wallet rules: $e');
-    }
-  }
-
   /// Saves residual referral commission revenue settings to system_config/referral_settings.
   Future<void> saveReferralRevenueSettings(ReferralRevenueSettings settings) async {
     try {
@@ -277,37 +262,6 @@ class SystemConfigService {
     tooltips.forEach((k, v) => map[k] = v.toMap());
     await col.doc('awareness_tooltips').set(map, SetOptions(merge: true));
   }
-}
-
-class P2pWalletRules {
-  final int minDriverTrips;
-  final double maxP2pLimitNaira;
-  final bool adminOverrideEnabled;
-
-  const P2pWalletRules({
-    this.minDriverTrips = 3,
-    this.maxP2pLimitNaira = 20000.0,
-    this.adminOverrideEnabled = true,
-  });
-
-  factory P2pWalletRules.fromMap(Map<String, dynamic>? map) {
-    map ??= const {};
-    int intOf(String k, int fb) => (map![k] is num) ? (map[k] as num).toInt() : fb;
-    double doubleOf(String k, double fb) => (map![k] is num) ? (map[k] as num).toDouble() : fb;
-    return P2pWalletRules(
-      minDriverTrips: intOf('minDriverTrips', 3),
-      maxP2pLimitNaira: doubleOf('maxP2pLimit', 20000.0),
-      adminOverrideEnabled: map['adminOverrideEnabled'] != false,
-    );
-  }
-
-  Map<String, dynamic> toMap() => {
-    'minDriverTrips': minDriverTrips,
-    'min_driver_trips': minDriverTrips,
-    'maxP2pLimit': maxP2pLimitNaira,
-    'max_p2p_limit': maxP2pLimitNaira,
-    'adminOverrideEnabled': adminOverrideEnabled,
-  };
 }
 
 class ReferralRevenueSettings {

@@ -41,7 +41,7 @@ class WalletScreenState extends State<WalletScreen> {
         await showTopUpSheet(context, _payments, widget.user);
     if (credited && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Wallet credited successfully.')),
+        const SnackBar(content: Text('Wallet credited')),
       );
     }
   }
@@ -52,7 +52,7 @@ class WalletScreenState extends State<WalletScreen> {
       ScaffoldMessenger.of(context).removeCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Insufficient balance for withdrawal.'),
+          content: Text('Insufficient balance'),
           backgroundColor: Colors.red,
         ),
       );
@@ -70,11 +70,8 @@ class WalletScreenState extends State<WalletScreen> {
       SnackBar(
         content: Text(
           request.isCompleted
-              ? '${PaymentService.formatNaira(request.amountKobo / 100.0)} '
-                  'sent to ${request.accountName}.'
-              : 'Withdrawal requested. '
-                  '${PaymentService.formatNaira(request.amountKobo / 100.0)} '
-                  'is on its way to ${request.accountName}.',
+              ? 'Sent ${PaymentService.formatNaira(request.amountKobo / 100.0)} to ${request.accountName}'
+              : 'Withdrawal requested: ${PaymentService.formatNaira(request.amountKobo / 100.0)}',
         ),
       ),
     );
