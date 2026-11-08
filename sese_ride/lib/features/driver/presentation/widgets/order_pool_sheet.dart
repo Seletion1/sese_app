@@ -730,11 +730,8 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
   }
 
   bool get _isCounterOffer {
-    if (_selectedSuggestionPct != null) return true;
-    if (_isCustomBidActive) {
-      final val = double.tryParse(_bidCtrl.text.trim()) ?? 0;
-      return val > widget.trip.fareAmount;
-    }
+    if (_selectedSuggestionPct != null && _selectedSuggestionPct! > 0) return true;
+    if (_isCustomBidActive) return true;
     return false;
   }
 
@@ -774,9 +771,9 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
     }
   }
 
-  Future<void> _submitBid() async {
+  Future<void> _submitBid([double? latestBaseline]) async {
     final val = double.tryParse(_bidCtrl.text.trim());
-    final baseline = widget.trip.fareAmount;
+    final baseline = latestBaseline ?? widget.trip.fareAmount;
     if (val == null || val < baseline) {
       setState(() {
         _bidError =
@@ -853,6 +850,9 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
           // ── Layer 0: Full-Screen Interactive Map ──
           Positioned.fill(
             child: SeSeMapView(
+              preferredProvider: MapConfigController.instance.snapshotConfig().hasValidMapboxToken
+                  ? MapProvider.mapbox
+                  : MapProvider.cartoDb,
               mapController: _mapController,
               initialCenter: _pickup,
               initialZoom: 13.0,
@@ -1361,7 +1361,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
                             onPressed: _isCounterOffer
                                 ? ((_submittingBid || _bidError != null)
                                     ? null
-                                    : _submitBid)
+                                    : () => _submitBid(baseline))
                                 : (_accepting ? null : _acceptNow),
                             icon: (_accepting || _submittingBid)
                                 ? const SizedBox(

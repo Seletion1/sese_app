@@ -155,6 +155,13 @@ class ProximityTriggerService {
   }) {
     _trip = trip;
     _tripStatus = trip.status;
+    if (trip.status == TripStatus.completed ||
+        trip.status == TripStatus.cancelled ||
+        trip.status == TripStatus.cancelledWaitingCashSettlement) {
+      // ignore: discarded_futures
+      stop();
+      return;
+    }
     final pickup = LatLng(trip.pickupLat, trip.pickupLng);
     Stream<Position> stream;
     try {
@@ -182,6 +189,13 @@ class ProximityTriggerService {
         _tripStatus == TripStatus.driverArriving;
     _trip = trip;
     _tripStatus = trip.status;
+    if (trip.status == TripStatus.completed ||
+        trip.status == TripStatus.cancelled ||
+        trip.status == TripStatus.cancelledWaitingCashSettlement) {
+      // ignore: discarded_futures
+      stop();
+      return;
+    }
     // Reset departure firing if the trip left the arrived state.
     if (wasArrived && trip.status != TripStatus.driverArrived) {
       _departFired = false;
@@ -327,6 +341,13 @@ class ProximityTriggerService {
     final fix = _lastFix;
     final trip = _trip;
     if (_disposed || fix == null || trip == null || fix.isMocked) return;
+    if (trip.status == TripStatus.completed ||
+        trip.status == TripStatus.cancelled ||
+        trip.status == TripStatus.cancelledWaitingCashSettlement) {
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = null;
+      return;
+    }
     try {
       await streakService.reportDriverLocation(
         tripId: trip.tripId,
@@ -334,8 +355,11 @@ class ProximityTriggerService {
         lng: fix.longitude,
         isMocked: false,
       );
-    } catch (_) {
-      // Best-effort: the next tick retries; audio/UI never blocks.
+    } catch (e) {
+      if (e is DriverStreakException && e.code == 'failed-precondition') {
+        _heartbeatTimer?.cancel();
+        _heartbeatTimer = null;
+      }
     }
   }
 

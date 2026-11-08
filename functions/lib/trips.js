@@ -2018,7 +2018,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 /** Driver submits a custom fare bid on an open trip document */
 exports.submitBid = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in to bid.");
     }
@@ -2068,29 +2068,54 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
     if ((_j = tripData.driver) === null || _j === void 0 ? void 0 : _j.driverId) {
         throw new https_1.HttpsError("failed-precondition", "This trip has already been claimed by another driver.");
     }
+    const currentStatus = String((_k = tripData.status) !== null && _k !== void 0 ? _k : "").trim().toUpperCase();
     const allowedStatuses = [
         "SEARCHING_DRIVER",
+        "SEARCHING",
         "WAITING_FOR_ACCEPTANCE",
+        "WAITING_ACCEPTANCE",
+        "DRIVER_PINGED",
         "MARKETPLACE_OPEN",
         "MARKETPLACE_LIST",
-        "needs_customer_action",
-        "bidding",
+        "NEEDS_CUSTOMER_ACTION",
+        "BIDDING",
     ];
-    if (!allowedStatuses.includes(String(tripData.status))) {
-        throw new https_1.HttpsError("failed-precondition", "This trip is no longer open for bidding.");
+    if (!allowedStatuses.includes(currentStatus)) {
+        throw new https_1.HttpsError("failed-precondition", `This trip is no longer open for bidding (status: ${tripData.status}).`);
     }
     // Single Active Bid Guard: check if driver already has an unexpired pending bid
     const currentTime = Date.now();
-    const existingPendingBids = await db()
-        .collectionGroup("bids")
-        .where("driverId", "==", driverId)
-        .where("status", "==", "pending")
-        .get();
-    for (const bDoc of existingPendingBids.docs) {
-        const bData = bDoc.data();
-        const expMs = (_m = (_l = (_k = bData.expiresAt) === null || _k === void 0 ? void 0 : _k.toMillis) === null || _l === void 0 ? void 0 : _l.call(_k)) !== null && _m !== void 0 ? _m : 0;
-        if (expMs > currentTime) {
-            throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
+    try {
+        const existingPendingBids = await db()
+            .collectionGroup("bids")
+            .where("driverId", "==", driverId)
+            .where("status", "==", "pending")
+            .get();
+        for (const bDoc of existingPendingBids.docs) {
+            const bData = bDoc.data();
+            const expMs = (_o = (_m = (_l = bData.expiresAt) === null || _l === void 0 ? void 0 : _l.toMillis) === null || _m === void 0 ? void 0 : _m.call(_l)) !== null && _o !== void 0 ? _o : 0;
+            if (expMs > currentTime) {
+                throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
+            }
+        }
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        console.warn(`[submitBid] collectionGroup bids query failed (${err === null || err === void 0 ? void 0 : err.message}) — falling back to per-trip check.`);
+        try {
+            const existingTripBid = await tripRef.collection("bids").doc(driverId).get();
+            if (existingTripBid.exists) {
+                const bData = existingTripBid.data();
+                const expMs = (_r = (_q = (_p = bData === null || bData === void 0 ? void 0 : bData.expiresAt) === null || _p === void 0 ? void 0 : _p.toMillis) === null || _q === void 0 ? void 0 : _q.call(_p)) !== null && _r !== void 0 ? _r : 0;
+                if ((bData === null || bData === void 0 ? void 0 : bData.status) === "pending" && expMs > currentTime) {
+                    throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
+                }
+            }
+        }
+        catch (fbErr) {
+            if (fbErr instanceof https_1.HttpsError)
+                throw fbErr;
         }
     }
     const tuning = await getDispatchTuning();
@@ -2102,7 +2127,7 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         bidId: driverId,
         tripId,
         driverId,
-        customerId: String((_o = tripData.customerId) !== null && _o !== void 0 ? _o : ""),
+        customerId: String((_s = tripData.customerId) !== null && _s !== void 0 ? _s : ""),
         driverName: snapshot.fullName,
         photoUrl: snapshot.photoUrl,
         rating: snapshot.rating,
@@ -2118,8 +2143,11 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    const isMarketplace = currentStatus === "MARKETPLACE_OPEN" ||
+        currentStatus === "MARKETPLACE_LIST";
     await tripRef.update({
         hasActiveBids: true,
+        status: isMarketplace ? tripData.status : "bidding",
         lastBidAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -2131,24 +2159,24 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         : vehicleDetails;
     // Rich counter-bid alert: in-app notification + FCM push to the customer
     // with complete driver details, ETA, vehicle info, offered fare, and Accept/Reject payload
-    await notifyCustomer(String((_p = tripData.customerId) !== null && _p !== void 0 ? _p : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
+    await notifyCustomer(String((_t = tripData.customerId) !== null && _t !== void 0 ? _t : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
         driverId,
         driverName: String(snapshot.fullName),
-        driverPhoto: String((_q = snapshot.photoUrl) !== null && _q !== void 0 ? _q : ""),
-        driverRating: String((_r = snapshot.rating) !== null && _r !== void 0 ? _r : 0),
+        driverPhoto: String((_u = snapshot.photoUrl) !== null && _u !== void 0 ? _u : ""),
+        driverRating: String((_v = snapshot.rating) !== null && _v !== void 0 ? _v : 0),
         offeredFare: String(roundedOfferedFare),
         offeredFareFormatted: `₦${Number(roundedOfferedFare).toLocaleString()}`,
         etaMinutes: String(etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5),
-        vehicleModel: String((_s = snapshot.vehicleModel) !== null && _s !== void 0 ? _s : ""),
-        vehicleColor: String((_t = snapshot.vehicleColor) !== null && _t !== void 0 ? _t : ""),
-        plateNumber: String((_u = snapshot.plateNumber) !== null && _u !== void 0 ? _u : ""),
+        vehicleModel: String((_w = snapshot.vehicleModel) !== null && _w !== void 0 ? _w : ""),
+        vehicleColor: String((_x = snapshot.vehicleColor) !== null && _x !== void 0 ? _x : ""),
+        plateNumber: String((_y = snapshot.plateNumber) !== null && _y !== void 0 ? _y : ""),
         vehicleDetails: vehicleStr,
     });
     return { ok: true, bidId: driverId };
 });
 /** Customer rejects a driver's bid (driver may re-bid later) */
 exports.rejectBid = (0, https_1.onCall)(async (request) => {
-    var _a;
+    var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -2162,7 +2190,11 @@ exports.rejectBid = (0, https_1.onCall)(async (request) => {
     if (!tripSnap.exists) {
         throw new https_1.HttpsError("not-found", "Trip not found.");
     }
-    if (tripSnap.data().customerId !== customerId) {
+    const tripData = tripSnap.data();
+    const orderCustomerId = String((_d = (_c = (_b = tripData.customerId) !== null && _b !== void 0 ? _b : tripData.userId) !== null && _c !== void 0 ? _c : (tripData.customer && typeof tripData.customer === "object"
+        ? tripData.customer.uid
+        : "")) !== null && _d !== void 0 ? _d : "");
+    if (orderCustomerId !== customerId) {
         throw new https_1.HttpsError("permission-denied", "Only the requesting customer can reject bids.");
     }
     const bidRef = tripRef.collection("bids").doc(String(driverId));

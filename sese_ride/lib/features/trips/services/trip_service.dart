@@ -376,15 +376,27 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Stream<List<BidModel>> bidsStream(String tripId) {
+    if (tripId.isEmpty) return Stream.value(const <BidModel>[]);
     return _db
         .collection('trips')
         .doc(tripId)
         .collection('bids')
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => BidModel.fromMap(d.id, d.data()))
-            .toList());
+        .map((snap) {
+          final bids = snap.docs
+              .map((d) => BidModel.fromMap(d.id, d.data()))
+              .toList();
+          bids.sort((a, b) {
+            final aTime = a.createdAt?.millisecondsSinceEpoch ?? 0;
+            final bTime = b.createdAt?.millisecondsSinceEpoch ?? 0;
+            return bTime.compareTo(aTime);
+          });
+          return bids;
+        })
+        .handleError((err) {
+      debugPrint('bidsStream error: $err');
+      return <BidModel>[];
+    });
   }
 
   @override
@@ -393,12 +405,11 @@ class FirestoreTripRepository implements TripRepository {
     return _db
         .collectionGroup('bids')
         .where('driverId', isEqualTo: driverId)
-        .where('status', isEqualTo: 'pending')
         .snapshots()
         .map((snap) {
       for (final doc in snap.docs) {
         final bid = BidModel.fromMap(doc.id, doc.data());
-        if (!bid.isExpired) {
+        if (bid.status == BidStatus.pending && !bid.isExpired) {
           return bid;
         }
       }

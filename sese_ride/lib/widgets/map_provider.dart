@@ -329,6 +329,11 @@ class SeseUniversalMap extends StatefulWidget {
   /// Optional callback invoked when user interaction ends on any active map canvas.
   final VoidCallback? onInteractionEnded;
 
+  /// When non-null, explicitly overrides provider selection.
+  /// Used by preview sheets and nested modals to prevent creating duplicate
+  /// native Google Map PlatformViews on top of the background map canvas.
+  final MapProvider? preferredProvider;
+
   /// Test seam: when set, renders a placeholder map without network tiles.
   static Object? get debugTileProviderOverride {
     assert(!kReleaseMode || OsmMapView.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
@@ -369,6 +374,7 @@ class SeseUniversalMap extends StatefulWidget {
     this.interactionController,
     this.onInteractionStarted,
     this.onInteractionEnded,
+    this.preferredProvider,
   });
 
   /// Builds a colored map pin marker at [point].
@@ -507,11 +513,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
             // widget props, so freezing the ENGINE never freezes the data.
             final mapConfig = _frozenConfig ?? liveConfig;
 
-            var targetProvider = MapProviderPolicy.resolve(
-              widget.mapContext,
-              mapConfig: mapConfig,
-              feature: widget.feature,
-            );
+            var targetProvider = widget.preferredProvider ??
+                MapProviderPolicy.resolve(
+                  widget.mapContext,
+                  mapConfig: mapConfig,
+                  feature: widget.feature,
+                );
 
             bool isFallbackActive = false;
             String fallbackMessage = 'Primary map provider unavailable.';

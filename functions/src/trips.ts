@@ -2512,37 +2512,63 @@ export const submitBid = onCall(async (request) => {
     );
   }
 
+  const currentStatus = String(tripData.status ?? "").trim().toUpperCase();
   const allowedStatuses = [
     "SEARCHING_DRIVER",
+    "SEARCHING",
     "WAITING_FOR_ACCEPTANCE",
+    "WAITING_ACCEPTANCE",
+    "DRIVER_PINGED",
     "MARKETPLACE_OPEN",
     "MARKETPLACE_LIST",
-    "needs_customer_action",
-    "bidding",
+    "NEEDS_CUSTOMER_ACTION",
+    "BIDDING",
   ];
-  if (!allowedStatuses.includes(String(tripData.status))) {
+  if (!allowedStatuses.includes(currentStatus)) {
     throw new HttpsError(
       "failed-precondition",
-      "This trip is no longer open for bidding."
+      `This trip is no longer open for bidding (status: ${tripData.status}).`
     );
   }
 
   // Single Active Bid Guard: check if driver already has an unexpired pending bid
   const currentTime = Date.now();
-  const existingPendingBids = await db()
-    .collectionGroup("bids")
-    .where("driverId", "==", driverId)
-    .where("status", "==", "pending")
-    .get();
+  try {
+    const existingPendingBids = await db()
+      .collectionGroup("bids")
+      .where("driverId", "==", driverId)
+      .where("status", "==", "pending")
+      .get();
 
-  for (const bDoc of existingPendingBids.docs) {
-    const bData = bDoc.data();
-    const expMs = bData.expiresAt?.toMillis?.() ?? 0;
-    if (expMs > currentTime) {
-      throw new HttpsError(
-        "failed-precondition",
-        "You already have an active bid waiting for a customer decision."
-      );
+    for (const bDoc of existingPendingBids.docs) {
+      const bData = bDoc.data();
+      const expMs = bData.expiresAt?.toMillis?.() ?? 0;
+      if (expMs > currentTime) {
+        throw new HttpsError(
+          "failed-precondition",
+          "You already have an active bid waiting for a customer decision."
+        );
+      }
+    }
+  } catch (err: any) {
+    if (err instanceof HttpsError) throw err;
+    console.warn(
+      `[submitBid] collectionGroup bids query failed (${err?.message}) — falling back to per-trip check.`
+    );
+    try {
+      const existingTripBid = await tripRef.collection("bids").doc(driverId).get();
+      if (existingTripBid.exists) {
+        const bData = existingTripBid.data();
+        const expMs = bData?.expiresAt?.toMillis?.() ?? 0;
+        if (bData?.status === "pending" && expMs > currentTime) {
+          throw new HttpsError(
+            "failed-precondition",
+            "You already have an active bid waiting for a customer decision."
+          );
+        }
+      }
+    } catch (fbErr: any) {
+      if (fbErr instanceof HttpsError) throw fbErr;
     }
   }
 
@@ -2574,8 +2600,12 @@ export const submitBid = onCall(async (request) => {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
+  const isMarketplace =
+    currentStatus === "MARKETPLACE_OPEN" ||
+    currentStatus === "MARKETPLACE_LIST";
   await tripRef.update({
     hasActiveBids: true,
+    status: isMarketplace ? tripData.status : "bidding",
     lastBidAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -2632,7 +2662,16 @@ export const rejectBid = onCall(async (request) => {
   if (!tripSnap.exists) {
     throw new HttpsError("not-found", "Trip not found.");
   }
-  if (tripSnap.data()!.customerId !== customerId) {
+  const tripData = tripSnap.data()!;
+  const orderCustomerId = String(
+    tripData.customerId ??
+      tripData.userId ??
+      (tripData.customer && typeof tripData.customer === "object"
+        ? tripData.customer.uid
+        : "") ??
+      ""
+  );
+  if (orderCustomerId !== customerId) {
     throw new HttpsError(
       "permission-denied",
       "Only the requesting customer can reject bids."

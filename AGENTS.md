@@ -72,6 +72,41 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Fare Bidding Resolution, Firestore Indexes Deployment & Native PlatformView Elimination
+
+- **1. Cloud Functions Bidding Hardening (`functions/src/trips.ts`)**:
+  - Normalized trip status check in `submitBid` with case-insensitive upper-casing against all valid open/bidding statuses (`SEARCHING_DRIVER`, `SEARCHING`, `WAITING_FOR_ACCEPTANCE`, `WAITING_ACCEPTANCE`, `DRIVER_PINGED`, `MARKETPLACE_OPEN`, `MARKETPLACE_LIST`, `NEEDS_CUSTOMER_ACTION`, `BIDDING`).
+  - Added try/catch fallback around `collectionGroup("bids")` query to direct per-trip bid lookup (`tripRef.collection("bids").doc(driverId)`), ensuring index propagation delays never block driver bids.
+  - Updated trip document on bid submission with `hasActiveBids: true` and `status: isMarketplace ? tripData.status : "bidding"`.
+  - Hardened `rejectBid` customer ownership verification across `tripData.customerId ?? tripData.userId ?? tripData.customer.uid` to prevent false `permission-denied` errors.
+  - Successfully deployed `functions:submitBid,rejectBid,acceptBid` to Google Cloud Functions (2nd Gen).
+
+- **2. Firestore Composite Indexes (`firestore.indexes.json`)**:
+  - Added composite collectionGroup index for `bids` on `[driverId: ASC, status: ASC, __name__: ASC]`.
+  - Added composite collection index for `bids` on `[status: ASC, createdAt: DESC, __name__: DESC]`.
+  - Added collectionGroup index overrides for `bids.driverId` and `bids.status`.
+  - Successfully deployed `firestore:indexes` to Firebase project `sese-ride`.
+
+- **3. In-Memory Resilient Streams (`trip_service.dart`)**:
+  - Replaced server-side composite query in `bidsStream` with subcollection query and in-memory timestamp sorting (`bids.sort((a,b) => b.createdAt.compareTo(a.createdAt))`), preventing empty bid streams when composite indexes are pending or propagating.
+  - In `activeDriverBidStream`: Filter `bid.status == BidStatus.pending && !bid.isExpired` in Dart memory.
+
+- **4. Driver Order Pool & Bidding UI Hardening (`order_pool_sheet.dart`, `incoming_offer_sheet.dart`, `map_provider.dart`)**:
+  - Fixed `_isCounterOffer` logic to trigger on custom bid activation (`_isCustomBidActive`) rather than requiring strict numeric inequality, preventing custom price entries from accidentally falling through to baseline accept.
+  - Dynamically bound `_submitBid` to the latest baseline fare from `StreamBuilder` if present.
+  - Eliminated native Google Maps `PlatformView` contention in modal preview sheets (`_PoolOrderDetailSheet` and `IncomingOfferSheet`) by routing `preferredProvider` to lightweight raster tile layers (`mapbox` / `cartodb` via `flutter_map`), resolving Davey frame drops (up to 204 skipped frames, 3359ms UI thread freeze) and native memory allocation thrashing.
+
+- **5. Proximity & Heartbeat Cleanup (`proximity_trigger_service.dart`)**:
+  - Added immediate cancellation of `_heartbeatTimer` and `stop()` when trip status transitions to terminal states (`completed`, `cancelled`, `cancelledWaitingCashSettlement`).
+  - Added catch block for `DriverStreakException` with code `'failed-precondition'` to cancel orphan timers and prevent rogue location reporting on settled trips.
+
+- **6. Verification & Testing**:
+  - Unit/Widget Tests:
+    - `sese_ride`: 12/12 passed (`order_pool_bidding_test.dart`, `synchronized_bidding_flow_test.dart`), 9/9 passed (`proximity_trigger_service_test.dart`).
+    - `sese_core`: 136/136 passed (100%).
+  - Static Analysis: `flutter analyze` ran with 0 issues across `sese_ride` and `sese_core`.
+  - Backend: `npm run build` compiled clean; `npm test` 65/65 tests passed (100%).
+
 ## 2026-11-08 — Permanent Primary Platform Owner Authority & Hub Sign-In Qualification Bootstrap
 
 - **1. Hub Primary Owner Permanent Inherent Authority (`hub_access_service.dart`, `HubAccessService`)**:
