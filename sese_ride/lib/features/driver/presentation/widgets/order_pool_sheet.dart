@@ -1,15 +1,18 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../../customer/services/location_service.dart';
+import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/map_provider.dart';
+import 'driver_active_bid_lock_card.dart';
 import 'low_balance_dialog.dart';
 import 'order_feed.dart';
 
@@ -138,6 +141,7 @@ class OrderPoolSheet extends StatefulWidget {
   final LatLng driverPosition;
   final String currencySymbol;
   final String? driverId;
+  final TripRepository? tripRepository;
 
   const OrderPoolSheet({
     super.key,
@@ -145,6 +149,7 @@ class OrderPoolSheet extends StatefulWidget {
     required this.driverPosition,
     required this.currencySymbol,
     this.driverId,
+    this.tripRepository,
   });
 
   @override
@@ -199,6 +204,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
   }
 
   void _openDetails(ActiveTrip trip) async {
+    final effectiveDriverId = widget.driverId ?? widget.streakService.driverId;
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -209,6 +215,8 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
         driverPosition: widget.driverPosition,
         currencySymbol: widget.currencySymbol,
         streakService: widget.streakService,
+        driverId: effectiveDriverId,
+        tripRepository: widget.tripRepository,
         onAccepted: (tripId) {
           if (ctx.mounted) Navigator.of(ctx).pop(tripId);
         },
@@ -221,154 +229,169 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
 
   @override
   Widget build(BuildContext context) {
+    final repo = widget.tripRepository ?? FirestoreTripRepository();
+    final effectiveDriverId =
+        widget.driverId ?? widget.streakService.driverId ?? '';
+
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
       minChildSize: 0.4,
       maxChildSize: 0.92,
       builder: (context, scrollController) {
-        return StreamBuilder<List<ActiveTrip>>(
-          stream: widget.streakService.marketplaceStream(driverId: widget.driverId),
-          builder: (context, snap) {
-            final trips = (snap.data ?? const <ActiveTrip>[])
-                .where((t) => widget.driverId == null || widget.driverId!.isEmpty || t.customerId != widget.driverId)
-                .where((t) => OrderFeedState.withinPoolRadius(
-                    t, widget.driverPosition))
-                .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
-                .toList();
-            // Opaque sheet surface: the modal opens with a transparent
-            // barrier background, so the content must carry its own
-            // surface — otherwise the header/empty-state text ghosts over
-            // the dashboard map underneath.
-            return Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(20)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.2),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
+        return StreamBuilder<BidModel?>(
+          stream: repo.activeDriverBidStream(effectiveDriverId),
+          builder: (context, activeBidSnap) {
+            final activeBid = activeBidSnap.data;
+            return StreamBuilder<List<ActiveTrip>>(
+              stream: widget.streakService
+                  .marketplaceStream(driverId: widget.driverId),
+              builder: (context, snap) {
+                final trips = (snap.data ?? const <ActiveTrip>[])
+                    .where((t) =>
+                        widget.driverId == null ||
+                        widget.driverId!.isEmpty ||
+                        t.customerId != widget.driverId)
+                    .where((t) => OrderFeedState.withinPoolRadius(
+                        t, widget.driverPosition))
+                    .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
+                    .toList();
+                // Opaque sheet surface: the modal opens with a transparent
+                // barrier background, so the content must carry its own
+                // surface — otherwise the header/empty-state text ghosts over
+                // the dashboard map underneath.
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 16,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 8),
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurfaceVariant
-                          .withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.radar, size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Order Pool (${trips.length})',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 8),
+                      Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant
+                              .withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
                         ),
-                      ],
-                    ),
-                  ),
-                  if (trips.isEmpty)
-                    _EmptyPoolRadar(breathe: _breathe)
-                  else
-                    Expanded(
-                      child: ListView.separated(
-                        key: const Key('order_pool_list'),
-                        controller: scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: EdgeInsets.fromLTRB(
-                          12,
-                          4,
-                          12,
-                          20 + MediaQuery.of(context).padding.bottom,
-                        ),
-                        itemCount: trips.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 8),
-                        itemBuilder: (context, i) {
-                          final trip = trips[i];
-                          return Dismissible(
-                            key: Key('dismissible_pool_${trip.tripId}'),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade700,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.delete_outline_rounded,
-                                      color: Colors.white, size: 20),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Hide',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.radar, size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Order Pool (${trips.length})',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
-                            onDismissed: (_) {
-                              OrderPoolSession.dismiss(trip.tripId, trip);
-                              _messenger?.hideCurrentSnackBar();
-                              _messenger?.showSnackBar(
-                                SnackBar(
-                                  behavior: SnackBarBehavior.floating,
-                                  margin: const EdgeInsets.only(
-                                      bottom: 24, left: 16, right: 16),
-                                  duration:
-                                      const Duration(milliseconds: 1500),
-                                  content: const Text(
-                                      'Order hidden for this session.'),
-                                  action: SnackBarAction(
-                                    label: 'Undo',
-                                    textColor: AppColors.seseGold,
-                                    onPressed: () {
-                                      OrderPoolSession.restore(trip.tripId);
-                                      if (mounted) {
-                                        setState(() {});
-                                      }
-                                    },
+                          ],
+                        ),
+                      ),
+                      if (trips.isEmpty)
+                        _EmptyPoolRadar(breathe: _breathe)
+                      else
+                        Expanded(
+                          child: ListView.separated(
+                            key: const Key('order_pool_list'),
+                            controller: scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.fromLTRB(
+                              12,
+                              4,
+                              12,
+                              20 + MediaQuery.of(context).padding.bottom,
+                            ),
+                            itemCount: trips.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, i) {
+                              final trip = trips[i];
+                              return Dismissible(
+                                key: Key('dismissible_pool_${trip.tripId}'),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade700,
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 20),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.delete_outline_rounded,
+                                          color: Colors.white, size: 20),
+                                      SizedBox(width: 6),
+                                      Text(
+                                        'Hide',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                onDismissed: (_) {
+                                  OrderPoolSession.dismiss(trip.tripId, trip);
+                                  _messenger?.hideCurrentSnackBar();
+                                  _messenger?.showSnackBar(
+                                    SnackBar(
+                                      behavior: SnackBarBehavior.floating,
+                                      margin: const EdgeInsets.only(
+                                          bottom: 24, left: 16, right: 16),
+                                      duration:
+                                          const Duration(milliseconds: 1500),
+                                      content: const Text(
+                                          'Order hidden for this session.'),
+                                      action: SnackBarAction(
+                                        label: 'Undo',
+                                        textColor: AppColors.seseGold,
+                                        onPressed: () {
+                                          OrderPoolSession.restore(trip.tripId);
+                                          if (mounted) {
+                                            setState(() {});
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: _PoolRow(
+                                  trip: trip,
+                                  fareLabel: _fareLabel(trip),
+                                  typeLabel: _typeLabel(trip),
+                                  ageText: _ageText(trip),
+                                  driverPosition: widget.driverPosition,
+                                  activeBid: activeBid,
+                                  onTap: () => _openDetails(trip),
                                 ),
                               );
                             },
-                            child: _PoolRow(
-                              trip: trip,
-                              fareLabel: _fareLabel(trip),
-                              typeLabel: _typeLabel(trip),
-                              ageText: _ageText(trip),
-                              driverPosition: widget.driverPosition,
-                              onTap: () => _openDetails(trip),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                ],
-              ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
             );
           },
         );
@@ -384,6 +407,7 @@ class _PoolRow extends StatelessWidget {
   final String ageText;
   final LatLng driverPosition;
   final VoidCallback onTap;
+  final BidModel? activeBid;
 
   const _PoolRow({
     required this.trip,
@@ -392,6 +416,7 @@ class _PoolRow extends StatelessWidget {
     required this.ageText,
     required this.driverPosition,
     required this.onTap,
+    this.activeBid,
   });
 
   @override
@@ -477,6 +502,38 @@ class _PoolRow extends StatelessWidget {
                                 color: scheme.onSurfaceVariant,
                               ),
                             ),
+                            if (activeBid != null &&
+                                activeBid!.tripId == trip.tripId &&
+                                !activeBid!.isExpired) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade900
+                                      .withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                      color: Colors.amber.shade700, width: 0.8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.hourglass_top_rounded,
+                                        size: 10, color: Colors.amber.shade700),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      'Bid Pending (${activeBid!.remainingSeconds}s)',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.amber.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -608,31 +665,46 @@ class _PoolRow extends StatelessWidget {
 ///   above the bottom accept button.
 /// - Keyboard Overflow & Visibility Fix: Inline custom price input resizes and
 ///   scrolls smoothly above the software keyboard so it is never obscured.
-class _PoolOrderDetailSheet extends StatefulWidget {
+/// Modal bottom sheet presenting complete trip details, interactive route map,
+/// and live counter-offer bidding controls.
+///
+/// Remains persistent on the screen during the entire bidding lifecycle:
+/// - Submitting a counter-offer locks controls and renders the live countdown.
+/// - If customer rejects or bid expires, controls re-enable with clear feedback.
+/// - Automatically pops with tripId upon customer acceptance.
+class PoolOrderDetailSheet extends StatefulWidget {
   final ActiveTrip trip;
   final LatLng driverPosition;
   final String currencySymbol;
   final DriverStreakService streakService;
   final ValueChanged<String> onAccepted;
+  final String? driverId;
+  final TripRepository? tripRepository;
 
-  const _PoolOrderDetailSheet({
+  const PoolOrderDetailSheet({
+    super.key,
     required this.trip,
     required this.driverPosition,
     required this.currencySymbol,
     required this.streakService,
     required this.onAccepted,
+    this.driverId,
+    this.tripRepository,
   });
 
   @override
-  State<_PoolOrderDetailSheet> createState() => _PoolOrderDetailSheetState();
+  State<PoolOrderDetailSheet> createState() => _PoolOrderDetailSheetState();
 }
 
-class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
+typedef _PoolOrderDetailSheet = PoolOrderDetailSheet;
+
+class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   final SeSeMapController _mapController = SeSeMapController();
   List<LatLng> _routePoints = [];
   List<LatLng> _driverLegPoints = [];
   late final TextEditingController _bidCtrl;
   final FocusNode _bidFocusNode = FocusNode();
+  Timer? _countdownTimer;
   bool _accepting = false;
   bool _submittingBid = false;
   int? _selectedSuggestionPct;
@@ -641,6 +713,41 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
   LatLng get _dropoff => LatLng(widget.trip.dropoffLat, widget.trip.dropoffLng);
+
+  String get _effectiveDriverId {
+    if (widget.driverId != null && widget.driverId!.isNotEmpty) {
+      return widget.driverId!;
+    }
+    if (widget.streakService.driverId != null &&
+        widget.streakService.driverId!.isNotEmpty) {
+      return widget.streakService.driverId!;
+    }
+    try {
+      return FirebaseAuth.instance.currentUser?.uid ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _syncBidCountdown(BidModel? bid) {
+    if (bid != null && bid.status == BidStatus.pending && !bid.isExpired) {
+      if (_countdownTimer == null || !_countdownTimer!.isActive) {
+        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+          if (!mounted) {
+            t.cancel();
+            return;
+          }
+          if (bid.isExpired) {
+            t.cancel();
+          }
+          setState(() {});
+        });
+      }
+    } else {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+    }
+  }
 
   @override
   void initState() {
@@ -656,6 +763,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _bidCtrl.dispose();
     _bidFocusNode.dispose();
     super.dispose();
@@ -783,7 +891,7 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
     }
     setState(() => _submittingBid = true);
     try {
-      final repo = FirestoreTripRepository();
+      final repo = widget.tripRepository ?? FirestoreTripRepository();
       const distanceCalc = Distance();
       final pickupKm = distanceCalc.as(
           LengthUnit.Kilometer, widget.driverPosition, _pickup);
@@ -791,12 +899,14 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
 
       await repo.submitBid(widget.trip.tripId, val, etaMinutes: etaMins);
       if (!mounted) return;
-      Navigator.of(context).pop();
+      // Do NOT pop! The order detail sheet remains open on the driver's screen
+      // showing the countdown while the customer decides.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              'Counter-offer of ${widget.currencySymbol}${_formatAmount(val)} submitted! Sender has been notified.'),
+              'Counter-offer of ${widget.currencySymbol}${_formatAmount(val)} submitted! Waiting for customer decision.'),
           backgroundColor: Colors.green.shade800,
+          duration: const Duration(seconds: 3),
         ),
       );
     } on TripException catch (e) {
@@ -819,8 +929,11 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final repo = widget.tripRepository ?? FirestoreTripRepository();
+    final driverId = _effectiveDriverId;
+
     return StreamBuilder<ActiveTrip?>(
-      stream: FirestoreTripRepository().tripStream(widget.trip.tripId),
+      stream: repo.tripStream(widget.trip.tripId),
       builder: (context, snap) {
         final trip = snap.data ?? widget.trip;
         final scheme = Theme.of(context).colorScheme;
@@ -829,8 +942,8 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
         final plus10Val = _roundTo100(baseline * 1.10);
 
         const distanceCalc = Distance();
-        final pickupKm =
-            distanceCalc.as(LengthUnit.Kilometer, widget.driverPosition, _pickup);
+        final pickupKm = distanceCalc.as(
+            LengthUnit.Kilometer, widget.driverPosition, _pickup);
         final pickupEtaMins = ((pickupKm / 30.0) * 60).round().clamp(1, 120);
         final tripDurationMins = trip.durationMins > 0
             ? trip.durationMins
@@ -842,567 +955,911 @@ class _PoolOrderDetailSheetState extends State<_PoolOrderDetailSheet> {
             ? trip.fareFormatted
             : '${widget.currencySymbol}${_formatAmount(baseline)}';
 
-        return SizedBox(
-      height: MediaQuery.of(context).size.height,
-      width: MediaQuery.of(context).size.width,
-      child: Stack(
-        children: [
-          // ── Layer 0: Full-Screen Interactive Map ──
-          Positioned.fill(
-            child: SeSeMapView(
-              preferredProvider: MapConfigController.instance.snapshotConfig().hasValidMapboxToken
-                  ? MapProvider.mapbox
-                  : MapProvider.cartoDb,
-              mapController: _mapController,
-              initialCenter: _pickup,
-              initialZoom: 13.0,
-              showMyLocation: true,
-              markers: [
-                SeSeMapView.pin(
-                  point: _pickup,
-                  color: Colors.green,
-                  label: 'Pickup (A)',
-                ),
-                SeSeMapView.pin(
-                  point: _dropoff,
-                  color: Colors.redAccent,
-                  label: 'Drop-off (B)',
-                ),
-                SeSeMapView.pin(
-                  point: widget.driverPosition,
-                  color: Colors.blue,
-                  label: 'You',
-                ),
-              ],
-              polylines: [
-                if (_routePoints.isNotEmpty)
-                  SeSeMapView.route(
-                    points: _routePoints,
-                    color: Colors.green.shade700,
-                    width: 4,
-                    id: 'pool-trip-route',
-                  ),
-                if (_driverLegPoints.isNotEmpty)
-                  SeSeMapView.route(
-                    points: _driverLegPoints,
-                    color: Colors.blue,
-                    width: 3,
-                    id: 'pool-driver-route',
-                  ),
-              ],
-            ),
-          ),
+        return StreamBuilder<BidModel?>(
+          stream: repo.driverBidForTripStream(trip.tripId, driverId),
+          builder: (context, bidSnap) {
+            final activeBid = bidSnap.data;
+            _syncBidCountdown(activeBid);
 
-          // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    CircleAvatar(
-                      backgroundColor:
-                          scheme.surface.withValues(alpha: 0.95),
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        tooltip: 'Back to pool',
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        _MapMiniButton(
-                          icon: Icons.add,
-                          onTap: () => _mapController.zoomBy(1),
+            // 1. Check if customer accepted this driver's price/bid
+            final isAccepted = (activeBid != null &&
+                    activeBid.status == BidStatus.accepted) ||
+                (driverId.isNotEmpty &&
+                    trip.driverId == driverId &&
+                    (trip.status == TripStatus.driverAccepted ||
+                        trip.status == TripStatus.driverArriving ||
+                        trip.status == TripStatus.driverArrived ||
+                        trip.status == TripStatus.inProgress));
+
+            if (isAccepted) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  widget.onAccepted(trip.tripId);
+                }
+              });
+            }
+
+            final bool isBidPending = activeBid != null &&
+                activeBid.status == BidStatus.pending &&
+                !activeBid.isExpired;
+            final bool isBidExpired = activeBid != null &&
+                (activeBid.isExpired || activeBid.status == BidStatus.expired);
+            final bool isBidRejected = activeBid != null &&
+                activeBid.status == BidStatus.rejected;
+
+            final bool isClaimedByAnotherDriver = driverId.isNotEmpty &&
+                trip.driverId.isNotEmpty &&
+                trip.driverId != driverId &&
+                trip.status != TripStatus.marketplaceOpen &&
+                trip.status != TripStatus.bidding &&
+                trip.status != TripStatus.searchingDriver;
+            final bool isTripCancelled = trip.status == TripStatus.cancelled;
+
+            return SizedBox(
+              height: MediaQuery.of(context).size.height,
+              width: MediaQuery.of(context).size.width,
+              child: Stack(
+                children: [
+                  // ── Layer 0: Full-Screen Interactive Map ──
+                  Positioned.fill(
+                    child: SeSeMapView(
+                      preferredProvider: MapConfigController.instance
+                              .snapshotConfig()
+                              .hasValidMapboxToken
+                          ? MapProvider.mapbox
+                          : MapProvider.cartoDb,
+                      mapController: _mapController,
+                      initialCenter: _pickup,
+                      initialZoom: 13.0,
+                      showMyLocation: true,
+                      markers: [
+                        SeSeMapView.pin(
+                          point: _pickup,
+                          color: Colors.green,
+                          label: 'Pickup (A)',
                         ),
-                        const SizedBox(width: 4),
-                        _MapMiniButton(
-                          icon: Icons.remove,
-                          onTap: () => _mapController.zoomBy(-1),
+                        SeSeMapView.pin(
+                          point: _dropoff,
+                          color: Colors.redAccent,
+                          label: 'Drop-off (B)',
                         ),
-                        const SizedBox(width: 4),
-                        _MapMiniButton(
-                          icon: Icons.my_location,
-                          onTap: () => _mapController.fitPoints(
-                            _pickup,
-                            _dropoff,
-                            padding: 64,
-                          ),
+                        SeSeMapView.pin(
+                          point: widget.driverPosition,
+                          color: Colors.blue,
+                          label: 'You',
                         ),
                       ],
+                      polylines: [
+                        if (_routePoints.isNotEmpty)
+                          SeSeMapView.route(
+                            points: _routePoints,
+                            color: Colors.green.shade700,
+                            width: 4,
+                            id: 'pool-trip-route',
+                          ),
+                        if (_driverLegPoints.isNotEmpty)
+                          SeSeMapView.route(
+                            points: _driverLegPoints,
+                            color: Colors.blue,
+                            width: 3,
+                            id: 'pool-driver-route',
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                  ),
 
-          // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
-          DraggableScrollableSheet(
-            initialChildSize: 0.50,
-            minChildSize: 0.28,
-            maxChildSize: 0.90,
-            snap: true,
-            snapSizes: const [0.28, 0.50, 0.90],
-            builder: (context, scrollController) {
-              return Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(24)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(0, -4),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 10),
-                    // Sheet drag handle
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color:
-                              scheme.onSurfaceVariant.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(2),
+                  // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            CircleAvatar(
+                              backgroundColor:
+                                  scheme.surface.withValues(alpha: 0.95),
+                              child: IconButton(
+                                icon: const Icon(Icons.arrow_back),
+                                tooltip: 'Back to pool',
+                                onPressed: () => Navigator.of(context).pop(),
+                              ),
+                            ),
+                            Row(
+                              children: [
+                                _MapMiniButton(
+                                  icon: Icons.add,
+                                  onTap: () => _mapController.zoomBy(1),
+                                ),
+                                const SizedBox(width: 4),
+                                _MapMiniButton(
+                                  icon: Icons.remove,
+                                  onTap: () => _mapController.zoomBy(-1),
+                                ),
+                                const SizedBox(width: 4),
+                                _MapMiniButton(
+                                  icon: Icons.my_location,
+                                  onTap: () => _mapController.fitPoints(
+                                    _pickup,
+                                    _dropoff,
+                                    padding: 64,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: scrollController,
-                        padding:
-                            const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                  ),
+
+                  // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
+                  DraggableScrollableSheet(
+                    initialChildSize: 0.50,
+                    minChildSize: 0.28,
+                    maxChildSize: 0.90,
+                    snap: true,
+                    snapSizes: const [0.28, 0.50, 0.90],
+                    builder: (context, scrollController) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(24)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 16,
+                              offset: const Offset(0, -4),
+                            ),
+                          ],
+                        ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Sender Profile Header & Prominent Fare
-                            Row(
-                              children: [
-                                UserAvatar(
-                                    displayName: senderName, radius: 22),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                              senderName,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
+                            const SizedBox(height: 10),
+                            // Sheet drag handle
+                            Center(
+                              child: Container(
+                                width: 44,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: scheme.onSurfaceVariant
+                                      .withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: SingleChildScrollView(
+                                controller: scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    // Sender Profile Header & Prominent Fare
+                                    Row(
+                                      children: [
+                                        UserAvatar(
+                                            displayName: senderName,
+                                            radius: 22),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Flexible(
+                                                    child: Text(
+                                                      senderName,
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 16,
+                                                      ),
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  if (trip.isVerifiedCustomer) ...[
+                                                    const SizedBox(width: 4),
+                                                    const Icon(Icons.verified,
+                                                        size: 16,
+                                                        color:
+                                                            AppColors.seseGold),
+                                                  ],
+                                                ],
                                               ),
-                                              overflow: TextOverflow.ellipsis,
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${trip.serviceType == 'ride' ? 'Ride' : 'Delivery'} • ${trip.distanceKm.toStringAsFixed(1)} km trip',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color:
+                                                      scheme.onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Fare',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: scheme.onSurfaceVariant,
+                                              ),
+                                            ),
+                                            Text(
+                                              fareLabel,
+                                              style: TextStyle(
+                                                fontSize: 22,
+                                                fontWeight: FontWeight.w900,
+                                                color: scheme.primary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    const Divider(height: 1),
+                                    const SizedBox(height: 12),
+
+                                    // Addresses: Pickup (A) & Drop-off (B)
+                                    Container(
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: scheme.surfaceContainerHighest
+                                            .withValues(alpha: 0.4),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Padding(
+                                                padding:
+                                                    EdgeInsets.only(top: 3),
+                                                child: Icon(Icons.circle,
+                                                    size: 10,
+                                                    color: Colors.green),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: Text(
+                                                  trip.pickupAddress.isEmpty
+                                                      ? 'Pickup location'
+                                                      : trip.pickupAddress,
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const Padding(
+                                            padding: EdgeInsets.only(
+                                                left: 4, top: 2, bottom: 2),
+                                            child: SizedBox(
+                                              height: 12,
+                                              child: VerticalDivider(
+                                                width: 1,
+                                                thickness: 1,
+                                                color: Colors.grey,
+                                              ),
                                             ),
                                           ),
-                                          if (trip.isVerifiedCustomer) ...[
-                                            const SizedBox(width: 4),
-                                            const Icon(Icons.verified,
-                                                size: 16,
-                                                color: AppColors.seseGold),
-                                          ],
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Padding(
+                                                padding:
+                                                    EdgeInsets.only(top: 2),
+                                                child: Icon(Icons.location_on,
+                                                    size: 14,
+                                                    color: Colors.redAccent),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  trip.dropoffAddress.isEmpty
+                                                      ? 'Drop-off location'
+                                                      : trip.dropoffAddress,
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w500),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ],
                                       ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '${trip.serviceType == 'ride' ? 'Ride' : 'Delivery'} • ${trip.distanceKm.toStringAsFixed(1)} km trip',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: scheme.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(height: 10),
+
+                                    // Distance & Time Metrics
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: scheme.surface,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: scheme.outlineVariant
+                                                    .withValues(alpha: 0.4),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.near_me,
+                                                    size: 14,
+                                                    color: Colors.blue),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    'To Pickup: ${pickupKm.toStringAsFixed(1)} km (~$pickupEtaMins min)',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: scheme.surface,
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: scheme.outlineVariant
+                                                    .withValues(alpha: 0.4),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                const Icon(Icons.alt_route,
+                                                    size: 14,
+                                                    color: Colors.green),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    'Trip: ${trip.distanceKm.toStringAsFixed(1)} km (~$tripDurationMins min)',
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 16),
+
+                                    // ── Bid Status / Active Countdown Banner ──
+                                    if (isBidPending) ...[
+                                      DriverActiveBidLockCard(
+                                        activeBid: activeBid,
+                                        onExpired: () {
+                                          if (mounted) setState(() {});
+                                        },
+                                      ),
+                                      const SizedBox(height: 14),
+                                    ] else if (isBidExpired) ...[
+                                      Container(
+                                        key: const Key(
+                                            'driver_bid_expired_banner'),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.amber.shade900
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.amber.shade700,
+                                              width: 1.2),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.timer_off_outlined,
+                                                color: Colors.amber.shade700,
+                                                size: 20),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Offer Timed Out',
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 13,
+                                                      color: scheme.onSurface,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    'The customer did not respond in time. You can submit another price below or return to the pool.',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: scheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
+                                      const SizedBox(height: 14),
+                                    ] else if (isBidRejected) ...[
+                                      Container(
+                                        key: const Key(
+                                            'driver_bid_rejected_banner'),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.shade900
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.red.shade700,
+                                              width: 1.2),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.cancel_outlined,
+                                                color: Colors.red.shade700,
+                                                size: 20),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Offer Declined',
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 13,
+                                                      color: scheme.onSurface,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    'The customer declined your offer of ${widget.currencySymbol}${_formatAmount(activeBid.offeredFare)}. You can submit another price below or return to the pool.',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: scheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                    ] else if (isClaimedByAnotherDriver) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade800
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.grey.shade600,
+                                              width: 1.2),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline,
+                                                size: 20),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'This trip has been claimed by another driver.',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: scheme.onSurface,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                    ] else if (isTripCancelled) ...[
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red.shade900
+                                              .withValues(alpha: 0.15),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.red.shade700,
+                                              width: 1.2),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.cancel_outlined,
+                                                color: Colors.red.shade700,
+                                                size: 20),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                'This trip was cancelled by the customer.',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: scheme.onSurface,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
                                     ],
-                                  ),
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Fare',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: scheme.onSurfaceVariant,
-                                      ),
+
+                                    // ── Counter-Offer Suggestion Pills + Edit Pen Icon ──
+                                    // Stacked directly above the unified accept button
+                                    Row(
+                                      children: [
+                                        // Edit pen icon neatly in front of suggestion options
+                                        Tooltip(
+                                          message: isBidPending
+                                              ? 'Bid pending response'
+                                              : 'Enter custom counter-offer',
+                                          child: Material(
+                                            color: _isCustomBidActive
+                                                ? AppColors.seseGold
+                                                : scheme.surfaceContainerHighest,
+                                            shape: const CircleBorder(),
+                                            child: InkWell(
+                                              customBorder:
+                                                  const CircleBorder(),
+                                              onTap: isBidPending
+                                                  ? null
+                                                  : _toggleCustomBid,
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.all(8),
+                                                child: Icon(
+                                                  Icons.edit,
+                                                  size: 18,
+                                                  color: isBidPending
+                                                      ? Colors.grey
+                                                      : _isCustomBidActive
+                                                          ? Colors.black87
+                                                          : scheme
+                                                              .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: SingleChildScrollView(
+                                            scrollDirection: Axis.horizontal,
+                                            child: Row(
+                                              children: [
+                                                ChoiceChip(
+                                                  label: Text(
+                                                      '${widget.currencySymbol}${_formatAmount(baseline)}'),
+                                                  selected:
+                                                      _selectedSuggestionPct ==
+                                                              null &&
+                                                          !_isCustomBidActive,
+                                                  selectedColor:
+                                                      AppColors.seseGold,
+                                                  labelStyle: TextStyle(
+                                                    color: (_selectedSuggestionPct ==
+                                                                null &&
+                                                            !_isCustomBidActive)
+                                                        ? Colors.black87
+                                                        : scheme.onSurface,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                  onSelected: isBidPending
+                                                      ? null
+                                                      : (_) => _applySuggestion(
+                                                          null, baseline),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                ChoiceChip(
+                                                  label: Text(
+                                                      '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
+                                                  selected:
+                                                      _selectedSuggestionPct ==
+                                                          5,
+                                                  selectedColor:
+                                                      AppColors.seseGold,
+                                                  labelStyle: TextStyle(
+                                                    color: _selectedSuggestionPct ==
+                                                            5
+                                                        ? Colors.black87
+                                                        : scheme.onSurface,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                  onSelected: isBidPending
+                                                      ? null
+                                                      : (_) => _applySuggestion(
+                                                          5, plus5Val),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                ChoiceChip(
+                                                  label: Text(
+                                                      '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
+                                                  selected:
+                                                      _selectedSuggestionPct ==
+                                                          10,
+                                                  selectedColor:
+                                                      AppColors.seseGold,
+                                                  labelStyle: TextStyle(
+                                                    color: _selectedSuggestionPct ==
+                                                            10
+                                                        ? Colors.black87
+                                                        : scheme.onSurface,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 12,
+                                                  ),
+                                                  onSelected: isBidPending
+                                                      ? null
+                                                      : (_) => _applySuggestion(
+                                                          10, plus10Val),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    Text(
-                                      fareLabel,
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w900,
-                                        color: scheme.primary,
+
+                                    // Keyboard-safe custom amount input field
+                                    if (_isCustomBidActive) ...[
+                                      const SizedBox(height: 10),
+                                      TextField(
+                                        controller: _bidCtrl,
+                                        focusNode: _bidFocusNode,
+                                        enabled: !isBidPending,
+                                        keyboardType: const TextInputType
+                                            .numberWithOptions(decimal: false),
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.digitsOnly
+                                        ],
+                                        decoration: InputDecoration(
+                                          labelText: 'Custom Offer Amount',
+                                          prefixText:
+                                              '${widget.currencySymbol} ',
+                                          errorText: _bidError,
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  horizontal: 12, vertical: 12),
+                                        ),
+                                        onChanged: _onBidChanged,
                                       ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // ── Sticky Primary Action Button Footer ──
+                            // Pinned to the bottom of the sheet, always visible without manual scrolling
+                            SafeArea(
+                              top: false,
+                              child: Container(
+                                padding: EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  16 + MediaQuery.of(context).viewInsets.bottom,
+                                ),
+                                decoration: BoxDecoration(
+                                  color:
+                                      Theme.of(context).scaffoldBackgroundColor,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.08),
+                                      offset: const Offset(0, -3),
+                                      blurRadius: 8,
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            const Divider(height: 1),
-                            const SizedBox(height: 12),
-
-                            // Addresses: Pickup (A) & Drop-off (B)
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: scheme.surfaceContainerHighest
-                                    .withValues(alpha: 0.4),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Padding(
-                                        padding: EdgeInsets.only(top: 3),
-                                        child: Icon(Icons.circle,
-                                            size: 10, color: Colors.green),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          trip.pickupAddress.isEmpty
-                                              ? 'Pickup location'
-                                              : trip.pickupAddress,
-                                          style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const Padding(
-                                    padding: EdgeInsets.only(left: 4, top: 2, bottom: 2),
-                                    child: SizedBox(
-                                      height: 12,
-                                      child: VerticalDivider(
-                                        width: 1,
-                                        thickness: 1,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      const Padding(
-                                        padding: EdgeInsets.only(top: 2),
-                                        child: Icon(Icons.location_on,
-                                            size: 14,
-                                            color: Colors.redAccent),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          trip.dropoffAddress.isEmpty
-                                              ? 'Drop-off location'
-                                              : trip.dropoffAddress,
-                                          style: const TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-
-                            // Distance & Time Metrics
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: scheme.surface,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: scheme.outlineVariant
-                                            .withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.near_me,
-                                            size: 14, color: Colors.blue),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'To Pickup: ${pickupKm.toStringAsFixed(1)} km (~$pickupEtaMins min)',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: isClaimedByAnotherDriver ||
+                                          isTripCancelled
+                                      ? FilledButton.icon(
+                                          key: Key(
+                                              'pool_primary_action_${trip.tripId}'),
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor:
+                                                Colors.grey.shade700,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 14),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                             ),
-                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: scheme.surface,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: scheme.outlineVariant
-                                            .withValues(alpha: 0.4),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.alt_route,
-                                            size: 14, color: Colors.green),
-                                        const SizedBox(width: 6),
-                                        Expanded(
-                                          child: Text(
-                                            'Trip: ${trip.distanceKm.toStringAsFixed(1)} km (~$tripDurationMins min)',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w600,
+                                          onPressed: () =>
+                                              Navigator.of(context).pop(),
+                                          icon: const Icon(Icons.arrow_back,
+                                              size: 20),
+                                          label: const Text(
+                                              'Back to Order Pool',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15)),
+                                        )
+                                      : isBidPending
+                                          ? FilledButton.icon(
+                                              key: Key(
+                                                  'pool_primary_action_${trip.tripId}'),
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor:
+                                                    const Color(0xFFD97706),
+                                                foregroundColor: Colors.white,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 14),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                disabledBackgroundColor:
+                                                    const Color(0xFFD97706)
+                                                        .withValues(alpha: 0.7),
+                                                disabledForegroundColor:
+                                                    Colors.white,
+                                              ),
+                                              onPressed: null,
+                                              icon: const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2.5,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                              label: Text(
+                                                'Waiting for Customer... (${activeBid.remainingSeconds}s)',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                            )
+                                          : FilledButton.icon(
+                                              key: Key(
+                                                  'pool_primary_action_${trip.tripId}'),
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: _isCounterOffer
+                                                    ? scheme.primary
+                                                    : AppColors.seseGold,
+                                                foregroundColor: Colors.black87,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        vertical: 14),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                              ),
+                                              onPressed: _isCounterOffer
+                                                  ? ((_submittingBid ||
+                                                          _bidError != null)
+                                                      ? null
+                                                      : () => _submitBid(
+                                                          baseline))
+                                                  : (_accepting
+                                                      ? null
+                                                      : _acceptNow),
+                                              icon: (_accepting ||
+                                                      _submittingBid)
+                                                  ? const SizedBox(
+                                                      width: 18,
+                                                      height: 18,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.black87,
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      _isCounterOffer
+                                                          ? Icons.send_rounded
+                                                          : Icons.flash_on,
+                                                      size: 20,
+                                                    ),
+                                              label: Text(
+                                                _accepting
+                                                    ? 'Claiming trip...'
+                                                    : _submittingBid
+                                                        ? 'Submitting...'
+                                                        : _isCounterOffer
+                                                            ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
+                                                            : 'Accept ($fareLabel)',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
                                             ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-
-                            // ── Counter-Offer Suggestion Pills + Edit Pen Icon ──
-                            // Stacked directly above the unified accept button
-                            Row(
-                              children: [
-                                // Edit pen icon neatly in front of suggestion options
-                                Tooltip(
-                                  message: 'Enter custom counter-offer',
-                                  child: Material(
-                                    color: _isCustomBidActive
-                                        ? AppColors.seseGold
-                                        : scheme.surfaceContainerHighest,
-                                    shape: const CircleBorder(),
-                                    child: InkWell(
-                                      customBorder: const CircleBorder(),
-                                      onTap: _toggleCustomBid,
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(8),
-                                        child: Icon(
-                                          Icons.edit,
-                                          size: 18,
-                                          color: _isCustomBidActive
-                                              ? Colors.black87
-                                              : scheme.onSurfaceVariant,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: [
-                                        ChoiceChip(
-                                          label: Text(
-                                              '${widget.currencySymbol}${_formatAmount(baseline)}'),
-                                          selected: _selectedSuggestionPct ==
-                                                  null &&
-                                              !_isCustomBidActive,
-                                          selectedColor: AppColors.seseGold,
-                                          labelStyle: TextStyle(
-                                            color: (_selectedSuggestionPct ==
-                                                        null &&
-                                                    !_isCustomBidActive)
-                                                ? Colors.black87
-                                                : scheme.onSurface,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                          onSelected: (_) =>
-                                              _applySuggestion(null, baseline),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        ChoiceChip(
-                                          label: Text(
-                                              '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
-                                          selected:
-                                              _selectedSuggestionPct == 5,
-                                          selectedColor: AppColors.seseGold,
-                                          labelStyle: TextStyle(
-                                            color: _selectedSuggestionPct == 5
-                                                ? Colors.black87
-                                                : scheme.onSurface,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                          onSelected: (_) =>
-                                              _applySuggestion(5, plus5Val),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        ChoiceChip(
-                                          label: Text(
-                                              '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
-                                          selected:
-                                              _selectedSuggestionPct == 10,
-                                          selectedColor: AppColors.seseGold,
-                                          labelStyle: TextStyle(
-                                            color: _selectedSuggestionPct == 10
-                                                ? Colors.black87
-                                                : scheme.onSurface,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
-                                          onSelected: (_) =>
-                                              _applySuggestion(10, plus10Val),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            // Keyboard-safe custom amount input field
-                            if (_isCustomBidActive) ...[
-                              const SizedBox(height: 10),
-                              TextField(
-                                controller: _bidCtrl,
-                                focusNode: _bidFocusNode,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                        decimal: false),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly
-                                ],
-                                decoration: InputDecoration(
-                                  labelText: 'Custom Offer Amount',
-                                  prefixText: '${widget.currencySymbol} ',
-                                  errorText: _bidError,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 12),
-                                ),
-                                onChanged: _onBidChanged,
                               ),
-                            ],
-
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // ── Sticky Primary Action Button Footer ──
-                    // Pinned to the bottom of the sheet, always visible without manual scrolling
-                    SafeArea(
-                      top: false,
-                      child: Container(
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          8,
-                          16,
-                          16 + MediaQuery.of(context).viewInsets.bottom,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).scaffoldBackgroundColor,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              offset: const Offset(0, -3),
-                              blurRadius: 8,
                             ),
                           ],
                         ),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            key: Key(
-                                'pool_primary_action_${trip.tripId}'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _isCounterOffer
-                                  ? scheme.primary
-                                  : AppColors.seseGold,
-                              foregroundColor: Colors.black87,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: _isCounterOffer
-                                ? ((_submittingBid || _bidError != null)
-                                    ? null
-                                    : () => _submitBid(baseline))
-                                : (_accepting ? null : _acceptNow),
-                            icon: (_accepting || _submittingBid)
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.black87,
-                                    ),
-                                  )
-                                : Icon(
-                                    _isCounterOffer
-                                        ? Icons.send_rounded
-                                        : Icons.flash_on,
-                                    size: 20,
-                                  ),
-                            label: Text(
-                              _accepting
-                                  ? 'Claiming trip...'
-                                  : _submittingBid
-                                      ? 'Submitting...'
-                                      : _isCounterOffer
-                                          ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
-                                          : 'Accept ($fareLabel)',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
+                      );
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        );
       },
     );
   }

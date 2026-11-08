@@ -148,6 +148,10 @@ class _FakeTripRepository implements TripRepository {
   @override
   Stream<BidModel?> activeDriverBidStream(String driverId) =>
       Stream.value(null);
+
+  @override
+  Stream<BidModel?> driverBidForTripStream(String tripId, String driverId) =>
+      Stream.value(null);
 }
 
 /// Fixed in-memory fleet for dashboard flow tests (bypasses Firestore).

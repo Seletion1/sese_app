@@ -72,6 +72,39 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Persistent Driver Order Pool Bidding Sheet, Real-Time Countdown & Re-Bidding Lifecycle
+
+- **1. Persistent Order Detail Sheet (`order_pool_sheet.dart`)**:
+  - Removed premature modal dismissal (`Navigator.of(context).pop()`) from `_submitBid` in `_PoolOrderDetailSheet` / `PoolOrderDetailSheet`.
+  - When a driver submits a counter-offer or custom bid from the pool, the order detail sheet remains open on the screen while awaiting customer decision.
+  - Submitting a bid immediately displays confirmation SnackBar: `'Counter-offer of ₦... submitted! Waiting for customer decision.'`
+
+- **2. Synchronized Driver-Side Countdown & Active Bid Lock (`order_pool_sheet.dart`, `trip_service.dart`)**:
+  - Added `Stream<BidModel?> driverBidForTripStream(String tripId, String driverId)` to `TripRepository` and implemented in `FirestoreTripRepository` reading `trips/{tripId}/bids/{driverId}` directly.
+  - In `PoolOrderDetailSheet`: Integrated `StreamBuilder<BidModel?>` listening to the driver's active bid on the trip.
+  - Renders `DriverActiveBidLockCard(activeBid: activeBid)` embedded in the sheet with circular progress and ticking countdown.
+  - Primary sticky button disables and transforms to `Waiting for Customer... (Xs)` with a progress indicator while `isBidPending` is true.
+  - Suggestion chips and custom bid input fields are absorbed/disabled during active bid wait.
+
+- **3. Expiration & Rejection Banners with Re-Bidding Lifecycle**:
+  - When the countdown finishes (timeout) or the customer explicitly rejects:
+    - Active lock card unlocks.
+    - Informative banner displays:
+      - Expired: `'Offer Timed Out'` (`driver_bid_expired_banner`) — "The customer did not respond in time. You can submit another price below or return to the pool."
+      - Rejected: `'Offer Declined'` (`driver_bid_rejected_banner`) — "The customer declined your offer of ₦... You can submit another price below or return to the pool."
+    - Counter-offer suggestion chips (+5%, +10%) and custom input are re-enabled, allowing the driver to submit another price immediately or tap Back / swipe down to select another trip from the pool.
+
+- **4. Automated Acceptance Transition**:
+  - When the customer accepts the bid (`activeBid.status == BidStatus.accepted` or trip status transitions to assigned/in-transit for the driver), `PoolOrderDetailSheet` automatically triggers `onAccepted(tripId)` to transition the driver smoothly into the active trip experience.
+  - In `OrderPoolSheet` list: Active bids display a dynamic `⏳ Bid Pending (Xs)` indicator on the pool row.
+
+- **5. Verification & Testing**:
+  - Static Analysis: `cd sese_ride && flutter analyze` passed with **0 issues**.
+  - Unit/Widget Tests:
+    - `sese_ride/test/synchronized_bidding_flow_test.dart`: 4/4 passed (100%), including new test `PoolOrderDetailSheet stays open on counter-offer, displays live countdown card, allows re-bidding on rejection, and fires onAccepted upon acceptance`.
+    - `sese_ride/test/order_pool_bidding_test.dart`: 9/9 passed (100%).
+    - `sese_core`: 136/136 tests passed (100%).
+
 ## 2026-11-08 — Fare Bidding Resolution, Firestore Indexes Deployment & Native PlatformView Elimination
 
 - **1. Cloud Functions Bidding Hardening (`functions/src/trips.ts`)**:

@@ -81,6 +81,10 @@ abstract class TripRepository {
 
   /// Stream of active unexpired pending bid for a driver across all trips, if any.
   Stream<BidModel?> activeDriverBidStream(String driverId);
+
+  /// Direct real-time stream of a driver's specific bid on a given trip.
+  Stream<BidModel?> driverBidForTripStream(String tripId, String driverId) =>
+      Stream.value(null);
 }
 
 /// Production transport: `createTrip` callable + Firestore snapshots.
@@ -416,6 +420,24 @@ class FirestoreTripRepository implements TripRepository {
       return null;
     }).handleError((err) {
       debugPrint('activeDriverBidStream error: $err');
+      return null;
+    });
+  }
+
+  @override
+  Stream<BidModel?> driverBidForTripStream(String tripId, String driverId) {
+    if (tripId.isEmpty || driverId.isEmpty) return Stream.value(null);
+    return _db
+        .collection('trips')
+        .doc(tripId)
+        .collection('bids')
+        .doc(driverId)
+        .snapshots()
+        .map((doc) {
+      if (!doc.exists || doc.data() == null) return null;
+      return BidModel.fromMap(doc.id, doc.data()!);
+    }).handleError((err) {
+      debugPrint('driverBidForTripStream error: $err');
       return null;
     });
   }

@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/driver_active_bid_lock_card.dart';
+import 'package:sese_ride/features/driver/presentation/widgets/order_pool_sheet.dart';
+import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
 import 'package:sese_ride/features/trips/models/bid_models.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/features/trips/presentation/live_trip_screen.dart';
@@ -12,10 +15,13 @@ import 'package:sese_ride/widgets/osm_map_view.dart';
 class _FakeBiddingTripRepo implements TripRepository {
   final controller = StreamController<List<BidModel>>.broadcast();
   final tripController = StreamController<ActiveTrip?>.broadcast();
+  final driverBidController = StreamController<BidModel?>.broadcast();
   String? acceptedTripId;
   String? acceptedDriverId;
   String? rejectedTripId;
   String? rejectedDriverId;
+  String? lastSubmittedTripId;
+  double? lastSubmittedFare;
 
   @override
   Future<String> createTrip(TripDraft draft) async => 'trip-1';
@@ -41,7 +47,22 @@ class _FakeBiddingTripRepo implements TripRepository {
 
   @override
   Future<void> submitBid(String tripId, double offeredFare,
-      {int? etaMinutes}) async {}
+      {int? etaMinutes}) async {
+    lastSubmittedTripId = tripId;
+    lastSubmittedFare = offeredFare;
+    driverBidController.add(BidModel(
+      bidId: 'bid-123',
+      tripId: tripId,
+      driverId: 'driver-123',
+      driverName: 'Driver Sam',
+      offeredFare: offeredFare,
+      fareFormatted: '₦${offeredFare.toInt()}',
+      createdAt: DateTime.now(),
+      expiresAt: DateTime.now().add(const Duration(seconds: 15)),
+      bidCountdownSeconds: 15,
+      status: BidStatus.pending,
+    ));
+  }
 
   @override
   Future<void> rejectBid(String tripId, String driverId) async {
@@ -67,6 +88,25 @@ class _FakeBiddingTripRepo implements TripRepository {
   @override
   Stream<BidModel?> activeDriverBidStream(String driverId) =>
       Stream.value(null);
+
+  @override
+  Stream<BidModel?> driverBidForTripStream(String tripId, String driverId) =>
+      driverBidController.stream;
+}
+
+class _TestDriverStreakService implements DriverStreakService {
+  final _marketplaceController = StreamController<List<ActiveTrip>>.broadcast();
+
+  @override
+  String? get driverId => 'driver-123';
+
+  @override
+  Stream<List<ActiveTrip>> marketplaceStream(
+          {String? driverId, int limit = 20}) =>
+      _marketplaceController.stream;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -220,6 +260,113 @@ void main() {
 
       expect(repo.acceptedTripId, equals('trip-1'));
       expect(repo.acceptedDriverId, equals('driver_2'));
+    });
+
+    testWidgets(
+        'PoolOrderDetailSheet stays open on counter-offer, displays live countdown card, allows re-bidding on rejection, and fires onAccepted upon acceptance',
+        (tester) async {
+      final repo = _FakeBiddingTripRepo();
+      final streakService = _TestDriverStreakService();
+      String? acceptedTrip;
+
+      final trip = ActiveTrip(
+        tripId: 'trip-abc',
+        status: TripStatus.marketplaceOpen,
+        customerId: 'cust-999',
+        customerName: 'Adebayo',
+        pickupAddress: '34 Commercial Ave, Yaba',
+        pickupLat: 6.518,
+        pickupLng: 3.373,
+        dropoffAddress: '15 Allen Ave, Ikeja',
+        dropoffLat: 6.601,
+        dropoffLng: 3.351,
+        fareAmount: 3500.0,
+      );
+
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PoolOrderDetailSheet(
+              trip: trip,
+              driverPosition: const LatLng(6.518, 3.373),
+              currencySymbol: '₦',
+              streakService: streakService,
+              driverId: 'driver-123',
+              tripRepository: repo,
+              onAccepted: (tripId) {
+                acceptedTrip = tripId;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Verify the sheet is open and primary action button exists
+      final actionBtn = find.byKey(Key('pool_primary_action_${trip.tripId}'));
+      expect(actionBtn, findsOneWidget);
+      expect(find.text('Accept (₦3,500)'), findsOneWidget);
+
+      // Select +10% counter offer chip (3500 * 1.10 = 3850, rounded to nearest 100 note = 3900)
+      await tester.ensureVisible(find.textContaining('+10%'));
+      await tester.pump();
+      await tester.tap(find.textContaining('+10%'));
+      await tester.pump();
+      expect(find.text('Send Counter-Offer (₦3,900)'), findsOneWidget);
+
+      // Submit counter offer
+      await tester.tap(actionBtn);
+      await tester.pump();
+
+      // VERIFY: The sheet DID NOT pop/close. It stays open on driver's screen!
+      expect(find.byType(PoolOrderDetailSheet), findsOneWidget);
+      expect(find.byKey(const Key('driver_active_bid_lock_card')),
+          findsOneWidget);
+      expect(find.textContaining('Waiting for Customer...'), findsOneWidget);
+
+      // Now customer rejects the bid
+      repo.driverBidController.add(BidModel(
+        bidId: 'bid-123',
+        tripId: 'trip-abc',
+        driverId: 'driver-123',
+        driverName: 'Driver Sam',
+        offeredFare: 3900,
+        fareFormatted: '₦3,900',
+        createdAt: DateTime.now().subtract(const Duration(seconds: 10)),
+        expiresAt: DateTime.now().add(const Duration(seconds: 5)),
+        bidCountdownSeconds: 15,
+        status: BidStatus.rejected,
+      ));
+      await tester.pump();
+
+      // VERIFY: Lock card disappears, rejected banner appears, and button re-enables
+      expect(
+          find.byKey(const Key('driver_active_bid_lock_card')), findsNothing);
+      expect(
+          find.byKey(const Key('driver_bid_rejected_banner')), findsOneWidget);
+      expect(actionBtn, findsOneWidget);
+
+      // Now customer accepts a new bid
+      repo.driverBidController.add(BidModel(
+        bidId: 'bid-123',
+        tripId: 'trip-abc',
+        driverId: 'driver-123',
+        driverName: 'Driver Sam',
+        offeredFare: 4000,
+        fareFormatted: '₦4,000',
+        createdAt: DateTime.now(),
+        expiresAt: DateTime.now().add(const Duration(seconds: 15)),
+        bidCountdownSeconds: 15,
+        status: BidStatus.accepted,
+      ));
+      await tester.pump();
+
+      // VERIFY: Customer acceptance fires onAccepted
+      expect(acceptedTrip, equals('trip-abc'));
     });
   });
 }
