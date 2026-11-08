@@ -3,6 +3,7 @@ import * as crypto from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { Resend } from "resend";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 const db = () => admin.firestore();
 
@@ -138,6 +139,7 @@ export const sendTransactionalEmail = onCall<TransactionalEmailData>(async (requ
     request.auth.token.role === "SUPER_ADMIN" ||
     request.auth.token.role === "OPERATIONS_ADMIN" ||
     request.auth.token.role === "AGENT" ||
+    isPlatformOwnerEmail(callerEmail) ||
     (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
 
   // If not staff/admin, users can ONLY send receipts/notifications to their OWN registered email address

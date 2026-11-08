@@ -32,13 +32,12 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const uniqueIdentifiers_1 = require("./uniqueIdentifiers");
-const OWNER_EMAIL = ((_a = process.env.OWNER_EMAIL) !== null && _a !== void 0 ? _a : "").trim().toLowerCase();
+const hubBootstrap_1 = require("./hubBootstrap");
 function db() {
     return admin.firestore();
 }
@@ -65,8 +64,8 @@ async function assertStaffWithManageUsersScope(auth) {
     }
     const token = (_a = auth.token) !== null && _a !== void 0 ? _a : {};
     const email = String((_b = token.email) !== null && _b !== void 0 ? _b : "").trim().toLowerCase();
-    // Fast path 1: Primary owner email (if configured in env)
-    if (OWNER_EMAIL && email === OWNER_EMAIL)
+    // Fast path 1: Primary owner email
+    if ((0, hubBootstrap_1.isPlatformOwnerEmail)(email))
         return;
     // Fast path 2: Custom claims indicating Super Admin / Admin
     const claimRole = String((_d = (_c = token.role) !== null && _c !== void 0 ? _c : token.adminRole) !== null && _d !== void 0 ? _d : "").toUpperCase();

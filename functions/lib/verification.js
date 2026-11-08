@@ -158,6 +158,7 @@ exports.onDriverCreated = (0, firestore_1.onDocumentCreated)("drivers/{driverId}
         console.warn(`onDriverCreated referral code generation failed for ${driverId}:`, err);
     }
 });
+const hubBootstrap_1 = require("./hubBootstrap");
 /**
  * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
  * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
@@ -165,6 +166,9 @@ exports.onDriverCreated = (0, firestore_1.onDocumentCreated)("drivers/{driverId}
  */
 async function assertHubStaffOrAdmin(callerUid, callerEmail, token) {
     var _a, _b, _c;
+    if ((0, hubBootstrap_1.isPlatformOwnerEmail)(callerEmail)) {
+        return;
+    }
     const role = String((_b = (_a = token.role) !== null && _a !== void 0 ? _a : token.adminRole) !== null && _b !== void 0 ? _b : "").toUpperCase();
     const isSuperOrAdmin = token.admin === true ||
         token.adminAuth === true ||

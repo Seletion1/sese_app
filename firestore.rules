@@ -18,6 +18,8 @@ service cloud.firestore {
 
     function isOwnerEmail() {
       return isAuthenticated() && (
+        (request.auth.token.email != null &&
+         request.auth.token.email.lower() in ['bamiduromichael2@gmail.com', 'bamiduromichael1@gmail.com']) ||
         getUserRole() == 'SUPER_ADMIN' ||
         getUserRole() == 'ROLE_SUPER_ADMIN' ||
         request.auth.token.admin == true ||
@@ -59,6 +61,7 @@ service cloud.firestore {
       return isAuthenticated() &&
         request.auth.token.email != null &&
         (
+          request.auth.token.email.lower() in ['bamiduromichael2@gmail.com', 'bamiduromichael1@gmail.com'] ||
           (exists(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())) &&
            get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())).data.get('active', true) == true &&
            get(/databases/$(database)/documents/hub_staff/$(request.auth.token.email.lower())).data.get('status', 'active') == 'active') ||
@@ -103,7 +106,10 @@ service cloud.firestore {
     }
 
     function isPrimaryHubOwner() {
-      return isSuperAdmin() ||
+      return (isAuthenticated() &&
+        request.auth.token.email != null &&
+        request.auth.token.email.lower() in ['bamiduromichael2@gmail.com', 'bamiduromichael1@gmail.com']) ||
+        isSuperAdmin() ||
         (isAuthenticated() && (
           request.auth.token.admin == true ||
           request.auth.token.role == 'SUPER_ADMIN' ||
@@ -797,7 +803,7 @@ service cloud.firestore {
         (isAuthenticated() && request.auth.token.email != null &&
          request.auth.token.email.lower() == staffEmail.lower());
       allow create, update: if isPrimaryHubOwner() &&
-        request.resource.data.email == staffEmail &&
+        request.resource.data.email.lower() == staffEmail.lower() &&
         request.resource.data.role in ['Super', 'Admin', 'Agent'];
       allow delete: if isPrimaryHubOwner();
     }

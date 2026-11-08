@@ -72,6 +72,37 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Permanent Primary Platform Owner Authority & Hub Sign-In Qualification Bootstrap
+
+- **1. Hub Primary Owner Permanent Inherent Authority (`hub_access_service.dart`, `HubAccessService`)**:
+  - Gated the primary platform owner emails (`bamiduromichael2@gmail.com` and `bamiduromichael1@gmail.com`) into `knownPrimaryOwnerEmails` with `primaryOwnerEmail` defaulting directly to `'bamiduromichael2@gmail.com'`.
+  - In `HubAccessService.checkAccess`: Recognizing the primary owner triggers instant qualification as `UserRole.superRole` with `isOwner: true` and all catalog module permissions (active rides, fleet verify, onboarding, dynamic config, support chat, payouts, broadcast, staff manage), completely immune to missing documents or token propagation delays.
+  - Opportunistically creates/updates `hub_staff/{email}` with `role: 'Super'`, `active: true` upon login so backend functions and other staff screens observe an active qualification record.
+  - Re-verified test suite (`hub_access_test.dart`): 17/17 tests passing covering owner check, case-insensitive email normalization, and zero-document bootstrap.
+
+- **2. Cloud Firestore Rules Permanent Owner Privileges (`firestore.rules`)**:
+  - Delegated to `firestore-rules-author` specialist subagent:
+    - Updated `isOwnerEmail()` to check `request.auth.token.email.lower() in ['bamiduromichael2@gmail.com', 'bamiduromichael1@gmail.com']`, instantly granting `isSuperAdmin()` rights to the platform owner.
+    - Updated `isPrimaryHubOwner()` to recognize the owner emails directly.
+    - Updated `isHubStaff()` to allow immediate access for the owner accounts without needing prior collection lookup.
+    - Hardened `match /hub_staff/{staffEmail}` with case-insensitive validation (`request.resource.data.email.lower() == staffEmail.lower()`).
+  - Successfully deployed `firestore:rules` to Firebase project `sese-ride`.
+
+- **3. Cloud Functions Inherent Owner Fast-Path (`functions/src/`)**:
+  - Created `hubBootstrap.ts` defining canonical `PRIMARY_OWNER_EMAILS` and `isPlatformOwnerEmail(email)`.
+  - Updated `assertHubStaffOrAdmin` (`verification.ts`), `assertStaffWithManageUsersScope` (`adminOnboarding.ts`), `assertBroadcastAdmin` (`broadcast.ts`), `hubSetDriverOnlineStatus` (`driverStatus.ts`), and `sendHubEmail` (`email.ts`) with `isPlatformOwnerEmail` fast-paths.
+  - Successfully deployed updated functions (`reviewCustomerVerification`, `reviewDriverVerification`, `hubSetDriverOnlineStatus`, `sendTargetedBroadcast`, `sendTransactionalEmail`, `adminRegisterUser`) to Google Cloud Functions (2nd Gen).
+
+- **4. App Check Debug Token Sanitization (`app_check_service.dart`)**:
+  - Coerced empty string debug tokens (`""`) to `null` so `AndroidDebugProvider` and `AppleDebugProvider` cleanly generate valid debug tokens rather than failing debug token exchange in development.
+
+- **5. Verification**:
+  - Unit/Widget Tests:
+    - `sese_hub`: 57/57 passed (100%).
+    - `sese_core`: 136/136 passed (100%).
+    - `functions`: 23 suites, 65 tests passed (100%).
+  - Static Analysis: `flutter analyze` 0 issues across `sese_hub` and `sese_core`.
+
 ## 2026-11-08 — Immersive Full-Screen Map Interaction & Intelligent Bottom Sheet Minimization Across All Providers
 
 - **1. Unified Multi-Provider Map Gesture & Pointer Abstraction (`MapInteractionController`, `SeseUniversalMap`, `OsmMapView`)**:

@@ -37,6 +37,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendTargetedBroadcast = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const hubBootstrap_1 = require("./hubBootstrap");
 /**
  * Granular targeted push broadcast engine.
  *
@@ -92,7 +93,7 @@ async function assertBroadcastAdmin(uid, email, token) {
         // Fall through to the RBAC lookup.
     }
     const mail = (email !== null && email !== void 0 ? email : "").trim().toLowerCase();
-    if (mail === OWNER_EMAIL)
+    if (mail === OWNER_EMAIL || (0, hubBootstrap_1.isPlatformOwnerEmail)(mail))
         return;
     if (mail) {
         try {

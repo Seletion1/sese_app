@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 const db = () => admin.firestore();
 
@@ -332,6 +333,7 @@ export const hubSetDriverOnlineStatus = onCall<HubSetDriverOnlineStatusData>(asy
     token.admin === true ||
     token.adminAuth === true ||
     token.role === "SUPER_ADMIN" ||
+    isPlatformOwnerEmail(callerEmail) ||
     (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
 
   if (!isSuperOrAdmin) {

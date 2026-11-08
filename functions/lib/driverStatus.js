@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const hubBootstrap_1 = require("./hubBootstrap");
 const db = () => admin.firestore();
 const LIVE_STATUSES = [
     "SEARCHING_DRIVER",
@@ -304,6 +305,7 @@ exports.hubSetDriverOnlineStatus = (0, https_1.onCall)(async (request) => {
     const isSuperOrAdmin = token.admin === true ||
         token.adminAuth === true ||
         token.role === "SUPER_ADMIN" ||
+        (0, hubBootstrap_1.isPlatformOwnerEmail)(callerEmail) ||
         (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     if (!isSuperOrAdmin) {
         let isStaff = false;

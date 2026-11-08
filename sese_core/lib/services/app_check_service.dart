@@ -37,17 +37,20 @@ abstract final class AppCheckService {
     }
 
     // 2. Activate App Check with strict environment separation
+    final rawToken = AppCheckConfig.debugTokenFor(appId).trim();
+    final String? debugToken = rawToken.isNotEmpty ? rawToken : null;
+
     try {
       await FirebaseAppCheck.instance.activate(
         providerAndroid: kReleaseMode
             ? const AndroidPlayIntegrityProvider()
             : AndroidDebugProvider(
-                debugToken: AppCheckConfig.debugTokenFor(appId),
+                debugToken: debugToken,
               ),
         providerApple: kReleaseMode
             ? const AppleAppAttestWithDeviceCheckFallbackProvider()
             : AppleDebugProvider(
-                debugToken: AppCheckConfig.debugTokenFor(appId),
+                debugToken: debugToken,
               ),
       );
       if (kDebugMode) {

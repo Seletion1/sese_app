@@ -4,10 +4,26 @@ import 'package:sese_hub/features/staff/services/hub_access_service.dart';
 
 void main() {
   group('Primary owner gate', () {
-    test('returns false when primaryOwnerEmail is unconfigured', () {
+    test('returns false for non-owner emails and empty values', () {
       expect(isPrimaryOwnerEmail('owner@example.com'), isFalse);
       expect(isPrimaryOwnerEmail(''), isFalse);
       expect(isPrimaryOwnerEmail(null), isFalse);
+    });
+
+    test('recognizes configured primary owner email', () {
+      expect(isPrimaryOwnerEmail('bamiduromichael2@gmail.com'), isTrue);
+      expect(isPrimaryOwnerEmail('BAMIDUROmichael2@GMAIL.COM'), isTrue);
+      expect(isPrimaryOwnerEmail('bamiduromichael1@gmail.com'), isTrue);
+    });
+
+    test('primary owner checkAccess succeeds immediately without Firestore', () async {
+      final service = HubAccessService();
+      final result = await service.checkAccess(
+        email: 'bamiduromichael2@gmail.com',
+      );
+      expect(result.qualified, isTrue);
+      expect(result.role, UserRole.superRole);
+      expect(result.isOwner, isTrue);
     });
 
     test('unconfigured owner check falls through to registry without Firestore', () async {

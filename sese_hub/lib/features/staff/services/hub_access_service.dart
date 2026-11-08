@@ -6,8 +6,14 @@ import 'package:sese_core/sese_core.dart';
 /// Configurable primary owner authority email (overridable via --dart-define).
 const String primaryOwnerEmail = String.fromEnvironment(
   'PRIMARY_OWNER_EMAIL',
-  defaultValue: '',
+  defaultValue: 'bamiduromichael2@gmail.com',
 );
+
+/// Known primary owner emails recognized across the platform.
+const Set<String> knownPrimaryOwnerEmails = {
+  'bamiduromichael2@gmail.com',
+  'bamiduromichael1@gmail.com',
+};
 
 /// Full-screen denial shown when the signed-in email has no hub_staff
 /// record or no active permissions.
@@ -230,8 +236,12 @@ List<HubTab> visibleTabs({
 
 /// True when [email] is the primary owner (case-insensitive, trimmed).
 bool isPrimaryOwnerEmail(String? email) {
-  if (primaryOwnerEmail.isEmpty) return false;
-  return (email ?? '').trim().toLowerCase() == primaryOwnerEmail.toLowerCase();
+  final clean = (email ?? '').trim().toLowerCase();
+  if (clean.isEmpty) return false;
+  if (primaryOwnerEmail.isNotEmpty && clean == primaryOwnerEmail.toLowerCase()) {
+    return true;
+  }
+  return knownPrimaryOwnerEmails.contains(clean);
 }
 
 /// Parses a `hub_staff` role string (`Super`/`Admin`/`Agent`,
@@ -511,6 +521,30 @@ class HubAccessService {
     // Owner bootstrap: permanent Super authority, no document required —
     // full access to every module (all catalog grants, including broadcast).
     if (isPrimaryOwnerEmail(clean)) {
+      final canonicalEmail = clean.toLowerCase();
+      // Opportunistically persist the owner's hub_staff record and trigger
+      // custom claims minting in background so all downstream backend calls
+      // recognize the owner seamlessly.
+      final db = _db;
+      if (db != null) {
+        db.collection('hub_staff').doc(canonicalEmail).set(
+          {
+            'email': canonicalEmail,
+            'role': 'Super',
+            'assignedPermissions': hubModuleCatalog.keys.toList(),
+            'countryScope': countryScopeGlobal,
+            'assignedBy': canonicalEmail,
+            'active': true,
+            'status': 'active',
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ).catchError((e) {
+          debugPrint('HubAccessService: auto-seeding owner hub_staff doc failed: $e');
+        });
+      }
+
       final res = HubAccessResult.qualified(
         role: UserRole.superRole,
         isOwner: true,

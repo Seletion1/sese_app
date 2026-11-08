@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 /**
  * Granular targeted push broadcast engine.
@@ -77,7 +78,7 @@ async function assertBroadcastAdmin(
     // Fall through to the RBAC lookup.
   }
   const mail = (email ?? "").trim().toLowerCase();
-  if (mail === OWNER_EMAIL) return;
+  if (mail === OWNER_EMAIL || isPlatformOwnerEmail(mail)) return;
   if (mail) {
     try {
       const snap = await db().collection("hub_staff").doc(mail).get();

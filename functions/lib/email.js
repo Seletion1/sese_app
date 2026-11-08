@@ -41,6 +41,7 @@ const crypto = __importStar(require("crypto"));
 const https_1 = require("firebase-functions/v2/https");
 const resend_1 = require("resend");
 const accountGuard_1 = require("./accountGuard");
+const hubBootstrap_1 = require("./hubBootstrap");
 const db = () => admin.firestore();
 /** Sender address strictly set to Seletion Tech domain */
 const SENDER_EMAIL = "Seletion Tech <noreply@sesetech.com>";
@@ -141,6 +142,7 @@ exports.sendTransactionalEmail = (0, https_1.onCall)(async (request) => {
         request.auth.token.role === "SUPER_ADMIN" ||
         request.auth.token.role === "OPERATIONS_ADMIN" ||
         request.auth.token.role === "AGENT" ||
+        (0, hubBootstrap_1.isPlatformOwnerEmail)(callerEmail) ||
         (process.env.OWNER_EMAIL && callerEmail === process.env.OWNER_EMAIL.trim().toLowerCase());
     // If not staff/admin, users can ONLY send receipts/notifications to their OWN registered email address
     if (!isAdminOrStaff) {

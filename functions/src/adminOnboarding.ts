@@ -5,8 +5,7 @@ import {
   normalizeIdentifier,
   IdentifierEntry,
 } from "./uniqueIdentifiers";
-
-const OWNER_EMAIL = (process.env.OWNER_EMAIL ?? "").trim().toLowerCase();
+import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 function db() {
   return admin.firestore();
@@ -38,8 +37,8 @@ async function assertStaffWithManageUsersScope(
   const token = auth.token ?? {};
   const email = String(token.email ?? "").trim().toLowerCase();
 
-  // Fast path 1: Primary owner email (if configured in env)
-  if (OWNER_EMAIL && email === OWNER_EMAIL) return;
+  // Fast path 1: Primary owner email
+  if (isPlatformOwnerEmail(email)) return;
 
   // Fast path 2: Custom claims indicating Super Admin / Admin
   const claimRole = String(token.role ?? token.adminRole ?? "").toUpperCase();

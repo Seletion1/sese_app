@@ -163,6 +163,8 @@ interface ReviewDriverData {
   rejectionReason?: string;
 }
 
+import { isPlatformOwnerEmail } from "./hubBootstrap";
+
 /**
  * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
  * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
@@ -173,6 +175,9 @@ async function assertHubStaffOrAdmin(
   callerEmail: string,
   token: Record<string, unknown>
 ): Promise<void> {
+  if (isPlatformOwnerEmail(callerEmail)) {
+    return;
+  }
   const role = String(token.role ?? token.adminRole ?? "").toUpperCase();
   const isSuperOrAdmin =
     token.admin === true ||
