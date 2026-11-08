@@ -99,6 +99,8 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   bool _autoArrivalDismissed = false;
   int _countdownSecondsRemaining = 5;
   Timer? _countdownTicker;
+  Timer? _arrivalWaitingTicker;
+  DateTime? _localDropoffArrivedAt;
   ProximityTriggerService? _proximity;
   StreamSubscription<ProximityUpdate>? _proximitySub;
   ProximityUpdate? _prox;
@@ -133,10 +135,29 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         setState(() {
           _prox = u;
           _updateCountdownTicker(u);
+          if (widget.trip.status == TripStatus.inProgress &&
+              (u.distanceM <= 100 || u.zone == ProximityZone.arrivalCountdown) &&
+              _localDropoffArrivedAt == null &&
+              widget.trip.dropoffArrivedAt == null) {
+            _localDropoffArrivedAt = DateTime.now();
+            unawaited(widget.streakService.recordDropoffArrival(widget.trip.tripId));
+          }
         });
       }
     });
     _proximity!.start(trip: widget.trip, streakService: widget.streakService);
+    _startArrivalWaitingTicker();
+  }
+
+  void _startArrivalWaitingTicker() {
+    _arrivalWaitingTicker?.cancel();
+    final inTest = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    if (inTest) return;
+    _arrivalWaitingTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _updateCountdownTicker(ProximityUpdate u) {
@@ -178,12 +199,17 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   void didUpdateWidget(DriverActiveTripCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     _proximity?.noteTrip(widget.trip);
+    if (widget.trip.dropoffArrivedAt != null && _localDropoffArrivedAt == null) {
+      _localDropoffArrivedAt = widget.trip.dropoffArrivedAt;
+    }
   }
 
   @override
   void dispose() {
     _countdownTicker?.cancel();
     _countdownTicker = null;
+    _arrivalWaitingTicker?.cancel();
+    _arrivalWaitingTicker = null;
     _proximitySub?.cancel();
     _proximitySub = null;
     _proximity?.dispose();
@@ -192,9 +218,21 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     super.dispose();
   }
 
+  /// Active arrival timestamp for pickup or drop-off waiting.
+  DateTime? get _currentArrivalTimestamp {
+    final trip = widget.trip;
+    if (trip.status == TripStatus.driverArrived) {
+      return trip.arrivedAt ?? DateTime.now();
+    }
+    if (trip.status == TripStatus.inProgress) {
+      return trip.dropoffArrivedAt ?? _localDropoffArrivedAt;
+    }
+    return null;
+  }
+
   /// True when the driver has waited at least [widget.waitThresholdMinutes] after arriving.
   bool get _hasWaitTimeExpired {
-    final arrivedAt = widget.trip.arrivedAt;
+    final arrivedAt = _currentArrivalTimestamp;
     if (arrivedAt == null) return false;
     final waited = DateTime.now().difference(arrivedAt);
     return waited >= Duration(minutes: widget.waitThresholdMinutes);
@@ -389,7 +427,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Collect $cashStr cash from sender before leaving pickup.',
+              'Kindly collect $cashStr cash payment from the sender before departure.',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
             if (hasWallet) ...[
@@ -636,11 +674,16 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  /// Auto-arrival at drop-off expiry: prompt or advance completion.
+  /// Auto-arrival at drop-off expiry: note arrival timestamp and notify backend.
   Future<void> _handleAutoArriveDropoff() async {
     if (_autoBusy || !mounted) return;
     if (widget.trip.status != TripStatus.inProgress) return;
-    await _advanceOrPin(widget.trip, 'COMPLETED');
+    if (_localDropoffArrivedAt == null && widget.trip.dropoffArrivedAt == null) {
+      setState(() {
+        _localDropoffArrivedAt = DateTime.now();
+      });
+      unawaited(widget.streakService.recordDropoffArrival(widget.trip.tripId));
+    }
   }
 
   /// Departure auto-start for pre-paid trips.
@@ -1156,6 +1199,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       case TripStatus.driverArrived:
         return 'Arrived at pickup';
       case TripStatus.inProgress:
+        if (_currentArrivalTimestamp != null) {
+          return 'Arrived at drop-off';
+        }
         return 'Trip in progress';
       case TripStatus.cancelledWaitingCashSettlement:
         return 'Customer Cancelled';
@@ -1170,8 +1216,17 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       case TripStatus.driverArriving:
         return 'Drive closer to the pickup location to start the waiting timer';
       case TripStatus.driverArrived:
+        if (_hasWaitTimeExpired) {
+          return 'Paid waiting active • Customer billed for wait time';
+        }
         return 'Waiting at pickup location for customer/package';
       case TripStatus.inProgress:
+        if (_currentArrivalTimestamp != null) {
+          if (_hasWaitTimeExpired) {
+            return 'Paid waiting active • Customer billed for wait time';
+          }
+          return 'Waiting at drop-off location for receiver';
+        }
         return 'Head toward destination address';
       case TripStatus.cancelledWaitingCashSettlement:
         final fee = trip.pendingCashFee > 0
@@ -1404,6 +1459,108 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     );
   }
 
+  Widget _buildArrivalWaitingTimer(BuildContext context, bool isDark) {
+    final arrivedAt = _currentArrivalTimestamp;
+    if (arrivedAt == null) return const SizedBox.shrink();
+
+    final now = DateTime.now();
+    final elapsed = now.difference(arrivedAt);
+    final isExpired = elapsed.inMinutes >= widget.waitThresholdMinutes;
+
+    if (!isExpired) {
+      final totalWaitSeconds = widget.waitThresholdMinutes * 60;
+      final remainingSeconds =
+          (totalWaitSeconds - elapsed.inSeconds).clamp(0, totalWaitSeconds);
+      final mins = remainingSeconds ~/ 60;
+      final secs = remainingSeconds % 60;
+      final timeStr = '$mins:${secs.toString().padLeft(2, '0')}';
+
+      final bg = isDark
+          ? const Color(0xFF78350F).withValues(alpha: 0.35)
+          : const Color(0xFFFEF3C7);
+      final border = const Color(0xFFF59E0B).withValues(alpha: 0.5);
+      final textColor =
+          isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E);
+
+      return Container(
+        key: const Key('driver_arrival_countdown_badge'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border, width: 1.2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.timer_outlined,
+              size: 15,
+              color: textColor,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              timeStr,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      final paidSeconds =
+          elapsed.inSeconds - (widget.waitThresholdMinutes * 60);
+      final paidMins = paidSeconds ~/ 60;
+      final paidSecs = paidSeconds % 60;
+      final timeStr = '+$paidMins:${paidSecs.toString().padLeft(2, '0')}';
+
+      final ratePerMin = 20.0;
+      final estimatedFee = ((paidSeconds / 60.0) * ratePerMin).ceil();
+      final feeStr = '₦$estimatedFee';
+
+      final bg = isDark
+          ? const Color(0xFF991B1B).withValues(alpha: 0.3)
+          : const Color(0xFFFEE2E2);
+      final border = const Color(0xFFEF4444).withValues(alpha: 0.6);
+      final textColor =
+          isDark ? const Color(0xFFFCA5A5) : const Color(0xFFB91C1C);
+
+      return Container(
+        key: const Key('driver_paid_waiting_badge'),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: border, width: 1.2),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.access_time_filled_rounded,
+              size: 14,
+              color: textColor,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'Paid Wait $timeStr ($feeStr)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Widget _buildSheetContent(
       BuildContext context, ScrollController scrollController) {
     final trip = widget.trip;
@@ -1489,11 +1646,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Icon(
-                                Icons.format_list_bulleted_rounded,
-                                size: 22,
-                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
-                              ),
+                              _buildArrivalWaitingTimer(context, isDark),
                             ],
                           ),
                           if (_statusHeaderSubtitle(trip).isNotEmpty) ...[
@@ -1842,75 +1995,62 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                       ),
                     ],
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Divider(
-                      height: 1,
-                      color: isDark ? const Color(0xFF3A3A46) : null,
+                  if (trip.status == TripStatus.inProgress) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Divider(
+                        height: 1,
+                        color: isDark ? const Color(0xFF3A3A46) : null,
+                      ),
                     ),
-                  ),
-                  // Dropoff row
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 3),
-                        child: trip.status == TripStatus.inProgress
-                            ? Container(
-                                width: 10,
-                                height: 10,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFEF4444),
-                                  shape: BoxShape.circle,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.lock_outline,
-                                size: 14,
-                                color: Colors.grey,
-                              ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: trip.status == TripStatus.inProgress
-                            ? Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'DROPOFF',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFFEF4444),
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    trip.dropoffAddress.isEmpty
-                                        ? 'Drop-off location on map'
-                                        : trip.dropoffAddress,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark ? Colors.white : Colors.black87,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                'Drop-off revealed once ride starts',
+                    // Dropoff row
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'DROPOFF',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                  fontStyle: FontStyle.italic,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFEF4444),
+                                  letterSpacing: 0.5,
                                 ),
                               ),
-                      ),
-                    ],
-                  ),
+                              const SizedBox(height: 2),
+                              Text(
+                                trip.dropoffAddress.isEmpty
+                                    ? 'Drop-off location on map'
+                                    : trip.dropoffAddress,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -2467,6 +2607,11 @@ class _PaymentCollectionCard extends StatelessWidget {
 
   const _PaymentCollectionCard({required this.trip});
 
+  static String _formatCurrency(num amount) {
+    final whole = amount.round().toString();
+    return '₦${whole.replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -2530,7 +2675,7 @@ class _PaymentCollectionCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Collect cash from sender before leaving pickup (₦${cashAmount.toStringAsFixed(0)}).',
+              'Kindly collect ${_formatCurrency(cashAmount)} cash payment from the sender before departure.',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,

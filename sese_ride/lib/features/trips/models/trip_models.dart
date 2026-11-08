@@ -250,6 +250,9 @@ class ActiveTrip {
   /// Powers the no-show wait timer in the driver app.
   final DateTime? arrivedAt;
 
+  /// Server timestamp recorded when the driver arrived at drop-off.
+  final DateTime? dropoffArrivedAt;
+
   /// Top-level completion timestamp set when trip enters COMPLETED.
   final DateTime? completedAt;
 
@@ -396,6 +399,7 @@ class ActiveTrip {
     this.pingDriverIds = const [],
     this.dispatchTier = 0,
     this.arrivedAt,
+    this.dropoffArrivedAt,
     this.completedAt,
     this.settledAt,
     this.updatedAt,
@@ -704,6 +708,7 @@ class ActiveTrip {
       pingDriverIds: stringList(map['pingDriverIds']),
       dispatchTier: n(map['dispatchTier'])?.toInt() ?? 0,
       arrivedAt: dateOf(map['arrivedAt']),
+      dropoffArrivedAt: dateOf(map['dropoffArrivedAt'] ?? map['arrivedDropoffAt']),
       completedAt: dateOf(map['completedAt']) ?? dateOf(settlement['commissionSettledAt']),
       settledAt: dateOf(settlement['settledAt']),
       updatedAt: dateOf(map['updatedAt']),

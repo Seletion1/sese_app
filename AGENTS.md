@@ -72,6 +72,39 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Active Dual-Phase Countdown Timers (Arrival & Paid Waiting), Menu Cleanup & UI Copy Polish
+
+- **1. Driver Screen Countdown Badge & Menu Icon Removal (`driver_active_trip_card.dart`)**:
+  - Removed redundant 3-line menu icon (`Icons.format_list_bulleted_rounded`) from the top-right of the sheet header container.
+  - Replaced the top-right header space with a real-time, active 10-minute arrival countdown badge (`driver_arrival_countdown_badge` rendering `⏱ 9:01` decreasing live) for both Pickup Arrival (`TripStatus.driverArrived`) and Drop-off Arrival (`dropoffArrivedAt != null` / `_localDropoffArrivedAt != null`).
+  - Upon 10-minute expiration, automatically transitions the badge into `driver_paid_waiting_badge` (`Paid Wait +1:24 (₦28)`) tracking elapsed waiting duration and fees, with the subtitle updating to `'Paid waiting active • Customer billed for wait time'`.
+  - Timer ticker is guarded in test environments (`WidgetsBinding.instance is TestWidgetsFlutterBinding`) to prevent hanging `pumpAndSettle()`.
+
+- **2. Customer Screen Duplicate Plate Removal & Matching Live Countdown (`live_trip_screen.dart`)**:
+  - Eliminated the duplicate vehicle plate number string (`' · ${driver.plateNumber}'`) located under the driver's name on `LiveTripScreen` (`_AcceptedDriverSheet`), leaving the canonical plate number display intact beside the vehicle type and fare in the primary vehicle row.
+  - In its place under the driver name, added the synchronized live 10-minute arrival countdown text (`customer_arrival_countdown_text`) that ticks down in unison with the driver's state.
+  - Seamlessly transitions to `customer_paid_waiting_text` (`Paid wait active (+1:24)`) once the 10-minute window expires.
+
+- **3. Professional Cash Collection Copywriting (`driver_active_trip_card.dart`)**:
+  - Updated cash collection notice in both the persistent card (`_PaymentCollectionCard`) and the confirmation dialog (`_showPickupCashCheckDialog`) from `"Collect cash from sender before leaving pickup (₦4200)"` to polite and professional tone: `"Kindly collect ₦4,200 cash payment from the sender before departure."` with comma-separated currency formatting.
+
+- **4. Hide Redundant Operational Rule Text (`driver_active_trip_card.dart`)**:
+  - Hid static rule text `"Drop-off revealed once ride starts"` and the drop-off location card when `trip.status != TripStatus.inProgress`, removing UI clutter while preserving full backend routing security.
+
+- **5. Backend Drop-off Arrival Tracking & Deployment (`functions/src/trips.ts`, `driver_streak_service.dart`, `trip_models.dart`)**:
+  - Added `dropoffArrivedAt` field to `ActiveTrip` model.
+  - Updated `advanceTripStatus` Cloud Function to handle `recordDropoffArrival: true` payload, recording server timestamp `dropoffArrivedAt` in Firestore.
+  - Added drop-off waiting fee calculation support in customer cancellation flow (`trips.ts:2239`).
+  - Added `recordDropoffArrival` in `DriverStreakService` with resilient fallback to `advanceTripStatus`.
+  - Built TypeScript functions and deployed updated `advanceTripStatus` to Google Cloud Functions (2nd Gen).
+
+- **6. Verification & Testing**:
+  - Static Analysis: `cd sese_ride && flutter analyze` passed with **0 issues**.
+  - Unit/Widget Tests:
+    - `sese_ride/test/trip_arrival_countdown_and_ui_cleanup_test.dart`: 5/5 passed (100%).
+    - `sese_ride/test/driver_active_trip_card_test.dart`: 8/8 passed (100%).
+    - Total: 13/13 tests passed across affected test suites.
+
 ## 2026-11-08 — Persistent Driver Order Pool Bidding Sheet, Real-Time Countdown & Re-Bidding Lifecycle
 
 - **1. Persistent Order Detail Sheet (`order_pool_sheet.dart`)**:

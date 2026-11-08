@@ -2004,6 +2004,9 @@ export const advanceTripStatus = onCall(async (request) => {
     } else if (status === "COMPLETED") {
       update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
     }
+    if (request.data?.recordDropoffArrival === true && !data.dropoffArrivedAt) {
+      update["dropoffArrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    }
     tx.update(ref, update);
     snapAfterData = { ...data, ...update };
 
@@ -2236,7 +2239,9 @@ export const cancelTrip = onCall(async (request) => {
   if (isCustomer) {
     let paidWaitingFee = 0;
     const isArrivedOrProgress = data.status === "DRIVER_ARRIVED" || data.status === "IN_PROGRESS";
-    const arrivedAtMs = data.arrivedAt?.toMillis?.() ?? 0;
+    const arrivedAtMs = (data.status === "IN_PROGRESS" && data.dropoffArrivedAt?.toMillis?.())
+      ? data.dropoffArrivedAt.toMillis()
+      : (data.arrivedAt?.toMillis?.() ?? 0);
     const enableWaitingBilling = data.enableWaitingTimeBilling !== false;
 
     if (isArrivedOrProgress && arrivedAtMs > 0 && enableWaitingBilling) {
@@ -3639,3 +3644,34 @@ export const skipDeliveryPin = onCall(async (request) => {
 
   return { ok: true };
 });
+
+/** Records driver arrival timestamp at drop-off for waiting & billing tracking. */
+export const recordDropoffArrival = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Drivers must sign in.");
+  }
+  enforceAppCheck(request);
+  const { tripId } = request.data ?? {};
+  if (!tripId || typeof tripId !== "string") {
+    throw new HttpsError("invalid-argument", "tripId required.");
+  }
+  const ref = db().collection("trips").doc(String(tripId));
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+    const data = snap.data()!;
+    const driverId = String(data.driver?.driverId ?? data.driverId ?? "");
+    if (driverId !== request.auth!.uid) {
+      throw new HttpsError("permission-denied", "Not your trip.");
+    }
+    if (data.status !== "IN_PROGRESS") return;
+    if (!data.dropoffArrivedAt) {
+      tx.update(ref, {
+        dropoffArrivedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  });
+  return { ok: true };
+});
+

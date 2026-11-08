@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
+exports.recordDropoffArrival = exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
 exports.requirePingedDriver = requirePingedDriver;
@@ -1604,7 +1604,7 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
     let fromStatus = "";
     let snapAfterData = null;
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e;
+        var _a, _b, _c, _d, _e, _f;
         const snap = await tx.get(ref);
         if (!snap.exists)
             throw new https_1.HttpsError("not-found", "Trip not found.");
@@ -1652,6 +1652,9 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
         }
         else if (status === "COMPLETED") {
             update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
+        }
+        if (((_f = request.data) === null || _f === void 0 ? void 0 : _f.recordDropoffArrival) === true && !data.dropoffArrivedAt) {
+            update["dropoffArrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
         }
         tx.update(ref, update);
         snapAfterData = Object.assign(Object.assign({}, data), update);
@@ -1761,7 +1764,7 @@ async function releaseTripEscrow(tripId, tripData, passedTx) {
 }
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
 exports.cancelTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -1846,18 +1849,20 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
     if (isCustomer) {
         let paidWaitingFee = 0;
         const isArrivedOrProgress = data.status === "DRIVER_ARRIVED" || data.status === "IN_PROGRESS";
-        const arrivedAtMs = (_j = (_h = (_g = data.arrivedAt) === null || _g === void 0 ? void 0 : _g.toMillis) === null || _h === void 0 ? void 0 : _h.call(_g)) !== null && _j !== void 0 ? _j : 0;
+        const arrivedAtMs = (data.status === "IN_PROGRESS" && ((_h = (_g = data.dropoffArrivedAt) === null || _g === void 0 ? void 0 : _g.toMillis) === null || _h === void 0 ? void 0 : _h.call(_g)))
+            ? data.dropoffArrivedAt.toMillis()
+            : ((_l = (_k = (_j = data.arrivedAt) === null || _j === void 0 ? void 0 : _j.toMillis) === null || _k === void 0 ? void 0 : _k.call(_j)) !== null && _l !== void 0 ? _l : 0);
         const enableWaitingBilling = data.enableWaitingTimeBilling !== false;
         if (isArrivedOrProgress && arrivedAtMs > 0 && enableWaitingBilling) {
             const elapsedMs = nowMs() - arrivedAtMs;
             const freeWaitMs = 10 * 60 * 1000; // 10 minutes free countdown
             if (elapsedMs > freeWaitMs) {
                 const paidWaitMins = Math.ceil((elapsedMs - freeWaitMs) / (60 * 1000));
-                const timeRatePerMin = Number((_k = data.timeRatePerMinute) !== null && _k !== void 0 ? _k : 20);
+                const timeRatePerMin = Number((_m = data.timeRatePerMinute) !== null && _m !== void 0 ? _m : 20);
                 paidWaitingFee = Math.max(0, paidWaitMins * timeRatePerMin);
             }
         }
-        const useCashSettlement = ((_l = request.data) === null || _l === void 0 ? void 0 : _l.useCashSettlement) === true;
+        const useCashSettlement = ((_o = request.data) === null || _o === void 0 ? void 0 : _o.useCashSettlement) === true;
         const result = await (0, driverStreak_1.handleTripCancellationSettlement)({
             tripId,
             cancelledBy: "customer",
@@ -1868,7 +1873,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             useCashSettlement,
         });
         if (result.cashSettlementPending) {
-            const assignedDriverId = String((_p = (_o = (_m = data.driver) === null || _m === void 0 ? void 0 : _m.driverId) !== null && _o !== void 0 ? _o : data.driverId) !== null && _p !== void 0 ? _p : "");
+            const assignedDriverId = String((_r = (_q = (_p = data.driver) === null || _p === void 0 ? void 0 : _p.driverId) !== null && _q !== void 0 ? _q : data.driverId) !== null && _r !== void 0 ? _r : "");
             if (assignedDriverId) {
                 await notifyCustomer(assignedDriverId, tripId, "Cash Settlement Requested", `Customer cancelled during paid waiting. Collect ₦${paidWaitingFee} cash from customer and tap "Accept Cash & Cancel".`, "cash_settlement_requested", {}, `driver_${assignedDriverId}`);
             }
@@ -1879,9 +1884,9 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
     // Driver cancellation logic
     let cancellationSource = "unknown";
     if (data.status === "DRIVER_ARRIVED") {
-        const arrivedAt = (_s = (_r = (_q = data.arrivedAt) === null || _q === void 0 ? void 0 : _q.toMillis) === null || _r === void 0 ? void 0 : _r.call(_q)) !== null && _s !== void 0 ? _s : 0;
+        const arrivedAt = (_u = (_t = (_s = data.arrivedAt) === null || _s === void 0 ? void 0 : _s.toMillis) === null || _t === void 0 ? void 0 : _t.call(_s)) !== null && _u !== void 0 ? _u : 0;
         const waitedMs = nowMs() - arrivedAt;
-        const noShowWaitMs = ((_t = data["noShowWaitMinutes"]) !== null && _t !== void 0 ? _t : 10) * 60 * 1000;
+        const noShowWaitMs = ((_v = data["noShowWaitMinutes"]) !== null && _v !== void 0 ? _v : 10) * 60 * 1000;
         cancellationSource =
             waitedMs >= noShowWaitMs ? "driver_no_show" : "driver_before_arrival";
     }
@@ -1898,7 +1903,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         "IN_PROGRESS",
     ].includes(String(data.status));
     if (isDriverActiveStatus) {
-        const currentCount = Number((_u = data.reassignmentCount) !== null && _u !== void 0 ? _u : 0);
+        const currentCount = Number((_w = data.reassignmentCount) !== null && _w !== void 0 ? _w : 0);
         const nextCount = currentCount + 1;
         const history = Array.isArray(data.reassignmentHistory)
             ? [...data.reassignmentHistory, { driverId: callerId, cancelledAt: nowMs(), reason }]
@@ -1918,7 +1923,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationReason: reason,
                 statusMessage: `Driver had to cancel. Finding you another nearby driver (Attempt ${nextCount} of 3)...`,
                 statusHistory: admin.firestore.FieldValue.arrayUnion({
-                    from: String((_v = data.status) !== null && _v !== void 0 ? _v : ""),
+                    from: String((_x = data.status) !== null && _x !== void 0 ? _x : ""),
                     to: "SEARCHING_DRIVER",
                     actor: callerId,
                     role: "driver",
@@ -1930,7 +1935,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             });
             (0, driverStreak_1.logTripTransition)({
                 tripId,
-                from: String((_w = data.status) !== null && _w !== void 0 ? _w : ""),
+                from: String((_y = data.status) !== null && _y !== void 0 ? _y : ""),
                 to: "SEARCHING_DRIVER",
                 actor: callerId,
                 role: "driver",
@@ -1966,7 +1971,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationReason: reason,
                 statusMessage: "All drivers are busy right now. Keep searching or wait?",
                 statusHistory: admin.firestore.FieldValue.arrayUnion({
-                    from: String((_x = data.status) !== null && _x !== void 0 ? _x : ""),
+                    from: String((_z = data.status) !== null && _z !== void 0 ? _z : ""),
                     to: "needs_customer_action",
                     actor: callerId,
                     role: "driver",
@@ -1978,7 +1983,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             });
             (0, driverStreak_1.logTripTransition)({
                 tripId,
-                from: String((_y = data.status) !== null && _y !== void 0 ? _y : ""),
+                from: String((_0 = data.status) !== null && _0 !== void 0 ? _0 : ""),
                 to: "needs_customer_action",
                 actor: callerId,
                 role: "driver",
@@ -1999,7 +2004,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             }
-            catch (_z) {
+            catch (_1) {
                 /* best-effort */
             }
             return { ok: true, needsCustomerAction: true };
@@ -2996,6 +3001,39 @@ exports.skipDeliveryPin = (0, https_1.onCall)(async (request) => {
     catch (e) {
         console.warn(`skipDeliveryPin: audit write failed for ${tripId}: ${e}`);
     }
+    return { ok: true };
+});
+/** Records driver arrival timestamp at drop-off for waiting & billing tracking. */
+exports.recordDropoffArrival = (0, https_1.onCall)(async (request) => {
+    var _a;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
+    }
+    (0, accountGuard_1.enforceAppCheck)(request);
+    const { tripId } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
+    if (!tripId || typeof tripId !== "string") {
+        throw new https_1.HttpsError("invalid-argument", "tripId required.");
+    }
+    const ref = db().collection("trips").doc(String(tripId));
+    await db().runTransaction(async (tx) => {
+        var _a, _b, _c;
+        const snap = await tx.get(ref);
+        if (!snap.exists)
+            throw new https_1.HttpsError("not-found", "Trip not found.");
+        const data = snap.data();
+        const driverId = String((_c = (_b = (_a = data.driver) === null || _a === void 0 ? void 0 : _a.driverId) !== null && _b !== void 0 ? _b : data.driverId) !== null && _c !== void 0 ? _c : "");
+        if (driverId !== request.auth.uid) {
+            throw new https_1.HttpsError("permission-denied", "Not your trip.");
+        }
+        if (data.status !== "IN_PROGRESS")
+            return;
+        if (!data.dropoffArrivedAt) {
+            tx.update(ref, {
+                dropoffArrivedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+    });
     return { ok: true };
 });
 //# sourceMappingURL=trips.js.map

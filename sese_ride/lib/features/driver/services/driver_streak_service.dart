@@ -44,6 +44,10 @@ abstract class DriverStreakBackend {
     double lng,
     bool isMocked,
   );
+
+  /// Records arrival at drop-off for drop-off waiting and billing tracking.
+  Future<Map<String, dynamic>> callRecordDropoffArrival(String tripId) =>
+      Future.value(const {'ok': true});
 }
 
 class _FunctionsDriverStreakBackend implements DriverStreakBackend {
@@ -114,6 +118,20 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
         'lng': lng,
         'isMocked': isMocked,
       });
+
+  @override
+  Future<Map<String, dynamic>> callRecordDropoffArrival(String tripId) async {
+    try {
+      return await _call('recordDropoffArrival', {'tripId': tripId});
+    } catch (_) {
+      // Resilient fallback: advanceTripStatus with recordDropoffArrival: true
+      return await _call('advanceTripStatus', {
+        'tripId': tripId,
+        'status': 'IN_PROGRESS',
+        'recordDropoffArrival': true,
+      });
+    }
+  }
 }
 
 /// Live data + actions for the Daily Commission Streak system.
@@ -326,6 +344,10 @@ class DriverStreakService {
   /// so that settlement proceeds normally.
   Future<void> skipDeliveryPin(String tripId) =>
       _guard(() => _ops.callSkipDeliveryPin(tripId));
+
+  /// Records arrival at drop-off for drop-off waiting and billing tracking.
+  Future<void> recordDropoffArrival(String tripId) =>
+      _guard(() => _ops.callRecordDropoffArrival(tripId));
 
   /// GPS heartbeat for the live trip (powers the customer marker +
   /// proximity triggers). Mocked fixes are rejected server-side; the

@@ -218,7 +218,7 @@ void main() {
     expect(find.text('Collect ₦5000 Cash'), findsOneWidget);
     // Cash collection card is revealed with professional wording
     expect(
-      find.text('Collect cash from sender before leaving pickup (₦5000).'),
+      find.text('Kindly collect ₦5,000 cash payment from the sender before departure.'),
       findsOneWidget,
     );
 
@@ -232,7 +232,7 @@ void main() {
     // Verify verification dialog appears with exact professional wording
     expect(find.text('Pickup Cash Check'), findsOneWidget);
     expect(
-      find.text('Collect ₦5000 cash from sender before leaving pickup.'),
+      find.text('Kindly collect ₦5000 cash payment from the sender before departure.'),
       findsOneWidget,
     );
 

@@ -2012,12 +2012,15 @@ class _AcceptedDriverSheet extends StatefulWidget {
 
 class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   bool _hidePhones = false;
+  Timer? _arrivalCountdownTimer;
   late final DraggableScrollableController _sheetController =
       DraggableScrollableController();
 
   @override
   void dispose() {
     widget.interactionController?.detachSheetController();
+    _arrivalCountdownTimer?.cancel();
+    _arrivalCountdownTimer = null;
     _sheetController.dispose();
     super.dispose();
   }
@@ -2026,9 +2029,122 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   void initState() {
     super.initState();
     widget.interactionController?.attachSheetController(_sheetController);
+    _startArrivalCountdownTimer();
     PrivacyMasking.hidePhonesEnabled().then((v) {
       if (mounted) setState(() => _hidePhones = v);
     });
+  }
+
+  void _startArrivalCountdownTimer() {
+    _arrivalCountdownTimer?.cancel();
+    final inTest = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    if (inTest) return;
+    _arrivalCountdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Active arrival timestamp for pickup or drop-off waiting.
+  DateTime? get _currentArrivalTimestamp {
+    final trip = widget.trip;
+    if (trip.status == TripStatus.driverArrived) {
+      return trip.arrivedAt ?? DateTime.now();
+    }
+    if (trip.status == TripStatus.inProgress && trip.dropoffArrivedAt != null) {
+      return trip.dropoffArrivedAt;
+    }
+    return null;
+  }
+
+  Widget _buildCustomerMatchingCountdown(BuildContext context, bool isDark) {
+    final arrivedAt = _currentArrivalTimestamp;
+    if (arrivedAt == null) return const SizedBox.shrink();
+
+    final now = DateTime.now();
+    final elapsed = now.difference(arrivedAt);
+    const waitThresholdMinutes = 10;
+    final isExpired = elapsed.inMinutes >= waitThresholdMinutes;
+
+    if (!isExpired) {
+      final totalWaitSeconds = waitThresholdMinutes * 60;
+      final remainingSeconds =
+          (totalWaitSeconds - elapsed.inSeconds).clamp(0, totalWaitSeconds);
+      final mins = remainingSeconds ~/ 60;
+      final secs = remainingSeconds % 60;
+      final timeStr = '$mins:${secs.toString().padLeft(2, '0')}';
+
+      return Padding(
+        padding: const EdgeInsets.only(left: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              ' · ',
+              style: TextStyle(
+                color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Icon(
+              Icons.timer_outlined,
+              size: 13,
+              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+            ),
+            const SizedBox(width: 3),
+            Text(
+              timeStr,
+              key: const Key('customer_arrival_countdown_text'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color:
+                    isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      final paidSeconds = elapsed.inSeconds - (waitThresholdMinutes * 60);
+      final paidMins = paidSeconds ~/ 60;
+      final paidSecs = paidSeconds % 60;
+      final paidStr = '+$paidMins:${paidSecs.toString().padLeft(2, '0')}';
+
+      return Padding(
+        padding: const EdgeInsets.only(left: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              ' · ',
+              style: TextStyle(
+                color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Icon(
+              Icons.access_time_filled_rounded,
+              size: 13,
+              color: Color(0xFFEF4444),
+            ),
+            const SizedBox(width: 3),
+            Text(
+              'Paid wait ($paidStr)',
+              key: const Key('customer_paid_waiting_text'),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                fontFeatures: [FontFeature.tabularFigures()],
+                color: Color(0xFFEF4444),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -2205,7 +2321,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '₦${trip.walletCoverageAmount.toStringAsFixed(0)} locked from wallet in escrow.',
+                    '₦${trip.walletCoverageAmount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} locked from wallet in escrow.',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
@@ -2214,7 +2330,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Please give ₦${trip.cashToCollect.toStringAsFixed(0)} cash to the driver at pickup.',
+                    'Please give ₦${trip.cashToCollect.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} cash to the driver at pickup.',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -2533,7 +2649,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                 ],
                               ),
                               const SizedBox(height: 3),
-                              // Secondary line: driver name + rating + plate
+                              // Secondary line: driver name + rating + live countdown / paid waiting
                               Row(
                                 children: [
                                   Flexible(
@@ -2561,16 +2677,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                                       color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                                     ),
                                   ),
-                                  if (driver.plateNumber.isNotEmpty) ...[
-                                    Text(
-                                      '  ·  ${driver.plateNumber}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ],
+                                  _buildCustomerMatchingCountdown(context, isDark),
                                 ],
                               ),
                             ],

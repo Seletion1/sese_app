@@ -47,6 +47,7 @@ export {
   keepSearchingTrip,
   verifyDeliveryPin,
   skipDeliveryPin,
+  recordDropoffArrival,
   hubForceCompleteTrip,
   hubCancelRefundTrip,
   hubManualPinBypass,
