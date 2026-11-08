@@ -320,6 +320,15 @@ class SeseUniversalMap extends StatefulWidget {
   /// [showRecenterFab] for the full Google Maps overlay standard.
   final bool showCenterBlueDot;
 
+  /// Optional interaction controller for immersive full-screen map autohide and sheet collapse.
+  final MapInteractionController? interactionController;
+
+  /// Optional callback invoked when user interaction begins on any active map canvas.
+  final VoidCallback? onInteractionStarted;
+
+  /// Optional callback invoked when user interaction ends on any active map canvas.
+  final VoidCallback? onInteractionEnded;
+
   /// Test seam: when set, renders a placeholder map without network tiles.
   static Object? get debugTileProviderOverride {
     assert(!kReleaseMode || OsmMapView.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
@@ -357,6 +366,9 @@ class SeseUniversalMap extends StatefulWidget {
     this.centerPinLabel,
     this.showFallbackBanner = true,
     this.showCenterBlueDot = false,
+    this.interactionController,
+    this.onInteractionStarted,
+    this.onInteractionEnded,
   });
 
   /// Builds a colored map pin marker at [point].
@@ -409,6 +421,9 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
   @override
   void initState() {
     super.initState();
+    if (widget.interactionController != null) {
+      widget.mapController.interactionController = widget.interactionController;
+    }
     if (_isTripContext(widget.mapContext)) {
       _frozenConfig = MapConfigController.instance.snapshotConfig();
     }
@@ -424,6 +439,9 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
   @override
   void didUpdateWidget(covariant SeseUniversalMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.interactionController != oldWidget.interactionController) {
+      widget.mapController.interactionController = widget.interactionController;
+    }
     // GPS follow: while the user hasn't grabbed the map, each fresh fix
     // re-centers the camera on the live dot (zoom untouched). A manual pan
     // clears `isFollowingUser` (see gesture hooks below), so tracking
@@ -443,7 +461,11 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
   /// the user's hand — which frees the camera from the GPS stream.
   void _handleGoogleCameraMove(LatLng center) {
     if (!widget.mapController.isInProgrammaticWindow) {
-      widget.mapController.handleUserGesture();
+      widget.mapController.handleUserGesture(
+        lat: center.latitude,
+        lng: center.longitude,
+      );
+      widget.onInteractionStarted?.call();
     }
     widget.onCameraMove?.call(center);
   }
@@ -617,7 +639,29 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
             return Stack(
               children: [
-                Positioned.fill(child: mapCanvas),
+                Positioned.fill(
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (_) {
+                      widget.mapController.handleInteractionStarted(
+                        lat: widget.userLocation?.latitude ??
+                            widget.initialCenter.latitude,
+                        lng: widget.userLocation?.longitude ??
+                            widget.initialCenter.longitude,
+                      );
+                      widget.onInteractionStarted?.call();
+                    },
+                    onPointerUp: (_) {
+                      widget.mapController.handleInteractionEnded();
+                      widget.onInteractionEnded?.call();
+                    },
+                    onPointerCancel: (_) {
+                      widget.mapController.handleInteractionEnded();
+                      widget.onInteractionEnded?.call();
+                    },
+                    child: mapCanvas,
+                  ),
+                ),
 
                 // ── Center pin overlay ─────────────────────────────────────
                 if (widget.showCenterPin)
@@ -954,13 +998,22 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       },
       onCameraMove: (pos) {
         _currentCenter = LatLng(pos.target.latitude, pos.target.longitude);
+        if (!widget.mapController.isInProgrammaticWindow) {
+          widget.mapController.handleUserGesture(
+            lat: pos.target.latitude,
+            lng: pos.target.longitude,
+          );
+        }
         widget.onCameraMove?.call(_currentCenter);
       },
       onCameraIdle: () {
+        widget.mapController.handleInteractionEnded();
         widget.onCameraIdle?.call(_currentCenter);
       },
       onTap: (target) {
-        widget.onTap?.call(LatLng(target.latitude, target.longitude));
+        final pt = LatLng(target.latitude, target.longitude);
+        widget.mapController.handleUserTap(pt);
+        widget.onTap?.call(pt);
       },
     );
   }

@@ -77,6 +77,7 @@ export 'maps/google_maps_service.dart';
 export 'maps/mapbox_service.dart';
 export 'maps/global_map_config.dart';
 export 'maps/map_config_controller.dart';
+export 'maps/map_interaction_controller.dart';
 export 'maps/recent_locations_repository.dart';
 export 'legal/legal_document_content.dart';
 export 'widgets/legal_document_viewer.dart';

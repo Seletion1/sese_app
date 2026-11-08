@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart' as fm;
 import 'package:google_maps_flutter/google_maps_flutter.dart' as gmaps;
 import 'package:latlong2/latlong.dart';
 import 'package:latlong2/latlong.dart' as base;
+import 'package:sese_core/sese_core.dart';
 
 /// Shared OpenStreetMap view for sese_ride's OSM-pinned surfaces.
 ///
@@ -162,16 +163,23 @@ class _OsmMapViewState extends State<OsmMapView> {
     // flag is authoritative here (flutter_map reports it per event), so no
     // programmatic-window check is needed on this branch.
     if (hasGesture) {
-      widget.mapController.handleUserGesture();
+      widget.mapController.handleUserGesture(
+        lat: camera.center.latitude,
+        lng: camera.center.longitude,
+      );
     }
     final center = base.LatLng(camera.center.latitude, camera.center.longitude);
     _lastCenter = center;
     widget.onCameraMove?.call(center);
-    if (widget.onCameraIdle != null) {
+    if (widget.onCameraIdle != null ||
+        widget.mapController.interactionController != null) {
       _idleDebounce?.cancel();
       _idleDebounce = Timer(const Duration(milliseconds: 500), () {
-        if (mounted && _lastCenter != null) {
-          widget.onCameraIdle?.call(_lastCenter!);
+        if (mounted) {
+          widget.mapController.handleInteractionEnded();
+          if (_lastCenter != null) {
+            widget.onCameraIdle?.call(_lastCenter!);
+          }
         }
       });
     }
@@ -215,7 +223,9 @@ class _OsmMapViewState extends State<OsmMapView> {
         onMapReady: widget.mapController.markReady,
         onPositionChanged: _onPositionChanged,
         onTap: (tapPos, point) {
-          widget.onTap?.call(base.LatLng(point.latitude, point.longitude));
+          final pt = base.LatLng(point.latitude, point.longitude);
+          widget.mapController.handleUserTap(pt);
+          widget.onTap?.call(pt);
         },
       ),
       children: [
@@ -598,17 +608,62 @@ class SeSeMapController {
     _programmaticUntil = DateTime.now().add(_programmaticWindow);
   }
 
+  // ── Immersive map interaction controller & hooks ───────────────────────
+  /// Optional interaction controller managing immersive autohide and bottom sheet snap.
+  MapInteractionController? interactionController;
+
+  /// Fired whenever user interaction (tap, pan, zoom) begins on the active map canvas.
+  VoidCallback? onUserInteractionStarted;
+
+  /// Fired whenever user interaction ends or camera goes idle.
+  VoidCallback? onUserInteractionEnded;
+
+  /// Whether the user is actively touching/panning the map canvas.
+  bool get isInteracting => interactionController?.isInteracting ?? false;
+
   /// True while inside a programmatic animation window.
   bool get isInProgrammaticWindow =>
       _programmaticUntil?.isAfter(DateTime.now()) ?? false;
 
   /// Called by map views when the USER pans/zooms (never for programmatic
-  /// moves). Frees the camera so exploration never fights the GPS stream.
-  void handleUserGesture() {
+  /// moves). Frees the camera so exploration never fights the GPS stream,
+  /// and notifies the interaction controller.
+  void handleUserGesture({double? lat, double? lng}) {
     if (isFollowingUser) {
       isFollowingUser = false;
       onFollowingChanged?.call();
     }
+    interactionController?.notifyInteractionStarted(
+      currentLat: lat,
+      currentLng: lng,
+    );
+    onUserInteractionStarted?.call();
+  }
+
+  /// Called when the user taps anywhere on the active map canvas surface.
+  void handleUserTap(base.LatLng point) {
+    interactionController?.notifyInteractionStarted(
+      currentLat: point.latitude,
+      currentLng: point.longitude,
+    );
+    onUserInteractionStarted?.call();
+    interactionController?.notifyInteractionEnded();
+    onUserInteractionEnded?.call();
+  }
+
+  /// Called when a pointer down/touch begins on the map canvas.
+  void handleInteractionStarted({double? lat, double? lng}) {
+    interactionController?.notifyInteractionStarted(
+      currentLat: lat,
+      currentLng: lng,
+    );
+    onUserInteractionStarted?.call();
+  }
+
+  /// Called when pointer interaction ends or camera goes idle.
+  void handleInteractionEnded() {
+    interactionController?.notifyInteractionEnded();
+    onUserInteractionEnded?.call();
   }
 
   /// Fired whenever [isFollowingUser] flips (manual pan or recenter), so

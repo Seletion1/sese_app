@@ -48,6 +48,16 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
   final SeSeMapController _mapController = SeSeMapController();
   bool _hasShownMockWarning = false;
 
+  /// Unified controller for immersive map interaction, UI autohide, and snap-to-edge sheet collapse.
+  late final MapInteractionController _mapInteractionController =
+      MapInteractionController(
+    inactivityDuration: const Duration(milliseconds: 2000),
+    onRecenter: () => _mapController.recenterTo(_position, 16.0),
+    onImmersiveChanged: (val) {
+      if (mounted) setState(() {});
+    },
+  );
+
   /// Live GPS subscription feeding the blue dot + camera follow. Cancelled
   /// in dispose; never throws (platform absence keeps the seeded default).
   StreamSubscription<Position>? _positionSub;
@@ -65,6 +75,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
   @override
   void dispose() {
+    _mapInteractionController.dispose();
     _positionSub?.cancel();
     super.dispose();
   }
@@ -136,6 +147,11 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           setState(() {
             _position = LatLng(fix.latitude, fix.longitude);
           });
+          _mapInteractionController.onLocationUpdate(
+            fix.latitude,
+            fix.longitude,
+            speed: fix.speed,
+          );
         });
       } catch (_) {}
     } catch (_) {
@@ -170,67 +186,102 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     // No drawer / hamburger menu: Trips, Home, and Profile live in the
     // shell's bottom navigation bar; account actions moved to Profile.
     return Scaffold(
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: SeSeMapView(
-                    // Initial customer browsing: Google Maps with native blue dot.
-                    mapContext: MapContext.browsing,
-                    mapController: _mapController,
-                    initialCenter: _position,
-                    // 16.0 matches the zoom used after the high-accuracy GPS
-                    // fix lands, so the map never jumps when re-centering.
-                    initialZoom: 16.0,
-                    showMyLocation: true,
-                    myLocationButtonEnabled: false,
-                    showRecenterFab: true,
-                    // Use the authoritative live GPS tracking blue dot (showMyLocation)
-                    // without drawing a duplicate static center blue dot overlay.
-                    showCenterBlueDot: false,
-                    recenterBottom: 16,
-                    recenterRight: 16,
-                    // Re-engages GPS follow AND snaps back (bare move() would
-                    // track once without restoring follow state).
-                    userLocation: _position,
-                    onRecenterTap: () =>
-                        _mapController.recenterTo(_position, 16.0),
-                    markers: const [],
-                  ),
-                ),
-                // Real-time active order synchronization across customer devices.
-                if (widget.user != null)
-                  Positioned(
-                    top: 0,
-                    left: 16,
-                    right: 68, // Leave clearance for notification bell button on the right
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 8),
+          Positioned.fill(
+            child: SeSeMapView(
+              // Initial customer browsing: Google Maps with native blue dot.
+              mapContext: MapContext.browsing,
+              mapController: _mapController,
+              interactionController: _mapInteractionController,
+              onInteractionStarted: () =>
+                  _mapInteractionController.notifyInteractionStarted(
+                currentLat: _position.latitude,
+                currentLng: _position.longitude,
+              ),
+              onInteractionEnded: () =>
+                  _mapInteractionController.notifyInteractionEnded(),
+              initialCenter: _position,
+              // 16.0 matches the zoom used after the high-accuracy GPS
+              // fix lands, so the map never jumps when re-centering.
+              initialZoom: 16.0,
+              showMyLocation: true,
+              myLocationButtonEnabled: false,
+              showRecenterFab: true,
+              // Use the authoritative live GPS tracking blue dot (showMyLocation)
+              // without drawing a duplicate static center blue dot overlay.
+              showCenterBlueDot: false,
+              recenterBottom: _mapInteractionController.isImmersive ? 40 : 180,
+              recenterRight: 16,
+              // Re-engages GPS follow AND snaps back (bare move() would
+              // track once without restoring follow state).
+              userLocation: _position,
+              onRecenterTap: () =>
+                  _mapController.recenterTo(_position, 16.0),
+              markers: const [],
+            ),
+          ),
+          // Real-time active order synchronization across customer devices.
+          if (widget.user != null)
+            Positioned(
+              top: 0,
+              left: 16,
+              right: 68, // Leave clearance for notification bell button on the right
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                    offset: _mapInteractionController.isImmersive
+                        ? const Offset(0, -1.2)
+                        : Offset.zero,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 250),
+                      opacity:
+                          _mapInteractionController.isImmersive ? 0.0 : 1.0,
+                      child: IgnorePointer(
+                        ignoring: _mapInteractionController.isImmersive,
                         child: StreamBuilder<List<ActiveTrip>>(
                           stream: _tripRepo.activeTripsStream(widget.user!.uid),
                           builder: (context, snapshot) {
-                            final activeTrips =
-                                (snapshot.data ?? []).where((t) => t.isCustomerLive).toList();
+                            final activeTrips = (snapshot.data ?? [])
+                                .where((t) => t.isCustomerLive)
+                                .toList();
                             if (activeTrips.isEmpty) return const SizedBox.shrink();
                             if (activeTrips.length > 1) {
-                              return _buildMultiActiveTripFloatingPills(activeTrips);
+                              return _buildMultiActiveTripFloatingPills(
+                                  activeTrips);
                             }
-                            return _buildActiveTripFloatingPill(activeTrips.first);
+                            return _buildActiveTripFloatingPill(
+                                activeTrips.first);
                           },
                         ),
                       ),
                     ),
                   ),
-                // Notification bell: top-right over the map canvas.
-                Positioned(
-                  top: 0,
-                  right: 8,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
+                ),
+              ),
+            ),
+          // Notification bell: top-right over the map canvas.
+          Positioned(
+            top: 0,
+            right: 8,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  offset: _mapInteractionController.isImmersive
+                      ? const Offset(0, -1.2)
+                      : Offset.zero,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 250),
+                    opacity:
+                        _mapInteractionController.isImmersive ? 0.0 : 1.0,
+                    child: IgnorePointer(
+                      ignoring: _mapInteractionController.isImmersive,
                       child: Material(
                         shape: const CircleBorder(),
                         elevation: 4,
@@ -241,10 +292,15 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-          _buildActionSheet(),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildActionSheet(),
+          ),
         ],
       ),
     );
@@ -447,37 +503,70 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final sheetBg = theme.colorScheme.surface;
     final handleColor = isDark ? Colors.grey.shade700 : Colors.grey.shade300;
+    final isImmersive = _mapInteractionController.isImmersive;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: sheetBg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
-          BoxShadow(
-            color: isDark ? Colors.black54 : Colors.black12,
-            blurRadius: 12,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      // 16px gutters so the action cards span edge-to-edge on phones.
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Center(
-            child: Container(
-              width: 56,
-              height: 5,
-              decoration: BoxDecoration(
-                color: handleColor,
-                borderRadius: BorderRadius.circular(3),
+    return AnimatedSlide(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+      offset: isImmersive ? const Offset(0, 0.78) : Offset.zero,
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          if (details.primaryDelta != null && details.primaryDelta! < -5) {
+            _mapInteractionController.restoreUI();
+          } else if (details.primaryDelta != null && details.primaryDelta! > 5) {
+            _mapInteractionController.notifyInteractionStarted(
+              currentLat: _position.latitude,
+              currentLng: _position.longitude,
+            );
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: sheetBg,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: [
+              BoxShadow(
+                color: isDark ? Colors.black54 : Colors.black12,
+                blurRadius: 12,
+                offset: const Offset(0, -4),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Row(
+          // 16px gutters so the action cards span edge-to-edge on phones.
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
+              GestureDetector(
+                onTap: () {
+                  if (isImmersive) {
+                    _mapInteractionController.restoreUI();
+                  } else {
+                    _mapInteractionController.notifyInteractionStarted(
+                      currentLat: _position.latitude,
+                      currentLng: _position.longitude,
+                    );
+                  }
+                },
+                child: Container(
+                  color: Colors.transparent,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 4, horizontal: 24),
+                  child: Center(
+                    child: Container(
+                      width: 56,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: handleColor,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
               Expanded(
                 child: _ActionCard(
                   icon: const VehicleIllustration(
@@ -519,7 +608,9 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           ),
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }
 

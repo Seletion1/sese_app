@@ -131,8 +131,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   LatLng? _panOriginPosition;
   bool _hasAutoCollapsedForTrip = false;
   bool _isFollowingUser = true;
-  bool _isMapInteracting = false;
-  Timer? _mapInactivityTimer;
+
+  /// Unified controller for immersive map interaction, UI autohide, and snap-to-edge sheet collapse.
+  late final MapInteractionController _mapInteractionController =
+      MapInteractionController(
+    inactivityDuration: const Duration(milliseconds: 2000),
+    sheetCollapsedExtent: _sheetCollapsedSize,
+    sheetStandardExtent: _sheetStandardSize,
+    sheetController: _activeTripSheetController,
+    onRecenter: _recenterMap,
+    onImmersiveChanged: (val) {
+      if (mounted) setState(() {});
+    },
+  );
+
+  bool get _isMapInteracting => _mapInteractionController.isImmersive;
   DateTime? _lastPanTime;
   List<LatLng> _activeRoutePoints = [];
   List<RouteStep> _activeRouteSteps = [];
@@ -170,26 +183,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _handleMapGestureStarted() {
-    _mapInactivityTimer?.cancel();
-    if (!_isMapInteracting) {
-      if (mounted) {
-        setState(() {
-          _isMapInteracting = true;
-        });
-      }
-    }
-    _scheduleMapInactivityTimer();
-  }
-
-  void _scheduleMapInactivityTimer() {
-    _mapInactivityTimer?.cancel();
-    _mapInactivityTimer = Timer(const Duration(milliseconds: 3000), () {
-      if (mounted && _isMapInteracting) {
-        setState(() {
-          _isMapInteracting = false;
-        });
-      }
-    });
+    _mapInteractionController.notifyInteractionStarted(
+      currentLat: _driverPosition.latitude,
+      currentLng: _driverPosition.longitude,
+    );
   }
 
   void _checkAndShowPostTripRating(ActiveTrip trip) async {
@@ -441,7 +438,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   @override
   void dispose() {
-    _mapInactivityTimer?.cancel();
+    _mapInteractionController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _statusSubscription?.cancel();
     _livePositionSubscription?.cancel();
@@ -583,17 +580,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _recenterMap() {
-    _mapInactivityTimer?.cancel();
     final active = _currentActiveTrip;
     if (active != null && active.status == TripStatus.inProgress) {
       _mapController.recenterToBottomCenter(_driverPosition, zoom: 17.0);
     } else {
       _mapController.recenterTo(_driverPosition, 16.5);
     }
+    _mapInteractionController.restoreUI();
     if (mounted) {
       setState(() {
         _isFollowingUser = true;
-        _isMapInteracting = false;
       });
     }
   }
@@ -601,12 +597,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   void _checkAutoResumeTracking(Position pos, LatLng newPos) {
     if (_isFollowingUser) {
       if (_isMapInteracting) {
-        _mapInactivityTimer?.cancel();
-        if (mounted) {
-          setState(() {
-            _isMapInteracting = false;
-          });
-        }
+        _mapInteractionController.restoreUI();
       }
       return;
     }
@@ -669,6 +660,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _lastGpsPosition = newPos;
 
           _updateCurrentGuidanceStep(newPos);
+          _mapInteractionController.onLocationUpdate(
+            pos.latitude,
+            pos.longitude,
+            speed: pos.speed,
+          );
 
           setState(() {
             _driverPosition = newPos;
@@ -1596,8 +1592,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               child: Listener(
                 onPointerDown: (_) => _handleMapGestureStarted(),
                 onPointerMove: (_) => _handleMapGestureStarted(),
-                onPointerUp: (_) => _scheduleMapInactivityTimer(),
-                onPointerCancel: (_) => _scheduleMapInactivityTimer(),
+                onPointerUp: (_) =>
+                    _mapInteractionController.notifyInteractionEnded(),
+                onPointerCancel: (_) =>
+                    _mapInteractionController.notifyInteractionEnded(),
                 child: _buildMapBase(active),
               ),
             ),
@@ -1898,20 +1896,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   bottom: 180,
                   child: _RasterCredit(),
                 ),
-              // Full-width draggable bottom action sheet extending directly above the bottom nav bar
-              AnimatedSlide(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                offset: _isMapInteracting ? const Offset(0, 0.3) : Offset.zero,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 250),
-                  opacity: _isMapInteracting ? 0.0 : 1.0,
-                  child: IgnorePointer(
-                    ignoring: _isMapInteracting,
-                    child: _buildActiveTripCard(active),
-                  ),
-                ),
-              ),
+              // Full-width draggable bottom action sheet extending directly above the bottom nav bar.
+              // Kept visible at its snap-to-edge size during map interaction so driver
+              // can easily pull it back up; never hidden or dismissed with opacity 0.
+              _buildActiveTripCard(active),
             ] else if (_isOnline) ...[
               Positioned(
                 left: 12,
@@ -2028,6 +2016,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           ? MapContext.realtimeTracking
           : MapContext.idlePositioning,
       mapController: _mapController,
+      interactionController: _mapInteractionController,
+      onInteractionStarted: _handleMapGestureStarted,
+      onInteractionEnded: () => _mapInteractionController.notifyInteractionEnded(),
       initialCenter: _driverPosition,
       initialZoom: hasActiveTrip ? 16.5 : 15.0,
       isDarkOverride: isDark,

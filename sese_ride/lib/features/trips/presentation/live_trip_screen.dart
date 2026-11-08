@@ -621,6 +621,21 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   double get _activeStageRadiusKm =>
       _dispatchTuning.radiusForTier(widget.trip.dispatchTier);
 
+  /// Unified controller for immersive map interaction, UI autohide, and snap-to-edge sheet collapse.
+  late final MapInteractionController _mapInteractionController =
+      MapInteractionController(
+    inactivityDuration: const Duration(milliseconds: 2000),
+    sheetCollapsedExtent: 0.18,
+    sheetStandardExtent: 0.38,
+    onRecenter: () {
+      _pauseCameraLoopForUser();
+      _fitRoute();
+    },
+    onImmersiveChanged: (val) {
+      if (mounted) setState(() {});
+    },
+  );
+
   LatLng? get _effectiveDriverPos {
     if (_assignedDriverFix != null) return _assignedDriverFix;
     if (widget.trip.driverLat != null && widget.trip.driverLng != null) {
@@ -676,6 +691,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
           final prevDriverPos = _assignedDriverFix;
           setState(() => _assignedDriverFix = newFix);
+          _mapInteractionController.onLocationUpdate(lat, lng);
 
           if (_isDriverEnRouteToPickup) {
             final distanceMoved = prevDriverPos == null
@@ -767,6 +783,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
 
   @override
   void dispose() {
+    _mapInteractionController.dispose();
     _cameraLoopInitTimer?.cancel();
     _stopCameraLoop();
     _nearbyDriversSub?.cancel();
@@ -1048,6 +1065,14 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           child: SeSeMapView(
             mapContext: MapContext.realtimeTracking,
             mapController: _mapController,
+            interactionController: _mapInteractionController,
+            onInteractionStarted: () =>
+                _mapInteractionController.notifyInteractionStarted(
+              currentLat: focus.latitude,
+              currentLng: focus.longitude,
+            ),
+            onInteractionEnded: () =>
+                _mapInteractionController.notifyInteractionEnded(),
             initialCenter: focus,
             initialZoom: 15.0,
             showMyLocation: true,
@@ -1057,13 +1082,18 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         ),
 
         // 2. Map Recenter FAB (anchored above bottom sheet)
-        Positioned(
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
           right: 16,
-          bottom: _isSearching ? 240 : 160,
+          bottom: _mapInteractionController.isImmersive
+              ? 50
+              : (_isSearching ? 240 : 160),
           child: MapRecenterButton(
             key: const Key('live_trip_recenter'),
             icon: Icons.fit_screen,
             onTap: () {
+              _mapInteractionController.restoreUI();
               _pauseCameraLoopForUser();
               _fitRoute();
             },
@@ -1079,6 +1109,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             stageRadius: _activeStageRadiusKm,
             onCancel: () => _cancel(context),
             dispatchTuning: _dispatchTuning,
+            interactionController: _mapInteractionController,
           )
         // Accepted driver sheet (when a driver accepts)
         else if (trip.driver != null &&
@@ -1097,6 +1128,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
               trip,
               isPushedFromDispatch: widget.isPushedFromDispatch,
             ),
+            interactionController: _mapInteractionController,
           ),
       ],
     );
@@ -1602,6 +1634,7 @@ class _LiveTripSearchingSheet extends StatefulWidget {
   final double stageRadius;
   final VoidCallback onCancel;
   final DispatchTuning dispatchTuning;
+  final MapInteractionController? interactionController;
 
   const _LiveTripSearchingSheet({
     required this.trip,
@@ -1610,6 +1643,7 @@ class _LiveTripSearchingSheet extends StatefulWidget {
     required this.stageRadius,
     required this.onCancel,
     this.dispatchTuning = const DispatchTuning(),
+    this.interactionController,
   });
 
   @override
@@ -1622,7 +1656,23 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
       DraggableScrollableController();
 
   @override
+  void initState() {
+    super.initState();
+    widget.interactionController?.attachSheetController(_sheetController);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveTripSearchingSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.interactionController != oldWidget.interactionController) {
+      oldWidget.interactionController?.detachSheetController();
+      widget.interactionController?.attachSheetController(_sheetController);
+    }
+  }
+
+  @override
   void dispose() {
+    widget.interactionController?.detachSheetController();
     _sheetController.dispose();
     super.dispose();
   }
@@ -1673,10 +1723,10 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
     return DraggableScrollableSheet(
       controller: _sheetController,
       initialChildSize: 0.38,
-      minChildSize: 0.28,
+      minChildSize: 0.18,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.28, 0.38, 0.88],
+      snapSizes: const [0.18, 0.38, 0.88],
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -1944,6 +1994,7 @@ class _AcceptedDriverSheet extends StatefulWidget {
 
   /// Optional live assigned driver position override (from real-time stream).
   final LatLng? driverPosOverride;
+  final MapInteractionController? interactionController;
 
   const _AcceptedDriverSheet({
     required this.driver,
@@ -1952,6 +2003,7 @@ class _AcceptedDriverSheet extends StatefulWidget {
     this.onCancel,
     this.onNavigateAway,
     this.driverPosOverride,
+    this.interactionController,
   });
 
   @override
@@ -1965,6 +2017,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
 
   @override
   void dispose() {
+    widget.interactionController?.detachSheetController();
     _sheetController.dispose();
     super.dispose();
   }
@@ -1972,9 +2025,19 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   @override
   void initState() {
     super.initState();
+    widget.interactionController?.attachSheetController(_sheetController);
     PrivacyMasking.hidePhonesEnabled().then((v) {
       if (mounted) setState(() => _hidePhones = v);
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant _AcceptedDriverSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.interactionController != oldWidget.interactionController) {
+      oldWidget.interactionController?.detachSheetController();
+      widget.interactionController?.attachSheetController(_sheetController);
+    }
   }
 
   String _firstName(String fullName) {

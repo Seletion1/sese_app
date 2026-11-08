@@ -161,164 +161,238 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
       context: context,
       builder: (ctx) {
         final point = LatLng(lat, lng);
-        return Dialog(
-          insetPadding: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: SizedBox(
-            width: 600,
-            height: 520,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.location_on,
-                        color: isOnline ? Colors.green.shade700 : Colors.grey.shade700,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Live GPS: $driverName',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
-                              '${plateNumber != null ? " • $plateNumber" : ""}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(ctx).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
+        final interactionController = MapInteractionController(
+          inactivityDuration: const Duration(milliseconds: 2000),
+        );
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            interactionController.onImmersiveChanged =
+                (_) => setModalState(() {});
+            final isImmersive = interactionController.isImmersive;
 
-                // Interactive Map Canvas — Hub-managed tile config (same
-                // `/system_config/remote_keys` chain as the ride apps: Hub
-                // provider pin + Voyager retina spec), so no standalone map
-                // instance is left unmanaged.
-                Expanded(
-                  child: ClipRRect(
-                    child: StreamBuilder<GlobalMapConfig>(
-                      stream: const RemoteKeysService()
-                          .streamGlobalMapConfig(),
-                      initialData: const GlobalMapConfig(),
-                      builder: (context, snapshot) {
-                        final tileUrl = (snapshot.data ??
-                                const GlobalMapConfig())
-                            .resolveTileUrl();
-                        return FlutterMap(
-                          options: MapOptions(
-                            initialCenter: point,
-                            initialZoom: 15.0,
-                            interactionOptions: const InteractionOptions(
-                              flags: InteractiveFlag.all,
+            return Dialog(
+              insetPadding: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: SizedBox(
+                width: 600,
+                height: 520,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            color: isOnline
+                                ? Colors.green.shade700
+                                : Colors.grey.shade700,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Live GPS: $driverName',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
+                                  '${plateNumber != null ? " • $plateNumber" : ""}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          children: [
-                            TileLayer(
-                              urlTemplate: tileUrl,
-                              subdomains: const ['a', 'b', 'c', 'd'],
-                              userAgentPackageName: 'com.sesetech.sese_hub',
-                              retinaMode: true,
-                            ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: point,
-                              width: 64,
-                              height: 64,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 6, vertical: 2),
-                                    decoration: BoxDecoration(
-                                      color: isOnline ? Colors.green.shade800 : Colors.grey.shade800,
-                                      borderRadius: BorderRadius.circular(8),
-                                      boxShadow: const [
-                                        BoxShadow(color: Colors.black26, blurRadius: 4),
-                                      ],
-                                    ),
-                                    child: Text(
-                                      isOnline ? 'ONLINE' : 'LAST FIX',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              interactionController.dispose();
+                              Navigator.of(ctx).pop();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+
+                    // Interactive Map Canvas — Hub-managed tile config (same
+                    // `/system_config/remote_keys` chain as the ride apps: Hub
+                    // provider pin + Voyager retina spec), so no standalone map
+                    // instance is left unmanaged.
+                    Expanded(
+                      child: ClipRRect(
+                        child: Listener(
+                          behavior: HitTestBehavior.translucent,
+                          onPointerDown: (_) =>
+                              interactionController.notifyInteractionStarted(
+                            currentLat: lat,
+                            currentLng: lng,
+                          ),
+                          onPointerUp: (_) =>
+                              interactionController.notifyInteractionEnded(),
+                          child: StreamBuilder<GlobalMapConfig>(
+                            stream: const RemoteKeysService()
+                                .streamGlobalMapConfig(),
+                            initialData: const GlobalMapConfig(),
+                            builder: (context, snapshot) {
+                              final tileUrl = (snapshot.data ??
+                                      const GlobalMapConfig())
+                                  .resolveTileUrl();
+                              return FlutterMap(
+                                options: MapOptions(
+                                  initialCenter: point,
+                                  initialZoom: 15.0,
+                                  interactionOptions: const InteractionOptions(
+                                    flags: InteractiveFlag.all,
                                   ),
-                                  const SizedBox(height: 2),
-                                  Icon(
-                                    Icons.directions_car_filled,
-                                    size: 32,
-                                    color: isOnline ? Colors.green.shade700 : Colors.grey.shade800,
+                                  onPositionChanged: (camera, hasGesture) {
+                                    if (hasGesture) {
+                                      interactionController
+                                          .notifyInteractionStarted(
+                                        currentLat: camera.center.latitude,
+                                        currentLng: camera.center.longitude,
+                                      );
+                                    }
+                                  },
+                                  onTap: (tapPosition, point) {
+                                    interactionController
+                                        .notifyInteractionStarted(
+                                      currentLat: lat,
+                                      currentLng: lng,
+                                    );
+                                    interactionController
+                                        .notifyInteractionEnded();
+                                  },
+                                ),
+                                children: [
+                                  TileLayer(
+                                    urlTemplate: tileUrl,
+                                    subdomains: const ['a', 'b', 'c', 'd'],
+                                    userAgentPackageName:
+                                        'com.sesetech.sese_hub',
+                                    retinaMode: true,
+                                  ),
+                                  MarkerLayer(
+                                    markers: [
+                                      Marker(
+                                        point: point,
+                                        width: 64,
+                                        height: 64,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: isOnline
+                                                    ? Colors.green.shade800
+                                                    : Colors.grey.shade800,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                                boxShadow: const [
+                                                  BoxShadow(
+                                                      color: Colors.black26,
+                                                      blurRadius: 4),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                isOnline ? 'ONLINE' : 'LAST FIX',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Icon(
+                                              Icons.directions_car_filled,
+                                              size: 32,
+                                              color: isOnline
+                                                  ? Colors.green.shade700
+                                                  : Colors.grey.shade800,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
-                              ),
-                            ),
-                          ],
-                        ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ),
-
-                // Bottom Action Bar
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      if (lastUpdated != null)
-                        Text(
-                          'Last fix: ${_formatTime(lastUpdated)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              );
+                            },
                           ),
                         ),
-                      const Spacer(),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.open_in_new, size: 16),
-                        label: const Text('Open in Google Maps'),
-                        onPressed: () async {
-                          final uri = Uri.parse(
-                            'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
-                          );
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
                       ),
-                    ],
-                  ),
+                    ),
+
+                    // Bottom Action Bar
+                    AnimatedSlide(
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                      offset: isImmersive ? const Offset(0, 1.2) : Offset.zero,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 250),
+                        opacity: isImmersive ? 0.0 : 1.0,
+                        child: IgnorePointer(
+                          ignoring: isImmersive,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                if (lastUpdated != null)
+                                  Text(
+                                    'Last fix: ${_formatTime(lastUpdated)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
+                                  ),
+                                const Spacer(),
+                                OutlinedButton.icon(
+                                  icon:
+                                      const Icon(Icons.open_in_new, size: 16),
+                                  label: const Text('Open in Google Maps'),
+                                  onPressed: () async {
+                                    final uri = Uri.parse(
+                                      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+                                    );
+                                    if (await canLaunchUrl(uri)) {
+                                      await launchUrl(uri,
+                                          mode:
+                                              LaunchMode.externalApplication);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

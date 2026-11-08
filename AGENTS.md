@@ -72,6 +72,29 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Immersive Full-Screen Map Interaction & Intelligent Bottom Sheet Minimization Across All Providers
+
+- **1. Unified Multi-Provider Map Gesture & Pointer Abstraction (`MapInteractionController`, `SeseUniversalMap`, `OsmMapView`)**:
+  - Implemented `MapInteractionController` in `sese_core`: an engine-agnostic state manager unifying gesture detection, UI autohide, and snap-to-edge sheet minimization across Google Maps (`google_maps_flutter`), Mapbox, and CartoDB raster tile layers (`flutter_map`).
+  - Wrapped `SeseUniversalMap` canvases in a translucent `Listener` and synchronized `SeSeMapController` with `handleUserGesture`, `handleUserTap`, `handleInteractionStarted`, and `handleInteractionEnded`.
+  - Captures taps, pointer interactions, and manual camera drags regardless of which map provider is active (via Remote Config or Hub switching).
+
+- **2. Intelligent Bottom Sheet Minimization (Snap-to-Edge) (`driver_dashboard_screen.dart`, `customer_home_map_screen.dart`, `live_trip_screen.dart`, `driver_management_screen.dart`)**:
+  - Removed previous destructive sheet hiding (`AnimatedOpacity(opacity: 0.0)` / off-screen slide dismissals) that obscured active order details during map panning.
+  - Replaced with intelligent snap-to-edge minimization: when the user taps or drags the active map canvas, open bottom sheets smoothly animate down to their minimum snap edge (`0.18` / peek handle extent) via `DraggableScrollableController.animateTo(sheetCollapsedExtent, duration: 300ms, curve: Curves.easeOutCubic)`.
+  - Keeps the clean drag handle and collapsed ETA/status HUD visible at the bottom of the viewport so the user or driver can easily pull it back up at any time.
+
+- **3. Dual Restoration Triggers: Inactivity Timer OR Device Movement / Driving Away**:
+  - **Restoration Trigger A (Inactivity Timer)**: When map touch or gesture interaction ceases, an inactivity countdown timer (configurable 1–3s, default 2.0s) begins. Upon expiration, smoothly restores non-essential floating overlays and expands the bottom sheet back to standard extent (`0.44` or `0.38`).
+  - **Restoration Trigger B (GPS Movement / Driving Away)**: Integrated `onLocationUpdate(lat, lng, speed)` into live position streams. If active vehicle movement is detected (speed > 1.2 m/s ~ 4.3 km/h or GPS coordinate displacement > 10m from pan origin), immediately bypasses the timer, restores the UI, and re-centers the camera on the vehicle without waiting.
+
+- **4. Verification & Testing**:
+  - Static Analysis: `flutter analyze` ran with **0 issues** across `sese_core`, `sese_hub`, and `sese_ride`.
+  - Unit & Widget Tests:
+    - `sese_core/test/map_interaction_controller_test.dart`: 5/5 tests passed (initial state, interaction trigger, inactivity timer restore, speed movement restore, coordinate delta restore).
+    - `sese_ride/test/immersive_map_interaction_test.dart`: 3/3 tests passed (canvas tap minimization, manual drag autohide, GPS movement immediate restore).
+    - `sese_ride/test/customer_home_map_test.dart`, `driver_navigation_telemetry_test.dart`, `driver_active_trip_card_test.dart`: 18/18 tests passed.
+
 ## 2026-11-07 — Production Failure Points Hardening: Rules Deployment, Defensive State, Idempotent Payments & App Check
 
 - **1. Pre-flight Deployment & StreamBuilder Error Boundary (`scripts/preflight_deploy.sh`, `safe_stream_builder.dart`)**:
