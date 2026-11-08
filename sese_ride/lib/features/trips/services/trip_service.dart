@@ -196,7 +196,34 @@ class FirestoreTripRepository implements TripRepository {
               continue;
             }
 
-            map[trip.tripId] = trip;
+            final existing = map[trip.tripId];
+            if (existing != null) {
+              // Deduplication & state superseding:
+              // 1. Terminal completed state strictly supersedes any earlier skipped or open snapshot.
+              if (existing.status == TripStatus.completed &&
+                  trip.status != TripStatus.completed) {
+                continue;
+              }
+              if (trip.status == TripStatus.completed &&
+                  existing.status != TripStatus.completed) {
+                map[trip.tripId] = trip;
+                continue;
+              }
+              // 2. Actively assigned state supersedes unassigned/preliminary snapshot.
+              if (isAssignedDriver &&
+                  existing.driver?.driverId != userId &&
+                  existing.driverId != userId) {
+                map[trip.tripId] = trip;
+                continue;
+              }
+              // 3. Later activity timestamp supersedes earlier.
+              if (trip.latestActivityDate.isAfter(existing.latestActivityDate)) {
+                map[trip.tripId] = trip;
+                continue;
+              }
+            } else {
+              map[trip.tripId] = trip;
+            }
           } catch (e) {
             debugPrint('Error parsing trip doc ${doc.id}: $e');
           }

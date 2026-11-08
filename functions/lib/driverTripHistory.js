@@ -105,7 +105,7 @@ function collectAssignedDriverIds(data) {
 }
 const HISTORY_COLLECTION = "trip_history";
 exports.onTripWrittenForDriverHistory = (0, firestore_1.onDocumentWritten)("trips/{tripId}", async (event) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g;
     const tripId = event.params.tripId;
     const before = (_b = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before) === null || _b === void 0 ? void 0 : _b.data();
     const after = (_d = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after) === null || _d === void 0 ? void 0 : _d.data();
@@ -125,16 +125,36 @@ exports.onTripWrittenForDriverHistory = (0, firestore_1.onDocumentWritten)("trip
     if (ids.length === 0)
         return;
     const assigned = collectAssignedDriverIds(after);
+    const isTripCompleted = String((_e = after.status) !== null && _e !== void 0 ? _e : "").toUpperCase() === "COMPLETED";
     const batch = db().batch();
     for (const uid of ids) {
+        const isAssigned = assigned.has(uid);
         const ref = db().collection("drivers").doc(uid).collection(HISTORY_COLLECTION).doc(tripId);
-        batch.set(ref, Object.assign(Object.assign({}, after), { mirroredAt: admin.firestore.FieldValue.serverTimestamp(), isAssignedMirror: assigned.has(uid) }), { merge: true });
+        const mirrorData = Object.assign(Object.assign({}, after), { mirroredAt: admin.firestore.FieldValue.serverTimestamp(), isAssignedMirror: isAssigned });
+        // If the trip completed and this driver fulfilled it, or if this driver is actively assigned,
+        // clear any preliminary skip or cancellation flags.
+        if (isAssigned || isTripCompleted) {
+            if (isTripCompleted ||
+                after.status === "DRIVER_ACCEPTED" ||
+                after.status === "DRIVER_ARRIVING" ||
+                after.status === "DRIVER_ARRIVED" ||
+                after.status === "IN_PROGRESS") {
+                mirrorData.cancellationSource = (_f = after.cancellationSource) !== null && _f !== void 0 ? _f : null;
+                mirrorData.cancellationReason = (_g = after.cancellationReason) !== null && _g !== void 0 ? _g : null;
+            }
+        }
+        // If this driver is the assigned driver, any previous rejection/skip
+        // by this driver is strictly superseded by their acceptance/completion.
+        if (isAssigned && Array.isArray(mirrorData.rejections)) {
+            mirrorData.rejections = mirrorData.rejections.map((r) => r && r.driverId === uid ? Object.assign(Object.assign({}, r), { superseded: true }) : r);
+        }
+        batch.set(ref, mirrorData);
     }
     await batch.commit();
 });
 /** SUPER_ADMIN-only one-shot backfill: mirrors the trips collection page by page. */
 exports.backfillDriverTripHistory = (0, https_2.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
     const uid = (_b = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid) !== null && _b !== void 0 ? _b : "";
     if (!uid)
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
@@ -165,9 +185,25 @@ exports.backfillDriverTripHistory = (0, https_2.onCall)(async (request) => {
         if (ids.length === 0)
             continue;
         const assigned = collectAssignedDriverIds(data);
+        const isTripCompleted = String((_p = data.status) !== null && _p !== void 0 ? _p : "").toUpperCase() === "COMPLETED";
         for (const driverUid of ids) {
+            const isAssigned = assigned.has(driverUid);
             const ref = db().collection("drivers").doc(driverUid).collection(HISTORY_COLLECTION).doc(d.id);
-            batch.set(ref, Object.assign(Object.assign({}, data), { mirroredAt: admin.firestore.FieldValue.serverTimestamp(), isAssignedMirror: assigned.has(driverUid) }), { merge: true });
+            const mirrorData = Object.assign(Object.assign({}, data), { mirroredAt: admin.firestore.FieldValue.serverTimestamp(), isAssignedMirror: isAssigned });
+            if (isAssigned || isTripCompleted) {
+                if (isTripCompleted ||
+                    data.status === "DRIVER_ACCEPTED" ||
+                    data.status === "DRIVER_ARRIVING" ||
+                    data.status === "DRIVER_ARRIVED" ||
+                    data.status === "IN_PROGRESS") {
+                    mirrorData.cancellationSource = (_q = data.cancellationSource) !== null && _q !== void 0 ? _q : null;
+                    mirrorData.cancellationReason = (_r = data.cancellationReason) !== null && _r !== void 0 ? _r : null;
+                }
+            }
+            if (isAssigned && Array.isArray(mirrorData.rejections)) {
+                mirrorData.rejections = mirrorData.rejections.map((r) => r && r.driverId === driverUid ? Object.assign(Object.assign({}, r), { superseded: true }) : r);
+            }
+            batch.set(ref, mirrorData);
             mirrored += 1;
         }
     }

@@ -171,6 +171,8 @@ class _TripFeedCard extends StatelessWidget {
     final isAssignedDriver = isDriver &&
         (trip.driver?.driverId == currentUserId || trip.driverId == currentUserId);
     final isSkippedOrRejected = isDriver &&
+        !isAssignedDriver &&
+        trip.status != TripStatus.completed &&
         (trip.driverRejectionAction(currentUserId) != null ||
             trip.isDriverSkipped(currentUserId) ||
             trip.isDriverRejected(currentUserId));
@@ -527,9 +529,13 @@ class _TripFeedCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       ...trip.rejections.map((r) {
-                        final action = r['action'] == 'skipped'
+                        final isSuperseded = r['superseded'] == true;
+                        final baseAction = r['action'] == 'skipped'
                             ? 'Skipped by Driver'
                             : 'Rejected by Driver';
+                        final action = isSuperseded
+                            ? '$baseAction (Superseded)'
+                            : baseAction;
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
                           child: Row(
@@ -607,31 +613,55 @@ class _StatusChip extends StatelessWidget {
     final Color color;
     final Color bgColor;
 
-    final isRejected = status == TripStatus.rejected ||
-        source == 'driver_declined' ||
-        source == 'driver_rejected' ||
-        source == 'rejected_by_driver' ||
-        source == 'rejected' ||
-        source == 'declined' ||
-        driverAction == 'rejected';
-
-    final isSkipped = status == TripStatus.ignored ||
-        source == 'skipped_by_driver' ||
-        source == 'ping_expired' ||
-        source == 'ignored' ||
-        source == 'skipped' ||
-        source == 'timeout' ||
-        driverAction == 'skipped';
-
-    if (isRejected) {
-      label = isDriver ? 'Rejected by Driver' : 'Rejected by Driver';
-      color = const Color(0xFFD97706);
-      bgColor = const Color(0xFFFEF3C7);
-    } else if (isSkipped) {
-      label = isDriver ? 'Skipped by Driver' : 'Skipped by Driver';
+    // 1. Terminal completion always takes supreme priority over any preliminary
+    // audit logs, previous skip records, or stale cancellation markers.
+    if (status == TripStatus.completed) {
+      label = 'Completed';
+      color = const Color(0xFF059669);
+      bgColor = const Color(0xFFD1FAE5);
+    } else if (status == TripStatus.inProgress) {
+      label = 'In Progress';
+      color = const Color(0xFF2563EB);
+      bgColor = const Color(0xFFDBEAFE);
+    } else if (status == TripStatus.driverAccepted || status == TripStatus.driverArriving) {
+      label = 'Driver En Route';
+      color = const Color(0xFF059669);
+      bgColor = const Color(0xFFD1FAE5);
+    } else if (status == TripStatus.driverArrived) {
+      label = 'Driver Arrived';
+      color = const Color(0xFF059669);
+      bgColor = const Color(0xFFD1FAE5);
+    } else if (status == TripStatus.cancelledWaitingCashSettlement) {
+      label = 'Awaiting Cash Confirmation';
       color = const Color(0xFFD97706);
       bgColor = const Color(0xFFFEF3C7);
     } else {
+      // 2. Open/searching, cancelled, or explicit rejection states
+      final isRejected = status == TripStatus.rejected ||
+          source == 'driver_declined' ||
+          source == 'driver_rejected' ||
+          source == 'rejected_by_driver' ||
+          source == 'rejected' ||
+          source == 'declined' ||
+          driverAction == 'rejected';
+
+      final isSkipped = status == TripStatus.ignored ||
+          source == 'skipped_by_driver' ||
+          source == 'ping_expired' ||
+          source == 'ignored' ||
+          source == 'skipped' ||
+          source == 'timeout' ||
+          driverAction == 'skipped';
+
+      if (isRejected) {
+        label = isDriver ? 'Rejected by Driver' : 'Rejected by Driver';
+        color = const Color(0xFFD97706);
+        bgColor = const Color(0xFFFEF3C7);
+      } else if (isSkipped) {
+        label = isDriver ? 'Skipped by Driver' : 'Skipped by Driver';
+        color = const Color(0xFFD97706);
+        bgColor = const Color(0xFFFEF3C7);
+      } else {
       switch (status) {
         // ── Terminal success ───────────────────────────────────────────────
         case TripStatus.completed:
@@ -718,6 +748,7 @@ class _StatusChip extends StatelessWidget {
           bgColor = const Color(0xFFF3F4F6);
       }
     }
+  }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),

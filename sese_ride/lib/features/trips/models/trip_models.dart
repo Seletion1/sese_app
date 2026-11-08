@@ -442,11 +442,28 @@ class ActiveTrip {
   });
 
   /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
-  /// or null if no rejection entry exists for that driver.
+  /// or null if no active rejection entry exists for that driver.
+  ///
+  /// If the driver subsequently claimed/accepted the trip, or if the trip completed,
+  /// preliminary skip/rejection logs are considered superseded and resolve to null.
   String? driverRejectionAction(String driverId) {
     if (rejections.isEmpty) return null;
+    final isAssigned = (driver?.driverId == driverId || this.driverId == driverId);
+    if (isAssigned &&
+        (status == TripStatus.driverAccepted ||
+            status == TripStatus.driverArriving ||
+            status == TripStatus.driverArrived ||
+            status == TripStatus.inProgress ||
+            status == TripStatus.completed ||
+            status == TripStatus.cancelledWaitingCashSettlement)) {
+      return null;
+    }
+    if (status == TripStatus.completed) {
+      return null;
+    }
     for (final r in rejections.reversed) {
       if (r['driverId']?.toString() == driverId) {
+        if (r['superseded'] == true || r['action'] == 'superseded') continue;
         return r['action']?.toString();
       }
     }
@@ -656,9 +673,11 @@ class ActiveTrip {
             ? '₦${fareAmount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
             : '');
 
+    final parsedStatus = tripStatusFromString(map['status']?.toString());
+
     return ActiveTrip(
       tripId: tripId,
-      status: tripStatusFromString(map['status']?.toString()),
+      status: parsedStatus,
       customerId: (map['customerId'] ??
               map['userId'] ??
               (map['customer'] is Map ? map['customer']['uid'] : null) ??
@@ -724,7 +743,13 @@ class ActiveTrip {
       grandAwardTriggered: settlement['grandAwardTriggered'] == true,
       grandAwardAmount:
           n(settlement['grandAwardAmount'])?.toDouble() ?? 0,
-      cancellationSource: map['cancellationSource']?.toString(),
+      cancellationSource: (parsedStatus == TripStatus.completed ||
+              parsedStatus == TripStatus.inProgress ||
+              parsedStatus == TripStatus.driverAccepted ||
+              parsedStatus == TripStatus.driverArriving ||
+              parsedStatus == TripStatus.driverArrived)
+          ? null
+          : map['cancellationSource']?.toString(),
       baselineFare: n(map['baselineFare'])?.toDouble() ?? 0,
       fareBoosted: map['fareBoosted'] == true,
       boostPercent: n(map['boostPercent'])?.toInt() ?? 0,

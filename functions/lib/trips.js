@@ -1397,11 +1397,18 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
                 });
             }
         }
+        // If this claiming driver previously skipped or rejected this order,
+        // supersede that preliminary rejection record so the trip state cleanly resolves.
+        const existingRejections = Array.isArray(data.rejections) ? data.rejections : [];
+        const updatedRejections = existingRejections.map((r) => r && r.driverId === driverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r);
         tx.update(ref, {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
             dispatchTier: (_o = data.dispatchTier) !== null && _o !== void 0 ? _o : null,
+            cancellationSource: null,
+            cancellationReason: null,
+            rejections: updatedRejections,
             pingDriverId: null,
             pingDriverIds: [],
             pingExpiresAt: null,
@@ -1652,6 +1659,12 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
         }
         else if (status === "COMPLETED") {
             update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
+            update["cancellationSource"] = null;
+            update["cancellationReason"] = null;
+            const rejectionsList = Array.isArray(data.rejections) ? data.rejections : [];
+            if (rejectionsList.some((r) => (r === null || r === void 0 ? void 0 : r.driverId) === driverId && !(r === null || r === void 0 ? void 0 : r.superseded))) {
+                update["rejections"] = rejectionsList.map((r) => r && r.driverId === driverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r);
+            }
         }
         if (((_f = request.data) === null || _f === void 0 ? void 0 : _f.recordDropoffArrival) === true && !data.dropoffArrivedAt) {
             update["dropoffArrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
@@ -2284,10 +2297,17 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
             acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        // If this accepted bidder previously skipped or rejected this order,
+        // supersede that preliminary rejection record so the trip state cleanly resolves.
+        const existingBidRejections = Array.isArray(tripData.rejections) ? tripData.rejections : [];
+        const updatedBidRejections = existingBidRejections.map((r) => r && r.driverId === driverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r);
         tx.update(tripRef, {
             status: "DRIVER_ACCEPTED",
             driver: driverPayload,
             driverId,
+            cancellationSource: null,
+            cancellationReason: null,
+            rejections: updatedBidRejections,
             fareAmount: updatedOfferedFare,
             fareFormatted: `₦${updatedOfferedFare.toLocaleString()}`,
             cashToCollect: newCashToCollect,
@@ -2590,7 +2610,7 @@ exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
     const ref = db().collection("trips").doc(tripId);
     let snapAfterData = null;
     await db().runTransaction(async (tx) => {
-        var _a;
+        var _a, _b, _c, _d;
         const snap = await tx.get(ref);
         if (!snap.exists)
             throw new https_1.HttpsError("not-found", "Trip not found.");
@@ -2603,12 +2623,20 @@ exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
         if (!LIVE_STATUSES.includes(currentStatus)) {
             throw new https_1.HttpsError("failed-precondition", `Cannot force complete trip with closed status ${currentStatus}.`);
         }
+        const assignedDriverId = String((_d = (_c = (_b = data.driver) === null || _b === void 0 ? void 0 : _b.driverId) !== null && _c !== void 0 ? _c : data.driverId) !== null && _d !== void 0 ? _d : "");
+        const rejectionsList = Array.isArray(data.rejections) ? data.rejections : [];
+        const updatedRejections = assignedDriverId
+            ? rejectionsList.map((r) => r && r.driverId === assignedDriverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r)
+            : rejectionsList;
         const updates = {
             status: "COMPLETED",
             deliveryPinVerified: true,
             forceCompletedBy: adminUid,
             forceCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
             completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            cancellationSource: null,
+            cancellationReason: null,
+            rejections: updatedRejections,
             statusHistory: admin.firestore.FieldValue.arrayUnion({
                 from: currentStatus,
                 to: "COMPLETED",

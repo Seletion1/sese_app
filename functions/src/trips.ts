@@ -1724,11 +1724,21 @@ export const acceptTrip = onCall(async (request) => {
       }
     }
 
+    // If this claiming driver previously skipped or rejected this order,
+    // supersede that preliminary rejection record so the trip state cleanly resolves.
+    const existingRejections = Array.isArray(data.rejections) ? data.rejections : [];
+    const updatedRejections = existingRejections.map((r: any) =>
+      r && r.driverId === driverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
+    );
+
     tx.update(ref, {
       status: "DRIVER_ACCEPTED",
       driver: snapshot,
       driverId: driverId,
       dispatchTier: data.dispatchTier ?? null,
+      cancellationSource: null,
+      cancellationReason: null,
+      rejections: updatedRejections,
       pingDriverId: null,
       pingDriverIds: [],
       pingExpiresAt: null,
@@ -2003,6 +2013,14 @@ export const advanceTripStatus = onCall(async (request) => {
       update["startedAt"] = admin.firestore.FieldValue.serverTimestamp();
     } else if (status === "COMPLETED") {
       update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
+      update["cancellationSource"] = null;
+      update["cancellationReason"] = null;
+      const rejectionsList = Array.isArray(data.rejections) ? data.rejections : [];
+      if (rejectionsList.some((r: any) => r?.driverId === driverId && !r?.superseded)) {
+        update["rejections"] = rejectionsList.map((r: any) =>
+          r && r.driverId === driverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
+        );
+      }
     }
     if (request.data?.recordDropoffArrival === true && !data.dropoffArrivedAt) {
       update["dropoffArrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
@@ -2800,10 +2818,20 @@ export const acceptBid = onCall(async (request) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    // If this accepted bidder previously skipped or rejected this order,
+    // supersede that preliminary rejection record so the trip state cleanly resolves.
+    const existingBidRejections = Array.isArray(tripData.rejections) ? tripData.rejections : [];
+    const updatedBidRejections = existingBidRejections.map((r: any) =>
+      r && r.driverId === driverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
+    );
+
     tx.update(tripRef, {
       status: "DRIVER_ACCEPTED",
       driver: driverPayload,
       driverId,
+      cancellationSource: null,
+      cancellationReason: null,
+      rejections: updatedBidRejections,
       fareAmount: updatedOfferedFare,
       fareFormatted: `₦${updatedOfferedFare.toLocaleString()}`,
       cashToCollect: newCashToCollect,
@@ -3182,12 +3210,23 @@ export const hubForceCompleteTrip = onCall(async (request) => {
       );
     }
 
+    const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+    const rejectionsList = Array.isArray(data.rejections) ? data.rejections : [];
+    const updatedRejections = assignedDriverId
+      ? rejectionsList.map((r: any) =>
+          r && r.driverId === assignedDriverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
+        )
+      : rejectionsList;
+
     const updates = {
       status: "COMPLETED",
       deliveryPinVerified: true,
       forceCompletedBy: adminUid,
       forceCompletedAt: admin.firestore.FieldValue.serverTimestamp(),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      cancellationSource: null,
+      cancellationReason: null,
+      rejections: updatedRejections,
       statusHistory: admin.firestore.FieldValue.arrayUnion({
         from: currentStatus,
         to: "COMPLETED",

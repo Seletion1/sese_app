@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Driver Trip History Skip Superseding, State Deduplication & Clean Completion Status
+
+- **1. Backend Re-acceptance State Mutation & Superseding (`functions/src/trips.ts`, `functions/src/driverTripHistory.ts`)**:
+  - In `acceptTrip` and `acceptBid`: When a driver claims or gets accepted for an order from the pool/bidding that they had previously skipped or rejected during dispatch, `cancellationSource` and `cancellationReason` are reset to `null`. Preliminary driver rejection audit records in `trip.rejections` matching the driver ID are marked with `superseded: true` and `supersededAt`.
+  - In `advanceTripStatus` & `hubForceCompleteTrip`: Advancing to `COMPLETED` strictly clears `cancellationSource` and ensures any un-superseded rejection entries for the assigned driver are marked superseded.
+  - In `driverTripHistory.ts`: Overwrite mirrored records (`batch.set(ref, mirrorData)`) rather than merging, preventing lingering `cancellationSource` markers. Mirrors sanitize `cancellationSource` to `null` on completed and active assigned trips.
+
+- **2. Dynamic Status Rendering Hierarchy (`customer_trips_screen.dart`, `trip_models.dart`, `trip_service.dart`)**:
+  - `_StatusChip.build`: Elevated `TripStatus.completed` to unconditional highest precedence, rendering strictly `Completed` with green badge (`#059669` / `#D1FAE5`) regardless of any residual `cancellationSource` or dispatch audit entries. Active statuses (`inProgress`, `driverAccepted`, `driverArriving`, `driverArrived`) similarly evaluate ahead of `isSkipped` / `isRejected`.
+  - `ActiveTrip.fromMap`: Guaranteed `cancellationSource = null` on any trip parsed with completed or active in-flight status, immune to legacy raw document payload drift.
+  - `driverRejectionAction`: Resolves to `null` when the querying driver is assigned and the trip was accepted, in progress, or completed, or when `r['superseded'] == true`.
+  - `userTripHistoryStream`: Implemented state deduplication in `emitCombined` so that if multiple documents exist for the same `tripId` across assigned queries and mirror collections, the `completed` state strictly wins over older preliminary/skipped snapshots.
+  - Modal details sheet & Hub audit log: In `CustomerTripsScreen` and `ActiveRidesConsoleScreen`, superseded preliminary skips/rejections render as `'Skipped by Driver (Superseded)'` in the Dispatch Audit Log.
+
+- **3. Verification & Testing**:
+  - `sese_ride/test/trip_history_skip_superseding_test.dart`: 3/3 passed (100%), testing model sanitization, feed card rendering, details sheet badge, and standalone skipped order behavior.
+  - `sese_ride/test/trip_history_navigation_guard_test.dart`: 4/4 passed (100%).
+  - Backend: `functions` test suite (23 suites, 65 tests) passed 100%.
+  - Analysis: `flutter analyze` 0 issues across `sese_ride` and `sese_hub`.
+
+
 ## 2026-11-08 — Active Dual-Phase Countdown Timers (Arrival & Paid Waiting), Menu Cleanup & UI Copy Polish
 
 - **1. Driver Screen Countdown Badge & Menu Icon Removal (`driver_active_trip_card.dart`)**:

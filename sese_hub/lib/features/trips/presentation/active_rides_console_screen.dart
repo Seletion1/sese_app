@@ -514,9 +514,14 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final pickup = (data['pickupAddress'] ?? 'Pickup').toString();
     final dropoff = (data['dropoffAddress'] ?? 'Dropoff').toString();
 
+    final isClosedOrActive = status.toLowerCase().contains('completed') ||
+        status.toLowerCase().contains('transit') ||
+        status.toLowerCase().contains('progress') ||
+        status.toLowerCase().contains('accepted') ||
+        status.toLowerCase().contains('arrived');
     final cancelSource = (data['cancellationSource'] ?? '').toString();
-    final bool isSkippedByDriver = cancelSource == 'skipped_by_driver';
-    final bool isRejectedByDriver = cancelSource == 'rejected_by_driver';
+    final bool isSkippedByDriver = cancelSource == 'skipped_by_driver' && !isClosedOrActive;
+    final bool isRejectedByDriver = cancelSource == 'rejected_by_driver' && !isClosedOrActive;
 
     Color statusColor = Colors.orange;
     if (status.toLowerCase().contains('completed')) statusColor = Colors.green;
@@ -982,9 +987,11 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                         const SizedBox(height: 8),
                         ...((data['rejections'] as List).map((r) {
                           final rMap = r is Map ? r : {};
-                          final action = rMap['action'] == 'skipped'
+                          final isSuperseded = rMap['superseded'] == true;
+                          final baseAction = rMap['action'] == 'skipped'
                               ? 'Skipped by Driver'
                               : 'Rejected by Driver';
+                          final action = isSuperseded ? '$baseAction (Superseded)' : baseAction;
                           final dId = rMap['driverId']?.toString() ?? 'Unknown';
                           final ts = _parseDate(rMap['timestamp']);
                           return Padding(
