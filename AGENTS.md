@@ -72,6 +72,21 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-08 — Android Gradle Daemon Lock Recovery & Kotlin Version Alignment to 2.0.21
+
+- **1. Gradle Stale Lock Recovery**:
+  - Cleared stale lock files (`buildLogic.lock`) resulting from interrupted/aborted Gradle daemon processes (e.g. PID 21016) holding locks in `.gradle/noVersion/`.
+  - Stopped and pruned hung Gradle background daemons preventing concurrency collisions between Android Studio model fetches and CLI task invocations.
+
+- **2. Kotlin Version Alignment (`settings.gradle.kts`, `sese_ride/android/`, `sese_hub/android/`, `plugins/app_launcher/android/`)**:
+  - Aligned `org.jetbrains.kotlin.android` plugin version from non-standard `2.2.20` to `2.0.21` across root `settings.gradle.kts`, `sese_ride/android/settings.gradle.kts`, `sese_hub/android/settings.gradle.kts`, and `plugins/app_launcher/android/build.gradle.kts`.
+  - Eliminates Gradle 8.14 `embedded-kotlin` and `kotlin-dsl` compatibility warning during project configuration and IDE sync.
+
+- **3. Verification**:
+  - Static Analysis: `flutter analyze` passed with 0 issues in both `sese_ride` and `sese_hub`.
+  - Unit/Widget Tests: `sese_core` test suite (136/136 tests passed, 100%).
+
+
 ## 2026-11-08 — Driver Trip History Skip Superseding, State Deduplication & Clean Completion Status
 
 - **1. Backend Re-acceptance State Mutation & Superseding (`functions/src/trips.ts`, `functions/src/driverTripHistory.ts`)**:
