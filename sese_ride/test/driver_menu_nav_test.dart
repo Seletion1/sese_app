@@ -208,6 +208,65 @@ void main() {
           findsOneWidget);
       expect(find.text('Switch to Customer Mode'), findsOneWidget);
     });
+
+    testWidgets('Hierarchical back-button navigates back one tab at a time to Home',
+        (tester) async {
+      await pumpShell(tester);
+
+      // Initial state: on Home tab
+      expect(find.byKey(const Key('power_toggle')), findsOneWidget);
+
+      // Navigate: Home -> Menu
+      await tester.tap(find.text('Menu'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('menu_settings_tile')), findsOneWidget);
+
+      // Navigate: Menu -> Trips
+      await tester.tap(find.byKey(const Key('menu_trips_history_tile')));
+      await tester.pumpAndSettle();
+      expect(find.text('No trips available yet'), findsOneWidget);
+
+      // Navigate: Trips -> Help (via bottom nav)
+      await tester.tap(find.text('Help'));
+      await tester.pumpAndSettle();
+      expect(find.text('Contact Driver Support'), findsOneWidget);
+
+      // Back 1: Help -> Trips
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('No trips available yet'), findsOneWidget);
+
+      // Back 2: Trips -> Menu
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('menu_settings_tile')), findsOneWidget);
+
+      // Back 3: Menu -> Home
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('power_toggle')), findsOneWidget);
+
+      // Back 4 on Home: Home Screen Exit Gate requires confirmation
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.text('Press back again to exit'), findsOneWidget);
+      // App did not exit, stays on Home
+      expect(find.byKey(const Key('power_toggle')), findsOneWidget);
+    });
+
+    testWidgets('AppBar back button on Menu navigates back towards Home',
+        (tester) async {
+      await pumpShell(tester);
+
+      await tester.tap(find.text('Menu'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('menu_settings_tile')), findsOneWidget);
+
+      // Tap leading back button in Menu AppBar
+      await tester.tap(find.byTooltip('Back to Home'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('power_toggle')), findsOneWidget);
+    });
   });
 }
 

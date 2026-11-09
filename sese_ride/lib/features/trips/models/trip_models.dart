@@ -246,6 +246,9 @@ class ActiveTrip {
   /// Cascade tier that produced this offer (1 = sequential 1-on-1, 3 = marketplace pool).
   final int dispatchTier;
 
+  /// Sequential dispatch step (1 = 1st nearest, 2 = 2nd nearest, 3 = 3rd nearest, 4 = public pool).
+  final int dispatchStep;
+
   /// Server timestamp recorded when the driver tapped "Arrived".
   /// Powers the no-show wait timer in the driver app.
   final DateTime? arrivedAt;
@@ -398,6 +401,7 @@ class ActiveTrip {
     this.pingDriverId = '',
     this.pingDriverIds = const [],
     this.dispatchTier = 0,
+    this.dispatchStep = 0,
     this.arrivedAt,
     this.dropoffArrivedAt,
     this.completedAt,
@@ -726,6 +730,7 @@ class ActiveTrip {
       pingDriverId: (map['pingDriverId'] ?? '').toString(),
       pingDriverIds: stringList(map['pingDriverIds']),
       dispatchTier: n(map['dispatchTier'])?.toInt() ?? 0,
+      dispatchStep: n(map['dispatchStep'])?.toInt() ?? 0,
       arrivedAt: dateOf(map['arrivedAt']),
       dropoffArrivedAt: dateOf(map['dropoffArrivedAt'] ?? map['arrivedDropoffAt']),
       completedAt: dateOf(map['completedAt']) ?? dateOf(settlement['commissionSettledAt']),

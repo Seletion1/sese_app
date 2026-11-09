@@ -25,11 +25,16 @@ class CustomerProfileScreen extends StatefulWidget {
   /// the Trips tab). Wired by [CustomerHomeShell]; null when standalone.
   final ValueChanged<int>? onSelectTab;
 
+  /// Optional back navigation callback for tab shells. When provided, renders
+  /// a leading back arrow that pops back towards Home within the shell.
+  final VoidCallback? onBack;
+
   const CustomerProfileScreen({
     super.key,
     required this.user,
     this.auth,
     this.onSelectTab,
+    this.onBack,
   });
 
   @override
@@ -62,7 +67,17 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const SeseAppBar(title: 'Profile'),
+      appBar: SeseAppBar(
+        title: 'Profile',
+        automaticallyImplyLeading: false,
+        leading: widget.onBack != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back to Home',
+                onPressed: widget.onBack,
+              )
+            : null,
+      ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: _userStream(widget.user.uid),
         builder: (context, snapshot) {

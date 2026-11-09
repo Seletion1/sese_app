@@ -106,10 +106,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
 
   // Super Admin Dispatch Console (system_settings/dispatch tunables).
   // Backend clamps into safe bands; changes apply within ~60s.
-  final _radiusCtrl = TextEditingController(text: '10');
+  final _radiusCtrl = TextEditingController(text: '15');
   final _tier1RadiusCtrl = TextEditingController(text: '3');
   final _tier1TimeoutCtrl = TextEditingController(text: '15');
-  final _pingTimeoutCtrl = TextEditingController(text: '60');
+  final _pingTimeoutCtrl = TextEditingController(text: '15');
   final _repingIntervalCtrl = TextEditingController(text: '30');
   final _candidateLimitCtrl = TextEditingController(text: '25');
   final _recycleWindowCtrl = TextEditingController(text: '25');
@@ -603,7 +603,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       await widget.configService.saveConfig(config);
       final maxBids = int.tryParse(_maxVisibleBidsCtrl.text.trim()) ?? 5;
       await widget.configService.saveMaxVisibleBids(maxBids);
-      final poolRadius = double.tryParse(_radiusCtrl.text.trim()) ?? 10;
+      final poolRadius = double.tryParse(_radiusCtrl.text.trim()) ?? 15;
       await widget.configService.saveDispatchTuning(
         DispatchTuning(
           dispatchRadiusKm: poolRadius,
@@ -611,7 +611,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               double.tryParse(_tier1RadiusCtrl.text.trim()) ?? 3,
           tier3RadiusKm: poolRadius,
           tier1TimeoutSec: int.tryParse(_tier1TimeoutCtrl.text.trim()) ?? 15,
-          pingTimeoutSec: int.tryParse(_pingTimeoutCtrl.text.trim()) ?? 60,
+          pingTimeoutSec: int.tryParse(_pingTimeoutCtrl.text.trim()) ?? 15,
           repingIntervalSec:
               int.tryParse(_repingIntervalCtrl.text.trim()) ?? 30,
           candidateLimit:
@@ -2966,15 +2966,15 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '7. Dispatch Console — Radii, Countdowns & Auto-Recycle',
+              '7. Sequential Dispatch Console (1 -> 2 -> 3 -> Public Pool)',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
-              'Live tunables for the streamlined 2-stage dispatch engine '
-              '(stored in system_settings/dispatch, applied within ~60s). '
-              'Stage 1 pings the single nearest driver sequentially, then falls '
-              'back directly to the marketplace Order Pool.',
+              'Live tunables for the strict sequential single-driver matching system '
+              '(stored in system_settings/dispatch, applied dynamically). '
+              'Routes exclusively: 1st nearest driver -> 2nd nearest driver -> 3rd nearest driver '
+              '-> Public Order Pool fallback.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -2982,22 +2982,18 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               spacing: 16,
               runSpacing: 12,
               children: [
-                numField(_tier1RadiusCtrl, 'Stage 1 radius', 'km',
-                    'Default 3 (0–3 km). Ring one driver at a time sequentially.'),
-                numField(_radiusCtrl, 'Order Pool radius', 'km',
-                    'Default 10 (~10 km). Global Order Pool for driver picks.'),
-                numField(_tier1TimeoutCtrl, 'Stage 1 countdown', 'sec',
-                    'Default 15 (5–120). Sequential ping offer window.'),
-                numField(_pingTimeoutCtrl, 'Ping expiry', 'sec',
-                    'Default 60 (10–600).'),
-                numField(_repingIntervalCtrl, 'Re-ping interval', 'sec',
-                    'Default 30 (10–600).'),
+                numField(_tier1RadiusCtrl, 'Sequential search radius', 'km',
+                    'Default 3 (0–3 km). Dynamically read for 1st, 2nd, & 3rd nearest driver.'),
+                numField(_radiusCtrl, 'Public Order Pool radius', 'km',
+                    'Default 15 (1–50 km). Extended pool radius for public driver claiming.'),
+                numField(_tier1TimeoutCtrl, 'Driver response timeout', 'sec',
+                    'Default 15 (5–120 sec). Offer countdown per sequential driver before fallback.'),
                 numField(_candidateLimitCtrl, 'Candidate scan limit', 'drivers',
-                    'Default 25 (5–100).'),
+                    'Default 25 (5–100). Max candidate pool evaluated for proximity.'),
                 numField(_recycleWindowCtrl, 'Auto-recycle timer', 'min',
-                    'Default 25 (5–120). Stale orders restart.'),
+                    'Default 25 (5–120). Stale unassigned orders re-enter dispatch.'),
                 numField(_maxRecyclesCtrl, 'Max recycles per trip', 'times',
-                    'Default 5 (1-20). Bounds execution.'),
+                    'Default 5 (1–20). Bounds recycling cycles.'),
                 numField(_cameraPickupDwellCtrl, 'Live search pickup dwell', 'sec',
                     'Default 5 (2–30 sec). Camera hold duration at pickup before panning.'),
                 numField(_cameraDropoffDwellCtrl, 'Live search drop-off dwell', 'sec',

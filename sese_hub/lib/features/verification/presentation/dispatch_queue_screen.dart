@@ -178,14 +178,11 @@ class _QueueCardState extends State<_QueueCard> {
     final d = widget.data;
     final status = (d['status'] ?? '').toString();
     final tier = safeNum(d['dispatchTier'])?.toInt();
+    final dispatchStep = safeNum(d['dispatchStep'])?.toInt();
     final decline = safeNum(d['declineCount'])?.toInt() ?? 0;
     final recycles = safeNum(d['recycleCount'])?.toInt() ?? 0;
     final reassigns = safeNum(d['reassignmentCount'])?.toInt() ?? 0;
     final pingOne = (d['pingDriverId'] ?? '').toString();
-    final pingGroup = ((d['pingDriverIds']) as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList() ??
-        const [];
     final fare = (d['fareFormatted'] ?? '').toString().isNotEmpty
         ? (d['fareFormatted'] ?? '').toString()
         : '₦${(safeNum(d['fareAmount']) ?? 0).toStringAsFixed(0)}';
@@ -224,7 +221,18 @@ class _QueueCardState extends State<_QueueCard> {
               spacing: 6,
               runSpacing: 6,
               children: [
-                if (tier != null) Chip(label: Text('Stage $tier')),
+                if (dispatchStep != null && dispatchStep > 0 && dispatchStep <= 3)
+                  Chip(
+                    label: Text('Step $dispatchStep/3 (Nearest Driver $dispatchStep)'),
+                    backgroundColor: Colors.blue.shade100,
+                  )
+                else if (dispatchStep != null && dispatchStep >= 4 || status == 'MARKETPLACE_OPEN')
+                  Chip(
+                    label: const Text('Public Order Pool'),
+                    backgroundColor: Colors.amber.shade100,
+                  )
+                else if (tier != null)
+                  Chip(label: Text('Stage $tier')),
                 Chip(label: Text('Retries: $decline')),
                 if (recycles > 0) Chip(label: Text('Recycles: $recycles')),
                 if (reassigns > 0) Chip(label: Text('Reassigns: $reassigns')),
@@ -249,11 +257,8 @@ class _QueueCardState extends State<_QueueCard> {
                   style:
                       const TextStyle(fontSize: 12, color: Colors.black54)),
             if (pingOne.isNotEmpty)
-              Text('Ping target: $pingOne',
-                  style: const TextStyle(fontSize: 12)),
-            if (pingGroup.isNotEmpty)
-              Text('Ping group (${pingGroup.length}): ${pingGroup.join(', ')}',
-                  style: const TextStyle(fontSize: 12)),
+              Text('Target Driver (Exclusive): $pingOne',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
             if (expiresAt != null)
               Text(_deadlineLabel(expiresAt),
                   style: const TextStyle(

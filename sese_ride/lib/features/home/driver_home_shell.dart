@@ -81,21 +81,41 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
   /// Home tab index — the only tab where system back exits the app.
   static const int _homeIndex = 1;
 
+  /// Navigation stack tracking visited tabs rooted at [_homeIndex].
+  final List<int> _tabHistory = [_homeIndex];
+
   void _onTabTapped(int index) {
     if (index == _currentIndex) return;
-    setState(() => _currentIndex = index);
+    setState(() {
+      _currentIndex = index;
+      if (index == _homeIndex) {
+        _tabHistory.clear();
+        _tabHistory.add(_homeIndex);
+      } else {
+        _tabHistory.remove(index);
+        _tabHistory.add(index);
+      }
+    });
   }
 
   void _handlePopInvoked(bool didPop) {
     if (didPop) return;
 
-    // 1. From Sub-tabs (Menu, Trips, Help): return to Home tab
-    if (_currentIndex != _homeIndex) {
-      setState(() => _currentIndex = _homeIndex);
+    // 1. From Sub-tabs (Menu: 0, Trips: 2, Help: 3): step back one at a time until Home tab (1)
+    if (_currentIndex != _homeIndex || _tabHistory.length > 1) {
+      setState(() {
+        if (_tabHistory.isNotEmpty && _tabHistory.last == _currentIndex) {
+          _tabHistory.removeLast();
+        }
+        _currentIndex = _tabHistory.isNotEmpty ? _tabHistory.last : _homeIndex;
+        if (_tabHistory.isEmpty) {
+          _tabHistory.add(_homeIndex);
+        }
+      });
       return;
     }
 
-    // 2. If Driver is Online: minimize app to background and spawn floating SeSe logo overlay
+    // 2. If Driver is Online on Home tab: minimize app to background and spawn floating SeSe logo overlay
     if (DriverOverlayService.instance.isOnline) {
       unawaited(DriverOverlayService.instance.moveTaskToBack());
       unawaited(DriverOverlayService.instance.showOverlayWidget());
@@ -117,12 +137,8 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
       return;
     }
 
-    // Second press within 2s window: exit app cleanly without popping root route
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    } else {
-      SystemNavigator.pop();
-    }
+    // Second press within 2s window: exit app cleanly via SystemNavigator
+    SystemNavigator.pop();
   }
 
   @override
@@ -145,6 +161,7 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                       auth: widget.auth,
                       onGoTrips: () => _onTabTapped(2),
                       onGoHelp: () => _onTabTapped(3),
+                      onBackToHome: () => _handlePopInvoked(false),
                     ),
                     DriverDashboardScreen(
                       fleetService: DriverFleetService(),
@@ -155,8 +172,12 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                     _TripsTab(
                       user: widget.user,
                       tripRepository: widget.tripRepository,
+                      onBack: () => _handlePopInvoked(false),
                     ),
-                    _HelpTab(user: widget.user),
+                    _HelpTab(
+                      user: widget.user,
+                      onBack: () => _handlePopInvoked(false),
+                    ),
                   ],
                 ),
               ),
@@ -246,11 +267,15 @@ class _MenuTab extends StatelessWidget {
   /// Switches the shell's BottomNavigationBar to the Help tab (index 4).
   final VoidCallback onGoHelp;
 
+  /// Navigates back towards Home within the shell hierarchy.
+  final VoidCallback? onBackToHome;
+
   const _MenuTab({
     required this.user,
     required this.auth,
     required this.onGoTrips,
     required this.onGoHelp,
+    this.onBackToHome,
   });
 
   @override
@@ -266,7 +291,17 @@ class _MenuTab extends StatelessWidget {
     // that includes the system gesture inset, keeping the last tile clear
     // of the edge on tall and short screens alike.
     return Scaffold(
-      appBar: const SeseAppBar(title: 'Menu'),
+      appBar: SeseAppBar(
+        title: 'Menu',
+        automaticallyImplyLeading: false,
+        leading: onBackToHome != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back to Home',
+                onPressed: onBackToHome,
+              )
+            : null,
+      ),
       body: SafeArea(
         top: false,
         bottom: false,
@@ -394,10 +429,12 @@ class _MenuTab extends StatelessWidget {
 class _TripsTab extends StatelessWidget {
   final AppUser user;
   final TripRepository? tripRepository;
+  final VoidCallback? onBack;
 
   const _TripsTab({
     required this.user,
     this.tripRepository,
+    this.onBack,
   });
 
   @override
@@ -406,6 +443,7 @@ class _TripsTab extends StatelessWidget {
       customerId: user.uid,
       isDriver: true,
       tripRepository: tripRepository,
+      onBack: onBack,
     );
   }
 }
@@ -413,13 +451,27 @@ class _TripsTab extends StatelessWidget {
 /// Driver Support & FAQ view.
 class _HelpTab extends StatelessWidget {
   final AppUser user;
+  final VoidCallback? onBack;
 
-  const _HelpTab({required this.user});
+  const _HelpTab({
+    required this.user,
+    this.onBack,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const SeseAppBar(title: 'Help'),
+      appBar: SeseAppBar(
+        title: 'Help',
+        automaticallyImplyLeading: false,
+        leading: onBack != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back to Home',
+                onPressed: onBack,
+              )
+            : null,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

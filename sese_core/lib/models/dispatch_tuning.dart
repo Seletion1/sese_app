@@ -1,10 +1,14 @@
-/// Live streamlined 2-stage dispatch engine tunables, map animation settings,
-/// and offer boost limits.
+/// Live sequential dispatch engine tunables (1 -> 2 -> 3 -> Public Pool),
+/// map animation settings, and offer boost limits.
 ///
 /// Mirrors the `system_settings/dispatch` Firestore document keys consumed
 /// by Cloud Functions (`functions/src/trips.ts`), the Hub Dispatch Console
 /// (`sese_hub`), and the customer Live Trip searching screen (`sese_ride`).
 class DispatchTuning {
+  /// Maximum number of sequential nearest drivers targeted (Step 1, 2, 3)
+  /// before escalating to the Public Order Pool (Step 4).
+  static const int maxSequentialDrivers = 3;
+
   final double dispatchRadiusKm;
   final double tier1RadiusKm;
   final double tier3RadiusKm;
@@ -14,6 +18,15 @@ class DispatchTuning {
   final int candidateLimit;
   final int recycleWindowMin;
   final int maxRecycles;
+
+  /// Configured search radius for sequential driver matching (Step 1, 2, 3). Default 3.0 km (0–3 km).
+  double get searchRadiusKm => tier1RadiusKm;
+
+  /// Configured extended pool radius for Public Order Pool (Step 4). Default 15.0 km.
+  double get poolRadiusKm => tier3RadiusKm;
+
+  /// Configured exclusive response timeout per sequential driver (seconds). Default 15s.
+  int get driverTimeoutSec => tier1TimeoutSec;
 
   /// Maximum allowed customer fare boost percentage over baseline fare (Hub configurable).
   /// Default: 100.0 (i.e. Max Offer = Original Base Fare * 2).
@@ -30,11 +43,11 @@ class DispatchTuning {
   final int maxConcurrentBids; // default: 5
 
   const DispatchTuning({
-    this.dispatchRadiusKm = 10,
+    this.dispatchRadiusKm = 15,
     this.tier1RadiusKm = 3,
-    this.tier3RadiusKm = 10,
+    this.tier3RadiusKm = 15,
     this.tier1TimeoutSec = 15,
-    this.pingTimeoutSec = 60,
+    this.pingTimeoutSec = 15,
     this.repingIntervalSec = 30,
     this.candidateLimit = 25,
     this.recycleWindowMin = 25,
@@ -59,9 +72,9 @@ class DispatchTuning {
     }
   }
 
-  /// Determines if a Stage 1 sequential dispatch search should escalate to Stage 3 (Marketplace Pool).
+  /// Determines if sequential dispatch search should escalate to Public Pool.
   ///
-  /// Escalates when all Stage 1 candidate drivers have timed out or declined,
+  /// Escalates when all 3 sequential drivers have timed out or declined,
   /// or when [attemptedCount] reaches [candidateLimit] or exceeds available [candidateCount].
   bool shouldEscalateToPool({
     required int candidateCount,
@@ -70,6 +83,7 @@ class DispatchTuning {
   }) {
     if (isTier1Expired) return true;
     if (candidateCount == 0) return true;
+    if (attemptedCount >= maxSequentialDrivers) return true;
     if (attemptedCount >= candidateCount) return true;
     if (attemptedCount >= candidateLimit) return true;
     return false;
@@ -81,13 +95,15 @@ class DispatchTuning {
         (map![key] is num) ? (map[key] as num).toDouble() : fb;
     int intOf(String key, int fb) =>
         (map![key] is num) ? (map[key] as num).toInt() : fb;
-    final t3 = numOf('tier3RadiusKm', numOf('dispatchRadiusKm', 10));
+    final t3 = numOf('tier3RadiusKm', numOf('dispatchRadiusKm', numOf('poolRadiusKm', 15)));
+    final t1 = numOf('tier1RadiusKm', numOf('searchRadiusKm', 3));
+    final t1Timeout = intOf('tier1TimeoutSec', intOf('sequentialTimeoutSec', 15));
     return DispatchTuning(
       dispatchRadiusKm: t3,
-      tier1RadiusKm: numOf('tier1RadiusKm', 3),
+      tier1RadiusKm: t1,
       tier3RadiusKm: t3,
-      tier1TimeoutSec: intOf('tier1TimeoutSec', 15),
-      pingTimeoutSec: intOf('pingTimeoutSec', 60),
+      tier1TimeoutSec: t1Timeout,
+      pingTimeoutSec: intOf('pingTimeoutSec', t1Timeout),
       repingIntervalSec: intOf('repingIntervalSec', 30),
       candidateLimit: intOf('candidateLimit', 25),
       recycleWindowMin: intOf('recycleWindowMin', 25),
@@ -102,8 +118,11 @@ class DispatchTuning {
   Map<String, dynamic> toMap() => {
         'dispatchRadiusKm': tier3RadiusKm,
         'tier1RadiusKm': tier1RadiusKm,
+        'searchRadiusKm': tier1RadiusKm,
         'tier3RadiusKm': tier3RadiusKm,
+        'poolRadiusKm': tier3RadiusKm,
         'tier1TimeoutSec': tier1TimeoutSec,
+        'sequentialTimeoutSec': tier1TimeoutSec,
         'pingTimeoutSec': pingTimeoutSec,
         'repingIntervalSec': repingIntervalSec,
         'candidateLimit': candidateLimit,

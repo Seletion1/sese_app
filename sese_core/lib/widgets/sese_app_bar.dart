@@ -24,6 +24,10 @@ class SeseAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// When provided, [title] is ignored.
   final Widget? titleWidget;
 
+  /// Whether to automatically imply a leading widget (e.g. back button).
+  /// Defaults to `true`, consistent with [AppBar].
+  final bool automaticallyImplyLeading;
+
   const SeseAppBar({
     super.key,
     this.title = '',
@@ -32,6 +36,7 @@ class SeseAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.bottom,
     this.centerTitle = false,
     this.titleWidget,
+    this.automaticallyImplyLeading = true,
   });
 
   @override
@@ -42,6 +47,7 @@ class SeseAppBar extends StatelessWidget implements PreferredSizeWidget {
       actions: actions,
       bottom: bottom,
       centerTitle: centerTitle,
+      automaticallyImplyLeading: automaticallyImplyLeading,
     );
   }
 

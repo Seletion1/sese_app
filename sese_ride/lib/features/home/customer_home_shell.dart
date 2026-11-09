@@ -45,6 +45,12 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
   /// Default tab: Home (center item, active map view).
   int _selectedNavIndex = 1;
 
+  /// Home tab index — the only tab where system back exits the app.
+  static const int _homeIndex = 1;
+
+  /// Navigation stack tracking visited tabs rooted at [_homeIndex].
+  final List<int> _tabHistory = [_homeIndex];
+
   /// Timestamp of the last back press on the Home tab for 2-second double-tap exit.
   DateTime? _lastBackPressTime;
 
@@ -87,12 +93,35 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
     super.dispose();
   }
 
+  void _onTabTapped(int index) {
+    if (index == _selectedNavIndex) return;
+    setState(() {
+      _selectedNavIndex = index;
+      if (index == _homeIndex) {
+        _tabHistory.clear();
+        _tabHistory.add(_homeIndex);
+      } else {
+        _tabHistory.remove(index);
+        _tabHistory.add(index);
+      }
+    });
+  }
+
   void _handlePopInvoked(bool didPop) {
     if (didPop) return;
 
-    // 1. From Sub-tabs (Trips: 0, Profile: 2): return to Home tab (1)
-    if (_selectedNavIndex != 1) {
-      setState(() => _selectedNavIndex = 1);
+    // 1. From Sub-tabs (Trips: 0, Profile: 2): step back one at a time until Home tab (1)
+    if (_selectedNavIndex != _homeIndex || _tabHistory.length > 1) {
+      setState(() {
+        if (_tabHistory.isNotEmpty && _tabHistory.last == _selectedNavIndex) {
+          _tabHistory.removeLast();
+        }
+        _selectedNavIndex =
+            _tabHistory.isNotEmpty ? _tabHistory.last : _homeIndex;
+        if (_tabHistory.isEmpty) {
+          _tabHistory.add(_homeIndex);
+        }
+      });
       return;
     }
 
@@ -111,12 +140,8 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
       return;
     }
 
-    // Second press within 2s window: exit app cleanly without popping root route
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    } else {
-      SystemNavigator.pop();
-    }
+    // Second press within 2s window: exit app cleanly via SystemNavigator
+    SystemNavigator.pop();
   }
 
   @override
@@ -166,6 +191,7 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
                   CustomerTripsScreen(
                     customerId: widget.user.uid,
                     tripRepository: widget.tripRepository,
+                    onBack: () => _handlePopInvoked(false),
                   ),
                   CustomerHomeMapScreen(
                     user: widget.user,
@@ -174,8 +200,8 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
                   CustomerProfileScreen(
                     user: widget.user,
                     auth: widget.auth,
-                    onSelectTab: (index) =>
-                        setState(() => _selectedNavIndex = index),
+                    onSelectTab: _onTabTapped,
+                    onBack: () => _handlePopInvoked(false),
                   ),
                 ],
               ),
@@ -218,7 +244,7 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
               child: BottomNavigationBar(
                 type: barTheme.type ?? BottomNavigationBarType.fixed,
                 currentIndex: _selectedNavIndex, // 0: Trips, 1: Home, 2: Profile
-                onTap: (index) => setState(() => _selectedNavIndex = index),
+                onTap: _onTabTapped,
                 selectedItemColor:
                     barTheme.selectedItemColor ?? AppColors.seseGold,
                 unselectedItemColor: barTheme.unselectedItemColor,

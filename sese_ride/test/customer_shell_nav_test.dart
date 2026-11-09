@@ -179,5 +179,39 @@ void main() {
       await tester.scrollUntilVisible(find.text('Delete Account'), 50);
       expect(find.text('Delete Account'), findsOneWidget);
     });
+
+    testWidgets('Customer tabs navigate back step-by-step to Home, Home gate confirms exit',
+        (tester) async {
+      await pumpShell(tester);
+
+      // Start on Home map
+      expect(find.text('Book Ride'), findsOneWidget);
+
+      // Navigate: Home -> Profile
+      await tester.tap(find.text('Profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('Test Rider'), findsOneWidget);
+
+      // Navigate: Profile -> Trips
+      await tester.tap(find.text('Trips'));
+      await tester.pumpAndSettle();
+      expect(find.text('No trips available yet'), findsOneWidget);
+
+      // Back 1: Trips -> Profile
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Test Rider'), findsOneWidget);
+
+      // Back 2: Profile -> Home
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Book Ride'), findsOneWidget);
+
+      // Back 3 on Home: safe exit gate confirmation
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(find.text('Press back again to exit'), findsOneWidget);
+      expect(find.text('Book Ride'), findsOneWidget);
+    });
   });
 }

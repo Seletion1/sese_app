@@ -1504,20 +1504,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     }
 
     // Full-screen map canvas base adapting to system theme.
-    return PopScope(
-      canPop: !_isOnline,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        if (_isOnline) {
-          // Minimizes app task to background without killing process & spawns floating SeSe logo
-          await DriverOverlayService.instance.moveTaskToBack();
-          await DriverOverlayService.instance.showOverlayWidget();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        body: SizedBox.expand(child: _buildMapStack()),
-      ),
+    // System back navigation and backgrounding/exit gates are managed by DriverHomeShell.
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SizedBox.expand(child: _buildMapStack()),
     );
   }
 

@@ -15,11 +15,16 @@ class CustomerTripsScreen extends StatelessWidget {
   final bool isDriver;
   final TripRepository? tripRepository;
 
+  /// Optional back navigation callback for tab shells. When provided, renders
+  /// a leading back arrow that pops back towards Home within the shell.
+  final VoidCallback? onBack;
+
   const CustomerTripsScreen({
     super.key,
     required this.customerId,
     this.isDriver = false,
     this.tripRepository,
+    this.onBack,
   });
 
   TripRepository get _repo => tripRepository ?? FirestoreTripRepository();
@@ -29,7 +34,17 @@ class CustomerTripsScreen extends StatelessWidget {
     final theme = Theme.of(context);
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: AppBar(title: const Text('Trips')),
+      appBar: AppBar(
+        title: const Text('Trips'),
+        automaticallyImplyLeading: false,
+        leading: onBack != null
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+                onPressed: onBack,
+              )
+            : null,
+      ),
       body: StreamBuilder<List<ActiveTrip>>(
         stream: _repo.userTripHistoryStream(customerId, isDriver: isDriver),
         builder: (context, snapshot) {

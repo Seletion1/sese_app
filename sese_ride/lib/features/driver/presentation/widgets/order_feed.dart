@@ -74,23 +74,18 @@ class OrderFeedState extends State<OrderFeed> {
     );
   }
 
-  /// Merges Tier 1 and Tier 3 offers, de-duplicates by `tripId`.
+  /// Merges the driver's exclusive sequential offer (Step 1, 2, or 3) with Public Order Pool listings.
   ///
-  /// Exclusive offers first (Tier 1), marketplace broadcast
-  /// below — a trip only ever sits in one tier at a time, so later tiers
-  /// never overwrite an exclusive ping.
-  ///
-  /// Marketplace rows are additionally geo-filtered to the 5km outer pool:
-  /// the server broadcasts pool-wide, so without this a Lagos driver renders
-  /// Abuja orders. Tier 1 pings are server-targeted and never filtered.
-  /// Trips without coordinates pass through (never hide for missing data).
+  /// Sequential offers are pushed exclusively to this driver only and take top priority.
+  /// If all three nearest drivers reject or time out, orders drop into the Public Order Pool
+  /// and appear in [marketplace] filtered within the extended pool radius (up to 15 km).
   List<ActiveTrip> _mergedOffers(
-    ActiveTrip? tier1,
+    ActiveTrip? exclusivePing,
     List<ActiveTrip> marketplace,
   ) {
     final byId = <String, ActiveTrip>{};
-    if (tier1 != null && tier1.customerId != widget.driverId) {
-      byId[tier1.tripId] = tier1;
+    if (exclusivePing != null && exclusivePing.customerId != widget.driverId) {
+      byId[exclusivePing.tripId] = exclusivePing;
     }
     for (final t in marketplace) {
       if (t.customerId != widget.driverId &&
