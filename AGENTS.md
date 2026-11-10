@@ -72,6 +72,22 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-10 — Bidding UI Streamlining, Redundant Lock & Warning Box Removal, Clean Expiration Toasts
+
+- **1. Complete Removal of Middle Bidding Lock Card (`order_pool_sheet.dart`, `order_card.dart`, `driver_active_bid_lock_card.dart`)**:
+  - Completely stripped out the middle status box `DriverActiveBidLockCard` ("Waiting for Customer Decision / Offer of ₦4500 submitted...") from the order detail sheet.
+  - The sticky primary action button at the bottom of `PoolOrderDetailSheet` already displays live ticking countdowns (`Waiting for Customer... (6s)`), making the middle card redundant.
+  - In `OrderCard`, updated active bid status display to a concise inline bidding locked banner.
+
+- **2. Removal of Expired & Declined Warning Boxes with Clean Toast Feedback (`order_pool_sheet.dart`)**:
+  - Removed large warning containers for `isBidExpired` ("Offer Timed Out / The customer did not respond in time...") and `isBidRejected` ("Offer Declined / The customer declined your offer...").
+  - Integrated real-time status transition listener `_syncBidCountdown`: when an active counter-offer times out or is rejected by the customer, a clean, immediate toast SnackBar is displayed (`"Offer timed out"` or `"Offer rejected"`).
+  - Unlocks active bid suggestion chips and custom input fields instantly upon timeout or rejection for immediate re-bidding.
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride`, `sese_hub`, and `sese_core`.
+  - Unit & Widget Tests: 12/12 bidding flow tests passed (`synchronized_bidding_flow_test.dart`, `order_pool_bidding_test.dart`); 136/136 `sese_core` unit tests passed.
+
 ## 2026-11-08 — UX Micro-Copy & Rule-Abstraction Clean-up, Dynamic Financial Limits & Complete P2P Deletion
 
 - **1. Centralized Dynamic Financial Limits (`financial_config.dart`, `global_config_screen.dart`, `payments.ts`, `payouts.ts`)**:
