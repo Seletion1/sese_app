@@ -5,11 +5,11 @@ void main() {
   group('DispatchTuning', () {
     test('defaults match the live engine constants', () {
       const t = DispatchTuning();
-      expect(t.dispatchRadiusKm, 10);
+      expect(t.dispatchRadiusKm, 15);
       expect(t.tier1RadiusKm, 3);
-      expect(t.tier3RadiusKm, 10);
+      expect(t.tier3RadiusKm, 15);
       expect(t.tier1TimeoutSec, 15);
-      expect(t.pingTimeoutSec, 60);
+      expect(t.pingTimeoutSec, 15);
       expect(t.repingIntervalSec, 30);
       expect(t.candidateLimit, 25);
       expect(t.recycleWindowMin, 25);
@@ -40,7 +40,7 @@ void main() {
 
     test('fromMap tolerates missing/partial docs', () {
       final t = DispatchTuning.fromMap(null);
-      expect(t.dispatchRadiusKm, 10);
+      expect(t.dispatchRadiusKm, 15);
       expect(t.maxOfferBoostPct, 100.0);
       final partial = DispatchTuning.fromMap({'dispatchRadiusKm': 3});
       expect(partial.dispatchRadiusKm, 3);

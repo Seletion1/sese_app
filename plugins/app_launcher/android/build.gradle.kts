@@ -2,7 +2,7 @@ group = "com.sesetech.sese_ride.app_launcher"
 version = "1.0-SNAPSHOT"
 
 buildscript {
-    val kotlinVersion = "2.0.21"
+    val kotlinVersion = "2.2.20"
     repositories {
         google()
         mavenCentral()

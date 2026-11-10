@@ -304,51 +304,11 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
     });
   }
 
-  /// Open the More bottom sheet, navigate to the selected tab, and
-  /// promote it to [_recentTabs] (evicting the LRU module tab).
-  Future<void> _openMoreMenu() async {
-    final selected = await showModalBottomSheet<HubTab>(
-      context: context,
-      showDragHandle: true,
-      useSafeArea: true,
-      builder: (ctx) => _MoreMenuSheet(
-        user: widget.user,
-        firstName: _firstName,
-        consoleTitle: _consoleTitle,
-        moreTabs: _moreTabs,
-        recentTabs: _recentTabs,
-        allTabs: _allTabs,
-        configService: widget.configService,
-        onTabSelected: (t) => Navigator.of(ctx).pop(t),
-        onSignOut: () {
-          Navigator.of(ctx).pop();
-          _confirmSignOut();
-        },
-        onOpenSettings: () {
-          Navigator.of(ctx).pop();
-          HubRoutePersistence.saveSubRoute('settings');
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => HubSettingsScreen(
-                configService: widget.configService,
-              ),
-            ),
-          ).then((_) {
-            HubRoutePersistence.saveSubRoute(null);
-          });
-        },
-      ),
-    );
-    if (selected == null || !mounted) return;
-    setState(() {
-      _activeTab = selected;
-      if (selected != HubTab.profile) {
-        // Evict LRU (last entry) and promote new tab to front.
-        if (_recentTabs.length >= 3) _recentTabs.removeLast();
-        _recentTabs.insert(0, selected);
-      }
-      _persistCurrentNavigation();
-    });
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Open the right-side navigation drawer.
+  void _openMoreMenu() {
+    _scaffoldKey.currentState?.openEndDrawer();
   }
 
   Future<void> _confirmSignOut() async {
@@ -489,6 +449,30 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
     ];
 
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: _MoreMenuSheet(
+        user: widget.user,
+        firstName: _firstName,
+        consoleTitle: _consoleTitle,
+        moreTabs: _moreTabs,
+        recentTabs: _recentTabs,
+        allTabs: _allTabs,
+        configService: widget.configService,
+        onTabSelected: _onTabSelected,
+        onSignOut: _confirmSignOut,
+        onOpenSettings: () {
+          HubRoutePersistence.saveSubRoute('settings');
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => HubSettingsScreen(
+                configService: widget.configService,
+              ),
+            ),
+          ).then((_) {
+            HubRoutePersistence.saveSubRoute(null);
+          });
+        },
+      ),
       body: stackBody,
       bottomNavigationBar: NavigationBar(
         key: const Key('hub_navigation_bar'),
@@ -598,121 +582,135 @@ class _MoreMenuSheet extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final overflowTabs = moreTabs;
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.zero,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ── Profile header ──────────────────────────────────────────────
-            InkWell(
-              key: const Key('hub_more_profile_tile'),
-              onTap: () => onTabSelected(HubTab.profile),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Row(
-                  children: [
-                    if (user != null)
-                      UserAvatar(
-                        displayName: user!.fullName,
-                        photoUrl: user!.photoUrl,
-                        radius: 24,
-                      )
-                    else
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundColor: scheme.primary,
-                        child: const Icon(Icons.hub, color: Colors.white),
-                      ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            user?.fullName.isNotEmpty == true
-                                ? user!.fullName
-                                : firstName,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+    return Drawer(
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.zero,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Profile header ──────────────────────────────────────────────
+              InkWell(
+                key: const Key('hub_more_profile_tile'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onTabSelected(HubTab.profile);
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Row(
+                    children: [
+                      if (user != null)
+                        UserAvatar(
+                          displayName: user!.fullName,
+                          photoUrl: user!.photoUrl,
+                          radius: 24,
+                        )
+                      else
+                        CircleAvatar(
+                          radius: 24,
+                          backgroundColor: scheme.primary,
+                          child: const Icon(Icons.hub, color: Colors.white),
+                        ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              user?.fullName.isNotEmpty == true
+                                  ? user!.fullName
+                                  : firstName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
-                          ),
-                          Text(
-                            consoleTitle,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: scheme.onSurfaceVariant,
+                            Text(
+                              consoleTitle,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 1),
-
-            // ── Overflow module tabs ────────────────────────────────────────
-            if (overflowTabs.isNotEmpty) ...[
-              Padding(
-                padding:
-                    const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                child: Text(
-                  'All Modules',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: scheme.onSurfaceVariant,
-                    letterSpacing: 0.8,
+                      Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+                    ],
                   ),
                 ),
               ),
-              for (final t in overflowTabs)
-                _MoreTile(
-                  key: Key('hub_more_tab_${t.name}'),
-                  icon: _HubDashboardScreenState._iconFor(t, selected: false),
-                  selectedIcon:
-                      _HubDashboardScreenState._iconFor(t, selected: true),
-                  label: _HubDashboardScreenState._labelFor(t),
-                  onTap: () => onTabSelected(t),
-                ),
               const Divider(height: 1),
-            ],
 
-            // ── Settings / Logout ───────────────────────────────────────────
-            const SizedBox(height: 8),
-            _MoreTile(
-              key: const Key('hub_more_settings_tile'),
-              icon: Icons.settings_outlined,
-              selectedIcon: Icons.settings,
-              label: 'Settings',
-              onTap: onOpenSettings,
-            ),
-            _MoreTile(
-              key: const Key('hub_more_theme_tile'),
-              icon: Icons.brightness_6_outlined,
-              selectedIcon: Icons.brightness_6,
-              label: 'Theme / Appearance',
-              onTap: () {
-                Navigator.of(context).pop();
-                showHubThemePickerSheet(context, ThemeController.instance);
-              },
-            ),
-            _MoreTile(
-              key: const Key('hub_more_signout_tile'),
-              icon: Icons.logout,
-              selectedIcon: Icons.logout,
-              label: 'Sign Out',
-              onTap: onSignOut,
-              isDestructive: true,
-            ),
-            const SizedBox(height: 8),
-          ],
+              // ── Overflow module tabs ────────────────────────────────────────
+              if (overflowTabs.isNotEmpty) ...[
+                Padding(
+                  padding:
+                      const EdgeInsets.fromLTRB(20, 14, 20, 4),
+                  child: Text(
+                    'All Modules',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                for (final t in overflowTabs)
+                  _MoreTile(
+                    key: Key('hub_more_tab_${t.name}'),
+                    icon: _HubDashboardScreenState._iconFor(t, selected: false),
+                    selectedIcon:
+                        _HubDashboardScreenState._iconFor(t, selected: true),
+                    label: _HubDashboardScreenState._labelFor(t),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      onTabSelected(t);
+                    },
+                  ),
+                const Divider(height: 1),
+              ],
+
+              // ── Settings / Logout ───────────────────────────────────────────
+              const SizedBox(height: 8),
+              _MoreTile(
+                key: const Key('hub_more_settings_tile'),
+                icon: Icons.settings_outlined,
+                selectedIcon: Icons.settings,
+                label: 'Settings',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onOpenSettings();
+                },
+              ),
+              _MoreTile(
+                key: const Key('hub_more_theme_tile'),
+                icon: Icons.brightness_6_outlined,
+                selectedIcon: Icons.brightness_6,
+                label: 'Theme / Appearance',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  showHubThemePickerSheet(context, ThemeController.instance);
+                },
+              ),
+              _MoreTile(
+                key: const Key('hub_more_signout_tile'),
+                icon: Icons.logout,
+                selectedIcon: Icons.logout,
+                label: 'Sign Out',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  onSignOut();
+                },
+                isDestructive: true,
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );

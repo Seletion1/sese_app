@@ -117,20 +117,7 @@ class _HubModuleShellState extends State<HubModuleShell> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
-        actions: [
-          ...(widget.actions ?? const []),
-          // Builder: opening the drawer needs a context under this Scaffold.
-          Builder(
-            builder: (ctx) => IconButton(
-              key: const Key('hub_module_menu_button'),
-              icon: const Icon(Icons.menu),
-              tooltip: 'Module sections',
-              onPressed: visible.isEmpty
-                  ? null
-                  : () => Scaffold.of(ctx).openDrawer(),
-            ),
-          ),
-        ],
+        actions: widget.actions,
       ),
       drawer: visible.isEmpty
           ? null

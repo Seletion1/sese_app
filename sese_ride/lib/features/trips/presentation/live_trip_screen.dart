@@ -481,18 +481,6 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
                     ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 6),
-
-              // Friendly explanation
-              Text(
-                'No driver was able to accept your order in the public pool before the timeout.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                  height: 1.4,
-                ),
-              ),
               const SizedBox(height: 12),
 
               // Helpful suggestion banner
