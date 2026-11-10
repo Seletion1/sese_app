@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-10 — Driver Cancellation Fee UI Cleanup & Automated Cash Dispute Negative Balance Workflow
+
+- **1. UI Cleanup & Redundant Middle Box Removal (`driver_active_trip_card.dart`)**:
+  - Completely stripped out the redundant middle yellow card (`Cash Settlement Due: ₦440` container and inline button) from `DriverActiveTripCard`.
+  - The header area presents clean informational status text (`Customer Cancelled - Collect ₦440 cash waiting fee from customer`), while the main sliding control (`Confirm ₦440`) serves as the single primary confirmation control.
+
+- **2. Automated "Cash Not Collected" Negative Balance Workflow (`driver_active_trip_card.dart`, `driver_streak_service.dart`, `trip_service.dart`, `trips.ts`)**:
+  - Sliding the confirmation slider presents a clean settlement choice modal with two explicit options:
+    - **"Confirm Cash Collected"** (`cashCollected: true`): Confirms cash was received in hand.
+    - **"Cash Not Collected"** (`cashCollected: false`): Unpaid cash selection triggers backend `confirmCashCancellation` callable.
+  - In `functions/src/trips.ts`:
+    - Automatically debits customer's wallet balance (`mainWalletBalance` & `balance` kobo) by the waiting fee, permitting a negative balance if funds are insufficient, and increments `outstandingNegativeBalance` on `users/{customerId}`.
+    - Credits driver's wallet balance by the waiting fee to protect driver earnings 100%.
+    - Records financial audit logs and ledger transactions for customer debit and driver credit.
+    - Eliminates manual admin review processes for unpaid cash waiting fees.
+
+- **3. Verification & Deployment**:
+  - Cloud Functions: 24 test suites, 73/73 tests passed (100%). Deployed updated `confirmCashCancellation` function to Firebase production (`sese-ride`).
+  - Unit & Widget Tests: 22/22 driver active trip card and state machine tests passed (100%).
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride`, `sese_hub`, and `sese_core`.
+
 ## 2026-11-10 — Incoming Order View Layout Cleanup, Rate/Distance Relocation & Integrated Avatar Verification Checkmarks
 
 - **1. Removal of Standalone Yellow Banners (`incoming_offer_sheet.dart`, `order_card.dart`, `verified_customer_badge.dart`)**:

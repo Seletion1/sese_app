@@ -27,7 +27,10 @@ abstract class DriverStreakBackend {
     String status,
   );
   Future<Map<String, dynamic>> callCancelTrip(String tripId, {String? reason});
-  Future<Map<String, dynamic>> callConfirmCashCancellation(String tripId);
+  Future<Map<String, dynamic>> callConfirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  });
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
     String tripId,
     String pin,
@@ -88,8 +91,14 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
       });
 
   @override
-  Future<Map<String, dynamic>> callConfirmCashCancellation(String tripId) =>
-      _call('confirmCashCancellation', {'tripId': tripId});
+  Future<Map<String, dynamic>> callConfirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  }) =>
+      _call('confirmCashCancellation', {
+        'tripId': tripId,
+        'cashCollected': cashCollected,
+      });
 
   @override
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
@@ -326,9 +335,18 @@ class DriverStreakService {
   Future<void> cancelTrip(String tripId, {String? reason}) =>
       _guard(() => _ops.callCancelTrip(tripId, reason: reason));
 
-  /// Driver confirms cash collected from customer for waiting time cancellation.
-  Future<void> confirmCashCancellation(String tripId) =>
-      _guard(() => _ops.callConfirmCashCancellation(tripId));
+  /// Driver confirms cash collected from customer for waiting time cancellation,
+  /// or reports cash not collected to debit the customer's account balance.
+  Future<void> confirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  }) =>
+      _guard(
+        () => _ops.callConfirmCashCancellation(
+          tripId,
+          cashCollected: cashCollected,
+        ),
+      );
 
   /// Submits the recipient's 4-digit delivery PIN to complete a delivery.
   /// The server verifies the code and settles through the normal completion

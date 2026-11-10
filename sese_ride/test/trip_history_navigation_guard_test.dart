@@ -46,7 +46,7 @@ class _FakeTripRepo implements TripRepository {
       {String? reason, bool useCashSettlement = false}) async {}
 
   @override
-  Future<void> confirmCashCancellation(String tripId) async {}
+  Future<void> confirmCashCancellation(String tripId, {bool cashCollected = true}) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare,

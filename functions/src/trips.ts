@@ -3421,11 +3421,13 @@ export const confirmCashCancellation = onCall(async (request) => {
   }
   const driverId = request.auth.uid;
   const tripId = String(request.data?.tripId ?? "");
+  const cashCollected = request.data?.cashCollected !== false;
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
 
   const ref = db().collection("trips").doc(tripId);
 
   await db().runTransaction(async (tx) => {
+    // 1. ALL READS FIRST
     const snap = await tx.get(ref);
     if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
     const data = snap.data()!;
@@ -3436,7 +3438,7 @@ export const confirmCashCancellation = onCall(async (request) => {
     }
 
     const currentStatus = String(data.status ?? "");
-    if (currentStatus === "CANCELLED" && data.cashSettlementConfirmed === true) {
+    if (currentStatus === "CANCELLED" && (data.cashSettlementConfirmed === true || data.settlement?.settled === true)) {
       return;
     }
     if (currentStatus !== "CANCELLED_WAITING_CASH_SETTLEMENT") {
@@ -3446,57 +3448,199 @@ export const confirmCashCancellation = onCall(async (request) => {
       );
     }
 
-    const fee = Number(data.paidWaitingFee ?? 0);
-    tx.update(ref, {
-      status: "CANCELLED",
-      cashSettlementConfirmed: true,
-      cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
-      pendingCashFee: 0,
-      "settlement.cashSettlementConfirmed": true,
-      "settlement.settled": true,
-      "settlement.settledAt": admin.firestore.FieldValue.serverTimestamp(),
-      pingDriverId: null,
-      pingExpiresAt: null,
-      statusHistory: admin.firestore.FieldValue.arrayUnion({
+    const customerId = String(data.customerId ?? data.userId ?? "");
+    const custWalletRef = customerId ? db().collection("wallets").doc(customerId) : null;
+    if (custWalletRef) await tx.get(custWalletRef);
+    const driverWalletRef = driverId ? db().collection("wallets").doc(driverId) : null;
+    if (driverWalletRef) await tx.get(driverWalletRef);
+    const custUserRef = customerId ? db().collection("users").doc(customerId) : null;
+    if (custUserRef) await tx.get(custUserRef);
+
+    const fee = Math.max(0, Number(data.pendingCashFee ?? data.paidWaitingFee ?? 0));
+    const feeKobo = nairaToKobo(fee);
+
+    // 2. ATOMIC WRITES
+    if (cashCollected) {
+      tx.update(ref, {
+        status: "CANCELLED",
+        cashSettlementConfirmed: true,
+        cashCollected: true,
+        cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        pendingCashFee: 0,
+        "settlement.cashSettlementConfirmed": true,
+        "settlement.settled": true,
+        "settlement.settledAt": admin.firestore.FieldValue.serverTimestamp(),
+        pingDriverId: null,
+        pingExpiresAt: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+          from: currentStatus,
+          to: "CANCELLED",
+          actor: driverId,
+          role: "driver",
+          reason: "cash_waiting_fee_collected",
+          timestamp: nowMs(),
+        }),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      persistTripChangeLogInTx(tx, {
+        tripId,
         from: currentStatus,
         to: "CANCELLED",
         actor: driverId,
         role: "driver",
         reason: "cash_waiting_fee_collected",
         timestamp: nowMs(),
-      }),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+      });
 
-    persistTripChangeLogInTx(tx, {
-      tripId,
-      from: currentStatus,
-      to: "CANCELLED",
-      actor: driverId,
-      role: "driver",
-      reason: "cash_waiting_fee_collected",
-      timestamp: nowMs(),
-    });
+      if (fee > 0) {
+        persistFinancialAuditLogInTx(tx, {
+          tripId,
+          type: "waiting_fee_cash_collected",
+          accountId: driverId,
+          amountNaira: fee,
+          amountKobo: feeKobo,
+          currency: "NGN",
+          actor: driverId,
+          role: "driver",
+          reason: "cash_waiting_fee_collected",
+          timestamp: Date.now(),
+          stage: "cancellation",
+          invariantsChecked: true,
+        });
+      }
+    } else {
+      // Driver reports "Cash Not Collected" -> debit customer wallet (allowing negative balance) and credit driver wallet
+      tx.update(ref, {
+        status: "CANCELLED",
+        cashSettlementConfirmed: false,
+        cashCollected: false,
+        cashNotCollectedReason: "driver_reported_unpaid",
+        cashSettlementConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+        pendingCashFee: 0,
+        "settlement.cashSettlementConfirmed": false,
+        "settlement.settled": true,
+        "settlement.settledAt": admin.firestore.FieldValue.serverTimestamp(),
+        pingDriverId: null,
+        pingExpiresAt: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+          from: currentStatus,
+          to: "CANCELLED",
+          actor: driverId,
+          role: "driver",
+          reason: "cash_waiting_fee_not_collected_debited",
+          timestamp: nowMs(),
+        }),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-    if (fee > 0) {
-      persistFinancialAuditLogInTx(tx, {
+      persistTripChangeLogInTx(tx, {
         tripId,
-        type: "waiting_fee_cash_collected",
-        accountId: driverId,
-        amountNaira: fee,
-        amountKobo: nairaToKobo(fee),
-        currency: "NGN",
+        from: currentStatus,
+        to: "CANCELLED",
         actor: driverId,
         role: "driver",
-        reason: "cash_waiting_fee_collected",
-        timestamp: Date.now(),
-        stage: "cancellation",
-        invariantsChecked: true,
+        reason: "cash_waiting_fee_not_collected_debited",
+        timestamp: nowMs(),
       });
+
+      if (fee > 0) {
+        if (custWalletRef) {
+          tx.set(
+            custWalletRef,
+            {
+              mainWalletBalance: admin.firestore.FieldValue.increment(-fee),
+              balance: admin.firestore.FieldValue.increment(-feeKobo),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          tx.set(
+            custWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_debited`),
+            {
+              type: "waiting_fee_paid",
+              amountNaira: -fee,
+              amountKobo: -feeKobo,
+              amount: -feeKobo,
+              tripId,
+              currency: "NGN",
+              note: `Unpaid cash waiting fee debited for trip ${tripId}`,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            }
+          );
+        }
+
+        if (custUserRef) {
+          tx.set(
+            custUserRef,
+            { outstandingNegativeBalance: admin.firestore.FieldValue.increment(fee) },
+            { merge: true }
+          );
+        }
+
+        if (driverWalletRef) {
+          tx.set(
+            driverWalletRef,
+            {
+              mainWalletBalance: admin.firestore.FieldValue.increment(fee),
+              balance: admin.firestore.FieldValue.increment(feeKobo),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          tx.set(
+            driverWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_credited`),
+            {
+              type: "waiting_fee_credited",
+              amountNaira: fee,
+              amountKobo: feeKobo,
+              amount: feeKobo,
+              tripId,
+              currency: "NGN",
+              note: `Unpaid cash waiting fee credited for trip ${tripId}`,
+              createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            }
+          );
+        }
+
+        if (customerId) {
+          persistFinancialAuditLogInTx(tx, {
+            tripId,
+            type: "waiting_fee_unpaid_debited",
+            accountId: customerId,
+            amountNaira: -fee,
+            amountKobo: -feeKobo,
+            currency: "NGN",
+            actor: driverId,
+            role: "driver",
+            reason: "cash_waiting_fee_not_collected",
+            timestamp: Date.now(),
+            stage: "cancellation",
+            invariantsChecked: true,
+          });
+        }
+
+        persistFinancialAuditLogInTx(tx, {
+          tripId,
+          type: "waiting_fee_unpaid_credited",
+          accountId: driverId,
+          amountNaira: fee,
+          amountKobo: feeKobo,
+          currency: "NGN",
+          actor: driverId,
+          role: "driver",
+          reason: "cash_waiting_fee_not_collected",
+          timestamp: Date.now(),
+          stage: "cancellation",
+          invariantsChecked: true,
+        });
+      }
     }
   });
 
-  return { ok: true, tripId };
+  return { ok: true, tripId, cashCollected };
 });
 
 /** Hub Admin: Cancel trip & refund any held escrow */

@@ -48,8 +48,12 @@ abstract class TripRepository {
   /// hourly spam-cancel rate limit. Null/unknown codes land as `other`.
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false});
 
-  /// Driver confirms cash collected from customer for waiting time cancellation.
-  Future<void> confirmCashCancellation(String tripId) async {}
+  /// Driver confirms cash collected from customer for waiting time cancellation,
+  /// or reports cash not collected to debit customer wallet balance.
+  Future<void> confirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  }) async {}
 
   // ── Bidding API ────────────────────────────────────────────────────────────
 
@@ -326,8 +330,16 @@ class FirestoreTripRepository implements TripRepository {
   }
 
   @override
-  Future<void> confirmCashCancellation(String tripId) async {
-    await _callWithAuthRetry(() => _fn.httpsCallable('confirmCashCancellation').call({'tripId': tripId}));
+  Future<void> confirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  }) async {
+    await _callWithAuthRetry(
+      () => _fn.httpsCallable('confirmCashCancellation').call({
+        'tripId': tripId,
+        'cashCollected': cashCollected,
+      }),
+    );
   }
 
   Future<T> _callWithAuthRetry<T>(Future<T> Function() callable) async {

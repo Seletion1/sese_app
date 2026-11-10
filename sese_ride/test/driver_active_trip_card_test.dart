@@ -7,11 +7,19 @@ import 'package:sese_ride/features/trips/models/trip_models.dart';
 class _FakeStreakService implements DriverStreakService {
   String? lastAdvancedTripId;
   String? lastAdvancedNextStatus;
+  String? lastConfirmedCashTripId;
+  bool? lastConfirmedCashCollected;
 
   @override
   Future<void> advanceTripStatus(String tripId, String nextStatus) async {
     lastAdvancedTripId = tripId;
     lastAdvancedNextStatus = nextStatus;
+  }
+
+  @override
+  Future<void> confirmCashCancellation(String tripId, {bool cashCollected = true}) async {
+    lastConfirmedCashTripId = tripId;
+    lastConfirmedCashCollected = cashCollected;
   }
 
   @override
@@ -388,5 +396,59 @@ void main() {
 
     // Verify complete trip action button label includes chevron
     expect(find.text('Complete Trip >'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Cancelled waiting cash settlement hides middle card and offers Cash Not Collected dispute choice',
+      (tester) async {
+    final fakeStreak = _FakeStreakService();
+
+    final cancelledTrip = ActiveTrip(
+      tripId: 'cancel_cash_1',
+      status: TripStatus.cancelledWaitingCashSettlement,
+      customerId: 'cust_6',
+      customerName: 'Bamiduro',
+      pickupAddress: '32 Olafiranye St',
+      dropoffAddress: '5 Ikosi Road, Ketu',
+      fareAmount: 4000,
+      fareFormatted: '₦4,000',
+      paidWaitingFee: 440,
+      pendingCashFee: 440,
+      serviceType: 'ride',
+    );
+
+    await tester.pumpWidget(
+      makeTestableWidget(
+        DriverActiveTripCard(
+          trip: cancelledTrip,
+          streakService: fakeStreak,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 1. Verify old middle yellow card is completely removed
+    expect(find.textContaining('Cash Settlement Due'), findsNothing);
+    expect(find.byKey(const Key('driver_confirm_cash_collected_button')), findsNothing);
+
+    // 2. Drag main sliding confirmation control
+    await tester.drag(
+      find.byKey(const Key('slide_to_action_track')),
+      const Offset(700, 0),
+    );
+    await tester.pumpAndSettle();
+
+    // 3. Verify choice dialog is presented with both options
+    expect(find.text('Cash Waiting Fee'), findsOneWidget);
+    expect(find.byKey(const Key('confirm_cash_received_button')), findsOneWidget);
+    expect(find.byKey(const Key('cash_not_collected_button')), findsOneWidget);
+
+    // 4. Tap "Cash Not Collected"
+    await tester.tap(find.byKey(const Key('cash_not_collected_button')));
+    await tester.pumpAndSettle();
+
+    // 5. Verify confirmCashCancellation was invoked with cashCollected = false
+    expect(fakeStreak.lastConfirmedCashTripId, 'cancel_cash_1');
+    expect(fakeStreak.lastConfirmedCashCollected, false);
   });
 }

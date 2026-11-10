@@ -358,46 +358,89 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
   }
 
-  /// Confirms cash settlement for a customer-cancelled trip during paid waiting.
+  /// Confirms cash settlement or handles unpaid cash dispute for a customer-cancelled trip.
   Future<void> _confirmCashSettlement(ActiveTrip trip) async {
     final fee = trip.pendingCashFee > 0
         ? trip.pendingCashFee
         : trip.paidWaitingFee;
     final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'cash waiting fee';
 
-    final confirmed = await showDialog<bool>(
+    final choice = await showDialog<bool?>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm Cash Settlement'),
-        content: Text(
-          'Have you collected $feeStr cash from the customer for the waiting fee cancellation?',
+        title: const Row(
+          children: [
+            Icon(Icons.payments_outlined, color: Color(0xFFD97706)),
+            SizedBox(width: 8),
+            Text('Cash Waiting Fee'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Did you collect the $feeStr cash waiting fee directly from the customer?',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'If cash was not received, select "Cash Not Collected". The unpaid fee will be automatically debited from the customer\'s account balance while protecting your driver earnings.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(ctx).brightness == Brightness.dark
+                    ? Colors.grey.shade400
+                    : Colors.grey.shade600,
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Go Back'),
+          ),
+          OutlinedButton(
+            key: const Key('cash_not_collected_button'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.deepOrange,
+            ),
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Not Yet'),
+            child: const Text('Cash Not Collected'),
           ),
           FilledButton(
             key: const Key('confirm_cash_received_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFE5A93C),
+              foregroundColor: Colors.black87,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Yes, Cash Received'),
+            child: const Text('Confirm Cash Collected'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true || !mounted) return;
+    if (choice == null || !mounted) return;
 
+    final isCollected = choice == true;
     final success = await _run(
-      () => widget.streakService.confirmCashCancellation(trip.tripId),
-      'Could not confirm cash settlement.',
+      () => widget.streakService.confirmCashCancellation(
+        trip.tripId,
+        cashCollected: isCollected,
+      ),
+      'Could not process cash settlement.',
     );
+
     if (success && mounted) {
+      final msg = isCollected
+          ? 'Cash settlement of $feeStr confirmed. Trip closed.'
+          : 'Unpaid fee of $feeStr debited to customer account. Driver earnings credited.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Cash settlement of $feeStr confirmed. Trip closed.'),
-          backgroundColor: Colors.green.shade700,
+          content: Text(msg),
+          backgroundColor: isCollected ? Colors.green.shade700 : Colors.amber.shade900,
         ),
       );
     }
@@ -1675,76 +1718,6 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 ),
               ),
             ),
-
-            if (trip.status == TripStatus.cancelledWaitingCashSettlement) ...[
-              Builder(builder: (context) {
-                final fee = trip.pendingCashFee > 0
-                    ? trip.pendingCashFee
-                    : trip.paidWaitingFee;
-                final feeStr = fee > 0 ? '₦${fee.toStringAsFixed(0)}' : 'Cash';
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF78350F).withValues(alpha: 0.35)
-                        : const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: const Color(0xFFF59E0B),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.payments_rounded,
-                              color: Color(0xFFD97706), size: 24),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Cash Settlement Due: $feeStr',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                                color: isDark
-                                    ? const Color(0xFFFDE68A)
-                                    : const Color(0xFF92400E),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Customer cancelled during paid waiting time. Please collect $feeStr cash before completing cancellation.',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: isDark
-                              ? Colors.grey.shade300
-                              : const Color(0xFF78350F),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      FilledButton.icon(
-                        key: const Key('driver_confirm_cash_collected_button'),
-                        icon: const Icon(Icons.check_circle_outline, size: 18),
-                        label: Text(_busy ? 'Confirming...' : 'Confirm $feeStr Cash Collected'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE5A93C),
-                          foregroundColor: Colors.black87,
-                          padding: const EdgeInsets.symmetric(vertical: 11),
-                        ),
-                        onPressed: _busy ? null : () => _confirmCashSettlement(trip),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
 
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(
