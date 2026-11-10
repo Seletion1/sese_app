@@ -515,6 +515,9 @@ class _ActiveTripCardBanner extends StatelessWidget {
       statusText = 'Driver has arrived';
     } else if (trip.status == TripStatus.inProgress) {
       statusText = 'Trip in progress';
+    } else if (trip.status == TripStatus.returnedToCustomer ||
+        trip.status == TripStatus.expired) {
+      statusText = 'Order Returned • Tap to recover';
     } else if (trip.status == TripStatus.needsCustomerAction) {
       statusText = 'Action Needed: Boost Fare';
     } else if (trip.status == TripStatus.cancelledWaitingCashSettlement) {

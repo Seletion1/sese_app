@@ -71,6 +71,13 @@ abstract class TripRepository {
   /// resets it to [TripStatus.searchingDriver] and restarts dispatch.
   Future<void> increaseTripFare(String tripId, double newFare);
 
+  /// Customer reassigns/retries an expired or stuck trip.
+  /// Instantly retries the dispatch sequence from the beginning (re-running the
+  /// 1st -> 2nd -> 3rd nearest driver loop followed by the public order pool).
+  ///
+  /// Optionally accepts an updated `newFare` parameter for one-tap fare boost chips.
+  Future<void> reassignTrip(String tripId, {double? newFare});
+
   /// Customer requests to continue searching after auto-reassignment threshold is reached.
   Future<void> keepSearchingTrip(String tripId);
 
@@ -395,6 +402,14 @@ class FirestoreTripRepository implements TripRepository {
     await _callWithAuthRetry(() => _fn.httpsCallable('increaseTripFare').call({
       'tripId': tripId,
       'newFare': newFare,
+    }));
+  }
+
+  @override
+  Future<void> reassignTrip(String tripId, {double? newFare}) async {
+    await _callWithAuthRetry(() => _fn.httpsCallable('reassignTrip').call({
+      'tripId': tripId,
+      if (newFare != null && newFare > 0) 'newFare': newFare,
     }));
   }
 

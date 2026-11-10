@@ -249,6 +249,9 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
               builder: (context, snap) {
                 final trips = (snap.data ?? const <ActiveTrip>[])
                     .where((t) =>
+                        t.status != TripStatus.returnedToCustomer &&
+                        t.status != TripStatus.expired)
+                    .where((t) =>
                         widget.driverId == null ||
                         widget.driverId!.isEmpty ||
                         t.customerId != widget.driverId)
@@ -993,7 +996,9 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                 trip.status != TripStatus.marketplaceOpen &&
                 trip.status != TripStatus.bidding &&
                 trip.status != TripStatus.searchingDriver;
-            final bool isTripCancelled = trip.status == TripStatus.cancelled;
+            final bool isTripExpired = trip.status == TripStatus.returnedToCustomer ||
+                trip.status == TripStatus.expired;
+            final bool isTripCancelled = trip.status == TripStatus.cancelled || isTripExpired;
 
             return SizedBox(
               height: MediaQuery.of(context).size.height,

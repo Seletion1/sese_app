@@ -5823,4 +5823,99 @@ final inTest = SeseUniversalMap.debugTileProviderOverride != null;
   - `sese_ride`: 38/38 payment, wallet, and trip money-flow tests passed; `flutter analyze` 0 issues.
   - `sese_hub`: 56/56 widget and logic tests passed; `flutter analyze` 0 issues.
 
+## 2026-11-10 — Order Lifecycle Timeout & Customer Recovery Workflow with One-Tap Fare-Boost Chips
+
+### Goal
+Prevent stale orders from lingering in the Public Order Pool indefinitely, and give customers a friction-free one-tap path to recover and boost their fare after a pool timeout.
+
+---
+
+### 1. Hub-Configured Public Pool Duration (`sese_core`, `sese_hub`, `functions/`)
+
+- **`sese_core/lib/models/dispatch_tuning.dart`**:
+  - Added `publicPoolDurationMin` (`int`, default `60`) with serialization in `fromMap`/`toMap`; falls back to `poolDurationMin` on legacy documents.
+- **`sese_hub/lib/features/config/presentation/global_config_screen.dart`**:
+  - Added `_publicPoolDurationCtrl` text controller, loaded from and persisted to `system_settings/dispatch`.
+  - New numeric input field added to Section 7 — "Sequential Dispatch Console" for ops to adjust the pool expiry window in minutes.
+- **`functions/src/trips.ts`**:
+  - Added `publicPoolDurationMin` and `publicPoolDurationMs` to `DispatchTuning` interface, `DEFAULT_TUNING`, and `getDispatchTuning()`.
+  - `dropToPublicPool()` now stamps `poolExpiresAt: Timestamp.fromMillis(now + publicPoolDurationMs)` on the trip document when the order enters the pool.
+
+---
+
+### 2. Scheduled Pool Expiration & Cleanup (`functions/src/trips.ts`)
+
+Added **Step 6** to the existing `sweepTripPings` scheduled Cloud Function (runs every minute):
+- Queries all `MARKETPLACE_OPEN` and `MARKETPLACE_LIST` trips where `poolExpiresAt <= now`.
+- For each overdue trip: atomically transitions status to `returned_to_customer` with `isExpired: true` and `cancellationSource: 'pool_timeout_returned_to_customer'`; clears `driverPingedAt`, `nextPingAt`, and `currentPingDriverId`; sends a customer push notification (*"No driver accepted your ride. Please boost your fare to catch nearby drivers' attention."*).
+- Expired trips become immediately invisible to driver Firestore security rules (which restrict marketplace reads to `MARKETPLACE_OPEN` / `MARKETPLACE_LIST`) — no separate deletion required.
+
+**Design decision:** Use `returned_to_customer` (not a hard-delete or separate `expired` collection) so the trip document persists for audit, the customer can retry from the same `tripId`, and the transition is reversible by `reassignTrip`.
+
+---
+
+### 3. `reassignTrip` Callable Function (`functions/src/trips.ts`, `functions/src/index.ts`)
+
+- Implemented `handleReassignTrip({ tripId, newFare? })`:
+  - Validates caller is the trip's customer.
+  - If `newFare` is provided, validates it is ≥ the original fare and does not exceed `maxOfferBoostPct` above the system baseline.
+  - Atomically writes boosted fare, resets `dispatchStep` to `0`, clears `isExpired` and `poolExpiresAt`, and sets status back to `searching_driver`.
+  - Immediately invokes `advanceSequentialDispatch` to restart the 1st → 2nd → 3rd driver loop from Step 1.
+- Exported as `reassignTrip`, with `retryTripDispatch = reassignTrip` and `keepSearchingTrip = reassignTrip` aliases for backward compatibility.
+
+---
+
+### 4. Customer-Side Status & Driver-Side Filtering (`sese_ride`)
+
+- **`trip_models.dart`**: Added `returnedToCustomer` and `expired` to `TripStatus` enum and `tripStatusFromString`; added `isReturnedToCustomer` getter to `ActiveTrip`.
+- **`trip_service.dart`**: Added `reassignTrip(String tripId, {double? newFare})` to `TripRepository` interface and `FirestoreTripRepository` implementation.
+- **`order_feed.dart`** (driver): Filters `returnedToCustomer` and `expired` out of `_mergedOffers` so expired trips never surface in the driver sequential ping list.
+- **`order_pool_sheet.dart`** (driver): Guards pool listing and detail view with `isTripExpired` check.
+- **`customer_home_shell.dart`**: Shows `'Order Returned • Tap to recover'` in the home bottom bar.
+- **`customer_home_map_screen.dart`**: Renders amber `'Order Returned'` status chip for these statuses.
+- **`customer_trips_screen.dart`**: Added `_StatusChip` amber badge in trip history.
+
+---
+
+### 5. Customer Recovery Screen — `_OrderRecoveryBody` (`live_trip_screen.dart`)
+
+`LiveTripScreen` renders `_OrderRecoveryBody` for `TripStatus.returnedToCustomer`, `expired`, and `needsCustomerAction`.
+
+**3-option + quick-chip layout:**
+1. **Header banner** — amber icon, friendly title *"No Driver Found"*, subtitle *"Please increase the fare to catch nearby drivers' attention."*
+2. **Order summary card** — pickup address, drop-off address, current fare formatted as `₦X,XXX`.
+3. **Primary actions (two tappable rows):**
+   - **Reassign / Retry** — calls `reassignTrip(tripId)` with current fare; restarts sequential dispatch from Step 1.
+   - **Make Changes / Edit** — pushes `CustomerDispatchScreen` pre-seeded with order parameters.
+4. **Quick fixed-price boost chips (two side-by-side `_QuickPriceChip`):**
+   - Calculated by `calculateSuggestedFares(baseFare)`: `+₦500` and `+₦1,000` increments (floored to nearest ₦500).
+   - One-tap: calls `reassignTrip(tripId, newFare: chip.price)` — atomically updates fare and restarts dispatch.
+5. **Custom fare input** — text field for manual arbitrary fare entry with an "Apply & Search" button.
+6. **Cancel order** — destructive secondary action at the bottom.
+
+**Key implementation decision:** `calculateSuggestedFares` is a pure client-side function (no server round-trip) for instant chip display. Server-side fare validation inside `reassignTrip` enforces the `maxOfferBoostPct` ceiling, making client suggestions advisory, not authoritative.
+
+---
+
+### 6. Test Coverage
+
+#### Backend (`functions/src/test/sequential_dispatch.test.ts`)
+- **Test 7:** `Public Pool timeout automatically transitions order to returned_to_customer`
+- **Test 8:** `Reassign / Retry with instant fare boost restarts sequential dispatch from Step 1 with updated fare`
+
+#### Frontend (`sese_ride/test/order_recovery_screen_test.dart`)
+4 widget tests covering: Reassign/Retry, quick chip one-tap boost, Make Changes button, recovery screen rendering.
+
+---
+
+### 7. Verification
+
+| Suite | Result |
+|-------|--------|
+| `npm test` (functions) — 24 suites, 73 tests | ✅ 73/73 passed |
+| `flutter test live_trip_screen_test.dart` (12 tests) | ✅ 12/12 passed |
+| `flutter test order_recovery_screen_test.dart` (4 tests) | ✅ 4/4 passed |
+| `flutter analyze sese_ride` (trips, driver, home, customer) | ✅ No issues |
+| `flutter analyze sese_hub` | ✅ No issues |
+
 

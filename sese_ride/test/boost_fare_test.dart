@@ -51,6 +51,9 @@ class _FakeTripRepo implements TripRepository {
   Future<void> acceptBid(String tripId, String driverId) async {}
 
   @override
+  Future<void> reassignTrip(String tripId, {double? newFare}) async {}
+
+  @override
   Future<void> keepSearchingTrip(String tripId) async {}
 
   @override

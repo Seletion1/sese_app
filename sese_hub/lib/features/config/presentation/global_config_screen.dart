@@ -114,6 +114,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _candidateLimitCtrl = TextEditingController(text: '25');
   final _recycleWindowCtrl = TextEditingController(text: '25');
   final _maxRecyclesCtrl = TextEditingController(text: '5');
+  final _publicPoolDurationCtrl = TextEditingController(text: '60');
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
   final _maxOfferBoostPctCtrl = TextEditingController(text: '100');
@@ -234,6 +235,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _candidateLimitCtrl.dispose();
     _recycleWindowCtrl.dispose();
     _maxRecyclesCtrl.dispose();
+    _publicPoolDurationCtrl.dispose();
     _cameraPickupDwellCtrl.dispose();
     _cameraDropoffDwellCtrl.dispose();
     _maxOfferBoostPctCtrl.dispose();
@@ -360,6 +362,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
       _recycleWindowCtrl.text = tuning.recycleWindowMin.toString();
       _maxRecyclesCtrl.text = tuning.maxRecycles.toString();
+      _publicPoolDurationCtrl.text = tuning.publicPoolDurationMin.toString();
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
       _maxOfferBoostPctCtrl.text = tuning.maxOfferBoostPct.toStringAsFixed(0);
@@ -619,6 +622,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           recycleWindowMin:
               int.tryParse(_recycleWindowCtrl.text.trim()) ?? 25,
           maxRecycles: int.tryParse(_maxRecyclesCtrl.text.trim()) ?? 5,
+          publicPoolDurationMin:
+              int.tryParse(_publicPoolDurationCtrl.text.trim()) ?? 60,
           cameraPickupDwellSec:
               int.tryParse(_cameraPickupDwellCtrl.text.trim()) ?? 5,
           cameraDropoffDwellSec:
@@ -2994,6 +2999,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 25 (5–120). Stale unassigned orders re-enter dispatch.'),
                 numField(_maxRecyclesCtrl, 'Max recycles per trip', 'times',
                     'Default 5 (1–20). Bounds recycling cycles.'),
+                numField(_publicPoolDurationCtrl, 'Public Pool timeout', 'min',
+                    'Default 60 min (1 hr). Automatically expires orders from the pool and returns them to customer.'),
                 numField(_cameraPickupDwellCtrl, 'Live search pickup dwell', 'sec',
                     'Default 5 (2–30 sec). Camera hold duration at pickup before panning.'),
                 numField(_cameraDropoffDwellCtrl, 'Live search drop-off dwell', 'sec',

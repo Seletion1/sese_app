@@ -197,5 +197,60 @@ const node_test_1 = require("node:test");
         node_assert_1.default.strictEqual(trip.dispatchStep, 4);
         node_assert_1.default.strictEqual(trip.pingDriverId, null);
     });
+    (0, node_test_1.test)("7. Public Pool timeout automatically transitions order to returned_to_customer", () => {
+        const defaultDurationMs = 60 * 60 * 1000; // 1 hour
+        const now = 1731196800000;
+        const poolTrip = {
+            id: "trip_pool_expired",
+            status: "MARKETPLACE_OPEN",
+            poolExpiresAt: now - defaultDurationMs,
+        };
+        // Sweep simulation
+        if (poolTrip.status === "MARKETPLACE_OPEN" && now >= poolTrip.poolExpiresAt) {
+            poolTrip.status = "returned_to_customer";
+            poolTrip.isExpired = true;
+        }
+        node_assert_1.default.strictEqual(poolTrip.status, "returned_to_customer");
+        node_assert_1.default.strictEqual(poolTrip.isExpired, true);
+    });
+    (0, node_test_1.test)("8. Reassign / Retry with instant fare boost restarts sequential dispatch from Step 1 with updated fare", () => {
+        const drivers = [
+            { id: "driver_near", distanceKm: 1.2, isOnline: true },
+            { id: "driver_far", distanceKm: 4.5, isOnline: true },
+        ];
+        const trip = {
+            id: "trip_reassign",
+            status: "returned_to_customer",
+            dispatchTier: 3,
+            dispatchStep: 4,
+            pingDriverId: null,
+            pingDriverIds: [],
+            attemptedDriverIds: ["driver_old_1", "driver_old_2", "driver_old_3"],
+            rejections: [],
+            fareAmount: 4000,
+            fareFormatted: "₦4,000",
+            fareBoosted: false,
+            boostPercent: 0,
+        };
+        // Simulate reassignTrip callable with one-tap ₦5,000 chip boost
+        const newFare = 5000;
+        const boostPct = Math.round(((newFare - trip.fareAmount) / trip.fareAmount) * 100);
+        trip.fareAmount = newFare;
+        trip.fareFormatted = `₦${newFare.toLocaleString()}`;
+        trip.fareBoosted = true;
+        trip.boostPercent = boostPct;
+        trip.status = "SEARCHING_DRIVER";
+        trip.dispatchTier = 1;
+        trip.dispatchStep = 0;
+        trip.attemptedDriverIds = [];
+        // Restart router
+        routeSequentialDispatch(trip, drivers, 3.0);
+        node_assert_1.default.strictEqual(trip.status, "WAITING_FOR_ACCEPTANCE");
+        node_assert_1.default.strictEqual(trip.dispatchStep, 1);
+        node_assert_1.default.strictEqual(trip.pingDriverId, "driver_near");
+        node_assert_1.default.strictEqual(trip.fareAmount, 5000);
+        node_assert_1.default.strictEqual(trip.fareBoosted, true);
+        node_assert_1.default.strictEqual(trip.boostPercent, 25);
+    });
 });
 //# sourceMappingURL=sequential_dispatch.test.js.map

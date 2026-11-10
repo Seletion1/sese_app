@@ -63,6 +63,12 @@ enum TripStatus {
   /// or cancel. Maps to 'needs_customer_action' on the wire.
   needsCustomerAction('needs_customer_action'),
 
+  /// Order expired from public pool without driver acceptance and returned to customer.
+  returnedToCustomer('returned_to_customer'),
+
+  /// Order expired. Alias for returnedToCustomer.
+  expired('expired'),
+
   /// Marketplace-style driver bidding is active for this trip.
   /// Drivers submit custom fares; customer accepts the best bid.
   bidding('bidding'),
@@ -119,6 +125,10 @@ TripStatus tripStatusFromString(String? raw) {
       return TripStatus.cancelledWaitingCashSettlement;
     case 'NEEDS_CUSTOMER_ACTION':
       return TripStatus.needsCustomerAction;
+    case 'RETURNED_TO_CUSTOMER':
+      return TripStatus.returnedToCustomer;
+    case 'EXPIRED':
+      return TripStatus.expired;
     case 'BIDDING':
       return TripStatus.bidding;
     case 'REJECTED':
@@ -578,6 +588,12 @@ class ActiveTrip {
   /// the trip is closed for the customer while the driver confirms cash.
   bool get isCustomerLive =>
       isLive && status != TripStatus.cancelledWaitingCashSettlement;
+
+  /// True if this order has timed out in the pool or returned to customer for recovery.
+  bool get isReturnedToCustomer =>
+      status == TripStatus.returnedToCustomer ||
+      status == TripStatus.expired ||
+      status == TripStatus.needsCustomerAction;
 
   /// Best available completion-ish timestamp for earnings bucketing.
   DateTime? get earningDate => completedAt ?? settledAt ?? updatedAt ?? createdAt;

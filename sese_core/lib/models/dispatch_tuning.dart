@@ -19,6 +19,11 @@ class DispatchTuning {
   final int recycleWindowMin;
   final int maxRecycles;
 
+  /// Public Order Pool expiration duration in minutes (Hub configurable).
+  /// Default: 60 minutes (1 hour). When reached without driver acceptance,
+  /// the order automatically transitions to `returned_to_customer` and purges from driver feeds.
+  final int publicPoolDurationMin;
+
   /// Configured search radius for sequential driver matching (Step 1, 2, 3). Default 3.0 km (0–3 km).
   double get searchRadiusKm => tier1RadiusKm;
 
@@ -52,6 +57,7 @@ class DispatchTuning {
     this.candidateLimit = 25,
     this.recycleWindowMin = 25,
     this.maxRecycles = 5,
+    this.publicPoolDurationMin = 60,
     this.maxOfferBoostPct = 100.0,
     this.cameraPickupDwellSec = 5,
     this.cameraDropoffDwellSec = 2,
@@ -108,6 +114,7 @@ class DispatchTuning {
       candidateLimit: intOf('candidateLimit', 25),
       recycleWindowMin: intOf('recycleWindowMin', 25),
       maxRecycles: intOf('maxRecycles', 5),
+      publicPoolDurationMin: intOf('publicPoolDurationMin', intOf('poolDurationMin', 60)),
       maxOfferBoostPct: numOf('maxOfferBoostPct', 100.0),
       cameraPickupDwellSec: intOf('cameraPickupDwellSec', 5),
       cameraDropoffDwellSec: intOf('cameraDropoffDwellSec', 2),
@@ -128,6 +135,8 @@ class DispatchTuning {
         'candidateLimit': candidateLimit,
         'recycleWindowMin': recycleWindowMin,
         'maxRecycles': maxRecycles,
+        'publicPoolDurationMin': publicPoolDurationMin,
+        'poolDurationMin': publicPoolDurationMin,
         'maxOfferBoostPct': maxOfferBoostPct,
         'cameraPickupDwellSec': cameraPickupDwellSec,
         'cameraDropoffDwellSec': cameraDropoffDwellSec,

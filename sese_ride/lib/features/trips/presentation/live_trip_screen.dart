@@ -204,9 +204,11 @@ class LiveTripScreen extends StatelessWidget {
                 ),
               );
             }
-            // Special state: auto-reassignment exhausted — prompt fare boost.
-            if (trip.status == TripStatus.needsCustomerAction) {
-              return _NeedsActionBody(
+            // Special state: public pool timeout / auto-reassignment exhausted — customer recovery screen.
+            if (trip.status == TripStatus.returnedToCustomer ||
+                trip.status == TripStatus.expired ||
+                trip.status == TripStatus.needsCustomerAction) {
+              return _OrderRecoveryBody(
                 trip: trip,
                 repository: repository,
                 isPushedFromDispatch: isPushedFromDispatch,
@@ -224,36 +226,40 @@ class LiveTripScreen extends StatelessWidget {
   }
 }
 
-// ── NeedsCustomerAction prompt ────────────────────────────────────────────────
+// ── Customer Recovery & Action Screen ─────────────────────────────────────────
 
-/// Shown when auto-reassignment has failed 3 times. The customer must raise
-/// the fare (or cancel) to get a driver.
-class _NeedsActionBody extends StatefulWidget {
+/// Order Recovery & Action Screen:
+/// Presented when an order expires from the public pool or exhausts sequential driver
+/// reassignments. Displays the 3-option & quick-chip layout:
+/// 1. Primary actions: Reassign / Retry (retry with current fare) and Make Changes / Edit (return to booking).
+/// 2. Quick Fixed-Price Suggestion Chips: Two automated instant fare-boosting chips side-by-side.
+///    Tapping either chip immediately updates the fare and restarts the sequential dispatch sequence.
+class _OrderRecoveryBody extends StatefulWidget {
   final ActiveTrip trip;
   final TripRepository repository;
   final bool isPushedFromDispatch;
 
-  const _NeedsActionBody({
+  const _OrderRecoveryBody({
     required this.trip,
     required this.repository,
     this.isPushedFromDispatch = false,
   });
 
   @override
-  State<_NeedsActionBody> createState() => _NeedsActionBodyState();
+  State<_OrderRecoveryBody> createState() => _OrderRecoveryBodyState();
 }
 
-class _NeedsActionBodyState extends State<_NeedsActionBody> {
+class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
   final _controller = TextEditingController();
-  bool _loading = false;
-  bool _keepSearchingLoading = false;
-  bool _showBoostFields = false;
+  bool _reassignLoading = false;
+  double? _boostingChipFare;
+  bool _manualBoostLoading = false;
+  bool _showCustomPriceInput = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    // Pre-fill with current fare so the customer can see what to beat.
     final current = widget.trip.fareAmount;
     if (current > 0) {
       _controller.text = current.toStringAsFixed(0);
@@ -266,62 +272,117 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
     super.dispose();
   }
 
-  Future<void> _keepSearching() async {
+  /// Calculates two intelligent fixed-price suggestions based on current fare magnitude.
+  static List<double> calculateSuggestedFares(double currentFare) {
+    if (currentFare <= 0) return [1500, 2000];
+    double inc1;
+    double inc2;
+    if (currentFare < 2000) {
+      inc1 = 300;
+      inc2 = 600;
+    } else if (currentFare < 5000) {
+      inc1 = 500;
+      inc2 = 1000;
+    } else if (currentFare < 15000) {
+      inc1 = 1000;
+      inc2 = 2000;
+    } else {
+      inc1 = 2000;
+      inc2 = 4000;
+    }
+    final opt1 = ((currentFare + inc1) / 100).ceil() * 100.0;
+    final opt2 = ((currentFare + inc2) / 100).ceil() * 100.0;
+    return [opt1, opt2];
+  }
+
+  String _formatNaira(num amount) {
+    final integerPart = amount.toInt().toString();
+    final withCommas = integerPart.replaceAllMapped(
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
+    );
+    return '₦$withCommas';
+  }
+
+  Future<void> _handleReassign([double? newFare]) async {
+    final isChip = newFare != null;
     setState(() {
-      _keepSearchingLoading = true;
+      if (isChip) {
+        _boostingChipFare = newFare;
+      } else {
+        _reassignLoading = true;
+      }
       _error = null;
     });
+
     try {
-      await widget.repository.keepSearchingTrip(widget.trip.tripId);
+      await widget.repository.reassignTrip(
+        widget.trip.tripId,
+        newFare: newFare,
+      );
       // Stream updates to SEARCHING_DRIVER automatically.
     } on TripException catch (e) {
       if (mounted) setState(() => _error = e.userMessage);
     } catch (e) {
-      debugPrint('LiveTripScreen keepSearching error: $e');
+      debugPrint('OrderRecovery reassign error: $e');
       if (mounted) {
         setState(() =>
-            _error = 'Unable to search for drivers right now. Please try again.');
+            _error = 'Unable to reassign order right now. Please try again.');
       }
     } finally {
-      if (mounted) setState(() => _keepSearchingLoading = false);
+      if (mounted) {
+        setState(() {
+          _reassignLoading = false;
+          _boostingChipFare = null;
+        });
+      }
     }
   }
 
-  Future<void> _boostFare() async {
+  Future<void> _handleCustomBoost() async {
     final val = double.tryParse(_controller.text.replaceAll(',', ''));
     final maxAllowedFare = _calculateMaxAllowedFare(widget.trip);
     if (val == null || val <= widget.trip.fareAmount) {
       setState(
         () => _error =
-            'Enter an amount higher than the current fare (${widget.trip.fareFormatted})',
+            'Enter an amount higher than the current fare (${widget.trip.fareFormatted.isNotEmpty ? widget.trip.fareFormatted : _formatNaira(widget.trip.fareAmount)})',
       );
       return;
     }
     if (val > maxAllowedFare) {
-      final maxFormatted = '₦${maxAllowedFare.toInt().toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
       setState(
-        () => _error = 'Max offer: $maxFormatted',
+        () => _error = 'Max offer: ${_formatNaira(maxAllowedFare)}',
       );
       return;
     }
     setState(() {
-      _loading = true;
+      _manualBoostLoading = true;
       _error = null;
     });
     try {
-      await widget.repository.increaseTripFare(widget.trip.tripId, val);
-      // Backend resets to SEARCHING_DRIVER — the StreamBuilder will rebuild.
+      await widget.repository.reassignTrip(widget.trip.tripId, newFare: val);
     } on TripException catch (e) {
       if (mounted) setState(() => _error = e.userMessage);
+    } catch (e) {
+      if (mounted) {
+        setState(() =>
+            _error = 'Unable to update fare right now. Please try again.');
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _manualBoostLoading = false);
     }
   }
 
+  void _handleMakeChanges() {
+    _navigateBackToBookingOrPop(
+      context,
+      widget.trip,
+      isPushedFromDispatch: widget.isPushedFromDispatch,
+    );
+  }
+
   Future<void> _cancel() async {
-    // Reason-first: the dialog returns null on dismiss, committing nothing.
-    final result =
-        await CancelTripDialog.show(context, isDriver: false);
+    final result = await CancelTripDialog.show(context, isDriver: false);
     if (result == null || !mounted) return;
     try {
       await widget.repository.cancelTrip(
@@ -329,7 +390,6 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
-      // Show optional post-cancel feedback sheet before navigating away.
       if (mounted) {
         await CancelTripDialog.showPostCancelFeedback(
           context,
@@ -357,74 +417,244 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF252530) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300;
+    final cardBg = isDark ? const Color(0xFF23232C) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF383844) : Colors.grey.shade200;
+    final currentFare = widget.trip.fareAmount;
+    final currentFareStr = widget.trip.fareFormatted.isNotEmpty
+        ? widget.trip.fareFormatted
+        : _formatNaira(currentFare);
+
+    final suggestedFares = calculateSuggestedFares(currentFare);
+    final chipFare1 = suggestedFares[0];
+    final chipFare2 = suggestedFares[1];
+    final diff1 = chipFare1 - currentFare;
+    final diff2 = chipFare2 - currentFare;
+
+    final isBusy = _reassignLoading || _boostingChipFare != null || _manualBoostLoading;
 
     return Center(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         child: Container(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
             color: cardBg,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(24),
             border: Border.all(color: borderColor),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
-                blurRadius: 16,
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+                blurRadius: 18,
                 offset: const Offset(0, 6),
               ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.access_time_filled_rounded,
-                  size: 36,
-                  color: Color(0xFFF59E0B),
+              // Header Icon
+              Center(
+                child: Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.access_time_filled_rounded,
+                    size: 38,
+                    color: Color(0xFFF59E0B),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
+
+              // Title
               Text(
-                'Do you still want to order?',
+                'Order Returned to You',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
+                      fontSize: 20,
                       color: isDark ? Colors.white : Colors.black87,
                     ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+
+              // Friendly explanation
               Text(
-                'All drivers are busy right now. Keep searching or wait?',
+                'No driver was able to accept your order in the public pool before the timeout.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 14,
-                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                  fontSize: 13,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  height: 1.4,
                 ),
               ),
+              const SizedBox(height: 12),
+
+              // Helpful suggestion banner
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: isDark ? 0.12 : 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.tips_and_updates_rounded,
+                      size: 20,
+                      color: Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Please increase the fare to catch nearby drivers\' attention.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? const Color(0xFFFFD580) : const Color(0xFFB45309),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Error display
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(
-                  _error!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                  textAlign: TextAlign.center,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ],
-              const SizedBox(height: 24),
-              // Action 1: Keep Searching
+
+              const SizedBox(height: 18),
+
+              // Order Summary Mini-card
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1B1B22) : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF2C2C38) : Colors.grey.shade200,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  widget.trip.pickupAddress.isNotEmpty
+                                      ? widget.trip.pickupAddress
+                                      : 'Pickup Location',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: isDark ? Colors.grey.shade300 : Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  widget.trip.dropoffAddress.isNotEmpty
+                                      ? widget.trip.dropoffAddress
+                                      : 'Drop-off Destination',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: isDark ? Colors.grey.shade300 : Colors.black87,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Current Fare',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          currentFareStr,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              // ── 1. Primary Actions (Row/List) ──
+              // Reassign / Retry: Instantly retries dispatch sequence from the beginning
               SizedBox(
-                width: double.infinity,
+                height: 48,
                 child: FilledButton.icon(
-                  icon: _keepSearchingLoading
+                  key: const Key('recovery_reassign_retry_button'),
+                  icon: _reassignLoading
                       ? const SizedBox(
                           width: 18,
                           height: 18,
@@ -433,120 +663,258 @@ class _NeedsActionBodyState extends State<_NeedsActionBody> {
                             color: Colors.black87,
                           ),
                         )
-                      : const Icon(Icons.search_rounded, color: Colors.black87),
+                      : const Icon(Icons.refresh_rounded, color: Colors.black87),
                   label: Text(
-                    _keepSearchingLoading ? 'Searching...' : 'Keep Searching',
+                    _reassignLoading ? 'Reassigning...' : 'Reassign / Retry',
                     style: const TextStyle(
                       color: Colors.black87,
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                     ),
                   ),
-                  onPressed: (_keepSearchingLoading || _loading)
-                      ? null
-                      : _keepSearching,
+                  onPressed: isBusy ? null : () => _handleReassign(null),
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFFF59E0B),
-                    minimumSize: const Size.fromHeight(50),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              // Action 2: Boost Fare (Toggleable)
-              if (!_showBoostFields)
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.bolt, color: Color(0xFFF59E0B)),
-                    label: const Text('Boost Offer Fare (Optional)'),
-                    onPressed: () => setState(() => _showBoostFields = true),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(46),
-                      side: BorderSide(color: borderColor),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+              const SizedBox(height: 10),
+
+              // Make Changes / Edit: Navigates back to edit addresses, notes, or prices
+              SizedBox(
+                height: 46,
+                child: OutlinedButton.icon(
+                  key: const Key('recovery_make_changes_button'),
+                  icon: const Icon(Icons.edit_note_rounded, size: 20),
+                  label: const Text(
+                    'Make Changes / Edit',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
                     ),
+                  ),
+                  onPressed: isBusy ? null : _handleMakeChanges,
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: isDark ? const Color(0xFF4A4A58) : Colors.grey.shade300,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 22),
+
+              // ── 2. Quick Fixed-Price Suggestion Chips (Bottom Row) ──
+              Row(
+                children: [
+                  const Icon(
+                    Icons.bolt_rounded,
+                    color: Color(0xFFF59E0B),
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Quick Fare Boost (One-Tap Retry)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Tap a suggested price to update fare & reassign instantly:',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _QuickPriceChip(
+                      key: Key('recovery_chip_${chipFare1.toInt()}'),
+                      priceFormatted: _formatNaira(chipFare1),
+                      incrementFormatted: '+${_formatNaira(diff1)}',
+                      isLoading: _boostingChipFare == chipFare1,
+                      isDisabled: isBusy,
+                      onTap: () => _handleReassign(chipFare1),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _QuickPriceChip(
+                      key: Key('recovery_chip_${chipFare2.toInt()}'),
+                      priceFormatted: _formatNaira(chipFare2),
+                      incrementFormatted: '+${_formatNaira(diff2)}',
+                      isLoading: _boostingChipFare == chipFare2,
+                      isDisabled: isBusy,
+                      isHighlighted: true,
+                      onTap: () => _handleReassign(chipFare2),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Optional Manual Custom Fare input (collapsible)
+              const SizedBox(height: 12),
+              if (!_showCustomPriceInput)
+                Center(
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text(
+                      'Custom Fare Boost',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    onPressed: isBusy
+                        ? null
+                        : () => setState(() => _showCustomPriceInput = true),
                   ),
                 )
               else ...[
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 8,
-                  children: [5, 10, 20].map((pct) {
-                    final boosted = _calculateBoostedFareAmount(widget.trip, pct);
-                    return OutlinedButton(
-                      onPressed: _loading
-                          ? null
-                          : () => setState(() {
-                                _controller.text = boosted.toString();
-                                _error = null;
-                              }),
-                      child: Text('+$pct%'),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 TextField(
                   controller: _controller,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [
                     FilteringTextInputFormatter.allow(RegExp(r'[\d,.]')),
                   ],
                   decoration: InputDecoration(
-                    labelText: 'New fare amount',
+                    labelText: 'Custom fare amount',
                     prefixText: '₦ ',
+                    isDense: true,
                     errorText: _error,
-                    helperText:
-                        'Current: ${widget.trip.fareFormatted.isNotEmpty ? widget.trip.fareFormatted : "₦${widget.trip.fareAmount.toStringAsFixed(0)}"}',
+                    helperText: 'Current: $currentFareStr',
                   ),
                 ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    icon: _loading
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.bolt),
-                    label:
-                        Text(_loading ? 'Boosting...' : 'Submit Boost & Search'),
-                    onPressed: _loading ? null : _boostFare,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(46),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: isBusy ? null : _handleCustomBoost,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(40),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
                     ),
+                  ),
+                  child: Text(
+                    _manualBoostLoading ? 'Updating...' : 'Set Custom Fare & Reassign',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
-              const SizedBox(height: 12),
-              // Action 3: Cancel & Return to Booking
-              SizedBox(
-                width: double.infinity,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.close, color: Colors.redAccent),
-                  label: const Text(
-                    'Cancel & Return to Booking',
+
+              const SizedBox(height: 14),
+
+              // Bottom Cancel Option
+              Center(
+                child: TextButton(
+                  onPressed: isBusy ? null : _cancel,
+                  child: Text(
+                    'Cancel Order',
                     style: TextStyle(
-                      color: Colors.redAccent,
+                      color: Colors.red.shade400,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  onPressed: _cancel,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Quick fixed-price suggestion button widget with one-tap instant reassignment.
+class _QuickPriceChip extends StatelessWidget {
+  final String priceFormatted;
+  final String incrementFormatted;
+  final bool isLoading;
+  final bool isDisabled;
+  final bool isHighlighted;
+  final VoidCallback onTap;
+
+  const _QuickPriceChip({
+    super.key,
+    required this.priceFormatted,
+    required this.incrementFormatted,
+    this.isLoading = false,
+    this.isDisabled = false,
+    this.isHighlighted = false,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseBg = isHighlighted
+        ? (isDark ? const Color(0xFF332915) : const Color(0xFFFEF3C7))
+        : (isDark ? const Color(0xFF282834) : const Color(0xFFF3F4F6));
+    final borderColor = isHighlighted
+        ? const Color(0xFFF59E0B)
+        : (isDark ? const Color(0xFF3E3E4E) : Colors.grey.shade300);
+
+    return Material(
+      color: baseBg,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: (isDisabled || isLoading) ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: borderColor,
+              width: isHighlighted ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFFF59E0B),
+                  ),
+                )
+              else
+                Text(
+                  priceFormatted,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+              const SizedBox(height: 2),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  incrementFormatted,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFF59E0B),
                   ),
                 ),
               ),
@@ -1707,6 +2075,8 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
       case TripStatus.inProgress:
         message = 'Trip in progress — sit back and relax';
       case TripStatus.needsCustomerAction:
+      case TripStatus.returnedToCustomer:
+      case TripStatus.expired:
       case TripStatus.completed:
       case TripStatus.cancelled:
       case TripStatus.cancelledWaitingCashSettlement:

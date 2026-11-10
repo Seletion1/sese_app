@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordDropoffArrival = exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = exports.MAX_SEQUENTIAL_DISPATCH_DRIVERS = void 0;
+exports.recordDropoffArrival = exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.retryTripDispatch = exports.reassignTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = exports.MAX_SEQUENTIAL_DISPATCH_DRIVERS = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
 exports.requirePingedDriver = requirePingedDriver;
@@ -84,6 +84,7 @@ const DEFAULT_TIER3_RADIUS_KM = 15;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
 const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
 const DEFAULT_MAX_RECYCLES = 5;
+const DEFAULT_PUBLIC_POOL_DURATION_MIN = 60;
 const DEFAULT_TUNING = {
     dispatchRadiusKm: DEFAULT_DISPATCH_RADIUS_KM,
     tier1RadiusKm: DEFAULT_TIER1_RADIUS_KM,
@@ -94,6 +95,8 @@ const DEFAULT_TUNING = {
     candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
     recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
     maxRecycles: DEFAULT_MAX_RECYCLES,
+    publicPoolDurationMin: DEFAULT_PUBLIC_POOL_DURATION_MIN,
+    publicPoolDurationMs: DEFAULT_PUBLIC_POOL_DURATION_MIN * 60 * 1000,
     maxOfferBoostPct: 100,
     bidCountdownMs: 10 * 1000,
     bidCountdownSec: 10,
@@ -105,7 +108,7 @@ let tuningCache = null;
  * falls back to the compiled defaults, so dispatch never stalls.
  */
 async function getDispatchTuning() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f, _g;
     try {
         if (tuningCache && Date.now() - tuningCache.at < 60 * 1000) {
             return tuningCache.value;
@@ -122,6 +125,7 @@ async function getDispatchTuning() {
         const bidCountdownSec = Math.round(num((_b = d.bidCountdownSec) !== null && _b !== void 0 ? _b : d.bidCountdownSeconds, 10, 5, 60));
         const tier1Radius = Math.min(num((_c = d.tier1RadiusKm) !== null && _c !== void 0 ? _c : d.searchRadiusKm, DEFAULT_TIER1_RADIUS_KM, 0.5, 50), tier3Radius);
         const tier1TimeoutSec = num((_d = d.tier1TimeoutSec) !== null && _d !== void 0 ? _d : d.sequentialTimeoutSec, 15, 5, 120);
+        const publicPoolDurationMin = Math.round(num((_f = (_e = d.publicPoolDurationMin) !== null && _e !== void 0 ? _e : d.poolDurationMin) !== null && _f !== void 0 ? _f : d.publicPoolDurationMinutes, 60, 5, 1440));
         const value = {
             dispatchRadiusKm: tier3Radius,
             tier1RadiusKm: tier1Radius,
@@ -132,6 +136,8 @@ async function getDispatchTuning() {
             candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
             recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
             maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
+            publicPoolDurationMin,
+            publicPoolDurationMs: publicPoolDurationMin * 60 * 1000,
             maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
             bidCountdownMs: bidCountdownSec * 1000,
             bidCountdownSec: bidCountdownSec,
@@ -139,8 +145,8 @@ async function getDispatchTuning() {
         tuningCache = { at: Date.now(), value };
         return value;
     }
-    catch (_f) {
-        return (_e = tuningCache === null || tuningCache === void 0 ? void 0 : tuningCache.value) !== null && _e !== void 0 ? _e : DEFAULT_TUNING;
+    catch (_h) {
+        return (_g = tuningCache === null || tuningCache === void 0 ? void 0 : tuningCache.value) !== null && _g !== void 0 ? _g : DEFAULT_TUNING;
     }
 }
 const LIVE_STATUSES = [
@@ -948,6 +954,8 @@ function attemptedIdsOf(data) {
  * pool radius) will see it available to claim from the pool.
  */
 async function dropToPublicPool(tripRef) {
+    const tuning = await getDispatchTuning();
+    const poolExpiresAt = nowMs() + tuning.publicPoolDurationMs;
     await tripRef.update({
         status: "MARKETPLACE_OPEN",
         dispatchTier: 3,
@@ -956,6 +964,7 @@ async function dropToPublicPool(tripRef) {
         pingDriverIds: [],
         pingExpiresAt: null,
         tierExpiresAt: null,
+        poolExpiresAt,
         declineCount: admin.firestore.FieldValue.increment(1),
         droppedToPoolAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1058,7 +1067,7 @@ async function breakStreakQuiet(driverId, reason) {
  * expires ignored pings ("skipped_by_driver"), and restarts dispatch for long-waiting searches.
  */
 exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
     const cutoff = nowMs();
     const tuning = await getDispatchTuning();
     // 1. Advance sequential offers whose deadline passed.
@@ -1157,8 +1166,60 @@ exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             }
-            catch (_g) {
+            catch (_t) {
                 /* best effort */
+            }
+        }
+    }
+    // 6. Public Order Pool Expiration & Order Timeout (Hub-Configured Pool Duration)
+    // When an order sits in the public pool (MARKETPLACE_OPEN or MARKETPLACE_LIST) beyond
+    // the Hub-configured duration limit (default: 60 min), automatically transition to
+    // `returned_to_customer` so it clears out of all driver feeds and notifies customer.
+    const poolTimeoutMs = tuning.publicPoolDurationMs;
+    for (const poolStatus of ["MARKETPLACE_OPEN", "MARKETPLACE_LIST"]) {
+        const poolDue = await db()
+            .collection("trips")
+            .where("status", "==", poolStatus)
+            .limit(25)
+            .get();
+        for (const doc of poolDue.docs) {
+            const data = doc.data();
+            const droppedAt = (_q = (_m = (_j = (_h = (_g = data.droppedToPoolAt) === null || _g === void 0 ? void 0 : _g.toMillis) === null || _h === void 0 ? void 0 : _h.call(_g)) !== null && _j !== void 0 ? _j : (_l = (_k = data.updatedAt) === null || _k === void 0 ? void 0 : _k.toMillis) === null || _l === void 0 ? void 0 : _l.call(_k)) !== null && _m !== void 0 ? _m : (_p = (_o = data.createdAt) === null || _o === void 0 ? void 0 : _o.toMillis) === null || _p === void 0 ? void 0 : _p.call(_o)) !== null && _q !== void 0 ? _q : 0;
+            const poolExpiresAt = typeof data.poolExpiresAt === "number"
+                ? data.poolExpiresAt
+                : droppedAt > 0
+                    ? droppedAt + poolTimeoutMs
+                    : 0;
+            if (poolExpiresAt > 0 && cutoff >= poolExpiresAt) {
+                await doc.ref.update({
+                    status: "returned_to_customer",
+                    isExpired: true,
+                    expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    statusMessage: "Please increase the fare to catch nearby drivers' attention.",
+                    cancellationSource: "pool_timeout_returned_to_customer",
+                    pingDriverId: null,
+                    pingDriverIds: [],
+                    pingExpiresAt: null,
+                    tierExpiresAt: null,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    statusHistory: admin.firestore.FieldValue.arrayUnion({
+                        from: data.status,
+                        to: "returned_to_customer",
+                        actor: "system_dispatch",
+                        role: "system",
+                        reason: "public_pool_timeout_expired",
+                        timestamp: cutoff,
+                    }),
+                });
+                const customerId = String((_s = (_r = data.customerId) !== null && _r !== void 0 ? _r : data.userId) !== null && _s !== void 0 ? _s : "");
+                if (customerId) {
+                    try {
+                        await notifyCustomer(customerId, doc.id, "Order Returned", "Please increase the fare to catch nearby drivers' attention.", "trip_returned_to_customer", { tripId: doc.id, status: "returned_to_customer" });
+                    }
+                    catch (_u) {
+                        /* best effort */
+                    }
+                }
             }
         }
     }
@@ -2463,78 +2524,112 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
     return { ok: true, newFare };
 });
 /**
- * Customer chooses to keep searching after 3-strike driver cancellations or when drivers are busy.
- * Resets reassignmentCount and restarts matchmaking without dropping the order or escrow.
+ * Reassign / Retry Dispatch Engine callable:
+ * Instantly retries the dispatch sequence from the beginning (re-running the
+ * 1st -> 2nd -> 3rd nearest driver loop followed by the public order pool).
+ *
+ * Supports instant one-tap fare boosting when `newFare` is provided, atomically
+ * saving the new higher price in Firestore and immediately restarting matchmaking.
  */
-exports.keepSearchingTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
+async function handleReassignTrip(request) {
+    var _a, _b, _c, _d, _e, _f, _g;
     const customerId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!customerId) {
         throw new https_1.HttpsError("unauthenticated", "Must be logged in.");
     }
-    const { tripId } = ((_b = request.data) !== null && _b !== void 0 ? _b : {});
+    const { tripId, newFare } = ((_b = request.data) !== null && _b !== void 0 ? _b : {});
     if (!tripId) {
         throw new https_1.HttpsError("invalid-argument", "tripId is required.");
     }
-    const tripRef = db().collection("trips").doc(tripId);
-    let canRestart = false;
-    let fromStatus = "needs_customer_action";
-    await db().runTransaction(async (tx) => {
-        var _a;
-        const tripSnap = await tx.get(tripRef);
-        if (!tripSnap.exists) {
-            throw new https_1.HttpsError("not-found", "Trip not found.");
+    const tripRef = db().collection("trips").doc(String(tripId));
+    const tripSnap = await tripRef.get();
+    if (!tripSnap.exists) {
+        throw new https_1.HttpsError("not-found", "Trip not found.");
+    }
+    const tripData = tripSnap.data();
+    if (tripData.customerId !== customerId && tripData.userId !== customerId) {
+        throw new https_1.HttpsError("permission-denied", "Not your trip.");
+    }
+    const validStatuses = [
+        "returned_to_customer",
+        "expired",
+        "needs_customer_action",
+        "SEARCHING_DRIVER",
+        "MARKETPLACE_OPEN",
+        "MARKETPLACE_LIST",
+        "CANCELLED",
+    ];
+    const fromStatus = String((_c = tripData.status) !== null && _c !== void 0 ? _c : "");
+    if (!validStatuses.includes(fromStatus)) {
+        throw new https_1.HttpsError("failed-precondition", `Cannot reassign trip with status ${fromStatus}.`);
+    }
+    const tuning = await getDispatchTuning();
+    let fareUpdate = {};
+    if (typeof newFare === "number" && Number.isFinite(newFare) && newFare > 0) {
+        const currentFare = Number((_e = (_d = tripData.fareAmount) !== null && _d !== void 0 ? _d : tripData.baselineFare) !== null && _e !== void 0 ? _e : 0);
+        const roundedNewFare = (0, pricing_1.roundToNearest100)(newFare);
+        if (roundedNewFare < currentFare) {
+            throw new https_1.HttpsError("invalid-argument", "New fare cannot be lower than current fare.");
         }
-        const tripData = tripSnap.data();
-        if (tripData.customerId !== customerId) {
-            throw new https_1.HttpsError("permission-denied", "Not your trip.");
+        const maxOfferBoostPct = Number((_f = tuning.maxOfferBoostPct) !== null && _f !== void 0 ? _f : 100);
+        const originalBase = Number(tripData.baselineFare && Number(tripData.baselineFare) > 0
+            ? tripData.baselineFare
+            : ((_g = tripData.fareAmount) !== null && _g !== void 0 ? _g : 0));
+        const maxAllowedFare = Math.round(originalBase * (1 + maxOfferBoostPct / 100));
+        if (roundedNewFare > maxAllowedFare) {
+            throw new https_1.HttpsError("failed-precondition", `Offer boost cannot exceed ${maxOfferBoostPct}% above original base fare (max ₦${maxAllowedFare.toLocaleString()}).`);
         }
-        fromStatus = String((_a = tripData.status) !== null && _a !== void 0 ? _a : "");
-        // Server-side state validation: only trips in needs_customer_action or SEARCHING_DRIVER can keep searching
-        if (fromStatus !== "needs_customer_action" && fromStatus !== "SEARCHING_DRIVER") {
-            throw new https_1.HttpsError("failed-precondition", `Cannot resume search for trip with status ${fromStatus}.`);
-        }
-        canRestart = true;
-        tx.update(tripRef, {
-            status: "SEARCHING_DRIVER",
-            reassignmentCount: 0,
-            statusMessage: "Searching for available drivers nearby...",
-            cancellationSource: null,
-            cancellationReason: null,
-            driver: null,
-            driverLocation: null,
-            driverId: null,
-            arrivedAt: null,
-            pingDriverId: null,
-            pingDriverIds: [],
-            pingExpiresAt: null,
-            tierExpiresAt: null,
-            statusHistory: admin.firestore.FieldValue.arrayUnion({
-                from: fromStatus,
-                to: "SEARCHING_DRIVER",
-                actor: customerId,
-                role: "customer",
-                reason: "keep_searching",
-                timestamp: nowMs(),
-            }),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        const boostPct = currentFare > 0
+            ? Math.round(((roundedNewFare - currentFare) / currentFare) * 100)
+            : 0;
+        const rawFareTiers = Array.isArray(tripData.fareTiers) ? tripData.fareTiers : [];
+        const selectedTiers = Array.isArray(tripData.selectedTiers)
+            ? tripData.selectedTiers
+            : [];
+        const updatedFareTiers = rawFareTiers.map((t) => {
+            if (t &&
+                typeof t === "object" &&
+                (selectedTiers.length === 0 || selectedTiers.includes(t.tierId))) {
+                return Object.assign(Object.assign({}, t), { fareAmount: roundedNewFare });
+            }
+            return t;
         });
-        (0, driverStreak_1.persistTripChangeLogInTx)(tx, {
-            tripId,
+        fareUpdate = {
+            fareAmount: roundedNewFare,
+            proposedFare: roundedNewFare,
+            fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
+            fareBoosted: true,
+            boostPercent: boostPct,
+            boostedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (updatedFareTiers.length > 0) {
+            fareUpdate.fareTiers = updatedFareTiers;
+        }
+    }
+    const updatePayload = Object.assign(Object.assign({}, fareUpdate), { status: "SEARCHING_DRIVER", dispatchTier: 1, dispatchStep: 0, attemptedDriverIds: [], reassignmentCount: 0, reassignmentHistory: [], declineCount: 0, pingDriverId: null, pingDriverIds: [], pingExpiresAt: null, tierExpiresAt: null, poolExpiresAt: null, droppedToPoolAt: null, isExpired: false, cancellationSource: null, cancellationReason: null, driver: null, driverLocation: null, driverId: null, arrivedAt: null, statusMessage: fareUpdate.fareAmount
+            ? `Fare updated to ₦${fareUpdate.fareAmount.toLocaleString()}! Reassigning drivers...`
+            : "Searching for available drivers nearby...", statusHistory: admin.firestore.FieldValue.arrayUnion({
             from: fromStatus,
             to: "SEARCHING_DRIVER",
             actor: customerId,
             role: "customer",
-            reason: "keep_searching",
+            reason: fareUpdate.fareAmount ? "reassign_with_fare_boost" : "reassign_retry",
             timestamp: nowMs(),
-        });
-    });
-    if (canRestart) {
-        const fresh = (await tripRef.get()).data();
-        await advanceSequentialDispatch(tripRef, fresh, await getDispatchTuning());
-    }
-    return { ok: true, status: "SEARCHING_DRIVER" };
-});
+        }), updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    await tripRef.update(updatePayload);
+    // Instantly trigger sequential dispatch router from Step 1!
+    const fresh = (await tripRef.get()).data();
+    await advanceSequentialDispatch(tripRef, fresh, tuning);
+    return {
+        ok: true,
+        status: "SEARCHING_DRIVER",
+        fareAmount: fresh.fareAmount,
+        reassigned: true,
+    };
+}
+exports.reassignTrip = (0, https_1.onCall)(handleReassignTrip);
+exports.retryTripDispatch = exports.reassignTrip;
+exports.keepSearchingTrip = exports.reassignTrip;
 /**
  * Callable: driver submits the 4-digit delivery PIN at drop-off.
  *

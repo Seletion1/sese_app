@@ -711,6 +711,12 @@ class _StatusChip extends StatelessWidget {
           bgColor = const Color(0xFFFEF3C7);
 
         // ── Customer action needed ─────────────────────────────────────────
+        case TripStatus.returnedToCustomer:
+        case TripStatus.expired:
+          label = 'Returned to Customer';
+          color = const Color(0xFFD97706);
+          bgColor = const Color(0xFFFEF3C7);
+
         case TripStatus.needsCustomerAction:
           label = 'Action Needed';
           color = const Color(0xFFD97706);

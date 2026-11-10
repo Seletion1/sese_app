@@ -390,6 +390,11 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
         statusText = 'Trip In Progress';
         badgeColor = const Color(0xFF1976D2); // blue
         break;
+      case TripStatus.returnedToCustomer:
+      case TripStatus.expired:
+        statusText = 'Order Returned • Tap to recover';
+        badgeColor = const Color(0xFFF59E0B);
+        break;
       case TripStatus.needsCustomerAction:
         statusText = 'Action Needed: Boost Fare';
         badgeColor = Colors.orange.shade800;

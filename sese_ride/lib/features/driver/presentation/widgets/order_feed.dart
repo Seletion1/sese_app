@@ -84,11 +84,16 @@ class OrderFeedState extends State<OrderFeed> {
     List<ActiveTrip> marketplace,
   ) {
     final byId = <String, ActiveTrip>{};
-    if (exclusivePing != null && exclusivePing.customerId != widget.driverId) {
+    if (exclusivePing != null &&
+        exclusivePing.customerId != widget.driverId &&
+        exclusivePing.status != TripStatus.returnedToCustomer &&
+        exclusivePing.status != TripStatus.expired) {
       byId[exclusivePing.tripId] = exclusivePing;
     }
     for (final t in marketplace) {
       if (t.customerId != widget.driverId &&
+          t.status != TripStatus.returnedToCustomer &&
+          t.status != TripStatus.expired &&
           _withinPoolRadius(t) &&
           !OrderPoolSession.isDismissed(t.tripId, t)) {
         byId.putIfAbsent(t.tripId, () => t);

@@ -45,6 +45,8 @@ export {
   acceptBid,
   increaseTripFare,
   keepSearchingTrip,
+  reassignTrip,
+  retryTripDispatch,
   verifyDeliveryPin,
   skipDeliveryPin,
   recordDropoffArrival,

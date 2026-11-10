@@ -45,6 +45,9 @@ class MockTripRepository implements TripRepository {
   Future<void> increaseTripFare(String tripId, double newFare) async {}
 
   @override
+  Future<void> reassignTrip(String tripId, {double? newFare}) async {}
+
+  @override
   Future<void> keepSearchingTrip(String tripId) async {}
 
   @override
