@@ -5989,4 +5989,23 @@ Added **Step 6** to the existing `sweepTripPings` scheduled Cloud Function (runs
 | `flutter analyze sese_ride` (trips, driver, home, customer) | ✅ No issues |
 | `flutter analyze sese_hub` | ✅ No issues |
 
+## 2026-11-10 — Mutual-Exclusion Vehicle Selection Rules, UI Disabling & Subtle Info Tooltip
+
+- **1. Mutual-Exclusion Group Rules (`customer_dispatch_screen.dart`)**:
+  - Implemented real-time mutual exclusion between Group A (Small/Light: Bicycle, Motorcycle, Tricycle) and Group B (Heavy/Large: Van, Truck). Car/Sedan remains neutral and compatible with all options.
+  - Selecting any small vehicle greys out and disables Van and Truck. Selecting Van or Truck greys out and disables Bicycle, Motorcycle, and Tricycle.
+
+- **2. Subtle Info Icon Tooltip & Non-Intrusive Guidance**:
+  - Disabled vehicle cards render in a muted grey style (`Opacity 0.45`, `grey.shade100` background).
+  - Placed a subtle info icon (`Icons.info_outline_rounded`) on **only the first disabled vehicle row** (`firstDisabledCategory`), eliminating visual icon clutter across disabled rows.
+  - Tapping the info icon displays a brief non-blocking tooltip (`"Cannot combine small vehicles with heavy trucks/vans"`), completely eliminating disruptive pop-up dialogs.
+
+- **3. Legacy Warning Dialog Removal**:
+  - Completely stripped out `_showDistanceWarningDialog()` and its confirm-time check from `_confirmAndDispatch()`, allowing direct dispatch without popup interruptions.
+
+- **4. Verification & Testing**:
+  - Static Analysis: `cd sese_ride && flutter analyze` clean with **0 issues**.
+  - Unit & Widget Tests: `flutter test test/dispatch_and_fleet_test.dart` passed 100% (10/10 tests passed, including new mutual-exclusion UI test).
+
+
 

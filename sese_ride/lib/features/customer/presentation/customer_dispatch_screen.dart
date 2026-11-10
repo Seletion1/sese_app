@@ -1543,69 +1543,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
 
-  /// Smart Distance Warning dialog. Returns true when the user confirms the
-  /// non-ideal selection anyway, false/null when they go back to change it.
-  ///
-  /// Copy names the offending vehicle(s) and the actual trip length so the
-  /// choice is informed, not generic. Thresholds come from the live
-  /// recommendation config, never hardcoded copy.
-  Future<bool?> _showDistanceWarningDialog(
-    List<VehicleCategory> warned,
-    double distanceKm,
-  ) {
-    final dist = distanceKm.toStringAsFixed(1);
-    final lines = warned.map((c) {
-      final ceiling = VehicleRecommendationEngine.warningCeilingFor(
-        c,
-        _recConfig,
-      );
-      final name = c.displayName;
-      if (c == VehicleCategory.bicycle) {
-        return 'You have selected $name for a long-distance trip '
-            '($dist km). Bicycles may take significantly longer to arrive '
-            'or complete delivery.';
-      }
-      return '$name${ceiling != null ? 's' : ''} are restricted on major '
-          'expressways and long-distance routes ($dist km). Selecting '
-          '$name may delay driver matching or lead to cancellation.';
-    }).toList();
-
-    final suggestion = warned.contains(VehicleCategory.bicycle)
-        ? 'Would you like to switch to ${VehicleCategory.motorcycle.displayName} or proceed anyway?'
-        : 'Are you sure you want to proceed?';
-
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Long-Distance Warning'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final line in lines) ...[
-              Text(line, style: const TextStyle(fontSize: 13)),
-              const SizedBox(height: 8),
-            ],
-            Text(
-              suggestion,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm Anyway'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Change Vehicle'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _confirmAndDispatch() async {
     final fareResp = _fareResponse;
     if (fareResp == null || _creatingTrip) return;
@@ -1628,31 +1565,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               .map((c) => _deliveryTierIds[c] ?? c.name)
               .toList()
         : orderedRideTiers;
-
-    // Smart Distance Warning: when a selected vehicle is non-ideal for this
-    // trip length, confirm before minting. Fires at confirm-time (not on
-    // every tap) so multi-select browsing stays fluid, and re-asks on every
-    // confirm while the selection is non-ideal — an explicit per-trip choice.
-    final warned = isDelivery
-        ? VehicleRecommendationEngine.nonIdealSelections(
-            fareResp.distanceKm,
-            _selectedDeliveryCategories,
-            _recConfig,
-          )
-        : (_selectedRideTierIds.contains(_rideTricycleTierId)
-              ? VehicleRecommendationEngine.nonIdealSelections(
-                  fareResp.distanceKm,
-                  const [VehicleCategory.tricycle],
-                  _recConfig,
-                )
-              : const <VehicleCategory>[]);
-    if (warned.isNotEmpty) {
-      final proceed = await _showDistanceWarningDialog(
-        warned,
-        fareResp.distanceKm,
-      );
-      if (!mounted || proceed != true) return;
-    }
 
     // 1. Mint the live trip on the server. From here the backend owns
     // matchmaking, ping timeouts, and re-broadcasts — the request stays
@@ -2785,6 +2697,32 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Widget _buildDeliveryVehicleSelector() {
     const categories = VehicleCategory.values;
     final resp = _fareResponse;
+
+    // Evaluate vehicle grouping & mutual-exclusion compatibility rules:
+    // Group A (Small/Light): Bicycle, Motorcycle, Tricycle
+    // Group B (Heavy/Large): Van, Truck
+    final hasSmallSelected = _selectedDeliveryCategories.any(
+      VehicleRecommendationEngine.isSmallVehicle,
+    );
+    final hasHeavySelected = _selectedDeliveryCategories.any(
+      VehicleRecommendationEngine.isHeavyDuty,
+    );
+
+    bool isCategoryDisabled(VehicleCategory cat) {
+      if (hasSmallSelected && VehicleRecommendationEngine.isHeavyDuty(cat)) {
+        return true;
+      }
+      if (hasHeavySelected && VehicleRecommendationEngine.isSmallVehicle(cat)) {
+        return true;
+      }
+      return false;
+    }
+
+    // Identify the FIRST disabled category to display the single subtle info icon
+    final firstDisabledCategory = categories.firstWhereOrNull(
+      (cat) => isCategoryDisabled(cat),
+    );
+
     return ListView(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -2809,6 +2747,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         const SizedBox(height: 12),
         ...categories.map((cat) {
           final selected = _selectedDeliveryCategories.contains(cat);
+          final isDisabled = isCategoryDisabled(cat);
+          final showInfoIcon = isDisabled && (cat == firstDisabledCategory);
           final tierId = _deliveryTierIds[cat] ?? cat.name;
           final tier = resp?.tierById(tierId);
           final recommended = resp != null && _deliveryRecommended(cat, resp);
@@ -2821,8 +2761,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             baseFareAmount: tier?.fareAmount ?? 0.0,
             customFareAmount: customFare,
             selected: selected,
+            isDisabled: isDisabled,
+            showInfoIcon: showInfoIcon,
+            infoTooltipText:
+                'Cannot combine small vehicles with heavy trucks/vans',
             isRecommended: recommended,
             onChanged: (_) {
+              if (isDisabled) return;
               setState(() {
                 if (selected && _selectedDeliveryCategories.length > 1) {
                   _selectedDeliveryCategories.remove(cat);
@@ -2832,6 +2777,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               });
             },
             onFareEdited: (newFare) {
+              if (isDisabled) return;
               setState(() {
                 if (newFare == null) {
                   _customTierFares.remove(tierId);
@@ -4345,6 +4291,9 @@ class _VehicleTierTile extends StatefulWidget {
   final double? customFareAmount;
 
   final bool selected;
+  final bool isDisabled;
+  final bool showInfoIcon;
+  final String infoTooltipText;
   final bool isRecommended;
   final ValueChanged<bool> onChanged;
 
@@ -4359,6 +4308,10 @@ class _VehicleTierTile extends StatefulWidget {
     this.baseFareAmount = 0.0,
     this.customFareAmount,
     required this.selected,
+    this.isDisabled = false,
+    this.showInfoIcon = false,
+    this.infoTooltipText =
+        'Cannot combine small vehicles with heavy trucks/vans',
     required this.isRecommended,
     required this.onChanged,
     this.onFareEdited,
@@ -4684,22 +4637,32 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
         ? _fmtRaw(widget.customFareAmount!)
         : (widget.baseFareFormatted ?? '');
     final hasFare = displayPrice.isNotEmpty;
-    final canBid = widget.baseFareAmount > 0 && widget.onFareEdited != null;
+    final canBid = widget.baseFareAmount > 0 &&
+        widget.onFareEdited != null &&
+        !widget.isDisabled;
+
+    final tileColor = widget.selected
+        ? AppColors.seseGold.withValues(alpha: 0.08)
+        : (widget.isDisabled
+            ? (isDark ? const Color(0xFF1B1B22) : Colors.grey.shade100)
+            : (isDark ? const Color(0xFF252530) : Colors.grey.shade50));
+
+    final borderColor = widget.selected
+        ? AppColors.seseGold
+        : (widget.isDisabled
+            ? (isDark ? const Color(0xFF2C2C36) : Colors.grey.shade300)
+            : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: widget.selected
-            ? AppColors.seseGold.withValues(alpha: 0.08)
-            : (isDark ? const Color(0xFF252530) : Colors.grey.shade50),
+        color: tileColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: widget.selected
-              ? AppColors.seseGold
-              : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200),
+          color: borderColor,
           width: widget.selected ? 2.0 : 1.0,
         ),
-        boxShadow: widget.selected
+        boxShadow: (widget.selected && !widget.isDisabled)
             ? [
                 BoxShadow(
                   color: AppColors.seseGold.withValues(alpha: 0.15),
@@ -4712,177 +4675,235 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => widget.onChanged(!widget.selected),
+          onTap: widget.isDisabled
+              ? null
+              : () => widget.onChanged(!widget.selected),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                // ── 1. Vehicle artwork ────────────────────────────────────
-                SizedBox(
-                  width: 80,
-                  child: VehicleIllustration(
-                    art: widget.art,
-                    height: 48,
-                    selected: widget.selected,
+            child: Opacity(
+              opacity: widget.isDisabled ? 0.45 : 1.0,
+              child: Row(
+                children: [
+                  // ── 1. Vehicle artwork ────────────────────────────────────
+                  SizedBox(
+                    width: 80,
+                    child: VehicleIllustration(
+                      art: widget.art,
+                      height: 48,
+                      selected: widget.selected && !widget.isDisabled,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 14),
+                  const SizedBox(width: 14),
 
-                // ── 2. Name + inline price row + Recommended chip ─────────
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Vehicle name and price on the same horizontal line.
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          // Name — shrinks when price is long.
-                          Flexible(
-                            child: Text(
-                              widget.title,
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (hasFare) ...[
-                            const SizedBox(width: 8),
-                            // Surged fares get a subtle amber glow border.
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: hasCustomFare
-                                  ? BoxDecoration(
-                                      color: const Color(0xFFF59E0B)
-                                          .withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: const Color(0xFFF59E0B)
-                                            .withValues(alpha: 0.5),
-                                      ),
-                                    )
-                                  : null,
+                  // ── 2. Name + inline price row + Recommended chip ─────────
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Vehicle name and price on the same horizontal line.
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            // Name — shrinks when price is long.
+                            Flexible(
                               child: Text(
-                                displayPrice,
+                                widget.title,
                                 style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: hasCustomFare
-                                      ? const Color(0xFFF59E0B)
-                                      : const Color(0xFFD97706),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: widget.isDisabled
+                                      ? Colors.grey.shade500
+                                      : (isDark
+                                            ? Colors.white
+                                            : Colors.black87),
                                 ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            // Pen icon — opens bid sheet.
-                            if (canBid) ...[
-                              const SizedBox(width: 2),
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  // Don't propagate to the tile's onTap.
-                                  _openBidSheet();
-                                },
+
+                            // Subtle Awareness Info Icon on designated disabled row
+                            if (widget.showInfoIcon) ...[
+                              const SizedBox(width: 6),
+                              Tooltip(
+                                message: widget.infoTooltipText,
+                                triggerMode: TooltipTriggerMode.tap,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? const Color(0xFF2C2C36)
+                                      : Colors.grey.shade800,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                textStyle: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
                                 child: Padding(
-                                  padding: const EdgeInsets.all(4),
+                                  padding: const EdgeInsets.all(2),
                                   child: Icon(
-                                    hasCustomFare
-                                        ? Icons.edit_rounded
-                                        : Icons.edit_outlined,
-                                    size: 15,
-                                    color: hasCustomFare
+                                    Icons.info_outline_rounded,
+                                    size: 16,
+                                    color: isDark
                                         ? const Color(0xFFF59E0B)
-                                        : (isDark
-                                              ? Colors.grey.shade400
-                                              : Colors.grey.shade600),
+                                        : const Color(0xFFD97706),
                                   ),
                                 ),
                               ),
                             ],
-                          ],
-                        ],
-                      ),
 
-                      // Recommended chip sits below the name+price row.
-                      if (widget.isRecommended) ...[
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF78350F).withValues(alpha: 0.3)
-                                : const Color(0xFFFEF3C7),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: isDark
-                                  ? const Color(0xFFF59E0B)
-                                        .withValues(alpha: 0.4)
-                                  : const Color(0xFFF59E0B)
-                                        .withValues(alpha: 0.3),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.star_rounded,
-                                size: 12,
-                                color: isDark
-                                    ? const Color(0xFFFBBF24)
-                                    : const Color(0xFFD97706),
-                              ),
-                              const SizedBox(width: 3),
-                              Text(
-                                'Recommended',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: isDark
-                                      ? const Color(0xFFFDE68A)
-                                      : const Color(0xFF92400E),
+                            if (hasFare) ...[
+                              const SizedBox(width: 8),
+                              // Surged fares get a subtle amber glow border.
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: hasCustomFare
+                                    ? BoxDecoration(
+                                        color: const Color(0xFFF59E0B)
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: const Color(0xFFF59E0B)
+                                              .withValues(alpha: 0.5),
+                                        ),
+                                      )
+                                    : null,
+                                child: Text(
+                                  displayPrice,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: widget.isDisabled
+                                        ? Colors.grey.shade500
+                                        : (hasCustomFare
+                                            ? const Color(0xFFF59E0B)
+                                            : const Color(0xFFD97706)),
+                                  ),
                                 ),
                               ),
+                              // Pen icon — opens bid sheet.
+                              if (canBid) ...[
+                                const SizedBox(width: 2),
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    // Don't propagate to the tile's onTap.
+                                    _openBidSheet();
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(4),
+                                    child: Icon(
+                                      hasCustomFare
+                                          ? Icons.edit_rounded
+                                          : Icons.edit_outlined,
+                                      size: 15,
+                                      color: hasCustomFare
+                                          ? const Color(0xFFF59E0B)
+                                          : (isDark
+                                                ? Colors.grey.shade400
+                                                : Colors.grey.shade600),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ),
+                          ],
                         ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
 
-                // ── 3. Selection indicator ────────────────────────────────
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: widget.selected
-                        ? AppColors.seseGold
-                        : Colors.transparent,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: widget.selected
-                          ? AppColors.seseGold
-                          : Colors.grey.shade400,
-                      width: 2,
+                        // Recommended chip sits below the name+price row.
+                        if (widget.isRecommended && !widget.isDisabled) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? const Color(0xFF78350F)
+                                        .withValues(alpha: 0.3)
+                                  : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isDark
+                                    ? const Color(0xFFF59E0B)
+                                          .withValues(alpha: 0.4)
+                                    : const Color(0xFFF59E0B)
+                                          .withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.star_rounded,
+                                  size: 12,
+                                  color: isDark
+                                      ? const Color(0xFFFBBF24)
+                                      : const Color(0xFFD97706),
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  'Recommended',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark
+                                        ? const Color(0xFFFDE68A)
+                                        : const Color(0xFF92400E),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  child: widget.selected
-                      ? const Icon(Icons.check, size: 16, color: Colors.black)
-                      : null,
-                ),
-              ],
+                  const SizedBox(width: 10),
+
+                  // ── 3. Selection indicator ────────────────────────────────
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: widget.selected
+                          ? AppColors.seseGold
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: widget.selected
+                            ? AppColors.seseGold
+                            : (widget.isDisabled
+                                  ? (isDark
+                                        ? Colors.grey.shade700
+                                        : Colors.grey.shade300)
+                                  : Colors.grey.shade400),
+                        width: 2,
+                      ),
+                    ),
+                    child: widget.selected
+                        ? const Icon(
+                            Icons.check,
+                            size: 16,
+                            color: Colors.black,
+                          )
+                        : null,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

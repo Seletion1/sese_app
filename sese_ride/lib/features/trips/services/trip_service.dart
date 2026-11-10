@@ -53,7 +53,7 @@ abstract class TripRepository {
   Future<void> confirmCashCancellation(
     String tripId, {
     bool cashCollected = true,
-  }) async {}
+  });
 
   // ── Bidding API ────────────────────────────────────────────────────────────
 

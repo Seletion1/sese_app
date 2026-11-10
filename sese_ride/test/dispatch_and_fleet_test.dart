@@ -125,7 +125,10 @@ class _FakeTripRepository implements TripRepository {
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {}
 
   @override
-  Future<void> confirmCashCancellation(String tripId, {bool cashCollected = true}) async {}
+  Future<void> confirmCashCancellation(
+    String tripId, {
+    bool cashCollected = true,
+  }) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
@@ -323,19 +326,12 @@ void main() {
       await tapNext(tester);
       expect(find.text('Fare by Vehicle Type'), findsOneWidget);
 
-      // Confirm & Broadcast books the trip. Bicycle is selected for a
-      // 14.2 km trip, so the Smart Distance Warning appears first; confirming
-      // anyway dispatches to the live tracker. The live banner spinner
-      // animates forever, so use fixed pumps after tapping.
+      // Confirm & Broadcast books the trip directly.
       final confirmBtn =
           find.widgetWithText(FilledButton, 'Confirm & Broadcast');
       await tester.ensureVisible(confirmBtn);
       await tester.pumpAndSettle();
       await tester.tap(confirmBtn);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Long-Distance Warning'), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Confirm Anyway'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -389,6 +385,56 @@ void main() {
       expect(find.text('Live Trip'), findsOneWidget);
       expect(find.textContaining('Searching for nearby'), findsOneWidget);
       expect(find.text('Confirm & Book Ride'), findsNothing);
+    });
+
+    testWidgets(
+        'Mutual-exclusion vehicle rules disable incompatible categories and show subtle info icon tooltip',
+        (tester) async {
+      await pumpBooking(
+        tester,
+        pickupAddress: 'Test Pickup, Lagos',
+        pickupLatLng: pickupPos,
+        dropoffAddress: 'Test Dropoff, Lagos',
+        dropoffLatLng: dropoffPos,
+      );
+
+      await tapNext(tester);
+
+      // Motorcycle (small vehicle) is preselected.
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // Van and Truck (heavy) are disabled; exactly one info icon appears on Van.
+      expect(find.byIcon(Icons.info_outline_rounded), findsOneWidget);
+
+      // Tapping disabled Van does not select it.
+      await tester.ensureVisible(find.text('Van'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Van'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // Select Car (Group A compatible) alongside Motorcycle.
+      await tester.ensureVisible(find.text('Car / Sedan'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Car / Sedan'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      // Deselect Motorcycle and Car, then select Van.
+      await tester.tap(find.text('Car / Sedan'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Motorcycle'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Motorcycle'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Van'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
+
+      // Small vehicles (Bicycle, Motorcycle, Tricycle) are now disabled;
+      // exactly one info icon appears on Bicycle.
+      expect(find.byIcon(Icons.info_outline_rounded), findsOneWidget);
     });
   });
 
