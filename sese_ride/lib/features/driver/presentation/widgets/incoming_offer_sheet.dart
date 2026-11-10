@@ -10,9 +10,7 @@ import '../../../customer/services/location_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
-import '../../../../widgets/verified_badge.dart';
 import 'low_balance_dialog.dart';
-import 'verified_customer_badge.dart';
 
 /// Full-screen incoming offer, Bolt-style: route preview from
 /// pickup (A) to drop-off (B) with the driver's leg, address labels,
@@ -447,14 +445,12 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                               value: trip.pickupAddress.isEmpty
                                   ? 'Pickup location (see map)'
                                   : trip.pickupAddress,
+                              displayName: trip.pickupName.isNotEmpty
+                                  ? trip.pickupName
+                                  : trip.customerName,
+                              photoUrl: trip.customerPhotoUrl,
+                              isVerified: trip.isVerifiedCustomer,
                             ),
-                            if (trip.isVerifiedCustomer) ...[
-                              const SizedBox(height: 8),
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: VerifiedCustomerBadge(),
-                              ),
-                            ],
                             const SizedBox(height: 8),
                             _AddressRow(
                               dotColor: Colors.green,
@@ -463,43 +459,47 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                               value: trip.dropoffAddress.isEmpty
                                   ? 'Drop-off location (see map)'
                                   : trip.dropoffAddress,
+                              displayName: trip.dropoffName.isNotEmpty
+                                  ? trip.dropoffName
+                                  : (trip.pickupName.isNotEmpty
+                                      ? 'Recipient'
+                                      : trip.customerName),
+                              photoUrl: trip.dropoffName.isNotEmpty
+                                  ? null
+                                  : trip.customerPhotoUrl,
+                              isVerified: trip.isVerifiedCustomer,
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Row(
                               children: [
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    UserAvatar(
-                                      displayName: trip.customerName.isNotEmpty
-                                          ? trip.customerName.trim().split(RegExp(r'\s+')).first
-                                          : 'Customer',
-                                      radius: 20,
-                                    ),
-                                    if (trip.isVerifiedCustomer) ...[
-                                      const SizedBox(height: 2),
-                                      const VerifiedBadge(
-                                          variant: VerifiedBadgeVariant.customer),
-                                    ],
-                                  ],
+                                _buildAvatarWithVerification(
+                                  displayName: trip.customerName.isNotEmpty
+                                      ? trip.customerName
+                                      : 'Customer',
+                                  photoUrl: trip.customerPhotoUrl,
+                                  isVerified: trip.isVerifiedCustomer,
+                                  radius: 20,
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        fareLabel,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 18),
-                                      ),
                                       if (perKmLabel.isNotEmpty)
                                         Text(
                                           perKmLabel,
                                           style: const TextStyle(
-                                              color: Colors.grey, fontSize: 12),
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
+                                      Text(
+                                        fareLabel,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 20),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -573,48 +573,117 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
   }
 }
 
+Widget _buildAvatarWithVerification({
+  required String displayName,
+  String? photoUrl,
+  required bool isVerified,
+  double radius = 18,
+}) {
+  final avatar = UserAvatar(
+    displayName: displayName,
+    photoUrl: photoUrl,
+    radius: radius,
+  );
+  if (!isVerified) return avatar;
+  return Stack(
+    clipBehavior: Clip.none,
+    children: [
+      avatar,
+      Positioned(
+        right: -2,
+        bottom: -2,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          padding: const EdgeInsets.all(1),
+          child: const Icon(
+            Icons.verified,
+            size: 13,
+            color: AppColors.seseGold,
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
 class _AddressRow extends StatelessWidget {
   final Color dotColor;
   final String badge;
   final String label;
   final String value;
+  final String? displayName;
+  final String? photoUrl;
+  final bool isVerified;
 
   const _AddressRow({
     required this.dotColor,
     required this.badge,
     required this.label,
     required this.value,
+    this.displayName,
+    this.photoUrl,
+    this.isVerified = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final name = displayName ?? '';
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          alignment: Alignment.center,
-          child: Text(
-            badge,
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13),
-          ),
+        _buildAvatarWithVerification(
+          displayName: name.isNotEmpty ? name : label,
+          photoUrl: photoUrl,
+          isVerified: isVerified,
+          radius: 14,
         ),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                  style:
-                      const TextStyle(fontSize: 11, color: Colors.grey)),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w600)),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: dotColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '$badge · $label',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: dotColor,
+                      ),
+                    ),
+                  ),
+                  if (name.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w600),
+              ),
             ],
           ),
         ),

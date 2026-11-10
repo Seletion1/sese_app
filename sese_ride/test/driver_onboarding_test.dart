@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/driver/presentation/driver_onboarding_screen.dart';
-import 'package:sese_ride/features/driver/presentation/widgets/verified_customer_badge.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
 
@@ -221,17 +220,6 @@ void main() {
         'customerId': 'c1',
       });
       expect(plain.isVerifiedCustomer, isFalse);
-    });
-
-    testWidgets('VerifiedCustomerBadge renders gold pill', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: VerifiedCustomerBadge()),
-        ),
-      );
-      expect(find.byKey(const Key('verified_customer_badge')),
-          findsOneWidget);
-      expect(find.text('Verified Customer'), findsOneWidget);
     });
   });
 

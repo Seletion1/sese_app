@@ -9,9 +9,7 @@ import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
-import '../../../../widgets/verified_badge.dart';
 import 'low_balance_dialog.dart';
-import 'verified_customer_badge.dart';
 
 /// One incoming ride in the driver home feed.
 ///
@@ -375,15 +373,31 @@ class _OrderCardState extends State<OrderCard> {
           children: [
             Row(
               children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
+                Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    const UserAvatar(displayName: 'C', radius: 18),
-                    if (trip.isVerifiedCustomer) ...[
-                      const SizedBox(height: 2),
-                      const VerifiedBadge(
-                          variant: VerifiedBadgeVariant.customer),
-                    ],
+                    UserAvatar(
+                      displayName: name.isNotEmpty ? name : 'Customer',
+                      photoUrl: trip.customerPhotoUrl,
+                      radius: 18,
+                    ),
+                    if (trip.isVerifiedCustomer)
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                          padding: const EdgeInsets.all(0.5),
+                          child: const Icon(
+                            Icons.verified,
+                            size: 12,
+                            color: AppColors.seseGold,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -440,35 +454,31 @@ class _OrderCardState extends State<OrderCard> {
                   ),
               ],
             ),
-            if (trip.isVerifiedCustomer) ...[
-              const SizedBox(height: 6),
-              const VerifiedCustomerBadge(),
-            ],
             const SizedBox(height: 8),
-            // Fare + badges wrap instead of overflowing on narrow phones:
-            // the fare keeps word-safe bounds while badges flow right.
             Row(
               children: [
                 Flexible(
-                  child: Text(
-                    fareLabel,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 18),
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_perKm.isNotEmpty)
+                        Text(
+                          _perKm,
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 11, fontWeight: FontWeight.w600),
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      Text(
+                        fareLabel,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18),
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
                 ),
-                if (_perKm.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _perKm,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
                 const Spacer(),
                 if (trip.fareBoosted) ...[
                   Flexible(
