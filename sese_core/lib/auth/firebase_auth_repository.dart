@@ -422,11 +422,55 @@ class FirebaseAuthRepository implements AuthRepository {
       userCredential = await auth.signInWithPopup(provider);
     } else {
       debugPrint('FirebaseAuthRepository.signInWithGoogle: Launching mobile GoogleSignIn');
-      final googleUser = await _googleSignIn.signIn();
+      GoogleSignInAccount? googleUser;
+      try {
+        googleUser = await _googleSignIn.signIn();
+      } on PlatformException catch (e) {
+        debugPrint('FirebaseAuthRepository._authenticateWithGoogle PlatformException: $e');
+        if (e.code == 'network_error' ||
+            e.message?.contains('ApiException: 7') == true ||
+            e.message?.contains('network_error') == true) {
+          throw fb.FirebaseAuthException(
+            code: 'network-request-failed',
+            message:
+                'Network connection error. Please check your internet connection and try again.',
+          );
+        } else if (e.code == 'sign_in_canceled' || e.code == 'canceled') {
+          throw fb.FirebaseAuthException(
+            code: 'google-sign-in-cancelled',
+            message: 'Google sign-in was cancelled.',
+          );
+        } else if (e.code == 'sign_in_failed' ||
+            e.message?.contains('12500') == true ||
+            e.message?.contains('10') == true) {
+          throw fb.FirebaseAuthException(
+            code: 'google-sign-in-failed',
+            message:
+                'Google sign-in failed. Please verify Google Play Services and try again.',
+          );
+        }
+        rethrow;
+      }
       if (googleUser == null) {
         throw fb.FirebaseAuthException(code: 'google-sign-in-cancelled');
       }
-      final googleAuth = await googleUser.authentication;
+
+      GoogleSignInAuthentication googleAuth;
+      try {
+        googleAuth = await googleUser.authentication;
+      } on PlatformException catch (e) {
+        debugPrint(
+            'FirebaseAuthRepository._authenticateWithGoogle authentication PlatformException: $e');
+        if (e.code == 'network_error' ||
+            e.message?.contains('ApiException: 7') == true) {
+          throw fb.FirebaseAuthException(
+            code: 'network-request-failed',
+            message:
+                'Network connection error. Please check your internet connection and try again.',
+          );
+        }
+        rethrow;
+      }
       debugPrint(
         'FirebaseAuthRepository.signInWithGoogle: tokens received -> '
         'idToken: ${googleAuth.idToken != null ? "[present]" : "[null]"}, '

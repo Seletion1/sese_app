@@ -10,7 +10,6 @@ import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/verified_badge.dart';
-import 'driver_active_bid_lock_card.dart';
 import 'low_balance_dialog.dart';
 import 'verified_customer_badge.dart';
 
@@ -633,29 +632,26 @@ class _OrderCardState extends State<OrderCard> {
             const SizedBox(height: 10),
             // ── CTAs: Accept + Bid Custom Fare / Driver Lockout Card ──────
             if (widget.activeDriverBid != null && !widget.activeDriverBid!.isExpired) ...[
-              if (widget.activeDriverBid!.tripId == trip.tripId)
-                DriverActiveBidLockCard(activeBid: widget.activeDriverBid!)
-              else
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.lock_clock, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Bidding locked (${widget.activeDriverBid!.remainingSeconds}s remaining on active bid)',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                    ],
-                  ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                 ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_clock, size: 16, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Bidding locked (${widget.activeDriverBid!.remainingSeconds}s remaining on active bid)',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ] else ...[
               Row(
                 children: [

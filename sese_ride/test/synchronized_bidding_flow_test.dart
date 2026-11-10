@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:sese_ride/features/driver/presentation/widgets/driver_active_bid_lock_card.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/order_pool_sheet.dart';
 import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
 import 'package:sese_ride/features/trips/models/bid_models.dart';
@@ -154,48 +153,6 @@ void main() {
     });
 
     testWidgets(
-        'DriverActiveBidLockCard renders active countdown and triggers callback upon expiration',
-        (tester) async {
-      final now = DateTime.now();
-      bool expiredCallbackFired = false;
-
-      final bid = BidModel(
-        bidId: 'd1',
-        tripId: 'trip-100',
-        driverId: 'd1',
-        driverName: 'Driver Sam',
-        offeredFare: 3500,
-        fareFormatted: '₦3,500',
-        createdAt: now,
-        expiresAt: now.add(const Duration(seconds: 2)),
-        bidCountdownSeconds: 10,
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: DriverActiveBidLockCard(
-              activeBid: bid,
-              onExpired: () {
-                expiredCallbackFired = true;
-              },
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.byKey(const Key('driver_active_bid_lock_card')),
-          findsOneWidget);
-      expect(find.text('Waiting for Customer Decision'), findsOneWidget);
-      expect(find.textContaining('₦3,500'), findsOneWidget);
-
-      // Advance clock past expiration
-      await tester.pump(const Duration(seconds: 3));
-      expect(expiredCallbackFired, isTrue);
-    });
-
-    testWidgets(
         'Customer BidCarousel renders active bids with ticking countdown and auto-vanishes expired bids',
         (tester) async {
       final repo = _FakeBiddingTripRepo();
@@ -327,8 +284,6 @@ void main() {
 
       // VERIFY: The sheet DID NOT pop/close. It stays open on driver's screen!
       expect(find.byType(PoolOrderDetailSheet), findsOneWidget);
-      expect(find.byKey(const Key('driver_active_bid_lock_card')),
-          findsOneWidget);
       expect(find.textContaining('Waiting for Customer...'), findsOneWidget);
 
       // Now customer rejects the bid
@@ -344,13 +299,10 @@ void main() {
         bidCountdownSeconds: 15,
         status: BidStatus.rejected,
       ));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
-      // VERIFY: Lock card disappears, rejected banner appears, and button re-enables
-      expect(
-          find.byKey(const Key('driver_active_bid_lock_card')), findsNothing);
-      expect(
-          find.byKey(const Key('driver_bid_rejected_banner')), findsOneWidget);
+      // VERIFY: Toast appears and action button re-enables
+      expect(find.text('Offer rejected'), findsOneWidget);
       expect(actionBtn, findsOneWidget);
 
       // Now customer accepts a new bid
@@ -366,7 +318,7 @@ void main() {
         bidCountdownSeconds: 15,
         status: BidStatus.accepted,
       ));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       // VERIFY: Customer acceptance fires onAccepted
       expect(acceptedTrip, equals('trip-abc'));

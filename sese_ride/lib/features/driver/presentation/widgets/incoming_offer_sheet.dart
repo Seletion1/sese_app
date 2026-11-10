@@ -19,9 +19,7 @@ import 'verified_customer_badge.dart';
 /// distance/time pills, the live streak commission tag, and a single
 /// Accept CTA for the trip fare.
 ///
-/// Skipping (or backing out and letting the ping expire) breaks the daily
-/// streak — the sheet says so explicitly. There is no counter-fare flow:
-/// the backend settles the verified trip fare only.
+/// There is no counter-fare flow: the backend settles the verified trip fare only.
 class IncomingOfferSheet extends StatefulWidget {
   final ActiveTrip trip;
 
@@ -521,15 +519,6 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            _buildPaymentBreakdownBanner(trip),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Skipping, or letting this expire, breaks your daily streak.',
-                              textAlign: TextAlign.center,
-                              style:
-                                  TextStyle(fontSize: 12, color: Colors.redAccent),
-                            ),
                           ],
                         ),
                       ),
@@ -581,171 +570,6 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
         );
       },
     );
-  }
-  Widget _buildPaymentBreakdownBanner(ActiveTrip trip) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final wallet = trip.walletCoverageAmount;
-    final cash = trip.cashToCollect;
-    final fare = trip.fareAmount;
-
-    if (wallet > 0 && cash > 0) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF78350F).withValues(alpha: 0.25)
-              : const Color(0xFFFEF3C7),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isDark
-                ? const Color(0xFFF59E0B).withValues(alpha: 0.4)
-                : const Color(0xFFFDE68A),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.payments_outlined,
-                  size: 16,
-                  color: isDark ? const Color(0xFFFBBF24) : const Color(0xFFD97706),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Collect ₦${cash.toStringAsFixed(0)} cash | ₦${wallet.toStringAsFixed(0)} credited to wallet upon completion',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Text(
-              trip.collectAt == 'dropoff'
-                  ? 'Collect cash from Receiver at drop-off.'
-                  : (trip.collectAt == 'both'
-                      ? 'Collect partial cash at pickup & drop-off.'
-                      : 'Collect cash from Sender at pickup. Do not collect at drop-off.'),
-              style: TextStyle(
-                fontSize: 11,
-                color: isDark ? const Color(0xFFFCD34D) : const Color(0xFFB45309),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else if (wallet > 0 && cash == 0) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF064E3B).withValues(alpha: 0.3)
-              : const Color(0xFFD1FAE5),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isDark
-                ? const Color(0xFF10B981).withValues(alpha: 0.4)
-                : const Color(0xFFA7F3D0),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.account_balance_wallet,
-              size: 16,
-              color: isDark ? const Color(0xFF34D399) : const Color(0xFF059669),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                '100% Wallet Prepaid (₦${fare.toStringAsFixed(0)}) • Collect ₦0 cash',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF065F46),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else if (trip.paymentMode == 'receiver_pays') {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF1E3A8A).withValues(alpha: 0.3)
-              : const Color(0xFFEFF6FF),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isDark
-                ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
-                : const Color(0xFFBFDBFE),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.money_rounded,
-              size: 16,
-              color: isDark ? const Color(0xFF60A5FA) : const Color(0xFF2563EB),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Collect ₦${(cash > 0 ? cash : fare).toStringAsFixed(0)} CASH from Receiver at drop-off',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? const Color(0xFFBFDBFE) : const Color(0xFF1E40AF),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF252530) : const Color(0xFFF3F4F6),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isDark ? const Color(0xFF3A3A46) : const Color(0xFFE5E7EB),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.payments_outlined,
-              size: 16,
-              color: isDark ? Colors.grey.shade400 : const Color(0xFF4B5563),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                'Collect ₦${(cash > 0 ? cash : fare).toStringAsFixed(0)} CASH from Sender at pickup',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.white : const Color(0xFF1F2937),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
   }
 }
 

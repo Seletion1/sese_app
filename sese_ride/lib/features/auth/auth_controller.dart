@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 
 /// State and logic controller for the unified authentication screen in sese_ride.
@@ -62,7 +63,14 @@ class AuthController extends ChangeNotifier {
     } catch (e) {
       debugPrint('AuthController.continueWithGoogle error: $e');
       if (e is fb.FirebaseAuthException) {
-        setError(e.message ?? 'Unable to complete Google sign-in. Please try again.');
+        if (e.code == 'network-request-failed' || e.code == 'network_error') {
+          setError('Network connection error. Please check your internet connection.');
+        } else {
+          setError(e.message ?? 'Unable to complete Google sign-in. Please try again.');
+        }
+      } else if (e is PlatformException &&
+          (e.code == 'network_error' || e.message?.contains('ApiException: 7') == true)) {
+        setError('Network connection error. Please check your internet connection.');
       } else {
         setError('Unable to complete Google sign-in. Please try again.');
       }

@@ -12,7 +12,6 @@ import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/map_provider.dart';
-import 'driver_active_bid_lock_card.dart';
 import 'low_balance_dialog.dart';
 import 'order_feed.dart';
 
@@ -713,6 +712,10 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   int? _selectedSuggestionPct;
   bool _isCustomBidActive = false;
   String? _bidError;
+  String? _lastTrackedBidId;
+  BidStatus? _lastTrackedBidStatus;
+  bool _hasShownTimeoutToast = false;
+  bool _hasShownRejectToast = false;
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
   LatLng get _dropoff => LatLng(widget.trip.dropoffLat, widget.trip.dropoffLng);
@@ -733,6 +736,50 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   }
 
   void _syncBidCountdown(BidModel? bid) {
+    if (bid != null) {
+      final isNewBid = _lastTrackedBidId != bid.bidId;
+      if (isNewBid) {
+        _lastTrackedBidId = bid.bidId;
+        _hasShownTimeoutToast = false;
+        _hasShownRejectToast = false;
+      }
+
+      final isExpired = bid.isExpired || bid.status == BidStatus.expired;
+      final isRejected = bid.status == BidStatus.rejected;
+
+      if (isExpired && !_hasShownTimeoutToast && (_lastTrackedBidStatus == null || _lastTrackedBidStatus == BidStatus.pending || isNewBid)) {
+        _hasShownTimeoutToast = true;
+        _lastTrackedBidStatus = BidStatus.expired;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Offer timed out'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        });
+      } else if (isRejected && !_hasShownRejectToast && (_lastTrackedBidStatus == null || _lastTrackedBidStatus == BidStatus.pending || isNewBid)) {
+        _hasShownRejectToast = true;
+        _lastTrackedBidStatus = BidStatus.rejected;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Offer rejected'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        });
+      } else if (bid.status == BidStatus.pending) {
+        _lastTrackedBidStatus = BidStatus.pending;
+      }
+    }
+
     if (bid != null && bid.status == BidStatus.pending && !bid.isExpired) {
       if (_countdownTimer == null || !_countdownTimer!.isActive) {
         _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -985,10 +1032,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
             final bool isBidPending = activeBid != null &&
                 activeBid.status == BidStatus.pending &&
                 !activeBid.isExpired;
-            final bool isBidExpired = activeBid != null &&
-                (activeBid.isExpired || activeBid.status == BidStatus.expired);
-            final bool isBidRejected = activeBid != null &&
-                activeBid.status == BidStatus.rejected;
 
             final bool isClaimedByAnotherDriver = driverId.isNotEmpty &&
                 trip.driverId.isNotEmpty &&
@@ -1378,118 +1421,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                     ),
                                     const SizedBox(height: 16),
 
-                                    // ── Bid Status / Active Countdown Banner ──
-                                    if (isBidPending) ...[
-                                      DriverActiveBidLockCard(
-                                        activeBid: activeBid,
-                                        onExpired: () {
-                                          if (mounted) setState(() {});
-                                        },
-                                      ),
-                                      const SizedBox(height: 14),
-                                    ] else if (isBidExpired) ...[
-                                      Container(
-                                        key: const Key(
-                                            'driver_bid_expired_banner'),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 14, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.amber.shade900
-                                              .withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          border: Border.all(
-                                              color: Colors.amber.shade700,
-                                              width: 1.2),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.timer_off_outlined,
-                                                color: Colors.amber.shade700,
-                                                size: 20),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Offer Timed Out',
-                                                    style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 13,
-                                                      color: scheme.onSurface,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    'The customer did not respond in time. You can submit another price below or return to the pool.',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: scheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 14),
-                                    ] else if (isBidRejected) ...[
-                                      Container(
-                                        key: const Key(
-                                            'driver_bid_rejected_banner'),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 14, vertical: 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.shade900
-                                              .withValues(alpha: 0.15),
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          border: Border.all(
-                                              color: Colors.red.shade700,
-                                              width: 1.2),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Icon(Icons.cancel_outlined,
-                                                color: Colors.red.shade700,
-                                                size: 20),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Offer Declined',
-                                                    style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      fontSize: 13,
-                                                      color: scheme.onSurface,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    'The customer declined your offer of ${widget.currencySymbol}${_formatAmount(activeBid.offeredFare)}. You can submit another price below or return to the pool.',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: scheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 14),
-                                    ] else if (isClaimedByAnotherDriver) ...[
+                                    // ── Trip State Status Banners (if claimed or cancelled) ──
+                                    if (isClaimedByAnotherDriver) ...[
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 14, vertical: 10),

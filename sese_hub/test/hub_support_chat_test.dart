@@ -48,4 +48,24 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets('HubSupportChatScreen pumps safely without scroll position assertion errors',
+      (tester) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: HubSupportChatScreen(),
+      ),
+    );
+
+    // Verify multiple pumps and settling do not throw any ScrollController assertion error
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Support Desk & Live Escalation'), findsOneWidget);
+  });
 }

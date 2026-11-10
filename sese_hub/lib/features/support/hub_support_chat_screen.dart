@@ -97,11 +97,28 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollCtrl.hasClients) return;
-      _scrollCtrl.animateTo(
-        _scrollCtrl.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
+      try {
+        final positionsSnapshot =
+            List<ScrollPosition>.from(_scrollCtrl.positions);
+        for (final pos in positionsSnapshot) {
+          try {
+            if (pos.hasContentDimensions && pos.maxScrollExtent > 0) {
+              final target = pos.maxScrollExtent;
+              if ((pos.pixels - target).abs() > 1.0) {
+                pos.animateTo(
+                  target,
+                  duration: const Duration(milliseconds: 250),
+                  curve: Curves.easeOut,
+                );
+              }
+            }
+          } catch (e) {
+            debugPrint('HubSupportChat pos animateTo error: $e');
+          }
+        }
+      } catch (e) {
+        debugPrint('HubSupportChat _scrollToEnd error: $e');
+      }
     });
   }
 

@@ -570,6 +570,7 @@ class _AuthScreenState extends State<AuthScreen> {
       case 'too-many-requests':
         return 'Too many failed attempts. Please wait a few moments and try again.';
       case 'network-request-failed':
+      case 'network_error':
         return 'Network connection error. Please check your internet connection.';
       case 'channel-error':
         return 'Unable to establish connection. Please check your email, password, and internet connection.';
