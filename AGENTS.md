@@ -72,6 +72,24 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-10 — Incoming Order View Layout Cleanup, Rate/Distance Relocation & Integrated Avatar Verification Checkmarks
+
+- **1. Removal of Standalone Yellow Banners (`incoming_offer_sheet.dart`, `order_card.dart`, `verified_customer_badge.dart`)**:
+  - Completely stripped out standalone yellow "Verified Customer" tag banners from under Pickup, Drop-off, and customer identity rows in `IncomingOfferSheet` and `OrderCard`.
+  - Deprecated and removed unreferenced `verified_customer_badge.dart` widget.
+
+- **2. Relocation of Rate/Distance Metrics (`incoming_offer_sheet.dart`, `order_card.dart`)**:
+  - Moved rate and distance text (`₦218/km ~19.3 km`) to sit directly above the main price amount (`₦4,200`) in clean, compact grey text (`color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600`).
+  - Completely removed separate rate/distance rows from their previous standalone positions.
+
+- **3. User Profile Avatars & Integrated Verification Checkmarks**:
+  - Upgraded `_AddressRow` for Pickup (A) and Drop-off (B) to display real profile pictures (or fallback round initials avatars `UserAvatar`) for the pickup sender and drop-off recipient.
+  - Placed a small gold verification checkmark badge (`Icons.verified`) directly on/beside the user avatar icon when verified (`isVerifiedCustomer`), eliminating the need for status text banners.
+
+- **4. Verification & Testing**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride`, `sese_hub`, and `sese_core`.
+  - Unit & Widget Tests: 22/22 targeted tests passed (`driver_onboarding_test.dart`, `synchronized_bidding_flow_test.dart`, `order_pool_bidding_test.dart`); 136/136 `sese_core` unit tests passed.
+
 ## 2026-11-10 — Bidding UI Streamlining, Redundant Lock & Warning Box Removal, Clean Expiration Toasts
 
 - **1. Complete Removal of Middle Bidding Lock Card (`order_pool_sheet.dart`, `order_card.dart`, `driver_active_bid_lock_card.dart`)**:
