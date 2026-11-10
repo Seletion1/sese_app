@@ -180,7 +180,6 @@ class _QueueCardState extends State<_QueueCard> {
     final tier = safeNum(d['dispatchTier'])?.toInt();
     final dispatchStep = safeNum(d['dispatchStep'])?.toInt();
     final decline = safeNum(d['declineCount'])?.toInt() ?? 0;
-    final recycles = safeNum(d['recycleCount'])?.toInt() ?? 0;
     final reassigns = safeNum(d['reassignmentCount'])?.toInt() ?? 0;
     final pingOne = (d['pingDriverId'] ?? '').toString();
     final fare = (d['fareFormatted'] ?? '').toString().isNotEmpty
@@ -234,7 +233,6 @@ class _QueueCardState extends State<_QueueCard> {
                 else if (tier != null)
                   Chip(label: Text('Stage $tier')),
                 Chip(label: Text('Retries: $decline')),
-                if (recycles > 0) Chip(label: Text('Recycles: $recycles')),
                 if (reassigns > 0) Chip(label: Text('Reassigns: $reassigns')),
                 if (hasBids)
                   Chip(

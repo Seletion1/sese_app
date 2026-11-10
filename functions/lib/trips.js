@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.recordDropoffArrival = exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.retryTripDispatch = exports.reassignTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.recycleDueOrders = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = exports.MAX_SEQUENTIAL_DISPATCH_DRIVERS = void 0;
+exports.recordDropoffArrival = exports.skipDeliveryPin = exports.submitTripRating = exports.submitCancellationFeedback = exports.hubManualPinBypass = exports.hubCancelRefundTrip = exports.confirmCashCancellation = exports.hubForceCompleteTrip = exports.verifyDeliveryPin = exports.keepSearchingTrip = exports.retryTripDispatch = exports.reassignTrip = exports.increaseTripFare = exports.acceptBid = exports.rejectBid = exports.submitBid = exports.cancelTrip = exports.advanceTripStatus = exports.updateDriverLocation = exports.declineTrip = exports.acceptTrip = exports.sweepTripPings = exports.onTripCreated = exports.createTrip = exports.normPhone = exports.onTripChatMessage = exports.MAX_SEQUENTIAL_DISPATCH_DRIVERS = void 0;
 exports.haversineKm = haversineKm;
 exports.normalizePhone = normalizePhone;
 exports.requirePingedDriver = requirePingedDriver;
@@ -82,8 +82,6 @@ const DEFAULT_DISPATCH_RADIUS_KM = 15;
 const DEFAULT_TIER1_RADIUS_KM = 3;
 const DEFAULT_TIER3_RADIUS_KM = 15;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
-const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
-const DEFAULT_MAX_RECYCLES = 5;
 const DEFAULT_PUBLIC_POOL_DURATION_MIN = 60;
 const DEFAULT_TUNING = {
     dispatchRadiusKm: DEFAULT_DISPATCH_RADIUS_KM,
@@ -93,8 +91,6 @@ const DEFAULT_TUNING = {
     pingTimeoutMs: DEFAULT_PING_TIMEOUT_MS,
     repingIntervalMs: DEFAULT_REPING_INTERVAL_MS,
     candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
-    recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
-    maxRecycles: DEFAULT_MAX_RECYCLES,
     publicPoolDurationMin: DEFAULT_PUBLIC_POOL_DURATION_MIN,
     publicPoolDurationMs: DEFAULT_PUBLIC_POOL_DURATION_MIN * 60 * 1000,
     maxOfferBoostPct: 100,
@@ -134,8 +130,6 @@ async function getDispatchTuning() {
             pingTimeoutMs: tier1TimeoutSec * 1000,
             repingIntervalMs: num(d.repingIntervalSec, 30, 10, 600) * 1000,
             candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
-            recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
-            maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
             publicPoolDurationMin,
             publicPoolDurationMs: publicPoolDurationMin * 60 * 1000,
             maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
@@ -1222,79 +1216,6 @@ exports.sweepTripPings = (0, scheduler_1.onSchedule)("* * * * *", async () => {
                 }
             }
         }
-    }
-});
-/**
- * recycleDueOrders — bounded auto-recycling dispatcher (every 25 minutes).
- *
- * Restarts dispatch cycles for trips stuck beyond the 1-minute sweep's
- * reach, so ignored / rejected / timed-out orders keep flowing instead of
- * dying silently:
- * 1. Stale SEARCHING_DRIVER trips (>25 min since update) → fresh Tier 1
- *    cascade (falls back to the Tier 3 broadcast when nobody is online).
- * 2. Stale MARKETPLACE_OPEN broadcasts (>25 min) → re-listed into the
- *    MARKETPLACE_LIST outer-radius (3–5km) pool with a refreshed timestamp
- *    so the driver pool stream re-renders them as live cards.
- *
- * Bounded execution: batches of 20, at most 5 recycles per trip
- * (`recycleCount`), so a permanently unmatchable trip cannot loop forever.
- */
-exports.recycleDueOrders = (0, scheduler_1.onSchedule)("*/25 * * * *", async () => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
-    const cutoff = nowMs();
-    // Console-tunable window/bounds (system_settings/dispatch); the cron
-    // cadence itself stays 25 min, the staleness window is configurable.
-    const tuning = await getDispatchTuning();
-    const recycleWindowMs = tuning.recycleWindowMs;
-    const BATCH = 20;
-    const MAX_RECYCLES = tuning.maxRecycles;
-    // 1. Stale unassigned searches → restart the Tier 1 cascade.
-    const staleSearch = await db()
-        .collection("trips")
-        .where("status", "==", "SEARCHING_DRIVER")
-        .limit(BATCH)
-        .get();
-    for (const doc of staleSearch.docs) {
-        const data = doc.data();
-        const updated = (_c = (_b = (_a = data.updatedAt) === null || _a === void 0 ? void 0 : _a.toMillis) === null || _b === void 0 ? void 0 : _b.call(_a)) !== null && _c !== void 0 ? _c : 0;
-        if (cutoff - updated < recycleWindowMs)
-            continue;
-        if (Number((_d = data.recycleCount) !== null && _d !== void 0 ? _d : 0) >= MAX_RECYCLES)
-            continue;
-        await doc.ref.update({
-            recycleCount: admin.firestore.FieldValue.increment(1),
-            recycledAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        const fresh = (await doc.ref.get()).data();
-        if (!fresh || fresh.status !== "SEARCHING_DRIVER")
-            continue;
-        await advanceSequentialDispatch(doc.ref, fresh, tuning);
-    }
-    // 2. Stale marketplace broadcasts → MARKETPLACE_LIST outer-radius pool.
-    const staleMarket = await db()
-        .collection("trips")
-        .where("status", "==", "MARKETPLACE_OPEN")
-        .limit(BATCH)
-        .get();
-    for (const doc of staleMarket.docs) {
-        const data = doc.data();
-        const updated = (_k = (_g = (_f = (_e = data.updatedAt) === null || _e === void 0 ? void 0 : _e.toMillis) === null || _f === void 0 ? void 0 : _f.call(_e)) !== null && _g !== void 0 ? _g : (_j = (_h = data.createdAt) === null || _h === void 0 ? void 0 : _h.toMillis) === null || _j === void 0 ? void 0 : _j.call(_h)) !== null && _k !== void 0 ? _k : 0;
-        if (cutoff - updated < recycleWindowMs)
-            continue;
-        if (Number((_l = data.recycleCount) !== null && _l !== void 0 ? _l : 0) >= MAX_RECYCLES)
-            continue;
-        await doc.ref.update({
-            status: "MARKETPLACE_LIST",
-            dispatchTier: 3,
-            pingDriverId: null,
-            pingDriverIds: [],
-            pingExpiresAt: null,
-            tierExpiresAt: null,
-            recycleCount: admin.firestore.FieldValue.increment(1),
-            recycledAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
     }
 });
 // ── Driver actions ─────────────────────────────────────────────────────────

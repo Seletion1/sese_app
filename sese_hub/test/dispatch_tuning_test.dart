@@ -12,8 +12,6 @@ void main() {
       expect(t.pingTimeoutSec, 15);
       expect(t.repingIntervalSec, 30);
       expect(t.candidateLimit, 25);
-      expect(t.recycleWindowMin, 25);
-      expect(t.maxRecycles, 5);
       expect(t.maxOfferBoostPct, 100.0);
       expect(t.cameraPickupDwellSec, 5);
       expect(t.cameraDropoffDwellSec, 2);
@@ -26,13 +24,10 @@ void main() {
         'pingTimeoutSec': 30,
         'repingIntervalSec': 20,
         'candidateLimit': 40,
-        'recycleWindowMin': 20,
-        'maxRecycles': 8,
         'maxOfferBoostPct': 150.0,
       });
       expect(t.dispatchRadiusKm, 5);
       expect(t.tier1TimeoutSec, 6);
-      expect(t.recycleWindowMin, 20);
       expect(t.maxOfferBoostPct, 150.0);
       final back = DispatchTuning.fromMap(t.toMap());
       expect(back.toMap(), t.toMap());

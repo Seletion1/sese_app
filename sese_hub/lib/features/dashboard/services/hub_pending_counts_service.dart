@@ -40,7 +40,9 @@ class HubPendingCountsService {
   HubPendingCountsService._({
     FirebaseFirestore? firestore,
     FleetRepository? fleetRepository,
-  })  : _db = firestore,
+  })  : // ignore: prefer_initializing_formals
+        _db = firestore,
+        // ignore: prefer_initializing_formals
         _fleetRepository = fleetRepository;
 
   /// Stream of pending vehicle registration counts.

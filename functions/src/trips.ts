@@ -58,8 +58,6 @@ const DEFAULT_DISPATCH_RADIUS_KM = 15;
 const DEFAULT_TIER1_RADIUS_KM = 3;
 const DEFAULT_TIER3_RADIUS_KM = 15;
 const DEFAULT_DISPATCH_CANDIDATE_LIMIT = 25;
-const DEFAULT_RECYCLE_WINDOW_MS = 25 * 60 * 1000;
-const DEFAULT_MAX_RECYCLES = 5;
 const DEFAULT_PUBLIC_POOL_DURATION_MIN = 60;
 
 interface DispatchTuning {
@@ -70,8 +68,6 @@ interface DispatchTuning {
   pingTimeoutMs: number;
   repingIntervalMs: number;
   candidateLimit: number;
-  recycleWindowMs: number;
-  maxRecycles: number;
   publicPoolDurationMin: number;
   publicPoolDurationMs: number;
   maxOfferBoostPct: number;
@@ -87,8 +83,6 @@ const DEFAULT_TUNING: DispatchTuning = {
   pingTimeoutMs: DEFAULT_PING_TIMEOUT_MS,
   repingIntervalMs: DEFAULT_REPING_INTERVAL_MS,
   candidateLimit: DEFAULT_DISPATCH_CANDIDATE_LIMIT,
-  recycleWindowMs: DEFAULT_RECYCLE_WINDOW_MS,
-  maxRecycles: DEFAULT_MAX_RECYCLES,
   publicPoolDurationMin: DEFAULT_PUBLIC_POOL_DURATION_MIN,
   publicPoolDurationMs: DEFAULT_PUBLIC_POOL_DURATION_MIN * 60 * 1000,
   maxOfferBoostPct: 100,
@@ -147,8 +141,6 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       pingTimeoutMs: tier1TimeoutSec * 1000,
       repingIntervalMs: num(d.repingIntervalSec, 30, 10, 600) * 1000,
       candidateLimit: Math.round(num(d.candidateLimit, 25, 5, 100)),
-      recycleWindowMs: num(d.recycleWindowMin, 25, 5, 120) * 60 * 1000,
-      maxRecycles: Math.round(num(d.maxRecycles, 5, 1, 20)),
       publicPoolDurationMin,
       publicPoolDurationMs: publicPoolDurationMin * 60 * 1000,
       maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
@@ -1550,77 +1542,6 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
         }
       }
     }
-  }
-});
-
-/**
- * recycleDueOrders — bounded auto-recycling dispatcher (every 25 minutes).
- *
- * Restarts dispatch cycles for trips stuck beyond the 1-minute sweep's
- * reach, so ignored / rejected / timed-out orders keep flowing instead of
- * dying silently:
- * 1. Stale SEARCHING_DRIVER trips (>25 min since update) → fresh Tier 1
- *    cascade (falls back to the Tier 3 broadcast when nobody is online).
- * 2. Stale MARKETPLACE_OPEN broadcasts (>25 min) → re-listed into the
- *    MARKETPLACE_LIST outer-radius (3–5km) pool with a refreshed timestamp
- *    so the driver pool stream re-renders them as live cards.
- *
- * Bounded execution: batches of 20, at most 5 recycles per trip
- * (`recycleCount`), so a permanently unmatchable trip cannot loop forever.
- */
-export const recycleDueOrders = onSchedule("*/25 * * * *", async () => {
-  const cutoff = nowMs();
-  // Console-tunable window/bounds (system_settings/dispatch); the cron
-  // cadence itself stays 25 min, the staleness window is configurable.
-  const tuning = await getDispatchTuning();
-  const recycleWindowMs = tuning.recycleWindowMs;
-  const BATCH = 20;
-  const MAX_RECYCLES = tuning.maxRecycles;
-
-  // 1. Stale unassigned searches → restart the Tier 1 cascade.
-  const staleSearch = await db()
-    .collection("trips")
-    .where("status", "==", "SEARCHING_DRIVER")
-    .limit(BATCH)
-    .get();
-  for (const doc of staleSearch.docs) {
-    const data = doc.data();
-    const updated = data.updatedAt?.toMillis?.() ?? 0;
-    if (cutoff - updated < recycleWindowMs) continue;
-    if (Number(data.recycleCount ?? 0) >= MAX_RECYCLES) continue;
-    await doc.ref.update({
-      recycleCount: admin.firestore.FieldValue.increment(1),
-      recycledAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    const fresh = (await doc.ref.get()).data();
-    if (!fresh || fresh.status !== "SEARCHING_DRIVER") continue;
-    await advanceSequentialDispatch(doc.ref, fresh, tuning);
-  }
-
-  // 2. Stale marketplace broadcasts → MARKETPLACE_LIST outer-radius pool.
-  const staleMarket = await db()
-    .collection("trips")
-    .where("status", "==", "MARKETPLACE_OPEN")
-    .limit(BATCH)
-    .get();
-  for (const doc of staleMarket.docs) {
-    const data = doc.data();
-    const updated =
-      data.updatedAt?.toMillis?.() ?? data.createdAt?.toMillis?.() ?? 0;
-    if (cutoff - updated < recycleWindowMs) continue;
-    if (Number(data.recycleCount ?? 0) >= MAX_RECYCLES) continue;
-    await doc.ref.update({
-      status: "MARKETPLACE_LIST",
-      dispatchTier: 3,
-      pingDriverId: null,
-      pingDriverIds: [],
-      pingExpiresAt: null,
-      tierExpiresAt: null,
-      recycleCount: admin.firestore.FieldValue.increment(1),
-      recycledAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
   }
 });
 

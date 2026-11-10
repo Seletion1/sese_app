@@ -112,8 +112,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _pingTimeoutCtrl = TextEditingController(text: '15');
   final _repingIntervalCtrl = TextEditingController(text: '30');
   final _candidateLimitCtrl = TextEditingController(text: '25');
-  final _recycleWindowCtrl = TextEditingController(text: '25');
-  final _maxRecyclesCtrl = TextEditingController(text: '5');
   final _publicPoolDurationCtrl = TextEditingController(text: '60');
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
@@ -233,8 +231,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _pingTimeoutCtrl.dispose();
     _repingIntervalCtrl.dispose();
     _candidateLimitCtrl.dispose();
-    _recycleWindowCtrl.dispose();
-    _maxRecyclesCtrl.dispose();
     _publicPoolDurationCtrl.dispose();
     _cameraPickupDwellCtrl.dispose();
     _cameraDropoffDwellCtrl.dispose();
@@ -360,8 +356,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _pingTimeoutCtrl.text = tuning.pingTimeoutSec.toString();
       _repingIntervalCtrl.text = tuning.repingIntervalSec.toString();
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
-      _recycleWindowCtrl.text = tuning.recycleWindowMin.toString();
-      _maxRecyclesCtrl.text = tuning.maxRecycles.toString();
       _publicPoolDurationCtrl.text = tuning.publicPoolDurationMin.toString();
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
@@ -619,9 +613,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_repingIntervalCtrl.text.trim()) ?? 30,
           candidateLimit:
               int.tryParse(_candidateLimitCtrl.text.trim()) ?? 25,
-          recycleWindowMin:
-              int.tryParse(_recycleWindowCtrl.text.trim()) ?? 25,
-          maxRecycles: int.tryParse(_maxRecyclesCtrl.text.trim()) ?? 5,
           publicPoolDurationMin:
               int.tryParse(_publicPoolDurationCtrl.text.trim()) ?? 60,
           cameraPickupDwellSec:
@@ -2995,10 +2986,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 15 (5–120 sec). Offer countdown per sequential driver before fallback.'),
                 numField(_candidateLimitCtrl, 'Candidate scan limit', 'drivers',
                     'Default 25 (5–100). Max candidate pool evaluated for proximity.'),
-                numField(_recycleWindowCtrl, 'Auto-recycle timer', 'min',
-                    'Default 25 (5–120). Stale unassigned orders re-enter dispatch.'),
-                numField(_maxRecyclesCtrl, 'Max recycles per trip', 'times',
-                    'Default 5 (1–20). Bounds recycling cycles.'),
                 numField(_publicPoolDurationCtrl, 'Public Pool timeout', 'min',
                     'Default 60 min (1 hr). Automatically expires orders from the pool and returns them to customer.'),
                 numField(_cameraPickupDwellCtrl, 'Live search pickup dwell', 'sec',

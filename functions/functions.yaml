@@ -63,30 +63,6 @@
       },
       "entryPoint": "sweepTripPings"
     },
-    "recycleDueOrders": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "scheduleTrigger": {
-        "schedule": "*/25 * * * *",
-        "retryConfig": {
-          "retryCount": null,
-          "maxDoublings": null,
-          "maxRetrySeconds": null,
-          "minBackoffSeconds": null,
-          "maxBackoffSeconds": null
-        },
-        "timeZone": null
-      },
-      "entryPoint": "recycleDueOrders"
-    },
     "acceptTrip": {
       "availableMemoryMb": null,
       "timeoutSeconds": null,

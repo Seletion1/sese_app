@@ -33,7 +33,6 @@ export {
   createTrip,
   onTripCreated,
   sweepTripPings,
-  recycleDueOrders,
   acceptTrip,
   declineTrip,
   updateDriverLocation,

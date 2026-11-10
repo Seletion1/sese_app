@@ -16,8 +16,6 @@ class DispatchTuning {
   final int pingTimeoutSec;
   final int repingIntervalSec;
   final int candidateLimit;
-  final int recycleWindowMin;
-  final int maxRecycles;
 
   /// Public Order Pool expiration duration in minutes (Hub configurable).
   /// Default: 60 minutes (1 hour). When reached without driver acceptance,
@@ -55,8 +53,6 @@ class DispatchTuning {
     this.pingTimeoutSec = 15,
     this.repingIntervalSec = 30,
     this.candidateLimit = 25,
-    this.recycleWindowMin = 25,
-    this.maxRecycles = 5,
     this.publicPoolDurationMin = 60,
     this.maxOfferBoostPct = 100.0,
     this.cameraPickupDwellSec = 5,
@@ -112,8 +108,6 @@ class DispatchTuning {
       pingTimeoutSec: intOf('pingTimeoutSec', t1Timeout),
       repingIntervalSec: intOf('repingIntervalSec', 30),
       candidateLimit: intOf('candidateLimit', 25),
-      recycleWindowMin: intOf('recycleWindowMin', 25),
-      maxRecycles: intOf('maxRecycles', 5),
       publicPoolDurationMin: intOf('publicPoolDurationMin', intOf('poolDurationMin', 60)),
       maxOfferBoostPct: numOf('maxOfferBoostPct', 100.0),
       cameraPickupDwellSec: intOf('cameraPickupDwellSec', 5),
@@ -133,8 +127,6 @@ class DispatchTuning {
         'pingTimeoutSec': pingTimeoutSec,
         'repingIntervalSec': repingIntervalSec,
         'candidateLimit': candidateLimit,
-        'recycleWindowMin': recycleWindowMin,
-        'maxRecycles': maxRecycles,
         'publicPoolDurationMin': publicPoolDurationMin,
         'poolDurationMin': publicPoolDurationMin,
         'maxOfferBoostPct': maxOfferBoostPct,
