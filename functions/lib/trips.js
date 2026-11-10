@@ -2532,7 +2532,7 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
  * saving the new higher price in Firestore and immediately restarting matchmaking.
  */
 async function handleReassignTrip(request) {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     const customerId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
     if (!customerId) {
         throw new https_1.HttpsError("unauthenticated", "Must be logged in.");
@@ -2547,7 +2547,12 @@ async function handleReassignTrip(request) {
         throw new https_1.HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data();
-    if (tripData.customerId !== customerId && tripData.userId !== customerId) {
+    const orderCustomerId = String((_f = (_e = (_d = (_c = tripData.customerId) !== null && _c !== void 0 ? _c : tripData.userId) !== null && _d !== void 0 ? _d : (tripData.customer && typeof tripData.customer === "object"
+        ? tripData.customer.uid
+        : "")) !== null && _e !== void 0 ? _e : (tripData.tripBooker && typeof tripData.tripBooker === "object"
+        ? tripData.tripBooker.uid
+        : "")) !== null && _f !== void 0 ? _f : "");
+    if (orderCustomerId !== customerId) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
     const validStatuses = [
@@ -2559,22 +2564,22 @@ async function handleReassignTrip(request) {
         "MARKETPLACE_LIST",
         "CANCELLED",
     ];
-    const fromStatus = String((_c = tripData.status) !== null && _c !== void 0 ? _c : "");
+    const fromStatus = String((_g = tripData.status) !== null && _g !== void 0 ? _g : "");
     if (!validStatuses.includes(fromStatus)) {
         throw new https_1.HttpsError("failed-precondition", `Cannot reassign trip with status ${fromStatus}.`);
     }
     const tuning = await getDispatchTuning();
     let fareUpdate = {};
     if (typeof newFare === "number" && Number.isFinite(newFare) && newFare > 0) {
-        const currentFare = Number((_e = (_d = tripData.fareAmount) !== null && _d !== void 0 ? _d : tripData.baselineFare) !== null && _e !== void 0 ? _e : 0);
+        const currentFare = Number((_j = (_h = tripData.fareAmount) !== null && _h !== void 0 ? _h : tripData.baselineFare) !== null && _j !== void 0 ? _j : 0);
         const roundedNewFare = (0, pricing_1.roundToNearest100)(newFare);
         if (roundedNewFare < currentFare) {
             throw new https_1.HttpsError("invalid-argument", "New fare cannot be lower than current fare.");
         }
-        const maxOfferBoostPct = Number((_f = tuning.maxOfferBoostPct) !== null && _f !== void 0 ? _f : 100);
+        const maxOfferBoostPct = Number((_k = tuning.maxOfferBoostPct) !== null && _k !== void 0 ? _k : 100);
         const originalBase = Number(tripData.baselineFare && Number(tripData.baselineFare) > 0
             ? tripData.baselineFare
-            : ((_g = tripData.fareAmount) !== null && _g !== void 0 ? _g : 0));
+            : ((_l = tripData.fareAmount) !== null && _l !== void 0 ? _l : 0));
         const maxAllowedFare = Math.round(originalBase * (1 + maxOfferBoostPct / 100));
         if (roundedNewFare > maxAllowedFare) {
             throw new https_1.HttpsError("failed-precondition", `Offer boost cannot exceed ${maxOfferBoostPct}% above original base fare (max ₦${maxAllowedFare.toLocaleString()}).`);

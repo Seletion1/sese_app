@@ -491,7 +491,7 @@ class FirestoreTripRepository implements TripRepository {
       case 'invalid-argument':
         return message ?? 'Invalid trip details. Please review and try again.';
       case 'not-found':
-        return 'Trip not found. It may have been cancelled.';
+        return message ?? 'Trip not found. It may have been cancelled.';
       case 'failed-precondition':
         return message ?? 'This trip can no longer be changed.';
       default:

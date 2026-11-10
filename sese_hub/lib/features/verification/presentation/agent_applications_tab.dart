@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
+import '../../dashboard/services/hub_pending_counts_service.dart';
+import '../../../widgets/hub_badge.dart';
 import 'agent_application_detail_dialog.dart';
 
 /// Administrative review desk inside Sese Hub for Agent ("Become an Admin / Work With Us") submissions.
@@ -102,7 +104,18 @@ class _AgentApplicationsTabState extends State<AgentApplicationsTab> {
                     final selected = _selectedFilter == filter;
                     return FilterChip(
                       selected: selected,
-                      label: Text(filter),
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(filter),
+                          if (filter == 'Pending')
+                            HubCountBadge.stream(
+                              stream: HubPendingCountsService().pendingAgentApplicationsCountStream,
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                              fontSize: 10,
+                            ),
+                        ],
+                      ),
                       onSelected: (val) {
                         if (val) setState(() => _selectedFilter = filter);
                       },

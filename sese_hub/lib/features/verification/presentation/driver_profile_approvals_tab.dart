@@ -6,6 +6,7 @@ import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
 import '../../dashboard/presentation/hub_user_wallet_card.dart';
+import '../../../widgets/hub_badge.dart';
 
 /// Driver profile audit queue (Step 2 onboarding submissions).
 ///
@@ -238,9 +239,23 @@ class _DriverProfileApprovalsTabState
         }
         return ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: docs.length,
+          itemCount: docs.length + 1,
           itemBuilder: (context, index) {
-            final doc = docs[index];
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    const Text(
+                      'Driver Profile Verification Queue',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    HubCountBadge(count: docs.length),
+                  ],
+                ),
+              );
+            }
+            final doc = docs[index - 1];
             final data = doc.data();
             final name = (data['fullName'] ?? '').toString().isNotEmpty
                 ? data['fullName'].toString()

@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/hub_onboarding_service.dart';
+import '../../dashboard/services/hub_pending_counts_service.dart';
+import '../../../widgets/hub_badge.dart';
 import 'widgets/onboarding_wizard_dialog.dart';
 import '../../verification/presentation/agent_applications_tab.dart';
 
@@ -77,14 +79,36 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('User & Agent Onboarding Console'),
-          bottom: const TabBar(
+          bottom: TabBar(
             tabs: [
               Tab(
-                icon: Icon(Icons.person_add_outlined),
+                icon: StreamBuilder<int>(
+                  stream: HubPendingCountsService().pendingUserOnboardingCountStream,
+                  builder: (context, snap) {
+                    final count = snap.data ?? 0;
+                    if (count <= 0) return const Icon(Icons.person_add_outlined);
+                    return Badge(
+                      label: Text(count > 99 ? '99+' : '$count'),
+                      backgroundColor: Colors.red.shade700,
+                      child: const Icon(Icons.person_add_outlined),
+                    );
+                  },
+                ),
                 text: 'User & Driver Registration',
               ),
               Tab(
-                icon: Icon(Icons.badge_outlined),
+                icon: StreamBuilder<int>(
+                  stream: HubPendingCountsService().pendingAgentApplicationsCountStream,
+                  builder: (context, snap) {
+                    final count = snap.data ?? 0;
+                    if (count <= 0) return const Icon(Icons.badge_outlined);
+                    return Badge(
+                      label: Text(count > 99 ? '99+' : '$count'),
+                      backgroundColor: Colors.red.shade700,
+                      child: const Icon(Icons.badge_outlined),
+                    );
+                  },
+                ),
                 text: 'Agent Applications ("Work With Us")',
               ),
             ],
@@ -243,9 +267,16 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
             if (_searchResult != null) _buildSearchResultCard(_searchResult!),
 
             const SizedBox(height: 28),
-            const Text(
-              'Recent Profiles Pending Onboarding Verification',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Text(
+                  'Recent Profiles Pending Onboarding Verification',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                HubCountBadge.stream(
+                  stream: HubPendingCountsService().pendingUserOnboardingCountStream,
+                ),
+              ],
             ),
             const SizedBox(height: 12),
 

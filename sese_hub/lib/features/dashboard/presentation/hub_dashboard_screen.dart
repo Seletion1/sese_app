@@ -11,7 +11,9 @@ import '../../support/hub_support_chat_screen.dart';
 import '../../verification/presentation/vehicle_approvals_screen.dart';
 import '../../trips/presentation/active_rides_console_screen.dart';
 import '../../onboarding/presentation/admin_user_onboarding_screen.dart';
+import '../services/hub_pending_counts_service.dart';
 import '../services/hub_route_persistence.dart';
+import '../../../widgets/hub_badge.dart';
 import 'hub_user_wallet_card.dart';
 
 /// Unified permission-gated hub shell. Mounted ONLY after [HubAccessService]
@@ -368,6 +370,70 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
     );
   }
 
+  Stream<int>? _streamForTab(HubTab tab) {
+    final service = HubPendingCountsService();
+    switch (tab) {
+      case HubTab.fleet:
+        return service.fleetTotalPendingCountStream;
+      case HubTab.onboarding:
+        return service.onboardingTotalPendingCountStream;
+      case HubTab.support:
+        return service.pendingSupportChatsCountStream;
+      case HubTab.payouts:
+        return service.pendingPayoutsCountStream;
+      default:
+        return null;
+    }
+  }
+
+  Widget _buildTabIcon(HubTab tab, {required bool selected}) {
+    final icon = Icon(_iconFor(tab, selected: selected));
+    final stream = _streamForTab(tab);
+    if (stream == null) return icon;
+
+    return StreamBuilder<int>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+        if (count <= 0) return icon;
+        return Badge(
+          label: Text(count > 99 ? '99+' : '$count'),
+          backgroundColor: Colors.red.shade700,
+          child: icon,
+        );
+      },
+    );
+  }
+
+  Widget _buildMoreIcon({required bool selected}) {
+    final avatarOrIcon = widget.user != null
+        ? UserAvatar(
+            displayName: widget.user!.fullName,
+            photoUrl: widget.user!.photoUrl,
+            radius: 12,
+          )
+        : Icon(selected ? Icons.grid_view : Icons.grid_view_outlined);
+
+    final overflowStreams = _moreTabs
+        .map((t) => _streamForTab(t))
+        .whereType<Stream<int>>()
+        .toList();
+    if (overflowStreams.isEmpty) return avatarOrIcon;
+
+    return StreamBuilder<int>(
+      stream: HubPendingCountsService.combineStreams(overflowStreams),
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+        if (count <= 0) return avatarOrIcon;
+        return Badge(
+          label: Text(count > 99 ? '99+' : '$count'),
+          backgroundColor: Colors.red.shade700,
+          child: avatarOrIcon,
+        );
+      },
+    );
+  }
+
   Widget _buildWideLayout(List<HubTab> allTabs, Widget stackBody) {
     final safeIndex = allTabs.contains(_activeTab)
         ? allTabs.indexOf(_activeTab)
@@ -387,8 +453,8 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
             destinations: [
               for (final t in allTabs)
                 NavigationRailDestination(
-                  icon: Icon(_iconFor(t, selected: false)),
-                  selectedIcon: Icon(_iconFor(t, selected: true)),
+                  icon: _buildTabIcon(t, selected: false),
+                  selectedIcon: _buildTabIcon(t, selected: true),
                   label: Text(_labelFor(t)),
                 ),
             ],
@@ -423,27 +489,15 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
       for (final t in bottomTabs)
         NavigationDestination(
           key: Key('hub_nav_${t.name}'),
-          icon: Icon(_iconFor(t, selected: false)),
-          selectedIcon: Icon(_iconFor(t, selected: true)),
+          icon: _buildTabIcon(t, selected: false),
+          selectedIcon: _buildTabIcon(t, selected: true),
           label: _labelFor(t),
         ),
       // The "More" destination carries the user's avatar and label.
       NavigationDestination(
         key: const Key('hub_nav_more'),
-        icon: widget.user != null
-            ? UserAvatar(
-                displayName: widget.user!.fullName,
-                photoUrl: widget.user!.photoUrl,
-                radius: 12,
-              )
-            : const Icon(Icons.grid_view_outlined),
-        selectedIcon: widget.user != null
-            ? UserAvatar(
-                displayName: widget.user!.fullName,
-                photoUrl: widget.user!.photoUrl,
-                radius: 12,
-              )
-            : const Icon(Icons.grid_view),
+        icon: _buildMoreIcon(selected: false),
+        selectedIcon: _buildMoreIcon(selected: true),
         label: 'More',
       ),
     ];
@@ -667,6 +721,7 @@ class _MoreMenuSheet extends StatelessWidget {
                     selectedIcon:
                         _HubDashboardScreenState._iconFor(t, selected: true),
                     label: _HubDashboardScreenState._labelFor(t),
+                    badgeStream: _streamForTab(t),
                     onTap: () {
                       Navigator.of(context).pop();
                       onTabSelected(t);
@@ -715,6 +770,22 @@ class _MoreMenuSheet extends StatelessWidget {
       ),
     );
   }
+
+  static Stream<int>? _streamForTab(HubTab tab) {
+    final service = HubPendingCountsService();
+    switch (tab) {
+      case HubTab.fleet:
+        return service.fleetTotalPendingCountStream;
+      case HubTab.onboarding:
+        return service.onboardingTotalPendingCountStream;
+      case HubTab.support:
+        return service.pendingSupportChatsCountStream;
+      case HubTab.payouts:
+        return service.pendingPayoutsCountStream;
+      default:
+        return null;
+    }
+  }
 }
 
 class _MoreTile extends StatelessWidget {
@@ -723,6 +794,7 @@ class _MoreTile extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool isDestructive;
+  final Stream<int>? badgeStream;
 
   const _MoreTile({
     super.key,
@@ -731,6 +803,7 @@ class _MoreTile extends StatelessWidget {
     required this.label,
     required this.onTap,
     this.isDestructive = false,
+    this.badgeStream,
   });
 
   @override
@@ -740,8 +813,14 @@ class _MoreTile extends StatelessWidget {
     return ListTile(
       leading: Icon(icon, color: color),
       title: Text(label, style: color != null ? TextStyle(color: color) : null),
-      trailing: Icon(Icons.chevron_right,
-          size: 18, color: scheme.onSurfaceVariant),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (badgeStream != null)
+            HubCountBadge.stream(stream: badgeStream!),
+          Icon(Icons.chevron_right, size: 18, color: scheme.onSurfaceVariant),
+        ],
+      ),
       onTap: onTap,
     );
   }

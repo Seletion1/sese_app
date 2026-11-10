@@ -3160,7 +3160,18 @@ async function handleReassignTrip(request: { auth?: { uid: string }; data?: any 
     throw new HttpsError("not-found", "Trip not found.");
   }
   const tripData = tripSnap.data()!;
-  if (tripData.customerId !== customerId && tripData.userId !== customerId) {
+  const orderCustomerId = String(
+    tripData.customerId ??
+      tripData.userId ??
+      (tripData.customer && typeof tripData.customer === "object"
+        ? tripData.customer.uid
+        : "") ??
+      (tripData.tripBooker && typeof tripData.tripBooker === "object"
+        ? tripData.tripBooker.uid
+        : "") ??
+      ""
+  );
+  if (orderCustomerId !== customerId) {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
 

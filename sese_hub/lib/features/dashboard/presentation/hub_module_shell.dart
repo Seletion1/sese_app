@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../widgets/hub_badge.dart';
 
 /// One sub-section inside a Hub module: title + icon + content + the
 /// permission code required to see it (null = no extra gate beyond the
@@ -15,12 +16,16 @@ class HubModuleSection {
   /// returns true for it.
   final String? permission;
 
+  /// Optional live count stream for dynamic badge display in navigation tiles.
+  final Stream<int>? badgeStream;
+
   const HubModuleSection({
     required this.id,
     required this.title,
     required this.icon,
     required this.child,
     this.permission,
+    this.badgeStream,
   });
 }
 
@@ -164,15 +169,25 @@ class _HubModuleShellState extends State<HubModuleShell> {
                                 .colorScheme
                                 .primary
                                 .withValues(alpha: 0.08),
-                            trailing: selected
-                                ? Icon(
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (s.badgeStream != null)
+                                  HubCountBadge.stream(
+                                    stream: s.badgeStream!,
+                                  ),
+                                if (selected) ...[
+                                  const SizedBox(width: 8),
+                                  Icon(
                                     Icons.check_circle,
                                     color: Theme.of(context)
                                         .colorScheme
                                         .primary,
                                     size: 20,
-                                  )
-                                : null,
+                                  ),
+                                ],
+                              ],
+                            ),
                             onTap: () {
                               Navigator.of(context).pop();
                               _selectSection(i, s.id);

@@ -5,8 +5,10 @@ import 'package:sese_core/sese_core.dart';
 import '../../auth/hub_session_guard.dart';
 import '../../customers/presentation/customer_management_screen.dart';
 import '../../dashboard/presentation/hub_module_shell.dart';
+import '../../dashboard/services/hub_pending_counts_service.dart';
 import '../../drivers/presentation/driver_management_screen.dart';
 import '../../staff/services/hub_access_service.dart';
+import '../../../widgets/hub_badge.dart';
 import '../services/fleet_repository.dart';
 import 'customer_approvals_tab.dart';
 import 'dispatch_queue_screen.dart';
@@ -189,6 +191,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
     }
 
     final firestore = widget.firestore;
+    final countsService = HubPendingCountsService(firestore: firestore);
     return HubModuleShell(
       title: 'Fleet Verification & Security Pipeline Desk',
       isSectionVisible: canSee,
@@ -198,6 +201,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
           title: 'Pending Vehicle Registrations',
           icon: Icons.verified_user,
           permission: secFleetVehicles,
+          badgeStream: countsService.pendingVehiclesCountStream,
           child: _buildPendingVehiclesTab(),
         ),
         HubModuleSection(
@@ -219,6 +223,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
           title: 'Driver KYC Approvals',
           icon: Icons.person_search,
           permission: secFleetDriverKyc,
+          badgeStream: countsService.pendingDriverKycCountStream,
           child: DriverProfileApprovalsTab(firestore: firestore),
         ),
         HubModuleSection(
@@ -226,6 +231,7 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
           title: 'Customer KYC Approvals',
           icon: Icons.how_to_reg,
           permission: secFleetCustomerKyc,
+          badgeStream: countsService.pendingCustomerKycCountStream,
           child: CustomerApprovalsTab(firestore: firestore),
         ),
         HubModuleSection(
@@ -297,9 +303,23 @@ class _VehicleApprovalsScreenState extends State<VehicleApprovalsScreen> {
 
         return ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: pendingVehicles.length,
+          itemCount: pendingVehicles.length + 1,
           itemBuilder: (context, index) {
-            final veh = pendingVehicles[index];
+            if (index == 0) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(
+                  children: [
+                    const Text(
+                      'Pending Vehicle Registrations',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    HubCountBadge(count: pendingVehicles.length),
+                  ],
+                ),
+              );
+            }
+            final veh = pendingVehicles[index - 1];
             return Card(
               margin: const EdgeInsets.only(bottom: 16),
               child: Padding(

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
+import '../../dashboard/services/hub_pending_counts_service.dart';
+import '../../../widgets/hub_badge.dart';
 
 /// Payout Desk: Weekly Payout Queue + read-only audit view over `payout_requests`.
 ///
@@ -76,9 +78,23 @@ class _HubPayoutDeskScreenState extends State<HubPayoutDeskScreen>
         title: const Text('Payout Desk'),
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.queue_outlined), text: 'Weekly Payout Queue'),
-            Tab(icon: Icon(Icons.history_outlined), text: 'Audit Log'),
+          tabs: [
+            const Tab(icon: Icon(Icons.queue_outlined), text: 'Weekly Payout Queue'),
+            Tab(
+              icon: StreamBuilder<int>(
+                stream: HubPendingCountsService().pendingPayoutsCountStream,
+                builder: (context, snap) {
+                  final count = snap.data ?? 0;
+                  if (count <= 0) return const Icon(Icons.history_outlined);
+                  return Badge(
+                    label: Text(count > 99 ? '99+' : '$count'),
+                    backgroundColor: Colors.red.shade700,
+                    child: const Icon(Icons.history_outlined),
+                  );
+                },
+              ),
+              text: 'Audit Log',
+            ),
           ],
         ),
       ),
@@ -185,7 +201,18 @@ class _HubPayoutDeskScreenState extends State<HubPayoutDeskScreen>
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
                     key: Key('payout_filter_$f'),
-                    label: Text(f[0].toUpperCase() + f.substring(1)),
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(f[0].toUpperCase() + f.substring(1)),
+                        if (f == 'pending')
+                          HubCountBadge.stream(
+                            stream: HubPendingCountsService().pendingPayoutsCountStream,
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            fontSize: 10,
+                          ),
+                      ],
+                    ),
                     selected: _filter == f,
                     onSelected: (_) => setState(() => _filter = f),
                   ),

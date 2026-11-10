@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -272,8 +273,9 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
     super.dispose();
   }
 
-  /// Calculates two intelligent fixed-price suggestions based on current fare magnitude.
-  static List<double> calculateSuggestedFares(double currentFare) {
+  /// Calculates two intelligent fixed-price suggestions based on current fare magnitude,
+  /// clamped to [maxAllowedFare].
+  static List<double> calculateSuggestedFares(double currentFare, {double? maxAllowedFare}) {
     if (currentFare <= 0) return [1500, 2000];
     double inc1;
     double inc2;
@@ -290,8 +292,15 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
       inc1 = 2000;
       inc2 = 4000;
     }
-    final opt1 = ((currentFare + inc1) / 100).ceil() * 100.0;
-    final opt2 = ((currentFare + inc2) / 100).ceil() * 100.0;
+    var opt1 = ((currentFare + inc1) / 100).ceil() * 100.0;
+    var opt2 = ((currentFare + inc2) / 100).ceil() * 100.0;
+    if (maxAllowedFare != null && maxAllowedFare > currentFare) {
+      opt1 = math.min(opt1, maxAllowedFare);
+      opt2 = math.min(opt2, maxAllowedFare);
+      if (opt2 <= opt1 && opt2 < maxAllowedFare) {
+        opt2 = math.min(opt1 + 500, maxAllowedFare);
+      }
+    }
     return [opt1, opt2];
   }
 
@@ -320,14 +329,39 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
         widget.trip.tripId,
         newFare: newFare,
       );
-      // Stream updates to SEARCHING_DRIVER automatically.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newFare != null
+                  ? 'Fare boosted to ${_formatNaira(newFare)}! Searching for drivers...'
+                  : 'Order reassigned! Searching for drivers...',
+            ),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
     } on TripException catch (e) {
-      if (mounted) setState(() => _error = e.userMessage);
+      if (mounted) {
+        setState(() => _error = e.userMessage);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.userMessage),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('OrderRecovery reassign error: $e');
       if (mounted) {
-        setState(() =>
-            _error = 'Unable to reassign order right now. Please try again.');
+        const msg = 'Unable to reassign order right now. Please try again.';
+        setState(() => _error = msg);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(msg),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -424,7 +458,8 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
         ? widget.trip.fareFormatted
         : _formatNaira(currentFare);
 
-    final suggestedFares = calculateSuggestedFares(currentFare);
+    final maxAllowedFare = _calculateMaxAllowedFare(widget.trip);
+    final suggestedFares = calculateSuggestedFares(currentFare, maxAllowedFare: maxAllowedFare);
     final chipFare1 = suggestedFares[0];
     final chipFare2 = suggestedFares[1];
     final diff1 = chipFare1 - currentFare;
