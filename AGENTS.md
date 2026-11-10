@@ -72,6 +72,22 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-10 — Standard / Comfort Vehicle Icon Update & Background Removal
+
+- **1. Image Extraction & Background Removal (`sese_standard:comfort.jpg`)**:
+  - Located original image `sese_standard:comfort.jpg` in Downloads directory.
+  - Processed using `rembg` background removal tool to extract transparent vehicle asset, auto-cropped transparent margins, applied subtle 12px bounding padding, and saved optimized high-resolution transparent PNG (800x340px, ~290 KB).
+
+- **2. Cloud Storage & Firestore Backend Deployment (`sese-ride.firebasestorage.app`, `system_configs/ui_icons`)**:
+  - Uploaded processed PNG asset to Firebase Storage bucket `sese-ride.firebasestorage.app` at `ui_assets/icons/sese_standard_comfort.png`.
+  - Updated object metadata (`firebaseStorageDownloadTokens: 18f1a268-7297-407f-864a-f0957735ff88` and `cacheControl: public, max-age=31536000`).
+  - Updated Firestore document `system_configs/ui_icons` under `vehicle_comfort` with updated `sizeBytes` (290,452 bytes) and ISO timestamp.
+
+- **3. Core Manifest Update & Verification (`icon_cache_service.dart`)**:
+  - Updated `IconCacheService.defaultManifest` in `sese_core/lib/services/icon_cache_service.dart` with `sizeBytes: 290452`.
+  - Static Analysis: `flutter analyze` clean with 0 issues in `sese_core`.
+  - Unit/Widget Tests: 136/136 `sese_core` tests passed (100%).
+
 ## 2026-11-10 — Driver Cancellation Fee UI Cleanup & Automated Cash Dispute Negative Balance Workflow
 
 - **1. UI Cleanup & Redundant Middle Box Removal (`driver_active_trip_card.dart`)**:

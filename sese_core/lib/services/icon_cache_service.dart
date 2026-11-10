@@ -84,7 +84,7 @@ class IconCacheService {
       filename: 'sese_standard_comfort.png',
       url:
           'https://firebasestorage.googleapis.com/v0/b/sese-ride.firebasestorage.app/o/ui_assets%2Ficons%2Fsese_standard_comfort.png?alt=media&token=18f1a268-7297-407f-864a-f0957735ff88',
-      sizeBytes: 189738,
+      sizeBytes: 290452,
     ),
     'vehicle_premium': IconCacheEntry(
       filename: 'sese_executive_premium.png',
