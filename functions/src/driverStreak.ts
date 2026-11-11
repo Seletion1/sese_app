@@ -78,12 +78,21 @@ const COUNTRY_TIMEZONES: Record<string, string> = {
 
 /** Resolves the driver's IANA timezone (explicit doc field wins). */
 export function resolveDriverTimeZone(
-  driverData: admin.firestore.DocumentData | Record<string, unknown>
+  driverData: admin.firestore.DocumentData | Record<string, unknown>,
+  userData?: admin.firestore.DocumentData | Record<string, unknown>
 ): string {
-  const explicit = (driverData as Record<string, unknown>)["timezone"];
-  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+  const explicit =
+    (driverData as Record<string, unknown>)["timezone"] ??
+    (userData as Record<string, unknown> | undefined)?.[
+      "timezone"
+    ];
+  if (typeof explicit === "string" && explicit.trim()) return String(explicit).trim();
   const country = String(
-    (driverData as Record<string, unknown>)["countryCode"] ?? "NG"
+    (driverData as Record<string, unknown>)["countryCode"] ??
+      (userData as Record<string, unknown> | undefined)?.[
+        "countryCode"
+      ] ??
+      "NG"
   ).toUpperCase();
   return COUNTRY_TIMEZONES[country] ?? "Africa/Lagos";
 }
@@ -257,10 +266,11 @@ export interface CommissionResult {
 export function computeCommission(
   streak: DriverStreakDoc,
   fareAmount: number,
-  cfg: DailyStreakConfig
+  cfg: DailyStreakConfig,
+  isPoolOrder = false
 ): CommissionResult {
-  // If streak disabled or already completed today → flat rate, no changes
-  if (!streak.streakActive || streak.dailyStreakCompleted) {
+  // Pool order OR streak disabled OR daily streak completed today → charge full base rate (e.g. 15%/20%), no streak progress
+  if (isPoolOrder || !streak.streakActive || streak.dailyStreakCompleted) {
     const fee = fareAmount * cfg.baseCommissionRate;
     return {
       commissionRate: cfg.baseCommissionRate,
@@ -564,15 +574,25 @@ export async function handleTripCompletion(
   const cfg = await resolveStreakConfig(countryCode, stateOrRegion);
   const streakEnabled = isStreakEnabledForRegion(cfg, countryCode, stateOrRegion);
 
+  // Check if order was picked from public pool (MARKETPLACE_OPEN, MARKETPLACE_LIST, or isPoolOrder flag)
+  const isPoolOrder =
+    after["isPoolOrder"] === true ||
+    after["origin"] === "public_pool" ||
+    after["droppedToPoolAt"] != null ||
+    after["dispatchStep"] === 4 ||
+    after["settlement"]?.["isPoolOrder"] === true;
+
   // Read current streak state (or initialise fresh)
   let streak = await getDriverStreak(driverId);
-  const driverTimeZone = resolveDriverTimeZone(driverData);
+  const userSnap = await db().collection("users").doc(driverId).get();
+  const userData = userSnap.exists ? userSnap.data()! : {};
+  const driverTimeZone = resolveDriverTimeZone(driverData, userData);
   // Lazy local-midnight reset: a stale `resetDateLocal` means the
   // driver's day has rolled over since the last event.
   streak = applyLocalResetIfStale(streak, driverTimeZone, Date.now());
 
-  // If streak was off (broke) and a new trip completes, re-enter at L1 Step 0
-  if (!streak.streakActive && streakEnabled) {
+  // If streak was off (broke) and a new direct trip completes, re-enter at L1 Step 0
+  if (!streak.streakActive && streakEnabled && !isPoolOrder) {
     streak = { ...streak, streakActive: true };
   }
   // Sync the regional enable flag
@@ -582,7 +602,7 @@ export async function handleTripCompletion(
     baseCommissionRate: cfg.baseCommissionRate,
   };
 
-  const result = computeCommission(streak, fareAmount, cfg);
+  const result = computeCommission(streak, fareAmount, cfg, isPoolOrder);
 
   const tripRef = db().collection("trips").doc(tripId);
   const driverWalletRef = db().collection("wallets").doc(driverId);
@@ -850,6 +870,7 @@ export async function handleTripCompletion(
     // 7. Canonical Trip Settlement Metadata
     const tripUpdate: Record<string, any> = {
       "settlement.settled": true,
+      "settlement.isPoolOrder": isPoolOrder,
       "settlement.commissionRate": result.commissionRate,
       "settlement.commissionAmount": result.commissionAmount,
       "settlement.commissionSettled": true,
@@ -1860,7 +1881,11 @@ export const scheduledResetStreaks = onSchedule(
       if (cached) return cached;
       try {
         const snap = await db().collection("drivers").doc(driverId).get();
-        const tz = resolveDriverTimeZone(snap.exists ? snap.data()! : {});
+        const userSnap = await db().collection("users").doc(driverId).get();
+        const tz = resolveDriverTimeZone(
+          snap.exists ? snap.data()! : {},
+          userSnap.exists ? userSnap.data()! : {}
+        );
         tzCache.set(driverId, tz);
         return tz;
       } catch {

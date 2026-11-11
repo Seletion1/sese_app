@@ -121,13 +121,13 @@ const COUNTRY_TIMEZONES = {
     CA: "America/Toronto",
 };
 /** Resolves the driver's IANA timezone (explicit doc field wins). */
-function resolveDriverTimeZone(driverData) {
-    var _a, _b;
-    const explicit = driverData["timezone"];
+function resolveDriverTimeZone(driverData, userData) {
+    var _a, _b, _c, _d;
+    const explicit = (_a = driverData["timezone"]) !== null && _a !== void 0 ? _a : userData === null || userData === void 0 ? void 0 : userData["timezone"];
     if (typeof explicit === "string" && explicit.trim())
-        return explicit.trim();
-    const country = String((_a = driverData["countryCode"]) !== null && _a !== void 0 ? _a : "NG").toUpperCase();
-    return (_b = COUNTRY_TIMEZONES[country]) !== null && _b !== void 0 ? _b : "Africa/Lagos";
+        return String(explicit).trim();
+    const country = String((_c = (_b = driverData["countryCode"]) !== null && _b !== void 0 ? _b : userData === null || userData === void 0 ? void 0 : userData["countryCode"]) !== null && _c !== void 0 ? _c : "NG").toUpperCase();
+    return (_d = COUNTRY_TIMEZONES[country]) !== null && _d !== void 0 ? _d : "Africa/Lagos";
 }
 /** Local calendar date (YYYY-MM-DD) for `nowMs` in `timeZone`. */
 function localDateString(timeZone, nowMs) {
@@ -234,10 +234,10 @@ function applyLocalResetIfStale(streak, timeZone, now) {
         return streak;
     return Object.assign({}, FRESH_STREAK(streak.baseCommissionRate, streak.streakActive, today));
 }
-function computeCommission(streak, fareAmount, cfg) {
+function computeCommission(streak, fareAmount, cfg, isPoolOrder = false) {
     var _a, _b;
-    // If streak disabled or already completed today → flat rate, no changes
-    if (!streak.streakActive || streak.dailyStreakCompleted) {
+    // Pool order OR streak disabled OR daily streak completed today → charge full base rate (e.g. 15%/20%), no streak progress
+    if (isPoolOrder || !streak.streakActive || streak.dailyStreakCompleted) {
         const fee = fareAmount * cfg.baseCommissionRate;
         return {
             commissionRate: cfg.baseCommissionRate,
@@ -416,7 +416,7 @@ async function persistTripChangeLog(log) {
  * credits bonuses/refunds, updates trip settlement, and handles wallet escrow settlement.
  */
 async function handleTripCompletion(tripId, after) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
     const driverId = String((_c = (_b = (_a = after["driver"]) === null || _a === void 0 ? void 0 : _a["driverId"]) !== null && _b !== void 0 ? _b : after["driverId"]) !== null && _c !== void 0 ? _c : "");
     if (!driverId) {
         console.warn(`handleTripCompletion[${tripId}]: no driverId, skipping streak`);
@@ -440,23 +440,31 @@ async function handleTripCompletion(tripId, after) {
     const stateOrRegion = driverData["stateOrRegion"] || "";
     const cfg = await resolveStreakConfig(countryCode, stateOrRegion);
     const streakEnabled = isStreakEnabledForRegion(cfg, countryCode, stateOrRegion);
+    // Check if order was picked from public pool (MARKETPLACE_OPEN, MARKETPLACE_LIST, or isPoolOrder flag)
+    const isPoolOrder = after["isPoolOrder"] === true ||
+        after["origin"] === "public_pool" ||
+        after["droppedToPoolAt"] != null ||
+        after["dispatchStep"] === 4 ||
+        ((_k = after["settlement"]) === null || _k === void 0 ? void 0 : _k["isPoolOrder"]) === true;
     // Read current streak state (or initialise fresh)
     let streak = await getDriverStreak(driverId);
-    const driverTimeZone = resolveDriverTimeZone(driverData);
+    const userSnap = await db().collection("users").doc(driverId).get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const driverTimeZone = resolveDriverTimeZone(driverData, userData);
     // Lazy local-midnight reset: a stale `resetDateLocal` means the
     // driver's day has rolled over since the last event.
     streak = applyLocalResetIfStale(streak, driverTimeZone, Date.now());
-    // If streak was off (broke) and a new trip completes, re-enter at L1 Step 0
-    if (!streak.streakActive && streakEnabled) {
+    // If streak was off (broke) and a new direct trip completes, re-enter at L1 Step 0
+    if (!streak.streakActive && streakEnabled && !isPoolOrder) {
         streak = Object.assign(Object.assign({}, streak), { streakActive: true });
     }
     // Sync the regional enable flag
     streak = Object.assign(Object.assign({}, streak), { streakActive: streakEnabled ? streak.streakActive : false, baseCommissionRate: cfg.baseCommissionRate });
-    const result = computeCommission(streak, fareAmount, cfg);
+    const result = computeCommission(streak, fareAmount, cfg, isPoolOrder);
     const tripRef = db().collection("trips").doc(tripId);
     const driverWalletRef = db().collection("wallets").doc(driverId);
     const streakRef = db().collection("driver_streaks").doc(driverId);
-    const customerId = String((_l = (_k = after["customerId"]) !== null && _k !== void 0 ? _k : after["userId"]) !== null && _l !== void 0 ? _l : "");
+    const customerId = String((_m = (_l = after["customerId"]) !== null && _l !== void 0 ? _l : after["userId"]) !== null && _m !== void 0 ? _m : "");
     const custWalletRef = customerId ? db().collection("wallets").doc(customerId) : null;
     const driverUserRef = db().collection("users").doc(driverId);
     const custUserRef = customerId ? db().collection("users").doc(customerId) : null;
@@ -660,6 +668,7 @@ async function handleTripCompletion(tripId, after) {
         // 7. Canonical Trip Settlement Metadata
         const tripUpdate = {
             "settlement.settled": true,
+            "settlement.isPoolOrder": isPoolOrder,
             "settlement.commissionRate": result.commissionRate,
             "settlement.commissionAmount": result.commissionAmount,
             "settlement.commissionSettled": true,
@@ -697,8 +706,8 @@ async function handleTripCompletion(tripId, after) {
     }
     // 5. Automated Residual Referral Commission Split Engine (Idempotent)
     try {
-        const customerId = String((_o = (_m = after["customerId"]) !== null && _m !== void 0 ? _m : after["userId"]) !== null && _o !== void 0 ? _o : "");
-        const driverName = String((_q = (_p = driverData["fullName"]) !== null && _p !== void 0 ? _p : driverData["displayName"]) !== null && _q !== void 0 ? _q : "Driver");
+        const customerId = String((_p = (_o = after["customerId"]) !== null && _o !== void 0 ? _o : after["userId"]) !== null && _p !== void 0 ? _p : "");
+        const driverName = String((_r = (_q = driverData["fullName"]) !== null && _q !== void 0 ? _q : driverData["displayName"]) !== null && _r !== void 0 ? _r : "Driver");
         const refSplits = await processReferralCommissions(tripId, customerId, driverId, driverName, fareAmount);
         await db().collection("trips").doc(tripId).update({
             "settlement.platformFeeNaira": refSplits.platformFeeNaira,
@@ -721,12 +730,12 @@ async function handleTripCompletion(tripId, after) {
         console.warn(`handleTripCompletion[${tripId}]: driver streak reward evaluation warning: ${e}`);
     }
     try {
-        const customerId = String((_s = (_r = after["customerId"]) !== null && _r !== void 0 ? _r : after["userId"]) !== null && _s !== void 0 ? _s : "");
+        const customerId = String((_t = (_s = after["customerId"]) !== null && _s !== void 0 ? _s : after["userId"]) !== null && _t !== void 0 ? _t : "");
         if (customerId) {
             const custSnap = await db().collection("users").doc(customerId).get();
             const custData = custSnap.exists ? custSnap.data() : {};
-            const custCountry = String((_u = (_t = custData["countryCode"]) !== null && _t !== void 0 ? _t : countryCode) !== null && _u !== void 0 ? _u : "NG");
-            const custState = String((_w = (_v = custData["stateOrRegion"]) !== null && _v !== void 0 ? _v : stateOrRegion) !== null && _w !== void 0 ? _w : "");
+            const custCountry = String((_v = (_u = custData["countryCode"]) !== null && _u !== void 0 ? _u : countryCode) !== null && _v !== void 0 ? _v : "NG");
+            const custState = String((_x = (_w = custData["stateOrRegion"]) !== null && _w !== void 0 ? _w : stateOrRegion) !== null && _x !== void 0 ? _x : "");
             await (0, streakRewards_1.evaluateAndGrantStreakRewards)(customerId, "customer", tripId, custCountry, custState);
         }
     }
@@ -1455,7 +1464,8 @@ exports.scheduledResetStreaks = (0, scheduler_1.onSchedule)({ schedule: "0 * * *
             return cached;
         try {
             const snap = await db().collection("drivers").doc(driverId).get();
-            const tz = resolveDriverTimeZone(snap.exists ? snap.data() : {});
+            const userSnap = await db().collection("users").doc(driverId).get();
+            const tz = resolveDriverTimeZone(snap.exists ? snap.data() : {}, userSnap.exists ? userSnap.data() : {});
             tzCache.set(driverId, tz);
             return tz;
         }

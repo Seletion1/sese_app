@@ -1221,6 +1221,7 @@ async function dropToPublicPool(
   const poolExpiresAt = nowMs() + tuning.publicPoolDurationMs;
   await tripRef.update({
     status: "MARKETPLACE_OPEN",
+    isPoolOrder: true,
     dispatchTier: 3,
     dispatchStep: 4,
     pingDriverId: null,
@@ -1820,10 +1821,18 @@ export const acceptTrip = onCall(async (request) => {
       r && r.driverId === driverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
     );
 
+    const isPoolClaim =
+      status === "MARKETPLACE_OPEN" ||
+      status === "MARKETPLACE_LIST" ||
+      data.isPoolOrder === true ||
+      data.droppedToPoolAt != null ||
+      data.dispatchStep === 4;
+
     tx.update(ref, {
       status: "DRIVER_ACCEPTED",
       driver: snapshot,
       driverId: driverId,
+      isPoolOrder: isPoolClaim,
       dispatchTier: data.dispatchTier ?? null,
       cancellationSource: null,
       cancellationReason: null,
@@ -2915,10 +2924,18 @@ export const acceptBid = onCall(async (request) => {
       r && r.driverId === driverId ? { ...r, superseded: true, supersededAt: nowMs() } : r
     );
 
+    const isPoolBid =
+      tripData.status === "MARKETPLACE_OPEN" ||
+      tripData.status === "MARKETPLACE_LIST" ||
+      tripData.isPoolOrder === true ||
+      tripData.droppedToPoolAt != null ||
+      tripData.dispatchStep === 4;
+
     tx.update(tripRef, {
       status: "DRIVER_ACCEPTED",
       driver: driverPayload,
       driverId,
+      isPoolOrder: isPoolBid,
       cancellationSource: null,
       cancellationReason: null,
       rejections: updatedBidRejections,
@@ -3194,6 +3211,7 @@ async function handleReassignTrip(request: { auth?: { uid: string }; data?: any 
   const updatePayload: Record<string, any> = {
     ...fareUpdate,
     status: "SEARCHING_DRIVER",
+    isPoolOrder: false,
     dispatchTier: 1,
     dispatchStep: 0,
     attemptedDriverIds: [],

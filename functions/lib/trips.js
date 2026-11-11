@@ -960,6 +960,7 @@ async function dropToPublicPool(tripRef) {
     const poolExpiresAt = nowMs() + tuning.publicPoolDurationMs;
     await tripRef.update({
         status: "MARKETPLACE_OPEN",
+        isPoolOrder: true,
         dispatchTier: 3,
         dispatchStep: 4,
         pingDriverId: null,
@@ -1432,10 +1433,16 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         // supersede that preliminary rejection record so the trip state cleanly resolves.
         const existingRejections = Array.isArray(data.rejections) ? data.rejections : [];
         const updatedRejections = existingRejections.map((r) => r && r.driverId === driverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r);
+        const isPoolClaim = status === "MARKETPLACE_OPEN" ||
+            status === "MARKETPLACE_LIST" ||
+            data.isPoolOrder === true ||
+            data.droppedToPoolAt != null ||
+            data.dispatchStep === 4;
         tx.update(ref, {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
+            isPoolOrder: isPoolClaim,
             dispatchTier: (_o = data.dispatchTier) !== null && _o !== void 0 ? _o : null,
             cancellationSource: null,
             cancellationReason: null,
@@ -2332,10 +2339,16 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
         // supersede that preliminary rejection record so the trip state cleanly resolves.
         const existingBidRejections = Array.isArray(tripData.rejections) ? tripData.rejections : [];
         const updatedBidRejections = existingBidRejections.map((r) => r && r.driverId === driverId ? Object.assign(Object.assign({}, r), { superseded: true, supersededAt: nowMs() }) : r);
+        const isPoolBid = tripData.status === "MARKETPLACE_OPEN" ||
+            tripData.status === "MARKETPLACE_LIST" ||
+            tripData.isPoolOrder === true ||
+            tripData.droppedToPoolAt != null ||
+            tripData.dispatchStep === 4;
         tx.update(tripRef, {
             status: "DRIVER_ACCEPTED",
             driver: driverPayload,
             driverId,
+            isPoolOrder: isPoolBid,
             cancellationSource: null,
             cancellationReason: null,
             rejections: updatedBidRejections,
@@ -2548,7 +2561,7 @@ async function handleReassignTrip(request) {
             fareUpdate.fareTiers = updatedFareTiers;
         }
     }
-    const updatePayload = Object.assign(Object.assign({}, fareUpdate), { status: "SEARCHING_DRIVER", dispatchTier: 1, dispatchStep: 0, attemptedDriverIds: [], reassignmentCount: 0, reassignmentHistory: [], declineCount: 0, pingDriverId: null, pingDriverIds: [], pingExpiresAt: null, tierExpiresAt: null, poolExpiresAt: null, droppedToPoolAt: null, isExpired: false, cancellationSource: null, cancellationReason: null, driver: null, driverLocation: null, driverId: null, arrivedAt: null, statusMessage: fareUpdate.fareAmount
+    const updatePayload = Object.assign(Object.assign({}, fareUpdate), { status: "SEARCHING_DRIVER", isPoolOrder: false, dispatchTier: 1, dispatchStep: 0, attemptedDriverIds: [], reassignmentCount: 0, reassignmentHistory: [], declineCount: 0, pingDriverId: null, pingDriverIds: [], pingExpiresAt: null, tierExpiresAt: null, poolExpiresAt: null, droppedToPoolAt: null, isExpired: false, cancellationSource: null, cancellationReason: null, driver: null, driverLocation: null, driverId: null, arrivedAt: null, statusMessage: fareUpdate.fareAmount
             ? `Fare updated to ₦${fareUpdate.fareAmount.toLocaleString()}! Reassigning drivers...`
             : "Searching for available drivers nearby...", statusHistory: admin.firestore.FieldValue.arrayUnion({
             from: fromStatus,

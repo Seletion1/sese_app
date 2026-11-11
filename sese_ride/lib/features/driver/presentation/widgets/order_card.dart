@@ -436,7 +436,10 @@ class _OrderCardState extends State<OrderCard> {
                     ],
                   ),
                 ),
-                if (widget.streakTag.isNotEmpty)
+                if ((widget.trip.status == TripStatus.marketplaceOpen ||
+                        widget.trip.status == TripStatus.marketplaceList
+                    ? 'Pool Rate: Standard Fee'
+                    : widget.streakTag).isNotEmpty)
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -445,7 +448,10 @@ class _OrderCardState extends State<OrderCard> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      widget.streakTag,
+                      widget.trip.status == TripStatus.marketplaceOpen ||
+                              widget.trip.status == TripStatus.marketplaceList
+                          ? 'Pool Rate: Standard Fee'
+                          : widget.streakTag,
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,

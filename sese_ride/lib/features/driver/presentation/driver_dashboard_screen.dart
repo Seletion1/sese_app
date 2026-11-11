@@ -2705,10 +2705,16 @@ class _PingListenerState extends State<_PingListener> {
         fullscreenDialog: true,
         builder: (_) => IncomingOfferSheet(
           trip: ping,
-          streakTag: streak.streakLabel(
-            fareAmount: ping.fareAmount,
-            symbol: widget.currencySymbol,
-          ),
+          streakTag: (ping.status == TripStatus.marketplaceOpen ||
+                  ping.status == TripStatus.marketplaceList)
+              ? streak.poolOrderLabel(
+                  fareAmount: ping.fareAmount,
+                  symbol: widget.currencySymbol,
+                )
+              : streak.streakLabel(
+                  fareAmount: ping.fareAmount,
+                  symbol: widget.currencySymbol,
+                ),
           currencySymbol: widget.currencySymbol,
           driverPosition: widget.driverPosition,
           streakService: widget.service,

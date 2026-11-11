@@ -147,6 +147,13 @@ class DriverStreakState {
     }
   }
 
+  /// Human-readable label for Public Pool orders, which bypass streak discounts
+  /// and are charged at the full base commission rate.
+  String poolOrderLabel({double fareAmount = 0, String symbol = '₦'}) {
+    final pct = (baseCommissionRate * 100).toStringAsFixed(0);
+    return 'Pool Rate: $pct% Standard Fee';
+  }
+
   /// Commission rate for Level 1 step [s] (0-indexed).
   ///
   /// Step 0 = first order of the day = 15%; Step 6 = 0%.

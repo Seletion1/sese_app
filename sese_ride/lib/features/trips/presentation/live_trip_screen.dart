@@ -25,8 +25,13 @@ import '../../customer/presentation/customer_dispatch_screen.dart';
 void _navigateBackToHomeOrPop(
   BuildContext context, {
   bool isPushedFromDispatch = false,
+  ActiveTrip? trip,
 }) {
-  if (Navigator.of(context).canPop()) {
+  if (isPushedFromDispatch && Navigator.of(context).canPop()) {
+    Navigator.of(context).pop('cancelled');
+  } else if (trip != null) {
+    _navigateToEditBooking(context, trip, isPushedFromDispatch: isPushedFromDispatch);
+  } else if (Navigator.of(context).canPop()) {
     Navigator.of(context).pop('cancelled');
   } else {
     Navigator.of(context).popUntil((route) => route.isFirst);
@@ -209,6 +214,7 @@ class LiveTripScreen extends StatelessWidget {
                 onClose: () => _navigateBackToHomeOrPop(
                   context,
                   isPushedFromDispatch: isPushedFromDispatch,
+                  trip: trip,
                 ),
               );
             }
@@ -444,6 +450,7 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
         _navigateBackToHomeOrPop(
           context,
           isPushedFromDispatch: widget.isPushedFromDispatch,
+          trip: widget.trip,
         );
       }
     } on TripException catch (e) {
@@ -1522,6 +1529,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             onNavigateAway: () => _navigateBackToHomeOrPop(
               context,
               isPushedFromDispatch: widget.isPushedFromDispatch,
+              trip: trip,
             ),
             interactionController: _mapInteractionController,
           ),
@@ -1554,6 +1562,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         _navigateBackToHomeOrPop(
           context,
           isPushedFromDispatch: widget.isPushedFromDispatch,
+          trip: widget.trip,
         );
       }
     } on TripException catch (e) {

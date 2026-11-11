@@ -289,6 +289,31 @@ describe("Driver Streak & Commission Calculation Engine", () => {
     const brokenL1S3 = applyStreakBreak(streakL1S3);
     assert.strictEqual(brokenL1S3.currentStep, 0);
   });
+
+  test("Public pool order charges full base commission rate and does NOT progress streak", () => {
+    const streak: DriverStreakDoc = {
+      streakActive: true,
+      currentLevel: 1,
+      currentStep: 3,
+      level1PaidHistory: [300, 250, 200],
+      dailyStreakCompleted: false,
+      baseCommissionRate: 0.15,
+      resetDateLocal: "2026-11-11",
+    };
+
+    const poolCfg: DailyStreakConfig = { ...cfg, baseCommissionRate: 0.15 };
+
+    // When isPoolOrder = true, charges full 15% base rate and bypasses streak step-down (step 3 would be 7.5%)
+    const res = computeCommission(streak, 4000, poolCfg, true);
+    assert.strictEqual(res.commissionRate, 0.15);
+    assert.strictEqual(res.commissionAmount, 600); // 15% of 4000 = 600
+    assert.strictEqual(res.cashBackAmount, 0);
+    assert.strictEqual(res.cashBonusAmount, 0);
+    assert.strictEqual(res.grandAwardTriggered, false);
+    // Streak state preserved completely unchanged (remains at Level 1 Step 3)
+    assert.strictEqual(res.newState.currentLevel, 1);
+    assert.strictEqual(res.newState.currentStep, 3);
+  });
 });
 
 describe("Trip Rating Security Invariants", () => {

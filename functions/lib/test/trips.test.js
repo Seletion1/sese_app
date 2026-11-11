@@ -250,6 +250,28 @@ const trips_1 = require("../trips");
         const brokenL1S3 = (0, driverStreak_1.applyStreakBreak)(streakL1S3);
         node_assert_1.default.strictEqual(brokenL1S3.currentStep, 0);
     });
+    (0, node_test_1.test)("Public pool order charges full base commission rate and does NOT progress streak", () => {
+        const streak = {
+            streakActive: true,
+            currentLevel: 1,
+            currentStep: 3,
+            level1PaidHistory: [300, 250, 200],
+            dailyStreakCompleted: false,
+            baseCommissionRate: 0.15,
+            resetDateLocal: "2026-11-11",
+        };
+        const poolCfg = Object.assign(Object.assign({}, cfg), { baseCommissionRate: 0.15 });
+        // When isPoolOrder = true, charges full 15% base rate and bypasses streak step-down (step 3 would be 7.5%)
+        const res = (0, driverStreak_1.computeCommission)(streak, 4000, poolCfg, true);
+        node_assert_1.default.strictEqual(res.commissionRate, 0.15);
+        node_assert_1.default.strictEqual(res.commissionAmount, 600); // 15% of 4000 = 600
+        node_assert_1.default.strictEqual(res.cashBackAmount, 0);
+        node_assert_1.default.strictEqual(res.cashBonusAmount, 0);
+        node_assert_1.default.strictEqual(res.grandAwardTriggered, false);
+        // Streak state preserved completely unchanged (remains at Level 1 Step 3)
+        node_assert_1.default.strictEqual(res.newState.currentLevel, 1);
+        node_assert_1.default.strictEqual(res.newState.currentStep, 3);
+    });
 });
 (0, node_test_1.describe)("Trip Rating Security Invariants", () => {
     const mockTrip = {

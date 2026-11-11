@@ -1722,9 +1722,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           ),
         ),
       );
-      if ((result == 'completed' || result == 'minimize_to_home' || result == 'cancelled') && mounted) {
+      if ((result == 'completed' || result == 'minimize_to_home') && mounted) {
         Navigator.of(context).pop();
-      } else if (result == 'edit' && mounted) {
+      } else if ((result == 'edit' || result == 'cancelled') && mounted) {
         setState(() {
           _editingTripId = tripId;
           _currentStep = 2;
