@@ -139,6 +139,150 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
     }
   }
 
+  void _showForgotPinDialog() {
+    final resetNewPinCtrl = TextEditingController();
+    final resetConfirmPinCtrl = TextEditingController();
+    bool resetting = false;
+    String? dialogError;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.shield_outlined, color: AppColors.seseGold),
+              SizedBox(width: 8),
+              Text('Reset Security PIN', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Create a new 4-digit PIN for your account.',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('reset_pin_new_field'),
+                controller: resetNewPinCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'New 4-Digit PIN',
+                  border: OutlineInputBorder(),
+                  counterText: '',
+                  prefixIcon: Icon(Icons.lock_outline),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('reset_pin_confirm_field'),
+                controller: resetConfirmPinCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Confirm 4-Digit PIN',
+                  border: OutlineInputBorder(),
+                  counterText: '',
+                  prefixIcon: Icon(Icons.lock_outline),
+                ),
+              ),
+              if (dialogError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  dialogError!,
+                  style: TextStyle(
+                    color: Theme.of(ctx).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: resetting ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('reset_pin_submit_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.seseGold,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: resetting
+                  ? null
+                  : () async {
+                      final pin = resetNewPinCtrl.text.trim();
+                      final confirm = resetConfirmPinCtrl.text.trim();
+                      if (pin.length != 4) {
+                        setDialogState(() => dialogError = 'New PIN must be exactly 4 digits.');
+                        return;
+                      }
+                      if (pin != confirm) {
+                        setDialogState(() => dialogError = 'New PINs do not match.');
+                        return;
+                      }
+                      setDialogState(() {
+                        resetting = true;
+                        dialogError = null;
+                      });
+                      try {
+                        await _pinService.resetPin(newPin: pin);
+                        LocalCacheService.instance.setBool('user_has_pin_${widget.uid}', true);
+                        if (!ctx.mounted) return;
+                        Navigator.of(ctx).pop();
+                        if (mounted) {
+                          setState(() {
+                            _hasExistingPin = true;
+                            _error = null;
+                            _oldPin.clear();
+                            _newPin.clear();
+                            _confirmPin.clear();
+                          });
+                        }
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Security PIN reset successfully.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } on TransactionPinException catch (e) {
+                        if (!ctx.mounted) return;
+                        setDialogState(() {
+                          resetting = false;
+                          dialogError = e.message;
+                        });
+                      } catch (e) {
+                        if (!ctx.mounted) return;
+                        setDialogState(() {
+                          resetting = false;
+                          dialogError = 'Could not reset PIN: $e';
+                        });
+                      }
+                    },
+              child: resetting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Text('Reset PIN'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -174,9 +318,27 @@ class _SecurityPinScreenState extends State<SecurityPinScreen> {
 
                 // ── Old PIN (only when updating existing PIN) ─────────────
                 if (_hasExistingPin) ...[
-                  Text(
-                    'Enter Old PIN',
-                    style: Theme.of(context).textTheme.labelLarge,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Enter Old PIN',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      TextButton(
+                        key: const Key('security_pin_forgot_button'),
+                        onPressed: _showForgotPinDialog,
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text(
+                          'Forgot PIN?',
+                          style: TextStyle(fontSize: 12, color: AppColors.seseGold),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   TextField(

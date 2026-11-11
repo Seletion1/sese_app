@@ -11,6 +11,8 @@ import '../models/driver_verification.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../referral/referral_code.dart';
+import '../services/awareness_tooltip_service.dart';
+import '../services/call/call_service_manager.dart';
 import '../services/local_cache_service.dart';
 
 /// Production [AuthRepository] backed by Firebase Auth + Cloud Firestore.
@@ -490,7 +492,42 @@ class FirebaseAuthRepository implements AuthRepository {
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-      userCredential = await auth.signInWithCredential(credential);
+      try {
+        userCredential = await auth.signInWithCredential(credential);
+      } on fb.FirebaseAuthException catch (e) {
+        if (e.code == 'account-exists-with-different-credential') {
+          debugPrint(
+            'FirebaseAuthRepository._authenticateWithGoogle: '
+            'account-exists-with-different-credential caught for ${e.email ?? googleUser.email}.',
+          );
+          if (auth.currentUser != null &&
+              auth.currentUser!.email?.toLowerCase() ==
+                  googleUser.email.toLowerCase()) {
+            try {
+              userCredential =
+                  await auth.currentUser!.linkWithCredential(credential);
+            } on fb.FirebaseAuthException catch (linkErr) {
+              if (linkErr.code == 'provider-already-linked') {
+                userCredential =
+                    await auth.signInWithCredential(credential);
+              } else {
+                rethrow;
+              }
+            }
+          } else {
+            throw fb.FirebaseAuthException(
+              code: 'account-exists-with-different-credential',
+              message:
+                  'An account already exists with the email address ${googleUser.email}. '
+                  'Please sign in with your email and password to link your Google account.',
+              credential: e.credential ?? credential,
+              email: e.email ?? googleUser.email,
+            );
+          }
+        } else {
+          rethrow;
+        }
+      }
     }
     return userCredential.user!;
   }
@@ -610,6 +647,7 @@ class FirebaseAuthRepository implements AuthRepository {
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
+        'authProviders': ['password'],
         if (referralCode != null && referralCode.isNotEmpty)
           'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -631,6 +669,7 @@ class FirebaseAuthRepository implements AuthRepository {
           .doc(firebaseUser.uid)
           .set({
         ...appUser.toMap(),
+        'authProviders': ['password'],
         if (referralCode != null && referralCode.isNotEmpty)
           'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -639,6 +678,9 @@ class FirebaseAuthRepository implements AuthRepository {
           'referralSignupAt': now.toIso8601String(),
       });
     }
+
+    // ignore: discarded_futures
+    _recordAuthProvider(firebaseUser.uid, role, 'password');
 
     return appUser;
   }
@@ -962,6 +1004,45 @@ class FirebaseAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> sendPasswordResetEmail({required String email}) async {
+    final auth = _auth;
+    if (auth == null) {
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized. Please restart the app.',
+      );
+    }
+    final trimmedEmail = email.trim();
+    if (trimmedEmail.isEmpty || !trimmedEmail.contains('@')) {
+      throw fb.FirebaseAuthException(
+        code: 'invalid-email',
+        message: 'Please enter a valid email address.',
+      );
+    }
+    try {
+      await auth.sendPasswordResetEmail(email: trimmedEmail);
+    } on fb.FirebaseAuthException {
+      rethrow;
+    } on PlatformException catch (e) {
+      debugPrint(
+        'FirebaseAuthRepository.sendPasswordResetEmail platform error: '
+        '${e.code} (${e.message})',
+      );
+      throw fb.FirebaseAuthException(
+        code: e.code.isNotEmpty ? e.code : 'channel-error',
+        message: e.message ?? 'Authentication channel error.',
+      );
+    } catch (e) {
+      debugPrint('FirebaseAuthRepository.sendPasswordResetEmail unexpected error: $e');
+      if (e is fb.FirebaseAuthException) rethrow;
+      throw fb.FirebaseAuthException(
+        code: 'channel-error',
+        message: e.toString(),
+      );
+    }
+  }
+
+  @override
   Future<void> deleteAccount({String? password}) async {
     final auth = _auth;
     final currentUser = auth?.currentUser;
@@ -1027,6 +1108,33 @@ class FirebaseAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOut() async {
+    final currentUser = _auth?.currentUser;
+    final uid = currentUser?.uid;
+    final email = currentUser?.email;
+    _pendingSelectedRole = UserRole.customer;
+
+    if (uid != null && uid.isNotEmpty) {
+      try {
+        LocalCacheService.instance.remove('cached_app_user_$uid');
+      } catch (e) {
+        debugPrint('FirebaseAuthRepository.signOut clear cached user error: $e');
+      }
+    }
+    if (email != null && email.isNotEmpty) {
+      try {
+        LocalCacheService.instance.remove('cached_hub_access_${email.toLowerCase()}');
+      } catch (e) {
+        debugPrint('FirebaseAuthRepository.signOut clear cached access error: $e');
+      }
+    }
+
+    try {
+      CallServiceManager.instance.clearUserSession();
+    } catch (_) {}
+    try {
+      AwarenessTooltipService.instance.resetSession();
+    } catch (_) {}
+
     // Each step is time-boxed: a hung GoogleSignIn plugin call must never
     // wedge sign-out (an `await` that never completes leaves the user
     // stranded on the signed-in UI with zero feedback). Firebase sign-out
@@ -1173,6 +1281,25 @@ class FirebaseAuthRepository implements AuthRepository {
             await firestore.collection('drivers').doc(firebaseUser.uid).get();
         if (driverDoc.exists && driverDoc.data() != null) {
           final data = Map<String, dynamic>.from(driverDoc.data()!);
+          final linkedUid = (data['linkedUid'] as String?)?.trim();
+          if (linkedUid != null && linkedUid.isNotEmpty) {
+            final canonicalDoc =
+                await firestore.collection('drivers').doc(linkedUid).get();
+            if (canonicalDoc.exists && canonicalDoc.data() != null) {
+              final canonicalData =
+                  Map<String, dynamic>.from(canonicalDoc.data()!);
+              canonicalData['uid'] = linkedUid;
+              canonicalData['email'] =
+                  firebaseUser.email ?? canonicalData['email'] ?? '';
+              final existing = AppUser.fromMap(canonicalData);
+              _logRoleSelection(existing.role, selectedRole);
+              LocalCacheService.instance.setJsonMap(
+                'cached_app_user_${firebaseUser.uid}',
+                existing.toMap(),
+              );
+              return existing;
+            }
+          }
           data['uid'] = firebaseUser.uid;
           data['email'] = firebaseUser.email ?? data['email'] ?? '';
           data.putIfAbsent('role', () => 'driver');
@@ -1198,6 +1325,25 @@ class FirebaseAuthRepository implements AuthRepository {
             await firestore.collection('users').doc(firebaseUser.uid).get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = Map<String, dynamic>.from(userDoc.data()!);
+          final linkedUid = (data['linkedUid'] as String?)?.trim();
+          if (linkedUid != null && linkedUid.isNotEmpty) {
+            final canonicalDoc =
+                await firestore.collection('users').doc(linkedUid).get();
+            if (canonicalDoc.exists && canonicalDoc.data() != null) {
+              final canonicalData =
+                  Map<String, dynamic>.from(canonicalDoc.data()!);
+              canonicalData['uid'] = linkedUid;
+              canonicalData['email'] =
+                  firebaseUser.email ?? canonicalData['email'] ?? '';
+              final existing = AppUser.fromMap(canonicalData);
+              _logRoleSelection(existing.role, selectedRole);
+              LocalCacheService.instance.setJsonMap(
+                'cached_app_user_${firebaseUser.uid}',
+                existing.toMap(),
+              );
+              return existing;
+            }
+          }
           data['uid'] = firebaseUser.uid;
           data['email'] = firebaseUser.email ?? data['email'] ?? '';
           data.putIfAbsent(
@@ -1214,6 +1360,119 @@ class FirebaseAuthRepository implements AuthRepository {
         }
       } catch (e) {
         debugPrint('FirebaseAuthRepository._fetchAppUser users error: $e');
+      }
+
+      // 5.5. Check for existing profile by email across drivers and users
+      // to handle account linking and prevent duplicate user profile documents.
+      if (firebaseUser.email != null &&
+          firebaseUser.email!.trim().isNotEmpty) {
+        final normEmail = firebaseUser.email!.trim();
+
+        // Check drivers collection by email
+        try {
+          final driverQuery = await firestore
+              .collection('drivers')
+              .where('email', isEqualTo: normEmail)
+              .limit(1)
+              .get();
+          if (driverQuery.docs.isNotEmpty) {
+            final canonicalDoc = driverQuery.docs.first;
+            final canonicalUid = canonicalDoc.id;
+            final data = Map<String, dynamic>.from(canonicalDoc.data());
+            data['uid'] = canonicalUid;
+            data['email'] = normEmail;
+            data.putIfAbsent('role', () => 'driver');
+
+            final photoUrl = (data['photoUrl'] ??
+                    data['photoURL'] ??
+                    firebaseUser.photoURL ??
+                    '')
+                .toString();
+            data['photoUrl'] = photoUrl;
+            data['photoURL'] = photoUrl;
+
+            await firestore.collection('drivers').doc(canonicalUid).set({
+              'authProviders': FieldValue.arrayUnion(['google.com', 'password']),
+              if (photoUrl.isNotEmpty) 'photoUrl': photoUrl,
+              if (photoUrl.isNotEmpty) 'photoURL': photoUrl,
+            }, SetOptions(merge: true));
+
+            if (firebaseUser.uid != canonicalUid) {
+              await firestore.collection('drivers').doc(firebaseUser.uid).set({
+                'linkedUid': canonicalUid,
+                'email': normEmail,
+                'role': 'driver',
+                'authProviders':
+                    FieldValue.arrayUnion(['google.com', 'password']),
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+            }
+
+            final appUser = AppUser.fromMap(data);
+            _logRoleSelection(appUser.role, selectedRole);
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              appUser.toMap(),
+            );
+            return appUser;
+          }
+        } catch (e) {
+          debugPrint(
+              'FirebaseAuthRepository._fetchAppUser driver email query error: $e');
+        }
+
+        // Check users collection by email
+        try {
+          final userQuery = await firestore
+              .collection('users')
+              .where('email', isEqualTo: normEmail)
+              .limit(1)
+              .get();
+          if (userQuery.docs.isNotEmpty) {
+            final canonicalDoc = userQuery.docs.first;
+            final canonicalUid = canonicalDoc.id;
+            final data = Map<String, dynamic>.from(canonicalDoc.data());
+            data['uid'] = canonicalUid;
+            data['email'] = normEmail;
+            data.putIfAbsent('role', () => 'customer');
+
+            final photoUrl = (data['photoUrl'] ??
+                    data['photoURL'] ??
+                    firebaseUser.photoURL ??
+                    '')
+                .toString();
+            data['photoUrl'] = photoUrl;
+            data['photoURL'] = photoUrl;
+
+            await firestore.collection('users').doc(canonicalUid).set({
+              'authProviders': FieldValue.arrayUnion(['google.com', 'password']),
+              if (photoUrl.isNotEmpty) 'photoUrl': photoUrl,
+              if (photoUrl.isNotEmpty) 'photoURL': photoUrl,
+            }, SetOptions(merge: true));
+
+            if (firebaseUser.uid != canonicalUid) {
+              await firestore.collection('users').doc(firebaseUser.uid).set({
+                'linkedUid': canonicalUid,
+                'email': normEmail,
+                'role': 'customer',
+                'authProviders':
+                    FieldValue.arrayUnion(['google.com', 'password']),
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+            }
+
+            final appUser = AppUser.fromMap(data);
+            _logRoleSelection(appUser.role, selectedRole);
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              appUser.toMap(),
+            );
+            return appUser;
+          }
+        } catch (e) {
+          debugPrint(
+              'FirebaseAuthRepository._fetchAppUser user email query error: $e');
+        }
       }
     }
 

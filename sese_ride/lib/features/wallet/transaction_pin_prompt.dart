@@ -314,7 +314,31 @@ class _CollectPinSheetState extends State<_CollectPinSheet> {
               textAlign: TextAlign.center,
             ),
           ],
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              key: const Key('jit_forgot_pin_button'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                TransactionPinPrompt.collectPin(
+                  context,
+                  uid: '',
+                  service: widget.service,
+                );
+              },
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text(
+                'Forgot PIN?',
+                style: TextStyle(fontSize: 12, color: AppColors.seseGold),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           FilledButton(
             key: const Key('jit_verify_submit_button'),
             onPressed: _checking ? null : _submit,

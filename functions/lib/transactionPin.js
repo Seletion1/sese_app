@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verifyTransactionPin = exports.setTransactionPin = void 0;
+exports.resetTransactionPin = exports.verifyTransactionPin = exports.setTransactionPin = void 0;
 exports.requireValidPin = requireValidPin;
 exports.hasPinSet = hasPinSet;
 const admin = __importStar(require("firebase-admin"));
@@ -293,6 +293,48 @@ exports.verifyTransactionPin = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
     await requireValidPin(request.auth.uid, (_a = request.data) === null || _a === void 0 ? void 0 : _a.pin);
+    return { ok: true };
+});
+/**
+ * Callable: reset transaction PIN when forgotten or after re-authentication.
+ *
+ * Caller must be authenticated (`request.auth`). Sets a new 4-digit PIN,
+ * clears any active lockout, and updates `users/{uid}/private/auth` or
+ * `drivers/{uid}/private/auth`.
+ */
+exports.resetTransactionPin = (0, https_1.onCall)(async (request) => {
+    var _a;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "You must sign in.");
+    }
+    const uid = request.auth.uid;
+    const pin = assertPinShape((_a = request.data) === null || _a === void 0 ? void 0 : _a.pin);
+    const salt = randomSaltHex();
+    const pinData = {
+        pinHash: hashPin(pin, salt),
+        pinSalt: salt,
+        resetAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    let written = false;
+    for (const col of ["users", "drivers"]) {
+        const docRef = db().collection(col).doc(uid);
+        const snap = await docRef.get();
+        if (snap.exists) {
+            await docRef.collection("private").doc("auth").set(pinData, { merge: true });
+            written = true;
+        }
+    }
+    if (!written) {
+        await db()
+            .collection("users")
+            .doc(uid)
+            .collection("private")
+            .doc("auth")
+            .set(pinData, { merge: true });
+    }
+    // A successful reset clears any lockout from earlier wrong attempts.
+    await writePinLock(uid, { failCount: 0, lockedUntilMs: 0 });
     return { ok: true };
 });
 //# sourceMappingURL=transactionPin.js.map

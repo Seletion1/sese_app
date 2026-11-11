@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
+import '../dashboard/services/hub_route_persistence.dart';
 import '../staff/services/hub_access_service.dart';
 
 /// sese_hub staff sign-in — email/password or Google OAuth.
@@ -74,6 +75,7 @@ class _LoginPageState extends State<LoginPage> {
       'revoking the session.',
     );
     try {
+      await HubRoutePersistence.clearSavedNavigation();
       await _auth.signOut();
     } catch (_) {}
     if (!mounted) return false;
@@ -205,6 +207,107 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  void _showForgotPasswordDialog() {
+    final resetEmailCtrl = TextEditingController(text: _email.text.trim());
+    bool sending = false;
+    String? resetError;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.lock_reset, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Reset Password', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Enter your staff email address to receive a password reset link.',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('hub_forgot_password_email_field'),
+                controller: resetEmailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email Address',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+              ),
+              if (resetError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  resetError!,
+                  style: TextStyle(
+                    color: Theme.of(ctx).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: sending ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('hub_forgot_password_submit_button'),
+              onPressed: sending
+                  ? null
+                  : () async {
+                      final email = resetEmailCtrl.text.trim();
+                      if (email.isEmpty || !email.contains('@')) {
+                        setDialogState(() => resetError = 'Please enter a valid email address.');
+                        return;
+                      }
+                      setDialogState(() {
+                        sending = true;
+                        resetError = null;
+                      });
+                      try {
+                        await _auth.sendPasswordResetEmail(email: email);
+                        if (!ctx.mounted) return;
+                        Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Password reset email sent! Please check your inbox.'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      } catch (e) {
+                        if (!ctx.mounted) return;
+                        setDialogState(() {
+                          sending = false;
+                          resetError = e is FirebaseAuthException
+                              ? _authErrorMessage(e.code)
+                              : 'Unable to send reset email. Please try again.';
+                        });
+                      }
+                    },
+              child: sending
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send Reset Link'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -274,7 +377,24 @@ class _LoginPageState extends State<LoginPage> {
                         return null;
                       },
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        key: const Key('hub_forgot_password_button'),
+                        onPressed: _showForgotPasswordDialog,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text(
+                          'Forgot Password?',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     FilledButton(
                       onPressed: _submitting ? null : _signInWithPassword,
                       child: _submitting

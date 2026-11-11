@@ -133,4 +133,20 @@ class TransactionPinService {
       _wrap(e);
     }
   }
+
+  /// Resets the transaction PIN after authentication or identity recovery.
+  Future<void> resetPin({required String newPin}) async {
+    final fn = _fn;
+    if (fn == null) {
+      throw const TransactionPinException(
+          'unavailable', 'PIN service is unavailable.');
+    }
+    try {
+      await fn.httpsCallable('resetTransactionPin').call({
+        'pin': newPin,
+      });
+    } catch (e) {
+      _wrap(e);
+    }
+  }
 }

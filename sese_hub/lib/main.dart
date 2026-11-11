@@ -7,8 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
-import 'features/dashboard/presentation/hub_dashboard_screen.dart';
 import 'features/config/services/system_config_service.dart';
+import 'features/dashboard/presentation/hub_dashboard_screen.dart';
+import 'features/dashboard/services/hub_route_persistence.dart';
 import 'features/staff/services/hub_access_service.dart';
 
 void main() async {
@@ -192,7 +193,8 @@ class _AuthGateState extends State<_AuthGate> {
     final key = email.trim().toLowerCase();
     if (_signedOutFor.add(key)) {
       debugPrint('sese_hub auth gate: signing out "$key" — $reason');
-      // Fire-and-forget: the auth stream rebuilds to LoginPage on completion.
+      // ignore: discarded_futures
+      HubRoutePersistence.clearSavedNavigation();
       _authRepo.signOut();
     }
   }

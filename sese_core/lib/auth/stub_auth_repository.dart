@@ -100,6 +100,9 @@ class StubAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> sendPasswordResetEmail({required String email}) async {}
+
+  @override
   Future<void> signOut() async {}
 }
 

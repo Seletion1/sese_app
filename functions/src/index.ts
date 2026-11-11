@@ -114,7 +114,7 @@ export { googleMapsProxy } from "./googleMaps";
 
 // Transaction Security PIN authority (hashed, server-verified) + gates.
 // Money callables verify via `requireValidPin` — see transactionPin.ts.
-export { setTransactionPin, verifyTransactionPin } from "./transactionPin";
+export { setTransactionPin, verifyTransactionPin, resetTransactionPin } from "./transactionPin";
 
 export {
   reviewCustomerVerification,

@@ -114,6 +114,9 @@ abstract class AuthRepository {
     UserRole? selectedRole,
   });
 
+  /// Triggers a password reset email via Firebase Auth for the given [email].
+  Future<void> sendPasswordResetEmail({required String email});
+
   /// Signs out the currently authenticated user.
   Future<void> signOut();
 }

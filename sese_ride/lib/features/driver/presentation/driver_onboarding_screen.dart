@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../auth/login_page.dart';
 import '../../home/customer_home_shell.dart';
 import '../../home/driver_home_shell.dart';
 import '../../settings/role_controller.dart';
@@ -499,10 +500,12 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     } else if (choice == 'sign_out') {
       await widget.auth.signOut();
       if (!mounted) return;
-      final nav = Navigator.of(context);
-      if (nav.canPop()) {
-        nav.pop();
-      }
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (_) => LoginPage(auth: widget.auth),
+        ),
+        (route) => false,
+      );
     }
   }
 

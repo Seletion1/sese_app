@@ -332,6 +332,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
       ),
     );
     if (confirm == true) {
+      await HubRoutePersistence.clearSavedNavigation();
       await _auth.signOut();
       // Primary redirect: the hub's StreamBuilder auth gate observes the null
       // auth state and replaces the root with LoginPage automatically.

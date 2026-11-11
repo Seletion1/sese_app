@@ -65,4 +65,15 @@ abstract final class HubRoutePersistence {
       return null;
     }
   }
+
+  /// Clears all persisted Hub navigation state (active tab, recent tabs, sub-route)
+  /// on sign-out to prevent state leakage between staff accounts.
+  static Future<void> clearSavedNavigation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(keyActiveTab);
+      await prefs.remove(keyRecentTabs);
+      await prefs.remove(keySubRoute);
+    } catch (_) {}
+  }
 }

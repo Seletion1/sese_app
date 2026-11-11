@@ -55,5 +55,19 @@ void main() {
       expect(user.createdAt, equals(now));
     });
   });
+
+  group('FirebaseAuthRepository.sendPasswordResetEmail validation', () {
+    test('throws FirebaseAuthException when email is empty or invalid', () async {
+      final repo = FirebaseAuthRepository();
+      expect(
+        () => repo.sendPasswordResetEmail(email: ''),
+        throwsA(anything),
+      );
+      expect(
+        () => repo.sendPasswordResetEmail(email: 'invalid-email-format'),
+        throwsA(anything),
+      );
+    });
+  });
 }
 

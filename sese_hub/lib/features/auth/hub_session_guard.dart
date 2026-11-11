@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
+import '../dashboard/services/hub_route_persistence.dart';
 
 /// Central guard against the Firestore `WatchStream: UNAUTHENTICATED` retry
 /// loop seen on sese_hub (stale Firebase ID token => every `snapshots()`
@@ -88,6 +89,9 @@ Future<bool> handleHubStreamAuthError(
 }
 
 Future<void> _signOutHub() async {
+  try {
+    await HubRoutePersistence.clearSavedNavigation();
+  } catch (_) {}
   try {
     // Repository sign-out also clears the cached Google account so the next
     // sign-in re-prompts instead of silently reusing stale credentials.

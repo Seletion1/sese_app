@@ -314,3 +314,53 @@ export const verifyTransactionPin = onCall<VerifyPinData>(async (request) => {
   await requireValidPin(request.auth.uid, request.data?.pin);
   return { ok: true };
 });
+
+interface ResetPinData {
+  pin?: string;
+}
+
+/**
+ * Callable: reset transaction PIN when forgotten or after re-authentication.
+ *
+ * Caller must be authenticated (`request.auth`). Sets a new 4-digit PIN,
+ * clears any active lockout, and updates `users/{uid}/private/auth` or
+ * `drivers/{uid}/private/auth`.
+ */
+export const resetTransactionPin = onCall<ResetPinData>(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must sign in.");
+  }
+  const uid = request.auth.uid;
+  const pin = assertPinShape(request.data?.pin);
+
+  const salt = randomSaltHex();
+  const pinData = {
+    pinHash: hashPin(pin, salt),
+    pinSalt: salt,
+    resetAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  let written = false;
+  for (const col of ["users", "drivers"]) {
+    const docRef = db().collection(col).doc(uid);
+    const snap = await docRef.get();
+    if (snap.exists) {
+      await docRef.collection("private").doc("auth").set(pinData, { merge: true });
+      written = true;
+    }
+  }
+  if (!written) {
+    await db()
+      .collection("users")
+      .doc(uid)
+      .collection("private")
+      .doc("auth")
+      .set(pinData, { merge: true });
+  }
+
+  // A successful reset clears any lockout from earlier wrong attempts.
+  await writePinLock(uid, { failCount: 0, lockedUntilMs: 0 });
+  return { ok: true };
+});
+
