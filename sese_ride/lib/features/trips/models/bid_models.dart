@@ -60,7 +60,7 @@ class BidModel {
     this.plateNumber = '',
     this.createdAt,
     this.expiresAt,
-    this.bidCountdownSeconds = 10,
+    this.bidCountdownSeconds = 15,
     this.isVerifiedDriver = false,
   });
 
@@ -110,7 +110,7 @@ class BidModel {
       plateNumber: (map['plateNumber'] ?? '').toString(),
       createdAt: dateOf(map['createdAt']),
       expiresAt: dateOf(map['expiresAt']),
-      bidCountdownSeconds: safeNum(map['bidCountdownSeconds'])?.toInt() ?? 10,
+      bidCountdownSeconds: safeNum(map['bidCountdownSeconds'])?.toInt() ?? 15,
       isVerifiedDriver: map['isVerifiedDriver'] == true ||
           map['isProfileVerified'] == true ||
           map['verificationStatus'] == 'approved' ||

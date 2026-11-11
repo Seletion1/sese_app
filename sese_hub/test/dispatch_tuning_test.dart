@@ -12,6 +12,7 @@ void main() {
       expect(t.pingTimeoutSec, 15);
       expect(t.repingIntervalSec, 30);
       expect(t.candidateLimit, 25);
+      expect(t.bidCountdownSec, 15);
       expect(t.maxOfferBoostPct, 100.0);
       expect(t.cameraPickupDwellSec, 5);
       expect(t.cameraDropoffDwellSec, 2);

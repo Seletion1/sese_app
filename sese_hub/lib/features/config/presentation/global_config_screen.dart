@@ -113,6 +113,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _repingIntervalCtrl = TextEditingController(text: '30');
   final _candidateLimitCtrl = TextEditingController(text: '25');
   final _publicPoolDurationCtrl = TextEditingController(text: '60');
+  final _bidCountdownSecCtrl = TextEditingController(text: '15');
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
   final _maxOfferBoostPctCtrl = TextEditingController(text: '100');
@@ -232,6 +233,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _repingIntervalCtrl.dispose();
     _candidateLimitCtrl.dispose();
     _publicPoolDurationCtrl.dispose();
+    _bidCountdownSecCtrl.dispose();
     _cameraPickupDwellCtrl.dispose();
     _cameraDropoffDwellCtrl.dispose();
     _maxOfferBoostPctCtrl.dispose();
@@ -357,6 +359,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _repingIntervalCtrl.text = tuning.repingIntervalSec.toString();
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
       _publicPoolDurationCtrl.text = tuning.publicPoolDurationMin.toString();
+      _bidCountdownSecCtrl.text = tuning.bidCountdownSec.toString();
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
       _maxOfferBoostPctCtrl.text = tuning.maxOfferBoostPct.toStringAsFixed(0);
@@ -615,6 +618,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_candidateLimitCtrl.text.trim()) ?? 25,
           publicPoolDurationMin:
               int.tryParse(_publicPoolDurationCtrl.text.trim()) ?? 60,
+          bidCountdownSec:
+              int.tryParse(_bidCountdownSecCtrl.text.trim()) ?? 15,
           cameraPickupDwellSec:
               int.tryParse(_cameraPickupDwellCtrl.text.trim()) ?? 5,
           cameraDropoffDwellSec:
@@ -2988,6 +2993,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 25 (5–100). Max candidate pool evaluated for proximity.'),
                 numField(_publicPoolDurationCtrl, 'Public Pool timeout', 'min',
                     'Default 60 min (1 hr). Automatically expires orders from the pool and returns them to customer.'),
+                numField(_bidCountdownSecCtrl, 'Driver bidding countdown', 'sec',
+                    'Default 15 (5–60 sec). Duration drivers and customers wait during active counter-offers.'),
                 numField(_cameraPickupDwellCtrl, 'Live search pickup dwell', 'sec',
                     'Default 5 (2–30 sec). Camera hold duration at pickup before panning.'),
                 numField(_cameraDropoffDwellCtrl, 'Live search drop-off dwell', 'sec',

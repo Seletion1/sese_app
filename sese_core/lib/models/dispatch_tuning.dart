@@ -31,6 +31,10 @@ class DispatchTuning {
   /// Configured exclusive response timeout per sequential driver (seconds). Default 15s.
   int get driverTimeoutSec => tier1TimeoutSec;
 
+  /// Driver counter-offer bidding countdown duration in seconds (Hub configurable).
+  /// Default: 15 seconds (clamped 5–60 sec).
+  final int bidCountdownSec;
+
   /// Maximum allowed customer fare boost percentage over baseline fare (Hub configurable).
   /// Default: 100.0 (i.e. Max Offer = Original Base Fare * 2).
   final double maxOfferBoostPct;
@@ -54,6 +58,7 @@ class DispatchTuning {
     this.repingIntervalSec = 30,
     this.candidateLimit = 25,
     this.publicPoolDurationMin = 60,
+    this.bidCountdownSec = 15,
     this.maxOfferBoostPct = 100.0,
     this.cameraPickupDwellSec = 5,
     this.cameraDropoffDwellSec = 2,
@@ -100,6 +105,7 @@ class DispatchTuning {
     final t3 = numOf('tier3RadiusKm', numOf('dispatchRadiusKm', numOf('poolRadiusKm', 15)));
     final t1 = numOf('tier1RadiusKm', numOf('searchRadiusKm', 3));
     final t1Timeout = intOf('tier1TimeoutSec', intOf('sequentialTimeoutSec', 15));
+    final bidTimeout = intOf('bidCountdownSec', intOf('bidCountdownSeconds', intOf('biddingCountdownSec', 15)));
     return DispatchTuning(
       dispatchRadiusKm: t3,
       tier1RadiusKm: t1,
@@ -109,6 +115,7 @@ class DispatchTuning {
       repingIntervalSec: intOf('repingIntervalSec', 30),
       candidateLimit: intOf('candidateLimit', 25),
       publicPoolDurationMin: intOf('publicPoolDurationMin', intOf('poolDurationMin', 60)),
+      bidCountdownSec: bidTimeout,
       maxOfferBoostPct: numOf('maxOfferBoostPct', 100.0),
       cameraPickupDwellSec: intOf('cameraPickupDwellSec', 5),
       cameraDropoffDwellSec: intOf('cameraDropoffDwellSec', 2),
@@ -129,6 +136,8 @@ class DispatchTuning {
         'candidateLimit': candidateLimit,
         'publicPoolDurationMin': publicPoolDurationMin,
         'poolDurationMin': publicPoolDurationMin,
+        'bidCountdownSec': bidCountdownSec,
+        'bidCountdownSeconds': bidCountdownSec,
         'maxOfferBoostPct': maxOfferBoostPct,
         'cameraPickupDwellSec': cameraPickupDwellSec,
         'cameraDropoffDwellSec': cameraDropoffDwellSec,

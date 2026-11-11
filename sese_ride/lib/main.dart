@@ -27,6 +27,8 @@ import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
+import 'features/trips/presentation/live_trip_screen.dart';
+import 'features/trips/services/trip_service.dart';
 import 'widgets/map_provider.dart' show GmsAvailability, SeseUniversalMap;
 
 void main() async {
@@ -177,9 +179,21 @@ void _handlePushTap(Map<String, String> data) {
     debugPrint('sese_ride: online-alert tap — app restored to foreground.');
     return;
   }
-  // Deep-link routing (trip chat sheets, order feed) is resolved by the
-  // foreground shells via their live streams; the tap payload is logged
-  // here for diagnostics and future route wiring.
+  
+  final tripId = data['tripId'];
+  if (tripId != null && tripId.isNotEmpty) {
+    final navState = IncomingCallOverlay.navigatorKey.currentState;
+    if (navState != null) {
+      navState.push(
+        MaterialPageRoute(
+          builder: (_) => LiveTripScreen(
+            tripId: tripId,
+            repository: FirestoreTripRepository(),
+          ),
+        ),
+      );
+    }
+  }
 }
 
 class MyApp extends StatefulWidget {

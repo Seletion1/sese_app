@@ -4,19 +4,24 @@ import 'package:sese_ride/features/trips/models/bid_models.dart';
 
 void main() {
   group('DispatchTuning & Bid Queue Tests', () {
-    test('DispatchTuning correctly parses maxConcurrentBids from map', () {
+    test('DispatchTuning correctly parses maxConcurrentBids and bidCountdownSec from map', () {
       final defaultTuning = DispatchTuning.fromMap(null);
       expect(defaultTuning.maxConcurrentBids, 5);
+      expect(defaultTuning.bidCountdownSec, 15);
 
       final customTuning = DispatchTuning.fromMap({
         'maxConcurrentBids': 3,
+        'bidCountdownSec': 20,
       });
       expect(customTuning.maxConcurrentBids, 3);
+      expect(customTuning.bidCountdownSec, 20);
 
       final legacyTuning = DispatchTuning.fromMap({
         'max_visible_bids': 4,
+        'bidCountdownSeconds': 25,
       });
       expect(legacyTuning.maxConcurrentBids, 4);
+      expect(legacyTuning.bidCountdownSec, 25);
     });
 
     test('Bid queue caps visible bids and promotes next queued bid on rejection', () {

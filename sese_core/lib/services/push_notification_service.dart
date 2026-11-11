@@ -179,6 +179,12 @@ class PushNotificationService {
         _handleTap(_payloadOf(message));
       });
       FirebaseMessaging.onBackgroundMessage(pushBackgroundHandler);
+
+      // Check if launched from a terminated/killed state notification tap
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleTap(_payloadOf(initialMessage));
+      }
     } catch (e) {
       debugPrint('PushNotificationService FCM wiring failed: $e');
     }

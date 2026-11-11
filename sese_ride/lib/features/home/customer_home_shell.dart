@@ -12,6 +12,7 @@ import '../trips/services/trip_service.dart';
 import '../customer/presentation/customer_home_map_screen.dart';
 import '../settings/role_controller.dart';
 import '../trips/models/trip_models.dart';
+import '../trips/presentation/customer_bid_overlay.dart';
 import '../trips/presentation/live_trip_screen.dart';
 import 'active_trip_countdown_banner.dart';
 import 'customer_profile_screen.dart';
@@ -146,10 +147,13 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) => _handlePopInvoked(didPop),
-      child: Scaffold(
+    return CustomerBidOverlay(
+      userId: widget.user.uid,
+      tripRepository: widget.tripRepository,
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) => _handlePopInvoked(didPop),
+        child: Scaffold(
         body: Column(
           children: [
             _VerificationBanner(
@@ -274,8 +278,9 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
           },
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 /// Optional verification banner at the top of the Customer View.

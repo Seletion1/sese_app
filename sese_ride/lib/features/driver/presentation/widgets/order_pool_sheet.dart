@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -799,9 +800,24 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     }
   }
 
+  late final DraggableScrollableController _sheetController;
+
+  Stream<DispatchTuning> _dispatchTuningStream() {
+    try {
+      return FirebaseFirestore.instance
+          .collection('system_settings')
+          .doc('dispatch')
+          .snapshots()
+          .map((doc) => DispatchTuning.fromMap(doc.data()));
+    } catch (_) {
+      return Stream.value(const DispatchTuning());
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _sheetController = DraggableScrollableController();
     final baseline = widget.trip.fareAmount;
     _bidCtrl = TextEditingController(text: baseline.round().toString());
     _selectedSuggestionPct = null;
@@ -816,6 +832,7 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     _countdownTimer?.cancel();
     _bidCtrl.dispose();
     _bidFocusNode.dispose();
+    _sheetController.dispose();
     super.dispose();
   }
 
@@ -1043,115 +1060,134 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                 trip.status == TripStatus.expired;
             final bool isTripCancelled = trip.status == TripStatus.cancelled || isTripExpired;
 
-            return SizedBox(
-              height: MediaQuery.of(context).size.height,
-              width: MediaQuery.of(context).size.width,
-              child: Stack(
-                children: [
-                  // ── Layer 0: Full-Screen Interactive Map ──
-                  Positioned.fill(
-                    child: SeSeMapView(
-                      preferredProvider: MapConfigController.instance
-                              .snapshotConfig()
-                              .hasValidMapboxToken
-                          ? MapProvider.mapbox
-                          : MapProvider.cartoDb,
-                      mapController: _mapController,
-                      initialCenter: _pickup,
-                      initialZoom: 13.0,
-                      showMyLocation: true,
-                      markers: [
-                        SeSeMapView.pin(
-                          point: _pickup,
-                          color: Colors.green,
-                          label: 'Pickup (A)',
-                        ),
-                        SeSeMapView.pin(
-                          point: _dropoff,
-                          color: Colors.redAccent,
-                          label: 'Drop-off (B)',
-                        ),
-                        SeSeMapView.pin(
-                          point: widget.driverPosition,
-                          color: Colors.blue,
-                          label: 'You',
-                        ),
-                      ],
-                      polylines: [
-                        if (_routePoints.isNotEmpty)
-                          SeSeMapView.route(
-                            points: _routePoints,
-                            color: Colors.green.shade700,
-                            width: 4,
-                            id: 'pool-trip-route',
-                          ),
-                        if (_driverLegPoints.isNotEmpty)
-                          SeSeMapView.route(
-                            points: _driverLegPoints,
-                            color: Colors.blue,
-                            width: 3,
-                            id: 'pool-driver-route',
-                          ),
-                      ],
-                    ),
-                  ),
-
-                  // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            CircleAvatar(
-                              backgroundColor:
-                                  scheme.surface.withValues(alpha: 0.95),
-                              child: IconButton(
-                                icon: const Icon(Icons.arrow_back),
-                                tooltip: 'Back to pool',
-                                onPressed: () => Navigator.of(context).pop(),
+            return StreamBuilder<DispatchTuning>(
+              stream: _dispatchTuningStream(),
+              builder: (context, tuningSnap) {
+                return SizedBox(
+                  height: MediaQuery.of(context).size.height,
+                  width: MediaQuery.of(context).size.width,
+                  child: Stack(
+                    children: [
+                      // ── Layer 0: Full-Screen Interactive Map with Tap Auto-Collapse ──
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () {
+                            if (_sheetController.isAttached) {
+                              _sheetController.animateTo(
+                                0.18,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOutCubic,
+                              );
+                            }
+                            _mapController.fitPoints(_pickup, _dropoff,
+                                padding: 64);
+                          },
+                          child: SeSeMapView(
+                            preferredProvider: MapConfigController.instance
+                                    .snapshotConfig()
+                                    .hasValidMapboxToken
+                                ? MapProvider.mapbox
+                                : MapProvider.cartoDb,
+                            mapController: _mapController,
+                            initialCenter: _pickup,
+                            initialZoom: 13.0,
+                            showMyLocation: true,
+                            markers: [
+                              SeSeMapView.pin(
+                                point: _pickup,
+                                color: Colors.green,
+                                label: 'Pickup (A)',
                               ),
-                            ),
-                            Row(
+                              SeSeMapView.pin(
+                                point: _dropoff,
+                                color: Colors.redAccent,
+                                label: 'Drop-off (B)',
+                              ),
+                              SeSeMapView.pin(
+                                point: widget.driverPosition,
+                                color: Colors.blue,
+                                label: 'You',
+                              ),
+                            ],
+                            polylines: [
+                              if (_routePoints.isNotEmpty)
+                                SeSeMapView.route(
+                                  points: _routePoints,
+                                  color: Colors.green.shade700,
+                                  width: 4,
+                                  id: 'pool-trip-route',
+                                ),
+                              if (_driverLegPoints.isNotEmpty)
+                                SeSeMapView.route(
+                                  points: _driverLegPoints,
+                                  color: Colors.blue,
+                                  width: 3,
+                                  id: 'pool-driver-route',
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: SafeArea(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                _MapMiniButton(
-                                  icon: Icons.add,
-                                  onTap: () => _mapController.zoomBy(1),
-                                ),
-                                const SizedBox(width: 4),
-                                _MapMiniButton(
-                                  icon: Icons.remove,
-                                  onTap: () => _mapController.zoomBy(-1),
-                                ),
-                                const SizedBox(width: 4),
-                                _MapMiniButton(
-                                  icon: Icons.my_location,
-                                  onTap: () => _mapController.fitPoints(
-                                    _pickup,
-                                    _dropoff,
-                                    padding: 64,
+                                CircleAvatar(
+                                  backgroundColor:
+                                      scheme.surface.withValues(alpha: 0.95),
+                                  child: IconButton(
+                                    icon: const Icon(Icons.arrow_back),
+                                    tooltip: 'Back to pool',
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
                                   ),
+                                ),
+                                Row(
+                                  children: [
+                                    _MapMiniButton(
+                                      icon: Icons.add,
+                                      onTap: () => _mapController.zoomBy(1),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    _MapMiniButton(
+                                      icon: Icons.remove,
+                                      onTap: () => _mapController.zoomBy(-1),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    _MapMiniButton(
+                                      icon: Icons.my_location,
+                                      onTap: () => _mapController.fitPoints(
+                                        _pickup,
+                                        _dropoff,
+                                        padding: 64,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
 
-                  // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
-                  DraggableScrollableSheet(
-                    initialChildSize: 0.50,
-                    minChildSize: 0.28,
-                    maxChildSize: 0.90,
-                    snap: true,
-                    snapSizes: const [0.28, 0.50, 0.90],
+                      // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
+                      DraggableScrollableSheet(
+                        controller: _sheetController,
+                        initialChildSize: 0.38,
+                        minChildSize: 0.18,
+                        maxChildSize: 0.88,
+                        snap: true,
+                        snapSizes: const [0.18, 0.38, 0.88],
                     builder: (context, scrollController) {
                       return Container(
                         decoration: BoxDecoration(
@@ -1800,6 +1836,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
         );
       },
     );
+  },
+);
   }
 }
 

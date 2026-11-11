@@ -471,29 +471,19 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                             ),
                             const SizedBox(height: 10),
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      if (perKmLabel.isNotEmpty)
-                                        Text(
-                                          perKmLabel,
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      Text(
-                                        fareLabel,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 20),
+                                if (perKmLabel.isNotEmpty)
+                                  Expanded(
+                                    child: Text(
+                                      perKmLabel,
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
                                       ),
-                                    ],
+                                    ),
                                   ),
-                                ),
                                 Chip(
                                   label: Text(
                                     trip.serviceType == 'send_item'

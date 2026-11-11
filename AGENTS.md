@@ -72,6 +72,19 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Incoming Offer View Duplicate Price Removal & Single Source of Truth
+
+- **1. Removal of Duplicate Middle Price (`incoming_offer_sheet.dart`)**:
+  - Completely stripped out the redundant middle price text (`Text(fareLabel, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20))`) sitting above the service chip (`Courier`/`Ride`).
+  - The sticky bottom action button (`Accept for ₦X,XXX`) serves as the single primary source of truth for the trip fare.
+
+- **2. Clean Metrics Row Layout**:
+  - Rate and distance metrics (`perKmLabel`, e.g. `₦212/km ~22.6 km`) sit cleanly on the left of the metrics row with `MainAxisAlignment.spaceBetween`, aligned seamlessly with the service category chip (`Courier`/`Ride`) on the right.
+
+- **3. Verification & Analysis**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride`.
+  - Unit/Widget Tests: 21/21 targeted driver tests passed (`synchronized_bidding_flow_test.dart`, `order_pool_bidding_test.dart`, `driver_active_trip_card_test.dart`).
+
 ## 2026-11-11 — Main Thread Frame Drop Optimization & Location Stream Throttling
 
 - **1. Location Stream Throttling (`proximity_trigger_service.dart`, `driver_dashboard_screen.dart`)**:
