@@ -72,6 +72,26 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Transaction Security PIN Recovery, Password Reset & End-to-End Workflow Hardening
+
+- **1. Transaction PIN Reset Authority & Recovery (`functions/src/transactionPin.ts`, `sese_core`, `sese_ride`)**:
+  - Exported `resetTransactionPin` Cloud Function allowing authenticated users to reset forgotten 4-digit PINs, updating salted hashes (`SHA-256(salt + pin)`) and clearing active lockout counters (`lockedUntilMs`).
+  - Added `resetPin` method to `TransactionPinService` in `sese_core`.
+  - Added "Forgot PIN?" recovery workflow on `SecurityPinScreen` and `TransactionPinPrompt` JIT modal in `sese_ride`.
+  - Audited timing-safe comparison (`crypto.timingSafeEqual`), 4-digit shape enforcement (`/^\d{4}$/`), 5-try / 15-minute lockout (`lockedUntilMs`), and money callable authorization (`transferWalletFunds`, `processWalletWithdrawal`, `settleSplitPayment`).
+
+- **2. Password Reset Email & Account Password Hardening (`sese_core`, `sese_ride`, `sese_hub`)**:
+  - Added `sendPasswordResetEmail({required String email})` to `AuthRepository`, `FirebaseAuthRepository`, and `StubAuthRepository`.
+  - Added "Forgot Password?" dialogs on `AuthScreen` (`sese_ride`) and `LoginPage` (`sese_hub`).
+  - Audited `_AccountPasswordSheet` (`settings_screen.dart`) enforcing password strength (≥ 8 chars, uppercase, lowercase, digit) and verbatim whitespace handling.
+
+- **3. Verification, Testing & Deployment**:
+  - Backend Unit Tests: 79/79 passed in `functions/src/test/` (including `transactionPin.test.ts`).
+  - Core Unit Tests: 145/145 passed in `sese_core/test/` (including `transaction_pin_test.dart`).
+  - Ride Widget Tests: 4/4 passed in `sese_ride/test/security_pin_and_password_test.dart`.
+  - Hub Unit Tests: 58/58 passed in `sese_hub/test/`.
+  - Deployed updated Cloud Functions and Firestore rules to Firebase production (`sese-ride`). Pushed git commit to remote `origin/main`.
+
 ## 2026-11-11 — Hub Config RemoteKeys Stream Fallback Hardening & End-to-End Verification
 
 - **1. RemoteKeys Stream Fallback (`sese_core/lib/services/remote_keys_service.dart`)**:
