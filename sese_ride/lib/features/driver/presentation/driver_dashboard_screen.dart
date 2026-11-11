@@ -639,7 +639,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _livePositionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 3,
+          distanceFilter: 8,
         ),
       ).listen(
         (pos) {

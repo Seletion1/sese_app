@@ -72,6 +72,19 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Main Thread Frame Drop Optimization & Location Stream Throttling
+
+- **1. Location Stream Throttling (`proximity_trigger_service.dart`, `driver_dashboard_screen.dart`)**:
+  - Configured `LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10)` in `ProximityTriggerService.start()`.
+  - Configured `distanceFilter: 8` in `DriverDashboardScreen._startLivePositionTracking()`. Caps position stream dispatches to 8–10m displacements, preventing high-frequency `setState()` calls and main thread Choreographer skipped frame drops (Davey 1600ms freezes).
+
+- **2. Synchronous Map GMS Resolution (`map_provider.dart`)**:
+  - Replaced `FutureBuilder<bool>` wrapper in `_SeseUniversalMapState.build()` with pre-warmed synchronous `GmsAvailability.isAvailableSync`. Eliminates `Future` allocations and channel calls on every frame rebuild.
+
+- **3. Verification & Analysis**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride` and `sese_core`.
+  - Unit/Widget Tests: 100% pass rate across `proximity_trigger_service_test.dart`, `map_interaction_controller_test.dart`, and `driver_navigation_telemetry_test.dart`.
+
 ## 2026-11-11 — Incoming Offer View Duplicate Avatar Removal & Price Area Cleanup
 
 - **1. Removal of Redundant Profile/Avatar Block (`incoming_offer_sheet.dart`)**:

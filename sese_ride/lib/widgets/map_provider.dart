@@ -440,6 +440,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
     MapConfigController.instance.incrementUsage(
       MapProviderType.fromCode(resolved.name),
     );
+    if (GmsAvailability.isAvailableSync == null) {
+      // ignore: discarded_futures
+      GmsAvailability.isAvailable().then((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override
@@ -496,22 +502,17 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
   @override
   Widget build(BuildContext context) {
-    final initialGms = GmsAvailability.isAvailableSync ?? (!Platform.isAndroid);
-    return FutureBuilder<bool>(
-      future: GmsAvailability.isAvailable(),
-      initialData: initialGms,
-      builder: (context, gmsSnapshot) {
-        final gmsOk = gmsSnapshot.data ?? initialGms;
-        return ValueListenableBuilder<GlobalMapConfig>(
-          valueListenable: MapConfigController.instance.configNotifier,
-          builder: (context, liveConfig, _) {
-            final isDark = widget.isDarkOverride ??
-                Theme.of(context).brightness == Brightness.dark;
+    final gmsOk = GmsAvailability.isAvailableSync ?? (!Platform.isAndroid);
+    return ValueListenableBuilder<GlobalMapConfig>(
+      valueListenable: MapConfigController.instance.configNotifier,
+      builder: (context, liveConfig, _) {
+        final isDark = widget.isDarkOverride ??
+            Theme.of(context).brightness == Brightness.dark;
 
-            // Frozen trip snapshot wins when present; everything else
-            // follows the live Hub config. Markers/camera always come from
-            // widget props, so freezing the ENGINE never freezes the data.
-            final mapConfig = _frozenConfig ?? liveConfig;
+        // Frozen trip snapshot wins when present; everything else
+        // follows the live Hub config. Markers/camera always come from
+        // widget props, so freezing the ENGINE never freezes the data.
+        final mapConfig = _frozenConfig ?? liveConfig;
 
             var targetProvider = widget.preferredProvider ??
                 MapProviderPolicy.resolve(
@@ -754,8 +755,6 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
             );
           },
         );
-      },
-    );
   }
 }
 

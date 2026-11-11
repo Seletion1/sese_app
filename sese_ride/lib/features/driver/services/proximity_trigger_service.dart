@@ -167,7 +167,12 @@ class ProximityTriggerService {
     try {
       stream = positionStreamFactory != null
           ? positionStreamFactory!.call()
-          : Geolocator.getPositionStream();
+          : Geolocator.getPositionStream(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                distanceFilter: 10,
+              ),
+            );
     } catch (e) {
       debugPrint('ProximityTriggerService: no position stream: $e');
       return;
