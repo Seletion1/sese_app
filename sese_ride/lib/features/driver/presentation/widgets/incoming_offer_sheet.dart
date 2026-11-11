@@ -472,15 +472,6 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                             const SizedBox(height: 10),
                             Row(
                               children: [
-                                _buildAvatarWithVerification(
-                                  displayName: trip.customerName.isNotEmpty
-                                      ? trip.customerName
-                                      : 'Customer',
-                                  photoUrl: trip.customerPhotoUrl,
-                                  isVerified: trip.isVerifiedCustomer,
-                                  radius: 20,
-                                ),
-                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,

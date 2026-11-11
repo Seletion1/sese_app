@@ -72,6 +72,19 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Incoming Offer View Duplicate Avatar Removal & Price Area Cleanup
+
+- **1. Removal of Redundant Profile/Avatar Block (`incoming_offer_sheet.dart`)**:
+  - Completely removed the extra/duplicate profile container (`_buildAvatarWithVerification`) at the bottom left next to the price in `IncomingOfferSheet`.
+  - The view now strictly presents only two profile avatars higher up on the card for Pickup (A) and Drop-off (B).
+
+- **2. Price & Metrics Area Clean Layout**:
+  - The bottom rate and distance metrics (`₦199/km ~22.6 km`) sit neatly right above the main price display (`₦4,500`), aligned cleanly on the left with the service category chip (`Courier`/`Ride`) on the right.
+
+- **3. Verification & Static Analysis**:
+  - `flutter analyze` ran clean with 0 issues across `sese_ride`.
+  - Unit/Widget Tests: 21/21 targeted tests passed (`synchronized_bidding_flow_test.dart`, `order_pool_bidding_test.dart`, `driver_active_trip_card_test.dart`).
+
 ## 2026-11-10 — Standard / Comfort Vehicle Icon Update & Background Removal
 
 - **1. Image Extraction & Background Removal (`sese_standard:comfort.jpg`)**:
