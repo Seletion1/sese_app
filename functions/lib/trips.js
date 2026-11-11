@@ -1818,7 +1818,13 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
     if (!isCustomer && !isDriver) {
         throw new https_1.HttpsError("permission-denied", "Not your trip.");
     }
-    if (!LIVE_STATUSES.includes(data.status)) {
+    const CANCELLABLE_STATUSES = new Set([
+        ...LIVE_STATUSES,
+        "returned_to_customer",
+        "expired",
+        "needs_customer_action",
+    ]);
+    if (!CANCELLABLE_STATUSES.has(data.status)) {
         if (data.status === "CANCELLED" ||
             data.status === "CANCELLED_BY_CUSTOMER" ||
             data.status === "CANCELLED_BY_DRIVER" ||

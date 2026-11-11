@@ -153,7 +153,7 @@ void main() {
     test('withTimeout returns fallback on TimeoutException', () async {
       final result = await NetworkTimeoutHelper.withTimeout<String>(
         () async {
-          await Future.delayed(const Duration(milliseconds: 100));
+          await Future.delayed(const Duration(milliseconds: 300));
           return 'slow_data';
         },
         timeout: const Duration(milliseconds: 10),

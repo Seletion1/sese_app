@@ -21,19 +21,26 @@ import 'trip_rating_dialog.dart';
 import '../services/trip_rating_service.dart';
 import '../../customer/presentation/customer_dispatch_screen.dart';
 
-/// Navigates back to the booking review screen or pops if already stacked.
-///
-/// If [CustomerDispatchScreen] pushed this screen, popping restores the exact
-/// in-memory state (controllers, addresses, vehicle choices, and payment modes).
-/// If opened directly (app relaunch / notification), reconstructs [CustomerDispatchScreen]
-/// seeded with all details from [trip] on step 2 (Review & Confirm).
-void _navigateBackToBookingOrPop(
+/// Pops or returns to the home screen when a trip is closed or cancelled.
+void _navigateBackToHomeOrPop(
+  BuildContext context, {
+  bool isPushedFromDispatch = false,
+}) {
+  if (Navigator.of(context).canPop()) {
+    Navigator.of(context).pop('cancelled');
+  } else {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+}
+
+/// Navigates to [CustomerDispatchScreen] pre-seeded for editing an existing returned order.
+void _navigateToEditBooking(
   BuildContext context,
   ActiveTrip trip, {
   bool isPushedFromDispatch = false,
 }) {
   if (isPushedFromDispatch && Navigator.of(context).canPop()) {
-    Navigator.of(context).pop('cancelled');
+    Navigator.of(context).pop('edit');
     return;
   }
   final pickupLoc = trip.pickupLat != 0 && trip.pickupLng != 0
@@ -52,6 +59,7 @@ void _navigateBackToBookingOrPop(
   Navigator.of(context).pushReplacement(
     MaterialPageRoute(
       builder: (_) => CustomerDispatchScreen(
+        editingTripId: trip.tripId,
         initialModeIndex: isRide ? 1 : 0,
         isReceiving: isReceive,
         initialPickupAddress:
@@ -198,9 +206,8 @@ class LiveTripScreen extends StatelessWidget {
                     : Colors.redAccent,
                 title: isCashWaiting ? 'Cash Payment Due' : 'Trip cancelled',
                 body: reason,
-                onClose: () => _navigateBackToBookingOrPop(
+                onClose: () => _navigateBackToHomeOrPop(
                   context,
-                  trip,
                   isPushedFromDispatch: isPushedFromDispatch,
                 ),
               );
@@ -408,7 +415,7 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
   }
 
   void _handleMakeChanges() {
-    _navigateBackToBookingOrPop(
+    _navigateToEditBooking(
       context,
       widget.trip,
       isPushedFromDispatch: widget.isPushedFromDispatch,
@@ -434,9 +441,8 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
         );
       }
       if (mounted) {
-        _navigateBackToBookingOrPop(
+        _navigateBackToHomeOrPop(
           context,
-          widget.trip,
           isPushedFromDispatch: widget.isPushedFromDispatch,
         );
       }
@@ -1513,9 +1519,8 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             repository: widget.repository,
             driverPosOverride: driverPos,
             onCancel: () => _cancel(context),
-            onNavigateAway: () => _navigateBackToBookingOrPop(
+            onNavigateAway: () => _navigateBackToHomeOrPop(
               context,
-              trip,
               isPushedFromDispatch: widget.isPushedFromDispatch,
             ),
             interactionController: _mapInteractionController,
@@ -1546,9 +1551,8 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         );
       }
       if (context.mounted) {
-        _navigateBackToBookingOrPop(
+        _navigateBackToHomeOrPop(
           context,
-          widget.trip,
           isPushedFromDispatch: widget.isPushedFromDispatch,
         );
       }

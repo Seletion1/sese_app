@@ -118,6 +118,9 @@ class CustomerDispatchScreen extends StatefulWidget {
   /// Optional initial category or tier.
   final String? initialCategory;
 
+  /// Optional ID of an existing trip being edited after returning.
+  final String? editingTripId;
+
   const CustomerDispatchScreen({
     super.key,
     this.initialConfig,
@@ -138,6 +141,7 @@ class CustomerDispatchScreen extends StatefulWidget {
     this.initialDropoffName,
     this.initialPaymentMode,
     this.initialCategory,
+    this.editingTripId,
     this.tripRepository,
   });
 
@@ -362,11 +366,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Server id of the passenger Keke tier.
   static const String _rideTricycleTierId = 'tricycle';
 
+  String? _editingTripId;
+
   // ─────────────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
     _fareService = widget.fareService ?? FareService();
+    _editingTripId = widget.editingTripId;
     _selectedModeIndex = widget.initialModeIndex;
     final uid = widget.user?.uid;
     if (uid != null && uid.isNotEmpty) {
@@ -1692,6 +1699,17 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     // fare token, payment fields, and contact numbers directly. No local
     // payload mirror is needed here; the server is the source of truth.
 
+    // If editing a returned trip, cancel the old trip so it does not linger in Firestore
+    final oldTripIdToCancel = _editingTripId;
+    if (oldTripIdToCancel != null && oldTripIdToCancel.isNotEmpty) {
+      unawaited(
+        _tripRepository.cancelTrip(oldTripIdToCancel, reason: 'other').catchError((e) {
+          debugPrint('Failed to cancel edited old trip $oldTripIdToCancel: $e');
+        }),
+      );
+      _editingTripId = null;
+    }
+
     // 2. Navigate directly to the live tracker while retaining this booking state underneath
     // so any cancellation or re-editing seamlessly restores all inputs without route reset.
     if (mounted) {
@@ -1704,8 +1722,13 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           ),
         ),
       );
-      if ((result == 'completed' || result == 'minimize_to_home') && mounted) {
+      if ((result == 'completed' || result == 'minimize_to_home' || result == 'cancelled') && mounted) {
         Navigator.of(context).pop();
+      } else if (result == 'edit' && mounted) {
+        setState(() {
+          _editingTripId = tripId;
+          _currentStep = 2;
+        });
       }
     }
   }

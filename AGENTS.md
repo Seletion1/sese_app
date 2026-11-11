@@ -72,6 +72,22 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Order Return & Edit Navigation Stack Fix, Infinite Loop Elimination & Clean Cancellation
+
+- **1. Backend Status Gate Alignment (`functions/src/trips.ts`)**:
+  - Expanded `cancelTrip` status check to explicitly allow customer cancellation when an order is in `returned_to_customer`, `expired`, or `needs_customer_action` states.
+  - Idempotently returns `{ ok: true, alreadyCancelled: true }` when a trip is already cancelled, eliminating `"Trip is already closed"` / `"trip has already been cancelled"` errors.
+
+- **2. Navigation Stack & Edit Lifecycle (`live_trip_screen.dart`, `customer_dispatch_screen.dart`)**:
+  - **"Make Changes / Edit"**: Seamlessly transitions the customer to `CustomerDispatchScreen` pre-seeded with all pickup, dropoff, contact, vehicle tier, and payment preferences, tracking `editingTripId`.
+  - **Editing Auto-Cleanup**: When the user edits and taps "Confirm & Broadcast", the new trip is created and the old returned trip is automatically cancelled in Firestore so it doesn't linger as a ghost order or home recovery banner.
+  - **"Cancel Order"**: Tapping "Cancel Order" cancels the trip in the backend, clears active recovery banners on the homepage, and pops all dispatch/tracker screens back to `CustomerHomeShell`.
+
+- **3. Verification & Deployment**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride`, `sese_hub`, and `sese_core`.
+  - Unit & Widget Tests: 16/16 `live_trip_screen_test` and `order_recovery_screen_test` passed (100%); 100% pass across `sese_core` tests.
+  - Backend: Cloud Functions deployed to production `sese-ride`.
+
 ## 2026-11-11 — Incoming Offer View Duplicate Price Removal & Single Source of Truth
 
 - **1. Removal of Duplicate Middle Price (`incoming_offer_sheet.dart`)**:
