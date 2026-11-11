@@ -173,8 +173,15 @@ class _PickOnMapScreenState extends State<PickOnMapScreen> {
       ),
       body: Stack(
         children: [
-          // ── Unified Map (Google Maps / Mapbox / CartoDB dynamic) ──────────────
+          // ── Unified Map — forced CartoDB raster ──────────────────────────────
+          // PickOnMapScreen is always pushed on top of an already-active Google
+          // Maps platform view (CustomerHomeMapScreen or CustomerDispatchScreen),
+          // so spawning another GoogleMap here would create a 3rd or 4th native
+          // platform view. Each Google Map costs ~380 KB of native allocations
+          // and triggers its own tile-prep GC storm. CartoDB (flutter_map) is
+          // pixel-perfect for location picking and costs zero GMS overhead.
           SeseUniversalMap(
+            preferredProvider: MapProvider.cartoDb,
             mapController: _mapController,
             initialCenter: widget.initialCenter,
             initialZoom: 16.0,

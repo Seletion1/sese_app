@@ -72,6 +72,18 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Bids Collection Group Security Rule Root Scope Elevation & Firebase Rules Deployment
+
+- **1. CollectionGroup Security Rule Scope Fix (`firestore.rules`)**:
+  - Relocated `match /{path=**}/bids/{driverId}` from nested scope inside `match /trips/{tripId}` to the root level scope of `match /databases/{database}/documents`.
+  - Nested collectionGroup rules were previously evaluated as `/trips/{tripId}/{path=**}/bids/{driverId}` and failed root collectionGroup queries (`_db.collectionGroup('bids').where('driverId', isEqualTo: driverId)`), causing `PERMISSION_DENIED` errors on `activeDriverBidStream`.
+  - Root scope rule grants read access for driver's own bids, order customer, hub staff, and admins while enforcing server-only writes (`allow write: if false;`).
+
+- **2. Verification & Deployment**:
+  - Firebase Deployment: `firebase deploy --only firestore` executed successfully, releasing updated `firestore.rules` to production `sese-ride`.
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride` and `sese_core`.
+  - Unit/Widget Tests: 12/12 bidding flow tests passed in `sese_ride`; 136/136 `sese_core` tests passed (100%).
+
 ## 2026-11-11 — Order Return & Edit Navigation Stack Fix, Infinite Loop Elimination & Clean Cancellation
 
 - **1. Backend Status Gate Alignment (`functions/src/trips.ts`)**:

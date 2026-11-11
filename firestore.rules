@@ -468,16 +468,6 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // Collection group rule for driver active bids query across trips.
-      match /{path=**}/bids/{driverId} {
-        allow read: if isAuthenticated() && (
-          driverId == request.auth.uid ||
-          resource.data.driverId == request.auth.uid ||
-          resource.data.customerId == request.auth.uid ||
-          isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin()
-        );
-      }
-
       // ── Tri-Party Trip Chat (`trips/{tripId}/messages/{messageId}`) ─────
       // Customer + assigned driver (+ recipient relayed through the
       // customer app) + hub support staff. Text/Images strictly — voice
@@ -498,6 +488,18 @@ service cloud.firestore {
           isTripChatAuthorized(tripId);
         allow update, delete: if false; // immutable chat history
       }
+    }
+
+    // ===== BIDS COLLECTION-GROUP MIRROR (Driver Active Bids) =====
+    // Collection group rule for driver active bids query across trips.
+    match /{path=**}/bids/{driverId} {
+      allow read: if isAuthenticated() && (
+        driverId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        resource.data.customerId == request.auth.uid ||
+        isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin()
+      );
+      allow write: if false;
     }
 
     // ===== CANCELLATION AUDITS (immutable, server-written) ─────────────

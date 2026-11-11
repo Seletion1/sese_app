@@ -115,6 +115,11 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
     final theme = Theme.of(context);
 
     final Widget mapCanvas = SeseUniversalMap(
+      // LocationPickerMap is always embedded inside a modal/sheet that
+      // overlays an already-active Google Maps surface. Forcing CartoDb avoids
+      // spawning a concurrent native platform view, which would trigger a
+      // NativeAlloc GC storm and 1–2 s Davey frames during the modal transition.
+      preferredProvider: MapProvider.cartoDb,
       mapController: _mapController,
       initialCenter: widget.initialCenter,
       initialZoom: widget.initialZoom,

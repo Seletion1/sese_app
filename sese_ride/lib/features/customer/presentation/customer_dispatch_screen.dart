@@ -3820,8 +3820,13 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       child: Stack(
         children: [
           SeSeMapView(
-            // Route preview while browsing options: Google Maps.
+            // Route preview while browsing: forces CartoDB raster so this
+            // screen never spawns a second Google Maps platform view on top
+            // of the always-alive CustomerHomeMapScreen Google Map in the
+            // IndexedStack. CartoDB renders the same route/markers natively
+            // via flutter_map (no GMS JNI calls, no tile-prep GC storms).
             mapContext: MapContext.browsing,
+            preferredProvider: MapProvider.cartoDb,
             mapController: _mapController,
             initialCenter: center,
             initialZoom: 13.0,
