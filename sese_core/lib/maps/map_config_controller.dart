@@ -298,7 +298,7 @@ class MapConfigController {
     final type = MapProviderType.fromCode(providerCode);
 
     bool canUseGoogle() =>
-        !isGoogleFallbackActive && !isGoogleQuotaExceeded;
+        !isGoogleFallbackActive && cfg.hasValidApiKey && !isGoogleQuotaExceeded;
 
     bool canUseMapbox() =>
         !_isMapboxFallbackActive &&

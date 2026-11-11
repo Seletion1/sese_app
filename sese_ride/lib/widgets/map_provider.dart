@@ -537,13 +537,14 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               isFallbackActive = true;
             } else if (mapConfig.isGoogle) {
               if (!gmsOk || MapConfigController.instance.isGoogleFallbackActive) {
+                final reason = MapConfigController.instance.fallbackReason;
                 if (mapConfig.hasValidMapboxToken &&
                     !MapConfigController.instance.isMapboxFallbackActive) {
                   targetProvider = MapProvider.mapbox;
-                  fallbackMessage = 'Google Play Services unavailable. Using Mapbox.';
+                  fallbackMessage = reason ?? (!gmsOk ? 'Google Play Services unavailable. Using Mapbox.' : 'Google Maps unavailable. Using Mapbox.');
                 } else {
                   targetProvider = MapProvider.cartoDb;
-                  fallbackMessage = 'Google Play Services unavailable. Using CartoDB.';
+                  fallbackMessage = reason ?? (!gmsOk ? 'Google Play Services unavailable. Using CartoDB.' : 'Google Maps unavailable. Using CartoDB.');
                 }
                 isFallbackActive = true;
               }

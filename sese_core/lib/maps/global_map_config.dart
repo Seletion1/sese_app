@@ -332,17 +332,25 @@ class GlobalMapConfig {
 
     final cleanCartoKey = (cartoApiKey ?? '').trim();
     if (cleanCartoKey.isNotEmpty) {
-      return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
+      return isDark
+          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey'
+          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
     }
 
-    // CartoDB: prefer explicit custom template, then key-authenticated, then free.
+    // Custom non-default tileUrlTemplate (if specified by admin, e.g. custom tile server)
     if (tileUrlTemplate.trim().isNotEmpty &&
+        tileUrlTemplate != _cartoLight &&
+        tileUrlTemplate != _cartoDark &&
+        !tileUrlTemplate.contains('light_all') &&
         (tileUrlTemplate.contains('carto') ||
             tileUrlTemplate.contains('mapbox'))) {
       return tileUrlTemplate.trim();
     }
     if (isCartoDb && hasValidApiKey) {
-      return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${apiKey!.trim()}';
+      final key = apiKey!.trim();
+      return isDark
+          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$key'
+          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$key';
     }
     return isDark ? _cartoDark : _cartoLight;
   }

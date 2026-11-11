@@ -63,7 +63,7 @@ void main() {
       findsOneWidget,
     );
 
-    // Verify list handle icon is rendered
-    expect(find.byIcon(Icons.format_list_bulleted_rounded), findsOneWidget);
+    // Verify card is rendered
+    expect(find.byType(DriverActiveTripCard), findsOneWidget);
   });
 }
