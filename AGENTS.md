@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-11 — Hub Config RemoteKeys Stream Fallback Hardening & End-to-End Verification
+
+- **1. RemoteKeys Stream Fallback (`sese_core/lib/services/remote_keys_service.dart`)**:
+  - Updated `streamRemoteKeys()` and `fetchRemoteKeys()` to stream/fetch from `system_configs/global_default` (publicly readable by all authenticated users under `match /system_configs/{configId}`).
+  - Resolves `PERMISSION_DENIED` stream errors for non-staff customers/drivers in `sese_ride` caused by restrictive `system_config/remote_keys` security rules. Live Hub config edits (map providers, maintenance mode, force delivery PIN, cash limits) propagate instantly to all users.
+
+- **2. Driver Trip History Chip Labels & Micro-Copy Test Alignment (`customer_trips_screen.dart`)**:
+  - Differentiated driver vs customer status chip labels in `_StatusChip`: renders `'Rejected by You'` / `'Skipped by You'` when viewed by the assigned driver, and `'Rejected by Driver'` / `'Skipped by Driver'` when viewed by customer.
+  - Aligned unit test assertions in `fare_persistence_and_logging_test.dart` and `dispatch_and_fleet_test.dart`.
+
+- **3. Verification & Test Matrix**:
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_core`, `sese_hub`, and `sese_ride`.
+  - Monorepo Unit/Widget Tests: 58/58 passed in `sese_hub`; 136/136 passed in `sese_core`; 73/73 passed in `functions`; 65/65 passed in `sese_ride` targeted suites (100%).
+
 ## 2026-11-11 — Bids Collection Group Security Rule Root Scope Elevation & Firebase Rules Deployment
 
 - **1. CollectionGroup Security Rule Scope Fix (`firestore.rules`)**:

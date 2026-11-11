@@ -669,11 +669,11 @@ class _StatusChip extends StatelessWidget {
           driverAction == 'skipped';
 
       if (isRejected) {
-        label = isDriver ? 'Rejected by Driver' : 'Rejected by Driver';
+        label = isDriver ? 'Rejected by You' : 'Rejected by Driver';
         color = const Color(0xFFD97706);
         bgColor = const Color(0xFFFEF3C7);
       } else if (isSkipped) {
-        label = isDriver ? 'Skipped by Driver' : 'Skipped by Driver';
+        label = isDriver ? 'Skipped by You' : 'Skipped by Driver';
         color = const Color(0xFFD97706);
         bgColor = const Color(0xFFFEF3C7);
       } else {

@@ -333,16 +333,20 @@ class RemoteKeysService {
     }
   }
 
-  /// Live stream of `/system_config/remote_keys`.
+  /// Live stream of dynamic remote keys and map settings from `system_configs/global_default`
+  /// (publicly readable by all authenticated users) with fallback to `system_config/remote_keys`.
   Stream<RemoteKeysConfig> streamRemoteKeys() {
     final db = _db;
     if (db == null) return Stream.value(const RemoteKeysConfig());
     return db
-        .collection('system_config')
-        .doc('remote_keys')
+        .collection('system_configs')
+        .doc('global_default')
         .snapshots()
         .map((snap) => RemoteKeysConfig.fromMap(snap.data()))
-        .handleError((Object _) => const RemoteKeysConfig());
+        .handleError((Object error) {
+      debugPrint('RemoteKeysService.streamRemoteKeys fallback warning: $error');
+      return const RemoteKeysConfig();
+    });
   }
 
   /// Live real-time stream of the global map configuration.
@@ -350,12 +354,17 @@ class RemoteKeysService {
     return streamRemoteKeys().map((cfg) => cfg.globalMapConfig);
   }
 
-  /// One-shot fetch of `/system_config/remote_keys`, falling back to `/system_config/global_default`
-  /// and `/system_configs/global_default`.
+  /// One-shot fetch of dynamic remote keys and map configuration.
+  /// Tries `system_configs/global_default` first (publicly readable by all authenticated users),
+  /// falling back to `system_config/remote_keys` and `system_config/global_default`.
   Future<RemoteKeysConfig> fetchRemoteKeys() async {
     try {
       final db = _db;
       if (db == null) return const RemoteKeysConfig();
+      final altSnap = await db.collection('system_configs').doc('global_default').get();
+      if (altSnap.exists && altSnap.data() != null) {
+        return RemoteKeysConfig.fromMap(altSnap.data());
+      }
       final snap = await db.collection('system_config').doc('remote_keys').get();
       if (snap.exists && snap.data() != null) {
         return RemoteKeysConfig.fromMap(snap.data());
@@ -364,8 +373,7 @@ class RemoteKeysService {
       if (globalSnap.exists && globalSnap.data() != null) {
         return RemoteKeysConfig.fromMap(globalSnap.data());
       }
-      final altSnap = await db.collection('system_configs').doc('global_default').get();
-      return RemoteKeysConfig.fromMap(altSnap.data());
+      return const RemoteKeysConfig();
     } catch (e) {
       debugPrint('RemoteKeysService.fetchRemoteKeys error: $e');
       return const RemoteKeysConfig();

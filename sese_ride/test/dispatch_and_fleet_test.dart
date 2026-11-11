@@ -538,7 +538,7 @@ void main() {
       expect(find.text('Account Verification Required'), findsOneWidget);
       expect(
           find.textContaining(
-              'drivers cannot go online or receive orders until vehicle registration and verification are complete'),
+              'Register and verify your vehicle to go online and receive orders.'),
           findsOneWidget);
     });
 
@@ -702,7 +702,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Vehicle Registered'), findsOneWidget);
-      expect(find.textContaining('PENDING VERIFICATION'), findsOneWidget);
+      expect(find.textContaining('Orders unavailable until approved.'), findsOneWidget);
     });
   });
 
