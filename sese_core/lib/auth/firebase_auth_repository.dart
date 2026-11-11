@@ -293,6 +293,40 @@ class FirebaseAuthRepository implements AuthRepository {
     }
 
     // ─── Create Account Mode ─────────────────────────────────────────────────
+    // Check if an existing registered account already exists in Firestore for this user
+    if (firestore != null) {
+      AppUser? existingAppUser;
+      try {
+        existingAppUser = await _fetchAppUser(firebaseUser, selectedRole: effectiveRole);
+      } on fb.FirebaseAuthException catch (e) {
+        if (e.code != 'driver-account-missing') rethrow;
+      } catch (_) {}
+
+      if (existingAppUser != null) {
+        final driverDoc = await firestore.collection('drivers').doc(firebaseUser.uid).get();
+        final userDoc = await firestore.collection('users').doc(firebaseUser.uid).get();
+        bool docExists = (driverDoc.exists && driverDoc.data() != null) ||
+            (userDoc.exists && userDoc.data() != null);
+        if (!docExists && firebaseUser.email != null && firebaseUser.email!.trim().isNotEmpty) {
+          final normEmail = firebaseUser.email!.trim();
+          final dQuery = await firestore.collection('drivers').where('email', isEqualTo: normEmail).limit(1).get();
+          final uQuery = await firestore.collection('users').where('email', isEqualTo: normEmail).limit(1).get();
+          docExists = dQuery.docs.isNotEmpty || uQuery.docs.isNotEmpty;
+        }
+
+        if (docExists) {
+          debugPrint(
+            'FirebaseAuthRepository.continueWithGoogle: Existing registered account '
+            'recognized for ${firebaseUser.email} (role=${existingAppUser.role.name}, '
+            'status=${existingAppUser.verificationStatus}).',
+          );
+          // ignore: discarded_futures
+          _recordAuthProvider(firebaseUser.uid, existingAppUser.role, 'google.com');
+          return existingAppUser;
+        }
+      }
+    }
+
     String firstName = '';
     String lastName = '';
     final displayName = firebaseUser.displayName?.trim() ?? '';

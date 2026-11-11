@@ -11,6 +11,7 @@ import '../../auth/login_page.dart';
 import '../../home/customer_home_shell.dart';
 import '../../home/driver_home_shell.dart';
 import '../../settings/role_controller.dart';
+import '../services/driver_overlay_service.dart';
 import '../../../widgets/location_picker_map.dart';
 
 /// Step 2 of driver registration: Driver Personal Information Form.
@@ -498,14 +499,35 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
         );
       }
     } else if (choice == 'sign_out') {
-      await widget.auth.signOut();
+      try {
+        // Clean up active session listeners, ongoing alerts, and overlay services
+        DriverOverlayService.instance.hide();
+        PushNotificationService.cancelOnlineAlert();
+        CallServiceManager.instance.clearUserSession();
+        AwarenessTooltipService.instance.resetSession();
+      } catch (e) {
+        debugPrint('DriverOnboardingScreen sign-out cleanup error: $e');
+      }
+
+      try {
+        await widget.auth.signOut().timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('DriverOnboardingScreen signOut error: $e');
+      }
+
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
-        MaterialPageRoute(
-          builder: (_) => LoginPage(auth: widget.auth),
-        ),
-        (route) => false,
-      );
+
+      final rootNav = Navigator.of(context, rootNavigator: true);
+      if (rootNav.canPop()) {
+        rootNav.popUntil((route) => route.isFirst);
+      } else {
+        rootNav.pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => LoginPage(auth: widget.auth),
+          ),
+          (route) => false,
+        );
+      }
     }
   }
 

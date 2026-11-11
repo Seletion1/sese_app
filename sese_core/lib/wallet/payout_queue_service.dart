@@ -131,8 +131,13 @@ class PayoutQueueService {
       }
     } catch (_) {}
     double balance = 0;
-    final raw = wallet['mainWalletBalance'];
-    if (raw is num) balance = raw.toDouble();
+    final rawMain = wallet['mainWalletBalance'];
+    final rawKobo = wallet['balance'];
+    if (rawMain is num) {
+      balance = rawMain.toDouble();
+    } else if (rawKobo is num) {
+      balance = rawKobo.toDouble() / 100.0;
+    }
     return PayoutQueueEntry(
       userId: uid,
       fullName: fullName,

@@ -123,7 +123,15 @@ class WithdrawalService {
         .collection('wallets')
         .doc(uid)
         .snapshots()
-        .map((doc) => ((doc.data()?['balance'] as num?) ?? 0).round())
+        .map((doc) {
+          final data = doc.data();
+          if (data == null) return 0;
+          num? balKobo = data['balance'] as num?;
+          if (balKobo == null && data['mainWalletBalance'] != null) {
+            balKobo = (data['mainWalletBalance'] as num) * 100;
+          }
+          return (balKobo ?? 0).round();
+        })
         .handleError((Object _) => 0);
   }
 

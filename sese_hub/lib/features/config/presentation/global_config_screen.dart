@@ -742,11 +742,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       // into the write-only field. An empty field means "keep existing" —
       // no write occurs, so a stale empty field never accidentally clears
       // a valid server-side secret.
-      //
-      // SECURITY: This path executes only inside the authenticated Hub app
-      // whose Firestore rules restrict `system_config/remote_keys` writes to
-      // `isHubStaff()` (Hub-role authenticated users). Customer-app builds
-      // never reach this path because the field is absent from their code.
       final enteredSecret = _paystackSecretKeyCtrl.text.trim();
       if (enteredSecret.isNotEmpty &&
           (enteredSecret.startsWith('sk_test_') ||
@@ -754,13 +749,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         try {
           await FirebaseFirestore.instance
               .collection('system_config')
-              .doc('remote_keys')
-              .set({'paystackSecretKey': enteredSecret}, SetOptions(merge: true));
-          // Clear the field after saving so the secret is not resident in RAM
-          // longer than necessary.
+              .doc('paystack_secrets')
+              .set({
+            'secretKey': enteredSecret,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
           _paystackSecretKeyCtrl.clear();
         } catch (e) {
-          debugPrint('GlobalConfigScreen: secret key save warning: $e');
+          debugPrint('GlobalConfigScreen: paystack secret key save warning: $e');
         }
       }
 

@@ -8,28 +8,31 @@ enum CallProviderType {
   /// Google STUN servers for NAT traversal.
   webrtc,
 
-  /// Managed calling SDK option powered by ZegoCloud.
+  /// High-definition voice calling powered by Agora RTC Engine.
   ///
-  /// Requires Zego App ID and App Sign configured in Hub Settings.
+  /// Leverages Agora's monthly free tier (10,000 free minutes/month) with server-side
+  /// RTC token isolation and automatic minute-failover to custom WebRTC.
+  agora,
+
+  /// Managed calling SDK option powered by ZegoCloud (legacy fallback).
   zego,
 }
 
 /// Routing policy for placing and managing in-app VoIP calls.
 enum CallRoutingMode {
   /// Automatic / Smart Fallback (Default):
-  /// Tries our custom WebRTC setup first (using Google's free public STUN servers:
-  /// 'stun:stun.l.google.com:19302' and 'stun:stun1.l.google.com:19302').
-  /// If the connection fails, times out, or fails ICE gathering due to mobile
-  /// network NAT/firewall blocks, it automatically drops over to the third-party
-  /// API backend seamlessly without dropping the user experience.
+  /// Uses Agora as the primary voice calling provider to leverage its 10,000 monthly free minutes.
+  /// Monitors global call minute usage in real time. If monthly usage reaches the failover threshold
+  /// (e.g. 9,900 out of 10,000 mins) or if connection fails/times out, the system automatically
+  /// fails over future and active calls to custom native WebRTC seamlessly.
   smartFallback,
 
-  /// Custom P2P Only:
+  /// Force Native WebRTC (Custom P2P Only):
   /// Uses strictly our free WebRTC implementation with zero vendor cost.
   customP2pOnly,
 
-  /// Third-Party API Only:
-  /// Forces the use of the plug-and-play third-party calling SDK.
+  /// Force Agora (Third-Party API Only):
+  /// Forces the use of the Agora real-time voice calling engine.
   thirdPartyOnly,
 }
 
@@ -44,7 +47,7 @@ enum CallState {
   /// Incoming call received; ringing locally.
   incoming,
 
-  /// Peer answered; establishing WebRTC peer connection / media channels.
+  /// Peer answered; establishing WebRTC/Agora peer connection / media channels.
   connecting,
 
   /// Active audio conversation in progress.
@@ -104,7 +107,7 @@ class CallSession {
   /// Whether device loudspeaker is currently active.
   final bool isSpeakerOn;
 
-  /// Whether smart fallback to third-party provider is currently active for this session.
+  /// Whether smart fallback to third-party provider or WebRTC is currently active for this session.
   final bool isFallbackActive;
 
   /// Reason for call termination, if applicable.
@@ -176,11 +179,12 @@ class CallSession {
 
 /// Abstract contract for in-app VoIP calling services.
 ///
-/// Implemented by [WebRtcCallServiceImpl] (self-hosted via Firebase signaling)
-/// and [ZegoCallServiceImpl] (managed ZegoCloud SDK).
+/// Implemented by [WebRtcCallServiceImpl] (self-hosted via Firebase signaling),
+/// [AgoraCallServiceImpl] (managed Agora RTC Engine), and [ZegoCallServiceImpl].
 ///
 /// Consumers interact exclusively through this interface via [CallServiceManager],
-/// allowing transparent hot-swapping of calling providers without touching UI code.
+/// allowing transparent hot-swapping and minute-usage failover of calling providers
+/// without touching UI code.
 abstract interface class ICallService {
   /// The calling provider type implemented by this service.
   CallProviderType get providerType;

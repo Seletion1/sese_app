@@ -59,7 +59,7 @@ export {
 
 export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
 
-export { getZegoToken } from "./callTokens";
+export { getZegoToken, getAgoraToken, recordCallDuration } from "./callTokens";
 
 export {
   onTripCompleted,
@@ -90,6 +90,8 @@ export {
   resolveBankAccount,
   verifyBankAccount,
   processWalletWithdrawal,
+  approveWeeklyPayout,
+  approveAllWeeklyPayouts,
   settleTransfer,
 } from "./payouts";
 

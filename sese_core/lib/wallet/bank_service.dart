@@ -100,6 +100,21 @@ class BankService {
     }
   }
 
+  /// Strict set of 11 approved bank codes.
+  static const Set<String> approvedBankCodes = {
+    '044', // Access Bank
+    '011', // First Bank of Nigeria
+    '058', // Guaranty Trust Bank (GTB)
+    '50211', // Kuda Bank
+    '50515', // Moniepoint MFB
+    '999992', // OPay
+    '999991', // PalmPay
+    '221', // Stanbic IBTC Bank
+    '033', // United Bank for Africa (UBA)
+    '035', // Wema Bank
+    '057', // Zenith Bank
+  };
+
   /// Pre-loaded Nigerian bank catalogue (Access, First Bank, GTBank, Kuda,
   /// Moniepoint, OPay, PalmPay, Stanbic, UBA, Wema, Zenith). Serves as instant
   /// default and offline fallback.
@@ -136,6 +151,7 @@ class BankService {
       final list = (data['banks'] as List? ?? [])
           .whereType<Map>()
           .map((m) => BankInfo.fromMap(Map<String, dynamic>.from(m)))
+          .where((b) => approvedBankCodes.contains(b.code))
           .toList();
       if (list.isNotEmpty) {
         _cache = list;
@@ -158,6 +174,7 @@ class BankService {
     final fn = _fn;
     if (fn == null) return null;
     if (bankCode.isEmpty || accountNumber.length != 10) return null;
+    if (!approvedBankCodes.contains(bankCode)) return null;
     try {
       dynamic res;
       try {

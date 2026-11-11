@@ -500,10 +500,19 @@ async function hidePhonesEnabled(uid: string): Promise<boolean> {
   try {
     const doc = await db().collection("users").doc(uid).get();
     const settings = doc.data()?.settings;
-    return (
+    if (
       typeof settings === "object" &&
       settings !== null &&
       (settings as Record<string, unknown>).hidePhoneNumber === true
+    ) {
+      return true;
+    }
+    const driverDoc = await db().collection("drivers").doc(uid).get();
+    const dSettings = driverDoc.data()?.settings;
+    return (
+      typeof dSettings === "object" &&
+      dSettings !== null &&
+      (dSettings as Record<string, unknown>).hidePhoneNumber === true
     );
   } catch {
     // Fail closed to visible: a read error must not silently strip numbers
@@ -925,25 +934,27 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
 
   const isVerifiedCust = await isVerifiedCustomer(customerId);
   const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
+  const isHideCustomerPhone = maskedPhoneMap.phoneMasked === true;
+  const safeCustomerPhone = isHideCustomerPhone && customerPhone ? maskPhone(customerPhone) : customerPhone;
 
   const tripDocPayload: Record<string, any> = {
     customerId,
     customerName,
-    customerPhone,
+    customerPhone: safeCustomerPhone,
     statusHistory: initialStatusHistory,
     tripBooker: {
       uid: customerId,
       customerId,
       name: customerName,
       fullName: customerName,
-      phone: customerPhone,
-      phoneNumber: customerPhone,
+      phone: safeCustomerPhone,
+      phoneNumber: safeCustomerPhone,
     },
     createdBy: {
       uid: customerId,
       name: customerName,
       fullName: customerName,
-      phone: customerPhone,
+      phone: safeCustomerPhone,
     },
     serviceType,
     status: "SEARCHING_DRIVER",
@@ -1596,13 +1607,15 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
     // to call the driver. The driver's actual dialable phone is minted onto the
     // trip's driver snapshot — matching customerPhone which is also kept dialable.
     const rawPhone = String(d.phoneNumberE164 ?? d.phoneNumber ?? d.phone ?? "");
-    const phone = rawPhone;
+    const hidePhone = await hidePhonesEnabled(driverId);
+    const phone = hidePhone ? (rawPhone ? maskPhone(rawPhone) : "") : rawPhone;
     return {
       driverId,
       fullName: String(d.fullName ?? d.name ?? "Driver"),
       photoUrl: String(d.photoUrl ?? ""),
       rating: Number(d.rating ?? 0),
       phone,
+      phoneMasked: hidePhone,
       plateNumber: String(vehicle.licensePlate ?? vehicle.plateNumber ?? ""),
       vehicleModel: String(
         [vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.model || ""

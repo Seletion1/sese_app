@@ -39,10 +39,16 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
   int _currentBalanceKobo = 0;
 
   Future<void> _withdraw() async {
-    if (_currentBalanceKobo <= 0) {
+    var balKobo = _currentBalanceKobo;
+    if (balKobo <= 0) {
+      balKobo = await _payments.fetchWalletBalanceKobo(widget.user.uid);
+    }
+    if (!mounted) return;
+    if (balKobo <= 0) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Insufficient balance'),
+          content: Text('Insufficient balance for withdrawal.'),
           backgroundColor: Colors.red,
         ),
       );

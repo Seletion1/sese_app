@@ -14,48 +14,71 @@ void main() {
       expect(config.fallbackTimeoutSeconds, equals(10));
       expect(config.stunServers, contains('stun:stun.l.google.com:19302'));
       expect(config.stunServers, contains('stun:stun1.l.google.com:19302'));
+      expect(config.hasValidAgoraCredentials, isFalse);
       expect(config.hasValidZegoCredentials, isFalse);
     });
 
-    test('validates Zego credentials correctly', () {
-      const invalidAppId = CallConfig(
+    test('validates Agora and Zego credentials correctly', () {
+      const invalidAgora = CallConfig(agoraAppId: '');
+      expect(invalidAgora.hasValidAgoraCredentials, isFalse);
+
+      const validAgora = CallConfig(agoraAppId: 'cd70ed7adfca42f7bcadc14259a939c4');
+      expect(validAgora.hasValidAgoraCredentials, isTrue);
+
+      const invalidZego = CallConfig(
         zegoAppId: 0,
         zegoAppSign: '0123456789abcdef0123456789abcdef',
       );
-      expect(invalidAppId.hasValidZegoCredentials, isFalse);
+      expect(invalidZego.hasValidZegoCredentials, isFalse);
 
-      const invalidSign = CallConfig(
-        zegoAppId: 123456,
-        zegoAppSign: 'too_short',
-      );
-      expect(invalidSign.hasValidZegoCredentials, isFalse);
-
-      const validConfig = CallConfig(
+      const validZego = CallConfig(
         zegoAppId: 123456,
         zegoAppSign: '0123456789abcdef0123456789abcdef',
       );
-      expect(validConfig.hasValidZegoCredentials, isTrue);
+      expect(validZego.hasValidZegoCredentials, isTrue);
     });
 
-    test('serializes toMap and deserializes fromMap with all 3 routing modes (omits secret zegoAppSign)', () {
+    test('evaluates isAgoraLimitReached correctly', () {
+      const belowLimit = CallConfig(
+        agoraCallsUsedMinutesThisMonth: 9800,
+        agoraAutoFailoverThresholdMinutes: 9900,
+      );
+      expect(belowLimit.isAgoraLimitReached, isFalse);
+
+      const atLimit = CallConfig(
+        agoraCallsUsedMinutesThisMonth: 9900,
+        agoraAutoFailoverThresholdMinutes: 9900,
+      );
+      expect(atLimit.isAgoraLimitReached, isTrue);
+
+      const overLimit = CallConfig(
+        agoraCallsUsedMinutesThisMonth: 9950,
+        agoraAutoFailoverThresholdMinutes: 9900,
+      );
+      expect(overLimit.isAgoraLimitReached, isTrue);
+    });
+
+    test('serializes toMap and deserializes fromMap with all 3 routing modes (omits secret certificate)', () {
       // 1. smartFallback
       const c1 = CallConfig(
         routingMode: CallRoutingMode.smartFallback,
         fallbackTimeoutSeconds: 15,
-        zegoAppId: 98765,
-        zegoAppSign: 'abcdef0123456789abcdef0123456789',
+        agoraAppId: 'cd70ed7adfca42f7bcadc14259a939c4',
+        agoraAppCertificate: '5e0b3b9e939f4338be3e531e0933831f',
+        agoraCallsUsedMinutesThisMonth: 500,
       );
       final map1 = c1.toMap();
       expect(map1['routingMode'], equals('smartFallback'));
       expect(map1['providerType'], equals('webrtc'));
       expect(map1['fallbackTimeoutSeconds'], equals(15));
-      expect(map1.containsKey('zegoAppSign'), isFalse);
+      expect(map1['agoraAppId'], equals('cd70ed7adfca42f7bcadc14259a939c4'));
+      expect(map1.containsKey('agoraAppCertificate'), isFalse);
 
       final deserialized1 = CallConfig.fromMap(map1);
       expect(deserialized1.routingMode, equals(CallRoutingMode.smartFallback));
       expect(deserialized1.fallbackTimeoutSeconds, equals(15));
-      expect(deserialized1.zegoAppId, equals(98765));
-      expect(deserialized1.zegoAppSign, isNull);
+      expect(deserialized1.agoraAppId, equals('cd70ed7adfca42f7bcadc14259a939c4'));
+      expect(deserialized1.agoraAppCertificate, isNull);
 
       // 2. customP2pOnly
       const c2 = CallConfig(routingMode: CallRoutingMode.customP2pOnly);
@@ -67,19 +90,25 @@ void main() {
       const c3 = CallConfig(routingMode: CallRoutingMode.thirdPartyOnly);
       final deserialized3 = CallConfig.fromMap(c3.toMap());
       expect(deserialized3.routingMode, equals(CallRoutingMode.thirdPartyOnly));
-      expect(deserialized3.providerType, equals(CallProviderType.zego));
+      expect(deserialized3.providerType, equals(CallProviderType.agora));
     });
 
-    test('deserialization backward compatibility with legacy providerType', () {
+    test('deserialization backward compatibility with legacy providerType and aliases', () {
       final legacyZegoMap = {'providerType': 'zego'};
       final cZego = CallConfig.fromMap(legacyZegoMap);
       expect(cZego.routingMode, equals(CallRoutingMode.thirdPartyOnly));
-      expect(cZego.providerType, equals(CallProviderType.zego));
 
       final legacyWebrtcMap = {'providerType': 'webrtc'};
       final cWebrtc = CallConfig.fromMap(legacyWebrtcMap);
       expect(cWebrtc.routingMode, equals(CallRoutingMode.smartFallback));
-      expect(cWebrtc.providerType, equals(CallProviderType.webrtc));
+
+      final aliasAutoMap = {'routingMode': 'auto'};
+      final cAuto = CallConfig.fromMap(aliasAutoMap);
+      expect(cAuto.routingMode, equals(CallRoutingMode.smartFallback));
+
+      final aliasForceAgora = {'routingMode': 'force_agora'};
+      final cForceAgora = CallConfig.fromMap(aliasForceAgora);
+      expect(cForceAgora.routingMode, equals(CallRoutingMode.thirdPartyOnly));
     });
   });
 
@@ -88,8 +117,8 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'sese_call_routing_mode': 'customP2pOnly',
         'sese_call_fallback_timeout': 12,
-        'sese_call_zego_app_id': 55555,
-        'sese_call_zego_app_sign': '0123456789abcdef0123456789abcdef',
+        'sese_call_agora_app_id': 'cd70ed7adfca42f7bcadc14259a939c4',
+        'sese_call_agora_used_mins': 120,
       });
     });
 
@@ -99,8 +128,9 @@ void main() {
 
       expect(config.routingMode, equals(CallRoutingMode.customP2pOnly));
       expect(config.fallbackTimeoutSeconds, equals(12));
-      expect(config.zegoAppId, equals(55555));
-      expect(config.zegoAppSign, isNull);
+      expect(config.agoraAppId, equals('cd70ed7adfca42f7bcadc14259a939c4'));
+      expect(config.agoraCallsUsedMinutesThisMonth, equals(120));
+      expect(config.agoraAppCertificate, isNull);
     });
 
     test('saveConfig updates currentConfig and notifies listeners', () async {

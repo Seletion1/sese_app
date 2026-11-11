@@ -140,7 +140,7 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
     return !_submitting &&
         !_verifying &&
         kobo != null &&
-        kobo > 0 &&
+        kobo > 10000 &&
         kobo <= _availableKobo &&
         _bankCode != null &&
         _accountCtrl.text.trim().length == 10 &&
@@ -180,6 +180,48 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  Widget _buildFeeBreakdown() {
+    final kobo = _amountKobo;
+    if (kobo == null || kobo <= 10000) return const SizedBox.shrink();
+    final feeKobo = 10000;
+    final netKobo = kobo - feeKobo;
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Requested Amount', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(PaymentService.formatNaira(kobo / 100.0), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Instant Fee', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              Text('- ${PaymentService.formatNaira(feeKobo / 100.0)}', style: const TextStyle(fontSize: 12, color: Colors.red)),
+            ],
+          ),
+          const Divider(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Net Bank Credit', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              Text(PaymentService.formatNaira(netKobo / 100.0), style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.green.shade800)),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -253,16 +295,20 @@ class _WithdrawalSheetState extends State<WithdrawalSheet> {
                   if (kobo == null || kobo <= 0) {
                     return 'Enter amount';
                   }
+                  if (kobo <= 10000) {
+                    return 'Must exceed ₦100 fee';
+                  }
                   if (kobo > _availableKobo) {
                     return 'Exceeds available balance';
                   }
                   if (kobo > 2000000) {
-                    return 'Max: ₦20,000';
+                    return 'Max: ₦20,000 daily';
                   }
                   return null;
                 },
                 onChanged: (_) => setState(() {}),
               ),
+              _buildFeeBreakdown(),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 key: const Key('withdrawal_bank_field'),

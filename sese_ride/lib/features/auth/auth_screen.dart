@@ -226,6 +226,26 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       } else {
         // ─── Mode B: CREATE ACCOUNT ───────────────────────────────────────────
+        // Check if an existing registered account already exists for this user
+        final driverDoc = await firestore.collection('drivers').doc(uid).get();
+        final userDoc = await firestore.collection('users').doc(uid).get();
+        if (driverDoc.exists || userDoc.exists) {
+          final existingAppUser = await _fetchExistingAppUser(firebaseUser, _controller.selectedRole);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Welcome back, ${existingAppUser.fullName.isNotEmpty ? existingAppUser.fullName : existingAppUser.email}!',
+                ),
+                backgroundColor: Colors.green.shade800,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            _routeToHome(existingAppUser);
+          }
+          return;
+        }
+
         String firstName = '';
         String lastName = '';
         final displayName = firebaseUser.displayName?.trim() ?? '';

@@ -55,7 +55,21 @@ class PrivacyMasking {
         final settings = snap.data()?['settings'];
         if (settings is Map && settings['hidePhoneNumber'] is bool) {
           final remote = settings['hidePhoneNumber'] as bool;
-          // Heal the cache so offline reads agree with the server.
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool(hidePhonesPrefsKey, remote);
+          } catch (_) {}
+          return remote;
+        }
+
+        // Fallback: check drivers collection for driver accounts
+        final driverSnap = await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(uid)
+            .get(const GetOptions(source: Source.serverAndCache));
+        final driverSettings = driverSnap.data()?['settings'];
+        if (driverSettings is Map && driverSettings['hidePhoneNumber'] is bool) {
+          final remote = driverSettings['hidePhoneNumber'] as bool;
           try {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setBool(hidePhonesPrefsKey, remote);
@@ -78,19 +92,30 @@ class PrivacyMasking {
   /// Persists the viewer's toggle.
   ///
   /// Writes Firestore first (source of truth, dotted merge so sibling
-  /// `settings.*` keys survive), then the local cache. A Firestore failure
-  /// still persists locally so the toggle never appears broken offline —
-  /// but the server-side masking only follows the Firestore value, which
-  /// the doc comment on [hidePhonesEnabled] and the returned bool reflect:
-  /// returns true only when the server write landed.
+  /// `settings.*` keys survive), updating both `users/{uid}` and `drivers/{uid}`
+  /// documents, then the local cache. A Firestore failure still persists
+  /// locally so the toggle never appears broken offline.
   static Future<bool> setHidePhones(bool hide, [String? uid]) async {
     var remoteOk = uid == null || uid.isEmpty;
     if (uid != null && uid.isNotEmpty) {
       try {
-        await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+        final driverRef = FirebaseFirestore.instance.collection('drivers').doc(uid);
+        
+        await userRef.set(
           {'settings.hidePhoneNumber': hide},
           SetOptions(merge: true),
         );
+
+        // Also sync settings to drivers collection if the driver document exists
+        final driverSnap = await driverRef.get(const GetOptions(source: Source.cache));
+        if (driverSnap.exists) {
+          await driverRef.set(
+            {'settings.hidePhoneNumber': hide},
+            SetOptions(merge: true),
+          );
+        }
+
         remoteOk = true;
       } catch (e) {
         debugPrint('PrivacyMasking remote write failed: $e');

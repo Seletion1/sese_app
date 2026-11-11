@@ -2798,11 +2798,15 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
         );
       }
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Driver phone number is masked or unavailable.'),
-        ),
-      );
+      if (widget.driver.driverId.isNotEmpty) {
+        _startInAppCall(context);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Driver phone number is masked. Using secure In-App Call.'),
+          ),
+        );
+      }
     }
   }
 
@@ -2825,6 +2829,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   }
 
   void _openTripChat(BuildContext context) {
+    final bool hideDriverPhone = _hidePhones || !_isCallableNumber(widget.driver.phone);
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TripChatScreen(
@@ -2835,7 +2840,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
               ? 'Driver'
               : widget.driver.fullName,
           peerPhone: widget.driver.phone,
-          hidePhones: _hidePhones,
+          hidePhones: hideDriverPhone,
         ),
       ),
     );

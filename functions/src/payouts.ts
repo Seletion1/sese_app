@@ -2,34 +2,49 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { assertHubStaffOrAdmin } from "./verification";
 
 const db = () => admin.firestore();
 
 const PAYSTACK_BASE =
   process.env.PAYSTACK_BASE_URL ?? "https://api.paystack.co";
 
-/** Minimum withdrawal: ₦100 (10,000 kobo). Mirrors MIN_AMOUNT_KOBO in payments.ts. */
-const MIN_WITHDRAWAL_KOBO = 10_000;
+/** Flat ad-hoc instant withdrawal fee: ₦100 (10,000 kobo). */
+export const INSTANT_WITHDRAWAL_FEE_KOBO = 10_000;
 
+/** Restricted set of 11 approved financial institutions. */
+export const APPROVED_BANK_CODES = new Set([
+  "044",   // Access Bank
+  "011",   // First Bank of Nigeria
+  "058",   // Guaranty Trust Bank (GTB)
+  "50211", // Kuda Bank
+  "50515", // Moniepoint MFB
+  "999992",// OPay
+  "999991",// PalmPay
+  "221",   // Stanbic IBTC Bank
+  "033",   // United Bank for Africa (UBA)
+  "035",   // Wema Bank
+  "057",   // Zenith Bank
+]);
 
-function paystackSecret(): string {
-  // NOTE: `PAYSTACK_SECRET_KEY` is still bound as a Secret Manager secret
-  // on the live revisions (defineSecret era), and Cloud Run rejects a
-  // plain env var that overlaps a secret binding (`Secret environment
-  // variable overlaps non secret environment variable`). The plain `.env`
-  // value therefore ships under `PAYSTACK_API_KEY`, which is preferred;
-  // the legacy name remains as a fallback for emulators/local runs that
-  // never had the stale binding. Clean up the binding (console/gcloud)
-  // and this fallback can go.
+async function paystackSecret(): Promise<string> {
   const secret =
     process.env.PAYSTACK_API_KEY ?? process.env.PAYSTACK_SECRET_KEY;
-  if (!secret) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Withdrawals are not available right now. Please contact support."
-    );
+  if (secret && secret.trim()) {
+    return secret.trim();
   }
-  return secret;
+
+  try {
+    const secDoc = await db().collection("system_config").doc("paystack_secrets").get();
+    if (secDoc.exists && secDoc.data()?.secretKey) {
+      return String(secDoc.data()!.secretKey).trim();
+    }
+  } catch (_) {}
+
+  throw new HttpsError(
+    "failed-precondition",
+    "Withdrawals are not available right now. Please contact support."
+  );
 }
 
 /** Paystack JSON response envelope, narrowed to a keyed record. */
@@ -88,40 +103,15 @@ function newRequestId(uid: string): string {
 
 // ─── Account-holder name matching ───────────────────────────────────────────
 
-/**
- * Normalises a name for comparison: uppercase, strip anything that is not a
- * letter (so "O'Brien-Adeniyi," and "OBRIEN ADENIYI" collapse together),
- * collapse whitespace.
- */
 function normalizeName(raw: string): string {
   return raw
     .toUpperCase()
-    // Apostrophes are dropped with NO separator, so "O'Brien" and "OBRIEN"
-    // are the same token. Hyphens become separators, because they usually join
-    // two distinct name parts ("Adeniyi-Femi" ~ "ADENIYI FEMI"). Everything
-    // else non-alphabetic also becomes a separator, so "Okonkwo, Adaeze" splits.
     .replace(/['’`]/g, "")
     .replace(/[^A-Z]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
 
-/**
- * True when a Paystack-resolved account name plausibly belongs to the
- * registered profile name.
- *
- * Deliberately NOT exact string equality: banks reorder and expand names
- * ("ADAEZE BAKARE OKONKWO" for "Adaeze Okonkwo"), insert middle names, and
- * vary punctuation. An exact match would reject legitimate payouts.
- *
- * The rule is token-set containment: every token of the SHORTER name must
- * appear in the LONGER one. So a profile of "Adaeze Okonkwo" matches an
- * account of "ADAEZE BAKARE OKONKWO" (account is a superset), and vice versa.
- * A completely different person ("CHINEDU OBI") fails.
- *
- * Both directions are checked so that neither an empty profile name nor a
- * generic/unresolved account name can slip through.
- */
 export function accountNameMatches(
   profileName: string,
   accountName: string
@@ -129,9 +119,6 @@ export function accountNameMatches(
   const profileTokens: string[] = dedupeTokens(profileName);
   const accountTokens: string[] = dedupeTokens(accountName);
 
-  // Require at least two distinct name components on both sides. "JOHN" alone
-  // is too weak an identity signal to authorise a money movement, and a
-  // Paystack resolve that returns one token is usually a proxy/placeholder.
   if (profileTokens.length < 2 || accountTokens.length < 2) return false;
 
   const [shorter, longer] =
@@ -141,14 +128,12 @@ export function accountNameMatches(
   return shorter.every((t) => longer.includes(t));
 }
 
-/** Uppercased, de-punctuated, de-duplicated name components. */
 function dedupeTokens(raw: string): string[] {
   return Array.from(
     new Set(normalizeName(raw).split(" ").filter((t) => t.length > 0))
   );
 }
 
-/** The name on the caller's own profile, from whichever doc holds it. */
 async function registeredName(uid: string): Promise<string> {
   for (const collection of ["users", "drivers"]) {
     try {
@@ -160,7 +145,7 @@ async function registeredName(uid: string): Promise<string> {
       const composed = `${d["firstName"] ?? ""} ${d["lastName"] ?? ""}`.trim();
       if (composed) return composed;
     } catch (_) {
-      // Try the next collection; a missing/denied doc is not fatal here.
+      // Ignore
     }
   }
   return "";
@@ -168,27 +153,25 @@ async function registeredName(uid: string): Promise<string> {
 
 // ─── Callables ──────────────────────────────────────────────────────────────
 
-/**
- * Callable: returns the Nigerian bank catalogue for the payout picker.
- * Cached briefly to keep the sheet snappy and to limit call volume.
- */
 let bankCache: { at: number; banks: Array<Record<string, unknown>> } | null = null;
 const BANK_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export const paystackBanks = onCall(async (request) => {
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "You must sign in.");
-    }
-    const now = Date.now();
-    if (bankCache && now - bankCache.at < BANK_CACHE_TTL_MS) {
-      return { banks: bankCache.banks };
-    }
-    const data = await paystackGet("/bank", paystackSecret());
-    const banks = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
-    bankCache = { at: now, banks };
-    return { banks };
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must sign in.");
   }
-);
+  const now = Date.now();
+  if (bankCache && now - bankCache.at < BANK_CACHE_TTL_MS) {
+    return { banks: bankCache.banks };
+  }
+  const secret = await paystackSecret();
+  const data = await paystackGet("/bank", secret);
+  const rawBanks = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
+  // Restrict returned banks strictly to approved 11 banks
+  const banks = rawBanks.filter((b) => APPROVED_BANK_CODES.has(String(b["code"] ?? "")));
+  bankCache = { at: now, banks };
+  return { banks };
+});
 
 interface ResolveBankAccountData {
   bankCode?: string;
@@ -202,17 +185,6 @@ export interface ResolveBankAccountResult {
   accountNumber: string;
 }
 
-/**
- * Callable: resolves a Nigerian account number to its registered holder name.
- *
- * Read-only by design. The client shows the returned name for the user to
- * confirm, but the value is treated as UNTRUSTED input by
- * `processWalletWithdrawal`, which re-resolves server-side and never accepts a
- * client-supplied name.
- *
- * Exported as both `verifyBankAccount` and `resolveBankAccount` to support
- * both caller conventions.
- */
 export const verifyBankAccount = onCall<ResolveBankAccountData>(
   async (request): Promise<ResolveBankAccountResult> => {
     if (!request.auth) {
@@ -221,8 +193,8 @@ export const verifyBankAccount = onCall<ResolveBankAccountData>(
     const bankCode = String(request.data?.bankCode ?? "").trim();
     const accountNumber = String(request.data?.accountNumber ?? "").trim();
 
-    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
-      throw new HttpsError("invalid-argument", "Select a bank first.");
+    if (!APPROVED_BANK_CODES.has(bankCode)) {
+      throw new HttpsError("invalid-argument", "Select an approved bank.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {
       throw new HttpsError(
@@ -231,9 +203,10 @@ export const verifyBankAccount = onCall<ResolveBankAccountData>(
       );
     }
 
+    const secret = await paystackSecret();
     const data = await paystackGet(
       `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
-      paystackSecret()
+      secret
     );
 
     const accountName = String(data["account_name"] ?? "");
@@ -256,31 +229,22 @@ interface ProcessWithdrawalData {
   bankCode?: string;
   accountNumber?: string;
   accountName?: string;
-  /** 4-digit transaction PIN, verified server-side before any movement. */
   transactionPin?: string;
 }
 
 export interface ProcessWithdrawalResult {
   requestId: string;
   amountKobo: number;
+  feeKobo: number;
+  netAmountKobo: number;
   status: string;
   transferReference: string;
   accountName: string;
 }
 
 /**
- * Callable: debits the caller's wallet and transfers the money to their bank.
- *
- * Order of operations (the security-critical part):
- *   1. Authenticate the caller.
- *   2. Validate the amount against min/max and the caller's live balance.
- *   3. Re-resolve the account name server-side and check it against the
- *      registered profile name. A client cannot fake this: the name comes
- *      from Paystack, not from the request body.
- *   4. In one Firestore transaction: re-read the wallet, re-check
- *      sufficiency, decrement, and write the ledger + audit rows.
- *   5. Create the Paystack transfer recipient and initiate the transfer.
- *   6. On any failure after step 4, refund the debit.
+ * Callable: Instant Ad-Hoc Self-Service Withdrawal
+ * Automatically deducts flat ₦100 fee (10,000 kobo).
  */
 export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
   async (request): Promise<ProcessWithdrawalResult> => {
@@ -289,32 +253,30 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     }
     const uid = request.auth.uid;
 
-    // ── Security gates ──────────────────────────────────────────────────────
     enforceAppCheck(request);
     await requireAccountActive(uid, "customer");
-    const secret = paystackSecret();
+    const secret = await paystackSecret();
 
-    // Transaction-PIN gate FIRST: verified server-side before the balance
-    // is even re-read inside the debit transaction. Skipping the app prompt
-    // buys a hostile client nothing.
     await requireValidPin(uid, request.data?.transactionPin);
 
-    // 1. Amount validation: supports both amountKobo and amount (Naira).
-    // Hard ₦100 floor (10,000 kobo) / ₦500,000 ceiling.
     const rawKobo = request.data?.amountKobo !== undefined
       ? Number(request.data.amountKobo)
       : request.data?.amount !== undefined
         ? Number(request.data.amount) * 100
         : NaN;
-    const amountKobo = Math.round(rawKobo);
-    if (!Number.isFinite(amountKobo) || amountKobo < MIN_WITHDRAWAL_KOBO) {
+    const requestedAmountKobo = Math.round(rawKobo);
+
+    const feeKobo = INSTANT_WITHDRAWAL_FEE_KOBO; // ₦100 flat fee
+    if (!Number.isFinite(requestedAmountKobo) || requestedAmountKobo <= feeKobo) {
       throw new HttpsError(
         "invalid-argument",
-        "Min withdrawal ₦100"
+        "Withdrawal amount must be greater than the ₦100 withdrawal fee."
       );
     }
 
-    // ── Dynamic Daily Withdrawal Limit ─────────────────────────────────
+    const netAmountKobo = requestedAmountKobo - feeKobo;
+
+    // Daily Limit Cap (₦20,000)
     let maxDailyWithdrawal = 20000;
     try {
       const finDoc = await db().collection("system_configs").doc("financials").get();
@@ -329,14 +291,13 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
     }
 
     const maxDailyKobo = Math.round(maxDailyWithdrawal * 100);
-    if (amountKobo > maxDailyKobo) {
+    if (requestedAmountKobo > maxDailyKobo) {
       throw new HttpsError(
         "invalid-argument",
         `Max withdrawal ₦${maxDailyWithdrawal.toLocaleString("en-NG")}`
       );
     }
 
-    // Cumulative 24-hour withdrawal limit check
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const recentPayoutsSnap = await db()
@@ -349,11 +310,11 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       for (const pDoc of recentPayoutsSnap.docs) {
         const pData = pDoc.data();
         if (pData["status"] !== "failed" && pData["status"] !== "refunded") {
-          dailyTotalKobo += Number(pData["amountKobo"] ?? 0);
+          dailyTotalKobo += Number(pData["requestedAmountKobo"] ?? pData["amountKobo"] ?? 0);
         }
       }
 
-      if (dailyTotalKobo + amountKobo > maxDailyKobo) {
+      if (dailyTotalKobo + requestedAmountKobo > maxDailyKobo) {
         throw new HttpsError(
           "failed-precondition",
           "Daily limit reached"
@@ -366,8 +327,8 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
     const bankCode = String(request.data?.bankCode ?? "").trim();
     const accountNumber = String(request.data?.accountNumber ?? "").trim();
-    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
-      throw new HttpsError("invalid-argument", "Select a valid bank.");
+    if (!APPROVED_BANK_CODES.has(bankCode)) {
+      throw new HttpsError("invalid-argument", "Select an approved bank.");
     }
     if (!/^\d{10}$/.test(accountNumber)) {
       throw new HttpsError(
@@ -376,7 +337,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       );
     }
 
-    // 2. Resolve the account name server-side (never trust the client's).
     const resolved = await paystackGet(
       `/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
       secret
@@ -389,7 +349,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       );
     }
 
-    // 3. Identity check against the registered profile name.
     const registered = await registeredName(uid);
     if (!registered) {
       throw new HttpsError(
@@ -404,8 +363,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       );
     }
 
-    // 4. Debit inside a transaction: the re-read + conditional decrement is
-    //    the concurrency lock that stops two withdrawals racing the balance.
     const requestId = newRequestId(uid);
     const walletRef = db().collection("wallets").doc(uid);
     const requestRef = db().collection("payout_requests").doc(requestId);
@@ -421,7 +378,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         );
       }
       const balanceKobo = Number(walletSnap.data()!["balance"] ?? 0);
-      if (!Number.isFinite(balanceKobo) || balanceKobo < amountKobo) {
+      if (!Number.isFinite(balanceKobo) || balanceKobo < requestedAmountKobo) {
         throw new HttpsError(
           "failed-precondition",
           "Insufficient balance"
@@ -429,19 +386,19 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       }
 
       tx.update(walletRef, {
-        balance: admin.firestore.FieldValue.increment(-amountKobo),
-        mainWalletBalance: admin.firestore.FieldValue.increment(-amountKobo / 100),
+        balance: admin.firestore.FieldValue.increment(-requestedAmountKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(-requestedAmountKobo / 100),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       tx.set(ledgerRef, {
         type: "wallet_withdrawal",
-        // `amount` is kobo to match every other ledger row in this collection
-        // (payments.ts writes amountKobo here); the naira value is kept
-        // alongside for readability.
-        amount: amountKobo,
-        amountKobo,
-        amountNaira: amountKobo / 100,
+        amount: requestedAmountKobo,
+        requestedAmountKobo,
+        feeKobo,
+        netAmountKobo,
+        amountKobo: requestedAmountKobo,
+        amountNaira: requestedAmountKobo / 100,
         currency: "NGN",
         payoutRequestId: requestId,
         status: "pending",
@@ -452,8 +409,12 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         requestId,
         userId: uid,
         driverId: uid,
-        amountKobo,
-        amountNaira: amountKobo / 100,
+        payoutType: "instant_adhoc",
+        requestedAmountKobo,
+        feeKobo,
+        netAmountKobo,
+        amountKobo: netAmountKobo,
+        amountNaira: netAmountKobo / 100,
         currency: "NGN",
         bankCode,
         accountNumber,
@@ -469,7 +430,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       });
     });
 
-    // 5. Move the money. Any throw below is compensated by the refund path.
     try {
       const recipient = await paystackPost(
         "/transferrecipient",
@@ -494,8 +454,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         "/transfer",
         {
           source: "balance",
-          // Paystack's `amount` is in kobo.
-          amount: amountKobo,
+          amount: netAmountKobo, // Transfer net amount after ₦100 fee
           recipient: recipientCode,
           reason: "Sese Ride Wallet Payout",
           reference: requestId,
@@ -505,8 +464,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
       const transferReference = String(transfer["reference"] ?? "");
       const transferStatus = String(transfer["status"] ?? "");
 
-      // `success` here means Paystack ACCEPTED the transfer, not that the
-      // bank has paid out. The webhook settles the final state.
       const settled = transferStatus === "success";
       await requestRef.update({
         paystackRecipientCode: recipientCode,
@@ -522,13 +479,14 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
       return {
         requestId,
-        amountKobo,
+        amountKobo: requestedAmountKobo,
+        feeKobo,
+        netAmountKobo,
         status: settled ? "completed" : "pending",
         transferReference,
         accountName,
       };
     } catch (e) {
-      // 6. Compensate: verify whether error is an ambiguous network timeout or explicit Paystack error.
       const reason = e instanceof Error ? e.message : String(e);
       const isNetworkTimeout =
         reason.toLowerCase().includes("timeout") ||
@@ -538,8 +496,6 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         reason.includes("ENOTFOUND");
 
       if (isNetworkTimeout) {
-        // Do NOT automatically refund when network connection to Paystack timed out.
-        // Mark status as 'pending_verification' and log to DLQ so webhook/ops reconciles safely without double payout.
         console.warn(`[payouts] Network timeout for requestId ${requestId}. Holding debit for reconciliation.`);
         await requestRef.update({
           status: "pending_verification",
@@ -549,7 +505,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
         await db().collection("failed_payouts_dlq").doc(requestId).set({
           requestId,
           userId: uid,
-          amountKobo,
+          amountKobo: requestedAmountKobo,
           reason,
           status: "NEEDS_RECONCILIATION",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -562,17 +518,17 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
       await db().runTransaction(async (tx) => {
         tx.update(walletRef, {
-          balance: admin.firestore.FieldValue.increment(amountKobo),
-          mainWalletBalance: admin.firestore.FieldValue.increment(amountKobo / 100),
+          balance: admin.firestore.FieldValue.increment(requestedAmountKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(requestedAmountKobo / 100),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.set(
           walletRef.collection("transactions").doc(`${requestId}_refund`),
           {
             type: "wallet_withdrawal_refund",
-            amount: amountKobo,
-            amountKobo,
-            amountNaira: amountKobo / 100,
+            amount: requestedAmountKobo,
+            amountKobo: requestedAmountKobo,
+            amountNaira: requestedAmountKobo / 100,
             currency: "NGN",
             payoutRequestId: requestId,
             status: "completed",
@@ -592,14 +548,351 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
   }
 );
 
+interface ApproveWeeklyPayoutData {
+  userId?: string;
+}
+
 /**
- * Settles a payout from Paystack's asynchronous transfer events.
- *
- * Idempotent: guarded on the request's current status so a retried webhook
- * cannot double-refund a failure or double-complete a success. Exported for
- * `paystackWebhook` (payments.ts), which is the single HMAC-verified ingress
- * for all Paystack events.
+ * Callable: Hub Admin Weekly Fee-Free Payout Approval
+ * Debits full remaining user balance and transfers 100% full amount to bank (0 fee).
  */
+export const approveWeeklyPayout = onCall<ApproveWeeklyPayoutData>(
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must sign in.");
+    }
+    const token = (request.auth.token ?? {}) as Record<string, unknown>;
+    const callerEmail = String(request.auth.token?.email ?? "").trim();
+    await assertHubStaffOrAdmin(request.auth.uid, callerEmail, token);
+
+    const targetUid = String(request.data?.userId ?? "").trim();
+    if (!targetUid) {
+      throw new HttpsError("invalid-argument", "Target userId is required.");
+    }
+
+    const secret = await paystackSecret();
+
+    // 1. Resolve user payout bank profile
+    const profileSnap = await db().collection("payout_profiles").doc(targetUid).get();
+    if (!profileSnap.exists) {
+      throw new HttpsError("failed-precondition", "User has not configured bank details.");
+    }
+    const profile = profileSnap.data()!;
+    const bankCode = String(profile["bankCode"] ?? "").trim();
+    const accountNumber = String(profile["accountNumber"] ?? "").trim();
+    const accountName = String(profile["accountName"] ?? "").trim();
+    const bankName = String(profile["bankName"] ?? "").trim();
+
+    if (!APPROVED_BANK_CODES.has(bankCode)) {
+      throw new HttpsError("invalid-argument", "User bank is not in approved list.");
+    }
+    if (!/^\d{10}$/.test(accountNumber) || !accountName) {
+      throw new HttpsError("invalid-argument", "Invalid or unverified bank account details.");
+    }
+
+    // 2. Resolve wallet balance
+    const walletRef = db().collection("wallets").doc(targetUid);
+    const walletSnap = await walletRef.get();
+    if (!walletSnap.exists) {
+      throw new HttpsError("failed-precondition", "No wallet found for this account.");
+    }
+    const balanceKobo = Number(walletSnap.data()!["balance"] ?? 0);
+    if (!Number.isFinite(balanceKobo) || balanceKobo <= 0) {
+      throw new HttpsError("failed-precondition", "Wallet balance must be greater than 0.");
+    }
+
+    const requestId = newRequestId(targetUid);
+    const requestRef = db().collection("payout_requests").doc(requestId);
+    const ledgerRef = walletRef.collection("transactions").doc(requestId);
+    const createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+    const adminUid = request.auth.uid;
+    const feeKobo = 0;
+    const netAmountKobo = balanceKobo;
+
+    await db().runTransaction(async (tx) => {
+      const freshWallet = await tx.get(walletRef);
+      const walletData = freshWallet.data() || {};
+      const freshBal = Number(walletData["balance"] ?? 0);
+      if (!Number.isFinite(freshBal) || freshBal < balanceKobo) {
+        throw new HttpsError("failed-precondition", "Wallet balance changed during processing.");
+      }
+
+      tx.update(walletRef, {
+        balance: admin.firestore.FieldValue.increment(-balanceKobo),
+        mainWalletBalance: admin.firestore.FieldValue.increment(-balanceKobo / 100),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      tx.set(ledgerRef, {
+        type: "weekly_payout",
+        amount: balanceKobo,
+        amountKobo: balanceKobo,
+        amountNaira: balanceKobo / 100,
+        feeKobo,
+        currency: "NGN",
+        payoutRequestId: requestId,
+        status: "pending",
+        createdAt,
+      });
+
+      tx.set(requestRef, {
+        requestId,
+        userId: targetUid,
+        driverId: targetUid,
+        payoutType: "weekly_payout",
+        requestedAmountKobo: balanceKobo,
+        feeKobo,
+        netAmountKobo,
+        amountKobo: balanceKobo,
+        amountNaira: balanceKobo / 100,
+        currency: "NGN",
+        bankCode,
+        accountNumber,
+        accountName,
+        bankName,
+        status: "pending",
+        approvedByAdmin: adminUid,
+        paystackRecipientCode: null,
+        paystackTransferReference: null,
+        failureReason: null,
+        createdAt,
+        updatedAt: createdAt,
+      });
+    });
+
+    try {
+      const recipient = await paystackPost(
+        "/transferrecipient",
+        {
+          type: "nuban",
+          name: accountName,
+          account_number: accountNumber,
+          bank_code: bankCode,
+          currency: "NGN",
+        },
+        secret
+      );
+      const recipientCode = String(recipient["recipient_code"] ?? "");
+      if (!recipientCode) {
+        throw new HttpsError("internal", "Paystack returned no recipient code.");
+      }
+
+      const transfer = await paystackPost(
+        "/transfer",
+        {
+          source: "balance",
+          amount: netAmountKobo,
+          recipient: recipientCode,
+          reason: "Sese Weekly Payout",
+          reference: requestId,
+        },
+        secret
+      );
+      const transferReference = String(transfer["reference"] ?? "");
+      const transferStatus = String(transfer["status"] ?? "");
+      const settled = transferStatus === "success";
+
+      await requestRef.update({
+        paystackRecipientCode: recipientCode,
+        paystackTransferReference: transferReference,
+        status: settled ? "completed" : "pending",
+        submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await ledgerRef.update({
+        status: settled ? "completed" : "pending",
+        paystackTransferReference: transferReference,
+      });
+
+      return {
+        requestId,
+        amountKobo: balanceKobo,
+        status: settled ? "completed" : "pending",
+        transferReference,
+        accountName,
+      };
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      await db().runTransaction(async (tx) => {
+        tx.update(walletRef, {
+          balance: admin.firestore.FieldValue.increment(balanceKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(balanceKobo / 100),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.set(walletRef.collection("transactions").doc(`${requestId}_refund`), {
+          type: "weekly_payout_refund",
+          amount: balanceKobo,
+          amountKobo: balanceKobo,
+          amountNaira: balanceKobo / 100,
+          currency: "NGN",
+          payoutRequestId: requestId,
+          status: "completed",
+          reason,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.update(requestRef, {
+          status: "failed",
+          failureReason: reason.slice(0, 500),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.update(ledgerRef, { status: "failed" });
+      });
+      throw e;
+    }
+  }
+);
+
+/**
+ * Callable: Bulk Weekly Payout Approval for all eligible users in queue.
+ */
+export const approveAllWeeklyPayouts = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must sign in.");
+  }
+  const token = (request.auth.token ?? {}) as Record<string, unknown>;
+  const callerEmail = String(request.auth.token?.email ?? "").trim();
+  await assertHubStaffOrAdmin(request.auth.uid, callerEmail, token);
+
+  // Fetch financial config for minPayoutThreshold
+  let minPayoutThreshold = 20000;
+  try {
+    const finDoc = await db().collection("system_configs").doc("financials").get();
+    const finData = finDoc.data() || {};
+    if (finDoc.exists && typeof finData["minPayoutThreshold"] === "number") {
+      minPayoutThreshold = finData["minPayoutThreshold"];
+    }
+  } catch (_) {}
+
+  const minKobo = Math.round(minPayoutThreshold * 100);
+
+  // Query eligible wallets
+  const walletsSnap = await db()
+    .collection("wallets")
+    .where("balance", ">=", minKobo)
+    .get();
+
+  const results: Array<{ userId: string; success: boolean; error?: string }> = [];
+
+  for (const wDoc of walletsSnap.docs) {
+    const targetUid = wDoc.id;
+    try {
+      const profileSnap = await db().collection("payout_profiles").doc(targetUid).get();
+      if (!profileSnap.exists) {
+        results.push({ userId: targetUid, success: false, error: "No bank details" });
+        continue;
+      }
+      const profile = profileSnap.data()!;
+      const bankCode = String(profile["bankCode"] ?? "").trim();
+      if (!APPROVED_BANK_CODES.has(bankCode)) {
+        results.push({ userId: targetUid, success: false, error: "Bank not approved" });
+        continue;
+      }
+
+      // Invoke approveWeeklyPayout logic internally
+      const secret = await paystackSecret();
+      const balanceKobo = Number(wDoc.data()["balance"] ?? 0);
+      const accountNumber = String(profile["accountNumber"] ?? "").trim();
+      const accountName = String(profile["accountName"] ?? "").trim();
+      const bankName = String(profile["bankName"] ?? "").trim();
+
+      const requestId = newRequestId(targetUid);
+      const requestRef = db().collection("payout_requests").doc(requestId);
+      const walletRef = db().collection("wallets").doc(targetUid);
+      const ledgerRef = walletRef.collection("transactions").doc(requestId);
+      const createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+      const adminUid = request.auth.uid;
+      await db().runTransaction(async (tx) => {
+        tx.update(walletRef, {
+          balance: admin.firestore.FieldValue.increment(-balanceKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-balanceKobo / 100),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.set(ledgerRef, {
+          type: "weekly_payout",
+          amount: balanceKobo,
+          amountKobo: balanceKobo,
+          amountNaira: balanceKobo / 100,
+          feeKobo: 0,
+          currency: "NGN",
+          payoutRequestId: requestId,
+          status: "pending",
+          createdAt,
+        });
+        tx.set(requestRef, {
+          requestId,
+          userId: targetUid,
+          driverId: targetUid,
+          payoutType: "weekly_payout",
+          requestedAmountKobo: balanceKobo,
+          feeKobo: 0,
+          netAmountKobo: balanceKobo,
+          amountKobo: balanceKobo,
+          amountNaira: balanceKobo / 100,
+          currency: "NGN",
+          bankCode,
+          accountNumber,
+          accountName,
+          bankName,
+          status: "pending",
+          approvedByAdmin: adminUid,
+          paystackRecipientCode: null,
+          paystackTransferReference: null,
+          failureReason: null,
+          createdAt,
+          updatedAt: createdAt,
+        });
+      });
+
+      const recipient = await paystackPost(
+        "/transferrecipient",
+        {
+          type: "nuban",
+          name: accountName,
+          account_number: accountNumber,
+          bank_code: bankCode,
+          currency: "NGN",
+        },
+        secret
+      );
+      const recipientCode = String(recipient["recipient_code"] ?? "");
+      const transfer = await paystackPost(
+        "/transfer",
+        {
+          source: "balance",
+          amount: balanceKobo,
+          recipient: recipientCode,
+          reason: "Sese Weekly Payout Batch",
+          reference: requestId,
+        },
+        secret
+      );
+      const transferReference = String(transfer["reference"] ?? "");
+      const settled = String(transfer["status"] ?? "") === "success";
+
+      await requestRef.update({
+        paystackRecipientCode: recipientCode,
+        paystackTransferReference: transferReference,
+        status: settled ? "completed" : "pending",
+        submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      await ledgerRef.update({
+        status: settled ? "completed" : "pending",
+        paystackTransferReference: transferReference,
+      });
+
+      results.push({ userId: targetUid, success: true });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      results.push({ userId: targetUid, success: false, error: errMsg });
+    }
+  }
+
+  return { processed: results.length, details: results };
+});
+
 export async function settleTransfer(
   reference: string,
   outcome: "success" | "failed",
@@ -609,7 +902,6 @@ export async function settleTransfer(
   const payoutLedgerRef = db().collection("wallet_ledger").doc(`payout_${reference}_${outcome}`);
 
   await db().runTransaction(async (tx) => {
-    // ── Idempotency Check (wallet_ledger) ──────────────────────────────
     const ledgerSnap = await tx.get(payoutLedgerRef);
     if (ledgerSnap.exists) {
       console.log(`[payouts] Duplicate webhook processing blocked for payout ledger: payout_${reference}_${outcome}`);
@@ -641,7 +933,6 @@ export async function settleTransfer(
     const walletRef = db().collection("wallets").doc(userId);
     const ledgerRef = walletRef.collection("transactions").doc(requestId);
 
-    // Perform all transactional reads upfront before issuing writes.
     await tx.get(walletRef);
 
     if (outcome === "success") {
@@ -660,7 +951,7 @@ export async function settleTransfer(
     }
 
     // Failed AFTER the debit committed: refund it.
-    const amountKobo = Number(row["amountKobo"] ?? 0);
+    const amountKobo = Number(row["requestedAmountKobo"] ?? row["amountKobo"] ?? 0);
     if (amountKobo > 0) {
       tx.update(walletRef, {
         balance: admin.firestore.FieldValue.increment(amountKobo),
@@ -697,15 +988,3 @@ export async function settleTransfer(
     });
   });
 }
-
-/**
- * REMOVED: `transferWebhook` used to exist here as a token-guarded callable
- * for Paystack transfer events. It is deleted because a shared-secret token
- * is strictly weaker than the HMAC signature Paystack already sends, and
- * running two ingress paths for one event source invites double-settlement
- * confusion. `paystackWebhook` (payments.ts) now handles `transfer.success`
- * and `transfer.failed` directly, verified by HMAC, calling the exported
- * `settleTransfer` above. If `firebase deploy` complains about an orphaned
- * `transferWebhook`, delete it once:
- * `firebase functions:delete transferWebhook --region us-central1 --force`.
- */

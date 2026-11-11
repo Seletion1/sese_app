@@ -235,6 +235,9 @@ class ActiveTrip {
   final String dropoffName;
   final String dropoffPhone;
 
+  /// Whether the customer or backend opted into phone privacy masking for this trip.
+  final bool phoneMasked;
+
   final List<String> tierIds;
   final String fareFormatted;
   final double distanceKm;
@@ -399,6 +402,7 @@ class ActiveTrip {
     this.dropoffAddress = '',
     this.dropoffName = '',
     this.dropoffPhone = '',
+    this.phoneMasked = false,
     this.tierIds = const [],
     this.fareFormatted = '',
     this.distanceKm = 0,
@@ -734,6 +738,7 @@ class ActiveTrip {
       dropoffName: (dropoff['name'] ?? '').toString(),
       dropoffPhone: ((dropoff['phone'] ?? map['dropoffPhone']) ?? '')
           .toString(),
+      phoneMasked: map['phoneMasked'] == true,
       tierIds: stringList(map['selectedTiers'] ?? map['tierIds']),
       fareFormatted: fareFormatted,
       distanceKm: n(map['distanceKm'])?.toDouble() ?? 0.0,

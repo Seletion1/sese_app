@@ -439,15 +439,22 @@ async function isVerifiedCustomer(customerId) {
  * in sese_core; keep the two in step.
  */
 async function hidePhonesEnabled(uid) {
-    var _a;
+    var _a, _b;
     try {
         const doc = await db().collection("users").doc(uid).get();
         const settings = (_a = doc.data()) === null || _a === void 0 ? void 0 : _a.settings;
-        return (typeof settings === "object" &&
+        if (typeof settings === "object" &&
             settings !== null &&
-            settings.hidePhoneNumber === true);
+            settings.hidePhoneNumber === true) {
+            return true;
+        }
+        const driverDoc = await db().collection("drivers").doc(uid).get();
+        const dSettings = (_b = driverDoc.data()) === null || _b === void 0 ? void 0 : _b.settings;
+        return (typeof dSettings === "object" &&
+            dSettings !== null &&
+            dSettings.hidePhoneNumber === true);
     }
-    catch (_b) {
+    catch (_c) {
         // Fail closed to visible: a read error must not silently strip numbers
         // the parties need for coordination.
         return false;
@@ -757,20 +764,21 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     ];
     const isVerifiedCust = await isVerifiedCustomer(customerId);
     const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
+    const isHideCustomerPhone = maskedPhoneMap.phoneMasked === true;
+    const safeCustomerPhone = isHideCustomerPhone && customerPhone ? maskPhone(customerPhone) : customerPhone;
     const tripDocPayload = Object.assign(Object.assign(Object.assign(Object.assign({ customerId,
-        customerName,
-        customerPhone, statusHistory: initialStatusHistory, tripBooker: {
+        customerName, customerPhone: safeCustomerPhone, statusHistory: initialStatusHistory, tripBooker: {
             uid: customerId,
             customerId,
             name: customerName,
             fullName: customerName,
-            phone: customerPhone,
-            phoneNumber: customerPhone,
+            phone: safeCustomerPhone,
+            phoneNumber: safeCustomerPhone,
         }, createdBy: {
             uid: customerId,
             name: customerName,
             fullName: customerName,
-            phone: customerPhone,
+            phone: safeCustomerPhone,
         }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, order: {
             requireDeliveryPin: isPinRequired,
         } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_1 = (_0 = d.vehicleCategory) !== null && _0 !== void 0 ? _0 : d.category) !== null && _1 !== void 0 ? _1 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
@@ -1261,13 +1269,15 @@ async function driverSnapshot(driverId) {
         // to call the driver. The driver's actual dialable phone is minted onto the
         // trip's driver snapshot — matching customerPhone which is also kept dialable.
         const rawPhone = String((_c = (_b = (_a = d.phoneNumberE164) !== null && _a !== void 0 ? _a : d.phoneNumber) !== null && _b !== void 0 ? _b : d.phone) !== null && _c !== void 0 ? _c : "");
-        const phone = rawPhone;
+        const hidePhone = await hidePhonesEnabled(driverId);
+        const phone = hidePhone ? (rawPhone ? maskPhone(rawPhone) : "") : rawPhone;
         return {
             driverId,
             fullName: String((_e = (_d = d.fullName) !== null && _d !== void 0 ? _d : d.name) !== null && _e !== void 0 ? _e : "Driver"),
             photoUrl: String((_f = d.photoUrl) !== null && _f !== void 0 ? _f : ""),
             rating: Number((_g = d.rating) !== null && _g !== void 0 ? _g : 0),
             phone,
+            phoneMasked: hidePhone,
             plateNumber: String((_j = (_h = vehicle.licensePlate) !== null && _h !== void 0 ? _h : vehicle.plateNumber) !== null && _j !== void 0 ? _j : ""),
             vehicleModel: String([vehicle.make, vehicle.model].filter(Boolean).join(" ") || vehicle.model || ""),
             vehicleColor: String((_k = vehicle.color) !== null && _k !== void 0 ? _k : ""),

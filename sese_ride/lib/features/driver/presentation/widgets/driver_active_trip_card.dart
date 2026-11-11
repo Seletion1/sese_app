@@ -966,10 +966,27 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         );
       }
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Direct phone number is masked or unavailable.')),
-      );
+      if (trip.customerId.isNotEmpty) {
+        final callId =
+            'call_${trip.tripId}_${DateTime.now().millisecondsSinceEpoch}';
+        InAppCallScreen.start(
+          context: context,
+          callId: callId,
+          targetUserId: trip.customerId,
+          targetUserName:
+              trip.customerName.isNotEmpty ? trip.customerName : 'Customer',
+          metadata: {
+            'tripId': trip.tripId,
+            'callerRole': 'driver',
+            'note': 'Direct call masked; routed to in-app VoIP',
+          },
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Direct phone number is masked or unavailable.')),
+        );
+      }
     }
   }
 
@@ -981,6 +998,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             trip.dropoffPhone != _bookerPhone(trip))
         ? trip.dropoffPhone
         : '';
+    final bool hideCustomerPhone = trip.phoneMasked || !_isCallableNumber(_bookerPhone(trip));
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => TripChatScreen(
@@ -990,7 +1008,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
           peerName: _firstName(
               trip.customerName.isEmpty ? 'Customer' : trip.customerName),
           peerPhone: _bookerPhone(trip),
-          hidePhones: false,
+          hidePhones: hideCustomerPhone,
           receiverName: receiverPhone.isNotEmpty
               ? _firstName(
                   trip.dropoffName.isNotEmpty ? trip.dropoffName : 'Receiver')

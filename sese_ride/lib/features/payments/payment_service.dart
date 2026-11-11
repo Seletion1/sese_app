@@ -294,11 +294,38 @@ class PaymentService {
         .doc(uid)
         .snapshots()
         .map((doc) {
-          final bal = ((doc.data()?['balance'] as num?) ?? cachedBal).toInt();
+          final data = doc.data();
+          num? balKobo = data?['balance'] as num?;
+          if (balKobo == null && data?['mainWalletBalance'] != null) {
+            balKobo = (data!['mainWalletBalance'] as num) * 100;
+          }
+          final bal = (balKobo ?? cachedBal).round();
           LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
           return bal;
         })
         .handleError((Object _) => cachedBal);
+  }
+
+  /// On-demand live wallet balance fetch in kobo.
+  Future<int> fetchWalletBalanceKobo(String uid) async {
+    final cachedBal =
+        LocalCacheService.instance.getInt('wallet_balance_kobo_$uid') ?? 0;
+    final db = _db;
+    if (db == null || uid.isEmpty) return cachedBal;
+    try {
+      final doc = await db.collection('wallets').doc(uid).get();
+      final data = doc.data();
+      if (data == null) return cachedBal;
+      num? balKobo = data['balance'] as num?;
+      if (balKobo == null && data['mainWalletBalance'] != null) {
+        balKobo = (data['mainWalletBalance'] as num) * 100;
+      }
+      final bal = (balKobo ?? cachedBal).round();
+      LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
+      return bal;
+    } catch (_) {
+      return cachedBal;
+    }
   }
 
   /// Wallet history, newest first. Denied/unavailable reads resolve to

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import 'agora_call_service_impl.dart';
 import 'call_config_repository.dart';
 import 'i_call_service.dart';
 import 'webrtc_call_service_impl.dart';
@@ -13,23 +14,26 @@ import 'zego_call_service_impl.dart';
 /// [IncomingCallOverlay]).
 ///
 /// Supports 3 routing modes configured via Hub Settings / remote config:
-/// 1. [CallRoutingMode.customP2pOnly]: Strict self-hosted WebRTC with zero vendor cost.
-/// 2. [CallRoutingMode.thirdPartyOnly]: Forced plug-and-play third-party SDK (ZegoCloud).
-/// 3. [CallRoutingMode.smartFallback] (Default): Attempts custom WebRTC first using Google STUN
-///    servers; if connection fails, times out, or fails ICE gathering due to mobile carrier
-///    NAT/firewall blocks, seamlessly drops over to the third-party API backend without
-///    dropping the user experience.
+/// 1. [CallRoutingMode.smartFallback] (Automatic - Default):
+///    Uses Agora RTC Engine as the primary voice provider to leverage its 10,000 free monthly minutes.
+///    Monitors global call minute usage in real time. If monthly usage reaches the failover threshold
+///    (e.g. 9,900 out of 10,000 mins) or if connection fails/times out, seamlessly fails over to
+///    custom native WebRTC without dropping the user experience.
+/// 2. [CallRoutingMode.thirdPartyOnly] (Force Agora): Forced Agora RTC Engine.
+/// 3. [CallRoutingMode.customP2pOnly] (Force Native WebRTC): Strict self-hosted WebRTC with zero vendor cost.
 class CallServiceManager implements ICallService {
   static final CallServiceManager instance = CallServiceManager._internal();
 
   CallServiceManager._internal() {
     _configRepo = CallConfigRepository.instance;
     _webrtcService = WebRtcCallServiceImpl(configRepo: _configRepo);
+    _agoraService = AgoraCallServiceImpl(configRepo: _configRepo);
     _zegoService = ZegoCallServiceImpl(configRepo: _configRepo);
   }
 
   late final CallConfigRepository _configRepo;
   late final WebRtcCallServiceImpl _webrtcService;
+  late final AgoraCallServiceImpl _agoraService;
   late final ZegoCallServiceImpl _zegoService;
 
   static FirebaseFirestore? get _safeFirestore {
@@ -45,7 +49,7 @@ class CallServiceManager implements ICallService {
   String? _avatarUrl;
   bool _initialized = false;
 
-  CallProviderType _currentActiveProvider = CallProviderType.webrtc;
+  CallProviderType _currentActiveProvider = CallProviderType.agora;
   bool _isFallbackActive = false;
 
   Timer? _fallbackTimer;
@@ -73,7 +77,7 @@ class CallServiceManager implements ICallService {
   /// Current routing mode configured in repository.
   CallRoutingMode get activeRoutingMode => _configRepo.currentConfig.routingMode;
 
-  /// Active calling provider type (for backwards compatibility).
+  /// Active calling provider type.
   CallProviderType get activeProviderType => _currentActiveProvider;
 
   /// True if the manager has been initialized for the current user.
@@ -84,7 +88,7 @@ class CallServiceManager implements ICallService {
   String? get displayName => _displayName;
   String? get avatarUrl => _avatarUrl;
 
-  /// True if a smart fallback from WebRTC to third-party SDK is currently engaged.
+  /// True if a smart fallback to secondary provider is currently active for this session.
   bool get isFallbackActive => _isFallbackActive;
 
   @override
@@ -110,7 +114,14 @@ class CallServiceManager implements ICallService {
 
   /// The underlying concrete provider service handling the active audio session.
   ICallService get activeProviderService {
-    return _currentActiveProvider == CallProviderType.zego ? _zegoService : _webrtcService;
+    switch (_currentActiveProvider) {
+      case CallProviderType.agora:
+        return _agoraService;
+      case CallProviderType.zego:
+        return _zegoService;
+      case CallProviderType.webrtc:
+        return _webrtcService;
+    }
   }
 
   /// Active service instance (maintains compatibility with callers reading activeService).
@@ -135,6 +146,12 @@ class CallServiceManager implements ICallService {
       avatarUrl: avatarUrl,
     );
 
+    await _agoraService.initialize(
+      currentUserId: currentUserId,
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+    );
+
     await _zegoService.initialize(
       currentUserId: currentUserId,
       displayName: displayName,
@@ -151,7 +168,7 @@ class CallServiceManager implements ICallService {
 
     _configSub?.cancel();
     _configSub = _configRepo.configStream.listen((config) async {
-      debugPrint('CallServiceManager: Active calling config updated -> mode: ${config.routingMode}, provider: ${config.providerType}');
+      debugPrint('CallServiceManager: Calling config updated -> mode: ${config.routingMode}, provider: ${config.providerType}');
     });
 
     _initialized = true;
@@ -167,7 +184,7 @@ class CallServiceManager implements ICallService {
 
     if (_initialized && _currentUserId != null) {
       if (newMode == CallRoutingMode.thirdPartyOnly) {
-        await _zegoService.initialize(
+        await _agoraService.initialize(
           currentUserId: _currentUserId!,
           displayName: _displayName,
           avatarUrl: _avatarUrl,
@@ -184,7 +201,7 @@ class CallServiceManager implements ICallService {
 
   /// Dynamically switches the active calling provider (backwards compatibility).
   Future<void> switchProvider(CallProviderType newProvider) async {
-    final newMode = newProvider == CallProviderType.zego
+    final newMode = (newProvider == CallProviderType.agora || newProvider == CallProviderType.zego)
         ? CallRoutingMode.thirdPartyOnly
         : CallRoutingMode.customP2pOnly;
     await switchRoutingMode(newMode);
@@ -193,19 +210,18 @@ class CallServiceManager implements ICallService {
   void _pipeServiceEvents(ICallService service) {
     _serviceStateSub?.cancel();
     _serviceStateSub = service.stateStream.listen((state) {
-      // If WebRTC connected successfully, cancel watchdog timer
+      // If active call connected successfully, cancel watchdog timer
       if (state == CallState.connected) {
         _fallbackTimer?.cancel();
         _fallbackTimer = null;
       }
 
-      // If in smart fallback and WebRTC emitted error before connecting, do not terminate UI
+      // If in automatic mode and primary provider emitted error before connecting, trigger fallback
       if (_configRepo.currentConfig.routingMode == CallRoutingMode.smartFallback &&
           !_isFallbackActive &&
-          (state == CallState.error) &&
-          _configRepo.currentConfig.hasValidZegoCredentials) {
-        debugPrint('CallServiceManager: WebRTC reported error before connection. Triggering smart fallback...');
-        _executeFallback(reason: 'WebRTC error transition');
+          (state == CallState.error)) {
+        debugPrint('CallServiceManager: Primary provider reported error before connection. Triggering smart fallback to WebRTC...');
+        _executeFallback(reason: 'Primary call error transition');
         return;
       }
 
@@ -233,6 +249,7 @@ class CallServiceManager implements ICallService {
     Map<String, dynamic>? metadata,
   }) async {
     final mode = _configRepo.currentConfig.routingMode;
+    final config = _configRepo.currentConfig;
 
     _lastTargetUserId = targetUserId;
     _lastCallId = callId;
@@ -240,22 +257,7 @@ class CallServiceManager implements ICallService {
     _lastTargetUserAvatar = targetUserAvatar;
     _lastMetadata = metadata;
 
-    // 1. Third-Party Only mode: Force ZegoCloud directly
-    if (mode == CallRoutingMode.thirdPartyOnly) {
-      _currentActiveProvider = CallProviderType.zego;
-      _isFallbackActive = false;
-      _pipeServiceEvents(_zegoService);
-      await _zegoService.startCall(
-        targetUserId: targetUserId,
-        callId: callId,
-        targetUserName: targetUserName,
-        targetUserAvatar: targetUserAvatar,
-        metadata: metadata,
-      );
-      return;
-    }
-
-    // 2. Custom P2P Only mode: Strict WebRTC
+    // 1. Force Native WebRTC (Custom P2P Only)
     if (mode == CallRoutingMode.customP2pOnly) {
       _currentActiveProvider = CallProviderType.webrtc;
       _isFallbackActive = false;
@@ -270,30 +272,58 @@ class CallServiceManager implements ICallService {
       return;
     }
 
+    // 2. Force Agora (Third-Party Only)
+    if (mode == CallRoutingMode.thirdPartyOnly) {
+      _currentActiveProvider = CallProviderType.agora;
+      _isFallbackActive = false;
+      _pipeServiceEvents(_agoraService);
+      await _agoraService.startCall(
+        targetUserId: targetUserId,
+        callId: callId,
+        targetUserName: targetUserName,
+        targetUserAvatar: targetUserAvatar,
+        metadata: metadata,
+      );
+      return;
+    }
+
     // 3. Automatic / Smart Fallback mode (Default):
-    // Tries custom WebRTC first. If connection fails or times out, seamlessly drops over to Zego.
+    // Uses Agora primary if minutes < failover threshold & valid credentials exist.
+    // If usage reaches threshold (e.g. 9,900/10,000 mins) or connection fails/times out, fails over to WebRTC.
+    if (config.isAgoraLimitReached || !config.hasValidAgoraCredentials) {
+      debugPrint('CallServiceManager [AutoMode]: Minute threshold reached (${config.agoraCallsUsedMinutesThisMonth}/${config.agoraAutoFailoverThresholdMinutes}) or credentials missing. Auto-routing to WebRTC...');
+      _currentActiveProvider = CallProviderType.webrtc;
+      _isFallbackActive = true;
+      _pipeServiceEvents(_webrtcService);
+      await _webrtcService.startCall(
+        targetUserId: targetUserId,
+        callId: callId,
+        targetUserName: targetUserName,
+        targetUserAvatar: targetUserAvatar,
+        metadata: {
+          ...?metadata,
+          'autoFailover': true,
+          'reason': 'agora_threshold_reached_or_unconfigured',
+        },
+      );
+      return;
+    }
+
     _isFallbackActive = false;
-    _currentActiveProvider = CallProviderType.webrtc;
-    _pipeServiceEvents(_webrtcService);
+    _currentActiveProvider = CallProviderType.agora;
+    _pipeServiceEvents(_agoraService);
 
     final timeoutSec = _configRepo.currentConfig.fallbackTimeoutSeconds;
     _fallbackTimer?.cancel();
     _fallbackTimer = Timer(Duration(seconds: timeoutSec), () {
       if (_currentState != CallState.connected && _currentState != CallState.ended) {
-        debugPrint('CallServiceManager [SmartFallback]: Connection watchdog timed out after $timeoutSec s.');
-        _executeFallback(reason: 'WebRTC connection timed out after $timeoutSec s');
+        debugPrint('CallServiceManager [AutoMode]: Agora connection watchdog timed out after $timeoutSec s.');
+        _executeFallback(reason: 'Agora connection timed out after $timeoutSec s');
       }
     });
 
-    _webrtcService.onConnectionFailed = (reason) {
-      if (_currentState != CallState.connected && _currentState != CallState.ended) {
-        debugPrint('CallServiceManager [SmartFallback]: WebRTC ICE/connection failure: $reason');
-        _executeFallback(reason: reason);
-      }
-    };
-
     try {
-      await _webrtcService.startCall(
+      await _agoraService.startCall(
         targetUserId: targetUserId,
         callId: callId,
         targetUserName: targetUserName,
@@ -301,16 +331,12 @@ class CallServiceManager implements ICallService {
         metadata: metadata,
       );
     } catch (e) {
-      debugPrint('CallServiceManager [SmartFallback]: WebRTC startCall exception: $e');
-      if (_configRepo.currentConfig.hasValidZegoCredentials) {
-        await _executeFallback(reason: 'WebRTC startCall exception: $e');
-      } else {
-        rethrow;
-      }
+      debugPrint('CallServiceManager [AutoMode]: Agora startCall exception: $e');
+      await _executeFallback(reason: 'Agora startCall exception: $e');
     }
   }
 
-  /// Triggers a seamless fallback to the third-party calling provider without dropping the UI.
+  /// Triggers a seamless fallback to the native WebRTC calling provider without dropping the UI.
   Future<void> _executeFallback({required String reason}) async {
     if (_isFallbackActive || _currentState == CallState.connected || _currentState == CallState.ended) {
       return;
@@ -320,28 +346,17 @@ class CallServiceManager implements ICallService {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
 
-    final config = _configRepo.currentConfig;
-    if (!config.hasValidZegoCredentials) {
-      debugPrint('CallServiceManager [SmartFallback]: Cannot fall back — ZegoCloud credentials unconfigured.');
-      _currentState = CallState.error;
-      _stateController.add(CallState.error);
-      return;
-    }
+    debugPrint('CallServiceManager [SmartFallback]: Executing seamless fallback to native WebRTC ($reason)...');
 
-    debugPrint('CallServiceManager [SmartFallback]: Executing seamless fallback to third-party provider ($reason)...');
+    // Switch active provider to native WebRTC
+    _currentActiveProvider = CallProviderType.webrtc;
+    _pipeServiceEvents(_webrtcService);
 
-    // Abort WebRTC session cleanly without terminating the call lifecycle
-    await _webrtcService.abortForFallback();
-
-    // Switch active provider to Zego
-    _currentActiveProvider = CallProviderType.zego;
-    _pipeServiceEvents(_zegoService);
-
-    // Notify Firestore signaling document that provider has fallen back to Zego
+    // Notify Firestore signaling document that provider has fallen back to WebRTC
     if (_lastCallId != null && _safeFirestore != null) {
       try {
         await _safeFirestore!.collection('calls').doc(_lastCallId).set({
-          'provider': CallProviderType.zego.name,
+          'provider': CallProviderType.webrtc.name,
           'fallback': true,
           'fallbackReason': reason,
           'fallbackAt': FieldValue.serverTimestamp(),
@@ -351,20 +366,18 @@ class CallServiceManager implements ICallService {
       }
     }
 
-    // Keep session state in connecting so UI transitions cleanly
     _currentState = CallState.connecting;
     if (_currentSession != null) {
       _currentSession = _currentSession!.copyWith(
-        provider: CallProviderType.zego,
+        provider: CallProviderType.webrtc,
         isFallbackActive: true,
         state: CallState.connecting,
       );
     }
     _stateController.add(CallState.connecting);
 
-    // Re-initiate call via third-party SDK
     try {
-      await _zegoService.startCall(
+      await _webrtcService.startCall(
         targetUserId: _lastTargetUserId!,
         callId: _lastCallId!,
         targetUserName: _lastTargetUserName,
@@ -376,7 +389,7 @@ class CallServiceManager implements ICallService {
         },
       );
     } catch (e) {
-      debugPrint('CallServiceManager [SmartFallback]: Fallback to Zego failed: $e');
+      debugPrint('CallServiceManager [SmartFallback]: Fallback to WebRTC failed: $e');
       _currentState = CallState.error;
       _stateController.add(CallState.error);
     }
@@ -386,41 +399,48 @@ class CallServiceManager implements ICallService {
   Future<void> answerCall(String callId) async {
     final mode = _configRepo.currentConfig.routingMode;
 
-    if (mode == CallRoutingMode.thirdPartyOnly) {
-      _currentActiveProvider = CallProviderType.zego;
-      _pipeServiceEvents(_zegoService);
-      await _zegoService.answerCall(callId);
+    if (mode == CallRoutingMode.customP2pOnly) {
+      _currentActiveProvider = CallProviderType.webrtc;
+      _pipeServiceEvents(_webrtcService);
+      await _webrtcService.answerCall(callId);
       return;
     }
 
-    // Check if caller triggered a fallback on this call
+    if (mode == CallRoutingMode.thirdPartyOnly) {
+      _currentActiveProvider = CallProviderType.agora;
+      _pipeServiceEvents(_agoraService);
+      await _agoraService.answerCall(callId);
+      return;
+    }
+
+    // Automatic mode: check if caller triggered a fallback or specified provider
     if (_safeFirestore != null) {
       try {
         final doc = await _safeFirestore!.collection('calls').doc(callId).get();
-        if (doc.exists && doc.data()?['provider'] == CallProviderType.zego.name) {
-          debugPrint('CallServiceManager: Caller triggered fallback to Zego. Answering on Zego...');
-          _currentActiveProvider = CallProviderType.zego;
-          _isFallbackActive = true;
-          _pipeServiceEvents(_zegoService);
-          await _zegoService.answerCall(callId);
-          return;
+        if (doc.exists) {
+          final provStr = doc.data()?['provider']?.toString().toLowerCase();
+          if (provStr == 'webrtc') {
+            _currentActiveProvider = CallProviderType.webrtc;
+            _pipeServiceEvents(_webrtcService);
+            await _webrtcService.answerCall(callId);
+            return;
+          }
         }
       } catch (_) {}
     }
 
-    // Default: answer on WebRTC
-    _currentActiveProvider = CallProviderType.webrtc;
-    _pipeServiceEvents(_webrtcService);
+    // Default auto: answer on Agora
+    _currentActiveProvider = CallProviderType.agora;
+    _pipeServiceEvents(_agoraService);
     try {
-      await _webrtcService.answerCall(callId);
+      await _agoraService.answerCall(callId);
     } catch (e) {
-      if (mode == CallRoutingMode.smartFallback && _configRepo.currentConfig.hasValidZegoCredentials) {
-        debugPrint('CallServiceManager: Answering WebRTC failed: $e. Dropping over to Zego...');
-        await _webrtcService.abortForFallback();
-        _currentActiveProvider = CallProviderType.zego;
+      if (mode == CallRoutingMode.smartFallback) {
+        debugPrint('CallServiceManager: Answering Agora failed: $e. Dropping over to WebRTC...');
+        _currentActiveProvider = CallProviderType.webrtc;
         _isFallbackActive = true;
-        _pipeServiceEvents(_zegoService);
-        await _zegoService.answerCall(callId);
+        _pipeServiceEvents(_webrtcService);
+        await _webrtcService.answerCall(callId);
       } else {
         rethrow;
       }
@@ -467,6 +487,7 @@ class CallServiceManager implements ICallService {
     _serviceIncomingSub = null;
 
     await _webrtcService.clearUserSession();
+    await _agoraService.clearUserSession();
     await _zegoService.clearUserSession();
 
     _currentUserId = null;
@@ -484,6 +505,7 @@ class CallServiceManager implements ICallService {
     await _durationController.close();
     await _incomingCallController.close();
     await _webrtcService.dispose();
+    await _agoraService.dispose();
     await _zegoService.dispose();
   }
 }

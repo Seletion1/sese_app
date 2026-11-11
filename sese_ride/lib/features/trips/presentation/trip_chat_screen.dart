@@ -316,7 +316,7 @@ class _TripChatScreenState extends State<TripChatScreen>
                   }
                 } else if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Phone number for $targetName is not available.')),
+                    SnackBar(content: Text('Phone number for $targetName is masked for privacy.')),
                   );
                 }
               },

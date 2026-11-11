@@ -1490,18 +1490,30 @@ service cloud.firestore {
       allow write: if isAdminAuthClaim() &&
         claimsScopeContains(scopeCodeOf('manageSystemSettings'));
     }
-    // `call_secrets`: server-only ZegoCloud AppSign & VoIP secrets.
-    // Standard authenticated users (riders/drivers) MUST NOT read AppSign.
+    // `call_secrets`: server-only ZegoCloud AppSign, Agora Primary Certificate & VoIP secrets.
+    // Standard authenticated users (riders/drivers) MUST NOT read secrets.
     match /system_config/call_secrets {
       allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
       allow write: if isAdminAuthClaim() &&
         claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+    }
+    // `call_usage`: tracking global monthly call minutes.
+    // Standard authenticated users and hub staff may read usage metrics.
+    match /system_config/call_usage {
+      allow read: if isAuthenticated();
+      allow write: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
     }
     // `exchange_rate_secrets`: server-only exchange-rate API credentials.
     // Never readable by standard or hub users.
     match /system_config/exchange_rate_secrets {
       allow read: if isSuperAdmin() || isOperationsAdmin();
       allow write: if isSuperAdmin() || isOperationsAdmin();
+    }
+    // `paystack_secrets`: server-only Paystack API credentials.
+    // Never readable by mobile client apps.
+    match /system_config/paystack_secrets {
+      allow read: if false;
+      allow write: if isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
     }
     // `financial_limits`: hub admin/ops read; super admin writes.
     match /system_config/financial_limits {

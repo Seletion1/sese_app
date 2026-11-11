@@ -18,13 +18,28 @@ class CallConfig {
   /// The active calling routing mode.
   final CallRoutingMode routingMode;
 
-  /// Timeout in seconds before smart fallback drops from WebRTC to third-party SDK.
+  /// Timeout in seconds before smart fallback drops from WebRTC/Agora to secondary provider.
   final int fallbackTimeoutSeconds;
 
-  /// ZegoCloud Application ID (numeric integer).
+  /// Agora RTC Application ID (32-character hex/alphanumeric string).
+  final String? agoraAppId;
+
+  /// Agora Primary Certificate (32-character secret key, server-only).
+  final String? agoraAppCertificate;
+
+  /// Monthly free tier minutes cap for Agora RTC (default: 10,000 mins).
+  final int agoraMonthlyFreeMinutesCap;
+
+  /// Minute-usage threshold that triggers automatic failover from Agora to native WebRTC (default: 9,900 mins).
+  final int agoraAutoFailoverThresholdMinutes;
+
+  /// Tracked global call minutes used in the current billing cycle.
+  final int agoraCallsUsedMinutesThisMonth;
+
+  /// ZegoCloud Application ID (numeric integer, legacy).
   final int? zegoAppId;
 
-  /// ZegoCloud Application Sign (64-character hexadecimal authentication key).
+  /// ZegoCloud Application Sign (64-character hexadecimal authentication key, legacy).
   final String? zegoAppSign;
 
   /// STUN servers used by WebRTC for ICE candidate discovery and NAT traversal.
@@ -36,6 +51,11 @@ class CallConfig {
   const CallConfig({
     this.routingMode = CallRoutingMode.smartFallback,
     this.fallbackTimeoutSeconds = 10,
+    this.agoraAppId,
+    this.agoraAppCertificate,
+    this.agoraMonthlyFreeMinutesCap = 10000,
+    this.agoraAutoFailoverThresholdMinutes = 9900,
+    this.agoraCallsUsedMinutesThisMonth = 0,
     this.zegoAppId,
     this.zegoAppSign,
     this.stunServers = defaultGoogleStunServers,
@@ -46,14 +66,25 @@ class CallConfig {
   CallProviderType get providerType {
     switch (routingMode) {
       case CallRoutingMode.thirdPartyOnly:
-        return CallProviderType.zego;
+        return CallProviderType.agora;
       case CallRoutingMode.customP2pOnly:
       case CallRoutingMode.smartFallback:
         return CallProviderType.webrtc;
     }
   }
 
-  /// True if ZegoCloud credentials are valid and ready for SDK initialization.
+  /// True if valid Agora credentials exist for RTC audio calls.
+  bool get hasValidAgoraCredentials {
+    if (agoraAppId == null || agoraAppId!.trim().isEmpty) return false;
+    return agoraAppId!.trim().length >= 16;
+  }
+
+  /// True if Agora monthly usage has reached the automatic failover threshold.
+  bool get isAgoraLimitReached {
+    return agoraCallsUsedMinutesThisMonth >= agoraAutoFailoverThresholdMinutes;
+  }
+
+  /// True if ZegoCloud credentials are valid (legacy fallback).
   bool get hasValidZegoCredentials {
     if (zegoAppId == null || zegoAppId! <= 0) return false;
     if (zegoAppSign != null && zegoAppSign!.isNotEmpty) {
@@ -66,15 +97,19 @@ class CallConfig {
     CallRoutingMode? routingMode,
     int? fallbackTimeoutSeconds,
     CallProviderType? providerType,
+    String? agoraAppId,
+    String? agoraAppCertificate,
+    int? agoraMonthlyFreeMinutesCap,
+    int? agoraAutoFailoverThresholdMinutes,
+    int? agoraCallsUsedMinutesThisMonth,
     int? zegoAppId,
     String? zegoAppSign,
     List<String>? stunServers,
     bool? enableDiagnostics,
   }) {
-    // If providerType is passed without routingMode, map it back for backwards compatibility
     CallRoutingMode mode = routingMode ?? this.routingMode;
     if (routingMode == null && providerType != null) {
-      mode = providerType == CallProviderType.zego
+      mode = (providerType == CallProviderType.agora || providerType == CallProviderType.zego)
           ? CallRoutingMode.thirdPartyOnly
           : CallRoutingMode.customP2pOnly;
     }
@@ -82,6 +117,13 @@ class CallConfig {
     return CallConfig(
       routingMode: mode,
       fallbackTimeoutSeconds: fallbackTimeoutSeconds ?? this.fallbackTimeoutSeconds,
+      agoraAppId: agoraAppId ?? this.agoraAppId,
+      agoraAppCertificate: agoraAppCertificate ?? this.agoraAppCertificate,
+      agoraMonthlyFreeMinutesCap: agoraMonthlyFreeMinutesCap ?? this.agoraMonthlyFreeMinutesCap,
+      agoraAutoFailoverThresholdMinutes:
+          agoraAutoFailoverThresholdMinutes ?? this.agoraAutoFailoverThresholdMinutes,
+      agoraCallsUsedMinutesThisMonth:
+          agoraCallsUsedMinutesThisMonth ?? this.agoraCallsUsedMinutesThisMonth,
       zegoAppId: zegoAppId ?? this.zegoAppId,
       zegoAppSign: zegoAppSign ?? this.zegoAppSign,
       stunServers: stunServers ?? this.stunServers,
@@ -94,9 +136,13 @@ class CallConfig {
       'routingMode': routingMode.name,
       'providerType': providerType.name,
       'fallbackTimeoutSeconds': fallbackTimeoutSeconds,
+      'agoraAppId': agoraAppId,
+      // Security: Secret credentials (agoraAppCertificate, zegoAppSign) are strictly
+      // omitted from client Firestore write payloads to prevent client key exposure.
+      'agoraMonthlyFreeMinutesCap': agoraMonthlyFreeMinutesCap,
+      'agoraAutoFailoverThresholdMinutes': agoraAutoFailoverThresholdMinutes,
+      'agoraCallsUsedMinutesThisMonth': agoraCallsUsedMinutesThisMonth,
       'zegoAppId': zegoAppId,
-      // Note: zegoAppSign is intentionally omitted from toMap() to prevent
-      // exposing secret credentials in public Firestore docs (system_settings/calling).
       'stunServers': stunServers,
       'enableDiagnostics': enableDiagnostics,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -108,16 +154,27 @@ class CallConfig {
 
     CallRoutingMode routingMode = CallRoutingMode.smartFallback;
     final modeStr = map['routingMode']?.toString().toLowerCase().trim();
-    if (modeStr == 'customp2ponly' || modeStr == 'custom_p2p_only' || modeStr == 'webrtc') {
+    if (modeStr == 'customp2ponly' ||
+        modeStr == 'custom_p2p_only' ||
+        modeStr == 'forcewebrtc' ||
+        modeStr == 'force_webrtc' ||
+        modeStr == 'webrtc') {
       routingMode = CallRoutingMode.customP2pOnly;
-    } else if (modeStr == 'thirdpartyonly' || modeStr == 'third_party_only' || modeStr == 'zego') {
+    } else if (modeStr == 'thirdpartyonly' ||
+        modeStr == 'third_party_only' ||
+        modeStr == 'forceagora' ||
+        modeStr == 'force_agora' ||
+        modeStr == 'agora' ||
+        modeStr == 'zego') {
       routingMode = CallRoutingMode.thirdPartyOnly;
-    } else if (modeStr == 'smartfallback' || modeStr == 'smart_fallback' || modeStr == 'auto') {
+    } else if (modeStr == 'smartfallback' ||
+        modeStr == 'smart_fallback' ||
+        modeStr == 'auto' ||
+        modeStr == 'automatic') {
       routingMode = CallRoutingMode.smartFallback;
     } else {
-      // Legacy fallback: check providerType
       final providerStr = map['providerType']?.toString().toLowerCase().trim();
-      if (providerStr == 'zego') {
+      if (providerStr == 'agora' || providerStr == 'zego') {
         routingMode = CallRoutingMode.thirdPartyOnly;
       } else {
         routingMode = CallRoutingMode.smartFallback;
@@ -131,6 +188,36 @@ class CallConfig {
     } else if (rawTimeout is String) {
       final parsed = int.tryParse(rawTimeout.trim());
       if (parsed != null) timeout = parsed.clamp(3, 30);
+    }
+
+    String? agoraAppId;
+    final rawAgoraAppId = map['agoraAppId'] ?? map['appId'];
+    if (rawAgoraAppId != null) {
+      agoraAppId = rawAgoraAppId.toString().trim();
+    }
+
+    int agoraCap = 10000;
+    final rawAgoraCap = map['agoraMonthlyFreeMinutesCap'];
+    if (rawAgoraCap is int) {
+      agoraCap = rawAgoraCap;
+    } else if (rawAgoraCap is String) {
+      agoraCap = int.tryParse(rawAgoraCap.trim()) ?? 10000;
+    }
+
+    int agoraThreshold = 9900;
+    final rawAgoraThreshold = map['agoraAutoFailoverThresholdMinutes'];
+    if (rawAgoraThreshold is int) {
+      agoraThreshold = rawAgoraThreshold;
+    } else if (rawAgoraThreshold is String) {
+      agoraThreshold = int.tryParse(rawAgoraThreshold.trim()) ?? 9900;
+    }
+
+    int agoraUsedMins = 0;
+    final rawAgoraUsed = map['agoraCallsUsedMinutesThisMonth'] ?? map['agoraMinutesThisMonth'];
+    if (rawAgoraUsed is int) {
+      agoraUsedMins = rawAgoraUsed;
+    } else if (rawAgoraUsed is String) {
+      agoraUsedMins = int.tryParse(rawAgoraUsed.trim()) ?? 0;
     }
 
     int? appId;
@@ -155,6 +242,11 @@ class CallConfig {
     return CallConfig(
       routingMode: routingMode,
       fallbackTimeoutSeconds: timeout,
+      agoraAppId: agoraAppId,
+      agoraAppCertificate: null,
+      agoraMonthlyFreeMinutesCap: agoraCap,
+      agoraAutoFailoverThresholdMinutes: agoraThreshold,
+      agoraCallsUsedMinutesThisMonth: agoraUsedMins,
       zegoAppId: appId,
       zegoAppSign: null,
       stunServers: stuns,
@@ -165,9 +257,6 @@ class CallConfig {
 
 /// Repository responsible for persisting calling settings in [SharedPreferences]
 /// with real-time bidirectional synchronization against Firestore (`system_settings/calling`).
-///
-/// Ensures settings survive app restarts and allows staff to hot-swap calling
-/// providers and routing modes instantly across `sese_hub` and `sese_ride`.
 class CallConfigRepository {
   static final CallConfigRepository instance = CallConfigRepository._internal();
 
@@ -176,6 +265,10 @@ class CallConfigRepository {
   static const String _kPrefRoutingMode = 'sese_call_routing_mode';
   static const String _kPrefFallbackTimeout = 'sese_call_fallback_timeout';
   static const String _kPrefProvider = 'sese_call_provider_type';
+  static const String _kPrefAgoraAppId = 'sese_call_agora_app_id';
+  static const String _kPrefAgoraCap = 'sese_call_agora_cap';
+  static const String _kPrefAgoraThreshold = 'sese_call_agora_threshold';
+  static const String _kPrefAgoraUsedMins = 'sese_call_agora_used_mins';
   static const String _kPrefZegoAppId = 'sese_call_zego_app_id';
   static const String _kPrefZegoAppSign = 'sese_call_zego_app_sign';
   static const String _kPrefStunServers = 'sese_call_stun_servers';
@@ -185,6 +278,7 @@ class CallConfigRepository {
   CallConfig _currentConfig = const CallConfig();
   bool _initialized = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _firestoreSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _usageSub;
 
   /// Current cached configuration.
   CallConfig get currentConfig => _currentConfig;
@@ -208,15 +302,13 @@ class CallConfigRepository {
         mode = CallRoutingMode.thirdPartyOnly;
       } else if (routingModeStr == CallRoutingMode.smartFallback.name) {
         mode = CallRoutingMode.smartFallback;
-      } else {
-        // Fallback to legacy provider key if routing mode not set yet
-        final legacyProviderStr = prefs.getString(_kPrefProvider);
-        if (legacyProviderStr == CallProviderType.zego.name) {
-          mode = CallRoutingMode.thirdPartyOnly;
-        }
       }
 
       final fallbackTimeout = prefs.getInt(_kPrefFallbackTimeout) ?? 10;
+      final agoraAppId = prefs.getString(_kPrefAgoraAppId);
+      final agoraCap = prefs.getInt(_kPrefAgoraCap) ?? 10000;
+      final agoraThreshold = prefs.getInt(_kPrefAgoraThreshold) ?? 9900;
+      final agoraUsed = prefs.getInt(_kPrefAgoraUsedMins) ?? 0;
       final zegoAppId = prefs.getInt(_kPrefZegoAppId);
       final stunList = prefs.getStringList(_kPrefStunServers);
       final diagnostics = prefs.getBool(_kPrefDiagnostics) ?? false;
@@ -224,6 +316,11 @@ class CallConfigRepository {
       _currentConfig = CallConfig(
         routingMode: mode,
         fallbackTimeoutSeconds: fallbackTimeout,
+        agoraAppId: agoraAppId,
+        agoraAppCertificate: null,
+        agoraMonthlyFreeMinutesCap: agoraCap,
+        agoraAutoFailoverThresholdMinutes: agoraThreshold,
+        agoraCallsUsedMinutesThisMonth: agoraUsed,
         zegoAppId: zegoAppId,
         zegoAppSign: null,
         stunServers: stunList != null && stunList.isNotEmpty
@@ -239,13 +336,13 @@ class CallConfigRepository {
     _initialized = true;
     _controller.add(_currentConfig);
 
-    // Initialize real-time listener for remote settings updates
+    // Initialize real-time listener for remote settings & minute usage updates
     _startRemoteSyncListener();
 
     return _currentConfig;
   }
 
-  /// Starts listening to remote configuration updates from Firestore.
+  /// Starts listening to remote configuration and call usage updates from Firestore.
   void _startRemoteSyncListener() {
     try {
       _firestoreSub?.cancel();
@@ -258,19 +355,45 @@ class CallConfigRepository {
           if (!snapshot.exists || snapshot.data() == null) return;
           final remoteConfig = CallConfig.fromMap(snapshot.data());
 
-          // Only emit and persist if meaningfully different
           if (remoteConfig.routingMode != _currentConfig.routingMode ||
               remoteConfig.fallbackTimeoutSeconds != _currentConfig.fallbackTimeoutSeconds ||
-              remoteConfig.zegoAppId != _currentConfig.zegoAppId ||
+              remoteConfig.agoraAppId != _currentConfig.agoraAppId ||
+              remoteConfig.agoraAutoFailoverThresholdMinutes != _currentConfig.agoraAutoFailoverThresholdMinutes ||
+              remoteConfig.agoraMonthlyFreeMinutesCap != _currentConfig.agoraMonthlyFreeMinutesCap ||
               !listEquals(remoteConfig.stunServers, _currentConfig.stunServers)) {
-            _currentConfig = remoteConfig;
-            _controller.add(remoteConfig);
-            _persistToLocal(remoteConfig);
+            _currentConfig = remoteConfig.copyWith(
+              agoraCallsUsedMinutesThisMonth: _currentConfig.agoraCallsUsedMinutesThisMonth,
+            );
+            _controller.add(_currentConfig);
+            _persistToLocal(_currentConfig);
           }
         },
         onError: (e) {
           debugPrint('CallConfigRepository: remote sync listener error: $e');
         },
+      );
+
+      // Subscribes to live call minute usage updates
+      _usageSub?.cancel();
+      _usageSub = FirebaseFirestore.instance
+          .collection('system_config')
+          .doc('call_usage')
+          .snapshots()
+          .listen(
+        (snapshot) {
+          if (!snapshot.exists || snapshot.data() == null) return;
+          final usageData = snapshot.data()!;
+          final agoraMinutes = (usageData['agoraMinutesThisMonth'] as num?)?.toInt() ?? 0;
+
+          if (agoraMinutes != _currentConfig.agoraCallsUsedMinutesThisMonth) {
+            _currentConfig = _currentConfig.copyWith(
+              agoraCallsUsedMinutesThisMonth: agoraMinutes,
+            );
+            _controller.add(_currentConfig);
+            _persistToLocal(_currentConfig);
+          }
+        },
+        onError: (_) {},
       );
     } catch (e) {
       debugPrint('CallConfigRepository: remote sync unavailable: $e');
@@ -284,15 +407,23 @@ class CallConfigRepository {
       await prefs.setInt(_kPrefFallbackTimeout, config.fallbackTimeoutSeconds);
       await prefs.setString(_kPrefProvider, config.providerType.name);
 
+      if (config.agoraAppId != null) {
+        await prefs.setString(_kPrefAgoraAppId, config.agoraAppId!);
+      } else {
+        await prefs.remove(_kPrefAgoraAppId);
+      }
+
+      await prefs.setInt(_kPrefAgoraCap, config.agoraMonthlyFreeMinutesCap);
+      await prefs.setInt(_kPrefAgoraThreshold, config.agoraAutoFailoverThresholdMinutes);
+      await prefs.setInt(_kPrefAgoraUsedMins, config.agoraCallsUsedMinutesThisMonth);
+
       if (config.zegoAppId != null) {
         await prefs.setInt(_kPrefZegoAppId, config.zegoAppId!);
       } else {
         await prefs.remove(_kPrefZegoAppId);
       }
 
-      // Security: Always purge secret AppSign key from local SharedPreferences
       await prefs.remove(_kPrefZegoAppSign);
-
       await prefs.setStringList(_kPrefStunServers, config.stunServers);
       await prefs.setBool(_kPrefDiagnostics, config.enableDiagnostics);
     } catch (e) {
@@ -300,15 +431,13 @@ class CallConfigRepository {
     }
   }
 
-  /// Persists [config] to local [SharedPreferences] and syncs to Firestore
-  /// `system_settings/calling` if Firebase is initialized.
+  /// Persists [config] to local [SharedPreferences] and syncs to Firestore.
   Future<void> saveConfig(CallConfig config) async {
     _currentConfig = config;
     _controller.add(config);
 
     await _persistToLocal(config);
 
-    // Attempt remote synchronization with Firestore (degrades gracefully if offline)
     try {
       await FirebaseFirestore.instance
           .collection('system_settings')
@@ -322,6 +451,7 @@ class CallConfigRepository {
   /// Disposes repository resources.
   void dispose() {
     _firestoreSub?.cancel();
+    _usageSub?.cancel();
     _controller.close();
   }
 }

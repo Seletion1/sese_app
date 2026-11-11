@@ -170,7 +170,7 @@ import { isPlatformOwnerEmail } from "./hubBootstrap";
  * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
  * or an active record in `hub_staff/{email}` collection.
  */
-async function assertHubStaffOrAdmin(
+export async function assertHubStaffOrAdmin(
   callerUid: string,
   callerEmail: string,
   token: Record<string, unknown>
