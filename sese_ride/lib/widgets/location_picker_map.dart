@@ -116,10 +116,15 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
 
     final Widget mapCanvas = SeseUniversalMap(
       // LocationPickerMap is always embedded inside a modal/sheet that
-      // overlays an already-active Google Maps surface. Forcing CartoDb avoids
-      // spawning a concurrent native platform view, which would trigger a
-      // NativeAlloc GC storm and 1–2 s Davey frames during the modal transition.
-      preferredProvider: MapProvider.cartoDb,
+      // may overlay an already-active Google Maps surface. Resolve the
+      // best lightweight raster provider (Mapbox when a token is configured,
+      // CartoDB otherwise) so we never spawn a concurrent native platform
+      // view — which would trigger a NativeAlloc GC storm and 1–2 s Davey
+      // frames during the modal transition. The choice follows the Hub
+      // config: Mapbox when Google is primary + a token exists; CartoDB as
+      // the last resort. CartoDB is NEVER injected simply because a CartoDB
+      // API key is present in the config.
+      preferredProvider: MapProviderPolicy.resolveEmbedded(),
       mapController: _mapController,
       initialCenter: widget.initialCenter,
       initialZoom: widget.initialZoom,

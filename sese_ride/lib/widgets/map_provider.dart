@@ -102,6 +102,31 @@ abstract final class MapProviderPolicy {
         return MapProvider.cartoDb;
     }
   }
+
+  /// Resolves the best **lightweight raster** renderer for embedded map
+  /// surfaces (location pickers, route previews, pin-drop sheets) that share
+  /// the screen with an already-active Google Maps platform view.
+  ///
+  /// The rule: never hard-code CartoDB. Instead, follow the Hub config:
+  ///
+  /// - **Google primary** → prefer Mapbox (zero GMS/JNI overhead, flutter_map
+  ///   tile rendering). Fall back to CartoDB only when no valid Mapbox token
+  ///   is configured.
+  /// - **Mapbox primary** → Mapbox directly.
+  /// - **CartoDB primary** → CartoDB directly.
+  ///
+  /// This is the correct call-site for [LocationPickerMap], [PickOnMapScreen],
+  /// and the route-preview inset inside [CustomerDispatchScreen]. It respects
+  /// the global Hub engine while still avoiding redundant native platform views.
+  static MapProvider resolveEmbedded() {
+    final config = MapConfigController.instance.currentConfig;
+    if (config.isMapbox) return MapProvider.mapbox;
+    if (config.isCartoDb) return MapProvider.cartoDb;
+    // Google is primary — use Mapbox as the lightweight raster layer.
+    // Fall through to CartoDB only when no Mapbox token is configured.
+    if (config.hasValidMapboxToken) return MapProvider.mapbox;
+    return MapProvider.cartoDb;
+  }
 }
 
 /// Google Play Services presence probe (Android only).

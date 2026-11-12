@@ -3820,13 +3820,16 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       child: Stack(
         children: [
           SeSeMapView(
-            // Route preview while browsing: forces CartoDB raster so this
-            // screen never spawns a second Google Maps platform view on top
-            // of the always-alive CustomerHomeMapScreen Google Map in the
-            // IndexedStack. CartoDB renders the same route/markers natively
-            // via flutter_map (no GMS JNI calls, no tile-prep GC storms).
+            // Route preview — policy-aware raster engine: picks Mapbox when a
+            // token is configured (Google primary hub setting), CartoDB as last
+            // resort. Never spawns a second native Google Maps platform view on
+            // top of the always-alive CustomerHomeMapScreen Google Map in the
+            // IndexedStack. CartoDB is NOT injected simply because a CartoDB
+            // API key is present in the config — MapProviderPolicy.resolveEmbedded()
+            // enforces the full Hub engine chain: Mapbox first, CartoDB only
+            // as an absolute last resort (no Mapbox token AND CartoDB primary).
             mapContext: MapContext.browsing,
-            preferredProvider: MapProvider.cartoDb,
+            preferredProvider: MapProviderPolicy.resolveEmbedded(),
             mapController: _mapController,
             initialCenter: center,
             initialZoom: 13.0,
