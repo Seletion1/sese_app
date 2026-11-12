@@ -438,15 +438,6 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
         useCashSettlement: result.useCashSettlement,
       );
       if (mounted) {
-        await CancelTripDialog.showPostCancelFeedback(
-          context,
-          tripId: widget.trip.tripId,
-          userId: widget.trip.customerId,
-          role: 'customer',
-          isDriver: false,
-        );
-      }
-      if (mounted) {
         _navigateBackToHomeOrPop(
           context,
           isPushedFromDispatch: widget.isPushedFromDispatch,
@@ -1548,16 +1539,6 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
         reason: result.reason,
         useCashSettlement: result.useCashSettlement,
       );
-      // Show optional post-cancel feedback sheet before navigating away.
-      if (context.mounted) {
-        await CancelTripDialog.showPostCancelFeedback(
-          context,
-          tripId: widget.trip.tripId,
-          userId: widget.trip.customerId,
-          role: 'customer',
-          isDriver: false,
-        );
-      }
       if (context.mounted) {
         _navigateBackToHomeOrPop(
           context,
@@ -2637,15 +2618,6 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
         reason: 'waiting_fee',
         useCashSettlement: result == _WaitingCancelChoice.cashSettlement,
       );
-      if (context.mounted) {
-        await CancelTripDialog.showPostCancelFeedback(
-          context,
-          tripId: trip.tripId,
-          userId: trip.customerId,
-          role: 'customer',
-          isDriver: false,
-        );
-      }
       if (context.mounted && widget.onNavigateAway != null) {
         widget.onNavigateAway!();
       } else if (context.mounted && widget.onCancel != null) {

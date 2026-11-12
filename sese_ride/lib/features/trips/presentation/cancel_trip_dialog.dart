@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
-import '../services/trip_rating_service.dart';
 
 /// One selectable cancellation reason: stable wire [code] (audited
 /// server-side) + human [label] shown in the dialog.
@@ -11,14 +10,22 @@ class CancelReason {
   const CancelReason(this.code, this.label);
 }
 
-/// Result returned when user completes cancellation dialog choices.
+/// Result returned when the user confirms the cancellation dialog.
+///
+/// [reason] is the stable backend audit code.
+/// [useCashSettlement] is set when the customer elects to pay a waiting fee
+/// in cash directly to the driver rather than from their wallet.
+/// [customDetail] is non-empty only when reason == `'other'` and the user
+/// typed additional context in the optional "Other reason" text field.
 class CancelTripResult {
   final String reason;
   final bool useCashSettlement;
+  final String customDetail;
 
   const CancelTripResult({
     required this.reason,
     this.useCashSettlement = false,
+    this.customDetail = '',
   });
 }
 
@@ -27,7 +34,11 @@ class CancelTripResult {
 /// Cancelling never dismisses instantly: the caller must present this dialog,
 /// the user must pick one reason and tap Confirm, and only then is the
 /// `cancelTrip` callable invoked with the selected code. Dismissing (back,
-/// tap-outside, Cancel button) returns null and commits nothing.
+/// tap-outside, Keep trip button) returns null and commits nothing.
+///
+/// When the user picks **"Other reason"** an optional free-text field expands
+/// inline so they can supply extra context before confirming — no secondary
+/// screen is shown after cancellation.
 ///
 /// Reason codes are the audit vocabulary — the backend allow-lists them and
 /// persists every cancellation to the immutable `cancellation_audits`
@@ -58,8 +69,10 @@ abstract final class CancelTripDialog {
     CancelReason('other', 'Other reason'),
   ];
 
-  /// Shows the dialog. Returns the selected reason code or result, or null when the
-  /// user backs out (nothing is cancelled in that case).
+  /// Shows the cancellation dialog.
+  ///
+  /// Returns [CancelTripResult] when the user confirms, or `null` when they
+  /// dismiss or tap "Keep trip" (nothing is cancelled in that case).
   static Future<CancelTripResult?> show(
     BuildContext context, {
     required bool isDriver,
@@ -77,37 +90,9 @@ abstract final class CancelTripDialog {
       ),
     );
   }
-
-  // ── Post-cancellation feedback ─────────────────────────────────────────────
-
-  /// Politely prompts the user for additional feedback AFTER cancellation has
-  /// already been committed on the server. This is non-blocking — tapping
-  /// "Skip" returns immediately without recording anything.
-  ///
-  /// [tripId] and [userId] are used to key the `cancellation_feedback` doc.
-  /// [role] should be `'customer'` or `'driver'`.
-  static Future<void> showPostCancelFeedback(
-    BuildContext context, {
-    required String tripId,
-    required String userId,
-    required String role,
-    required bool isDriver,
-  }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PostCancelFeedbackSheet(
-        tripId: tripId,
-        userId: userId,
-        role: role,
-        isDriver: isDriver,
-      ),
-    );
-  }
 }
 
-// ── Pre-cancellation confirmation dialog ──────────────────────────────────────
+// ── Cancellation confirmation dialog ──────────────────────────────────────────
 
 class _CancelTripDialogBody extends StatefulWidget {
   final List<CancelReason> reasons;
@@ -128,6 +113,20 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
   String? _selected;
   bool _useCashSettlement = false;
 
+  /// Controller for the optional "Other reason" detail field.
+  /// Only visible (and submitted) when the user picks the `'other'` code.
+  final TextEditingController _otherCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _otherCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Whether the currently selected reason is "other" — triggers the inline
+  /// detail field to expand.
+  bool get _isOther => _selected == 'other';
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -139,6 +138,7 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Waiting fee warning (shown only when fee > 0) ──────────────
             if (widget.paidWaitingFee > 0) ...[
               Container(
                 padding: const EdgeInsets.all(10),
@@ -156,10 +156,13 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
                     Expanded(
                       child: Text(
                         widget.isTrustedCustomer
-                            ? 'Cancelling during paid waiting incurs ₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
-                              'As a 5+ trip customer, any wallet shortage will carry as an outstanding balance on your next booking.'
-                            : 'Cancelling during paid waiting incurs ₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
-                              'Check Cash Settlement below if your wallet balance is low.',
+                            ? 'Cancelling during paid waiting incurs '
+                                '₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
+                                'As a 5+ trip customer, any wallet shortage will '
+                                'carry as an outstanding balance on your next booking.'
+                            : 'Cancelling during paid waiting incurs '
+                                '₦${widget.paidWaitingFee.toStringAsFixed(0)}. '
+                                'Check Cash Settlement below if your wallet balance is low.',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF92400E),
@@ -174,12 +177,15 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: const Text('Pay via Cash Settlement with Driver',
-                      style: TextStyle(
-                          fontSize: 12, fontWeight: FontWeight.bold)),
+                  title: const Text(
+                    'Pay via Cash Settlement with Driver',
+                    style:
+                        TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                   subtitle: const Text(
-                      'Pay cash directly to driver upon cancelling',
-                      style: TextStyle(fontSize: 11)),
+                    'Pay cash directly to driver upon cancelling',
+                    style: TextStyle(fontSize: 11),
+                  ),
                   value: _useCashSettlement,
                   onChanged: (val) =>
                       setState(() => _useCashSettlement = val ?? false),
@@ -187,33 +193,104 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
                 const SizedBox(height: 8),
               ],
             ],
+
+            // ── Helper subtitle ────────────────────────────────────────────
             const Text(
               'Tell us why — it helps us track reliability and keep the '
               'marketplace fair. This cancellation is logged.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 8),
+
+            // ── Reason radio list ──────────────────────────────────────────
             Flexible(
               child: SingleChildScrollView(
-                child: RadioGroup<String>(
-                  groupValue: _selected,
-                  onChanged: (v) => setState(() => _selected = v),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (final r in widget.reasons)
-                        RadioListTile<String>(
-                          key: Key('cancel_reason_${r.code}'),
-                          value: r.code,
-                          title: Text(
-                            r.label,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                    ],
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RadioGroup<String>(
+                      groupValue: _selected,
+                      onChanged: (v) => setState(() {
+                        _selected = v;
+                        // Clear any typed detail when switching away from other.
+                        if (v != 'other') _otherCtrl.clear();
+                      }),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final r in widget.reasons)
+                            RadioListTile<String>(
+                              key: Key('cancel_reason_${r.code}'),
+                              value: r.code,
+                              title: Text(
+                                r.label,
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    // ── "Other reason" inline detail field ─────────────────
+                    // Expands with a smooth AnimatedSwitcher the moment the
+                    // user selects "Other reason". No second screen, no
+                    // separate step — everything stays in this single dialog.
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      transitionBuilder: (child, animation) =>
+                          SizeTransition(
+                              sizeFactor: animation, child: child),
+                      child: _isOther
+                          ? Padding(
+                              key: const ValueKey('other_field'),
+                              padding: const EdgeInsets.only(top: 8),
+                              child: TextField(
+                                controller: _otherCtrl,
+                                autofocus: true,
+                                maxLines: 2,
+                                maxLength: 200,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      'Briefly describe your reason (optional)…',
+                                  hintStyle: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade400,
+                                  ),
+                                  filled: true,
+                                  fillColor: Colors.grey.shade50,
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 10),
+                                  border: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey.shade300),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                    borderSide: BorderSide(
+                                        color:
+                                            AppColors.seseGold),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey('other_field_hidden')),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -233,297 +310,13 @@ class _CancelTripDialogBodyState extends State<_CancelTripDialogBody> {
                     CancelTripResult(
                       reason: _selected!,
                       useCashSettlement: _useCashSettlement,
+                      customDetail:
+                          _isOther ? _otherCtrl.text.trim() : '',
                     ),
                   ),
           child: const Text('Confirm'),
         ),
       ],
-    );
-  }
-}
-
-// ── Post-cancellation feedback bottom sheet ───────────────────────────────────
-
-/// Shown after a cancellation is confirmed on the server.
-///
-/// The user may select additional reason chips and add a free-text detail.
-/// All of this is saved to `cancellation_feedback/{tripId}_{userId}`.
-/// The sheet is entirely optional — tapping "Skip" stores nothing.
-class _PostCancelFeedbackSheet extends StatefulWidget {
-  final String tripId;
-  final String userId;
-  final String role;
-  final bool isDriver;
-
-  const _PostCancelFeedbackSheet({
-    required this.tripId,
-    required this.userId,
-    required this.role,
-    required this.isDriver,
-  });
-
-  @override
-  State<_PostCancelFeedbackSheet> createState() =>
-      _PostCancelFeedbackSheetState();
-}
-
-class _PostCancelFeedbackSheetState extends State<_PostCancelFeedbackSheet> {
-  String? _selectedReason;
-  final TextEditingController _detailCtrl = TextEditingController();
-  bool _submitting = false;
-
-  /// Reason chips for the post-cancellation sheet — broader than the
-  /// pre-cancel radio list so we capture richer signals.
-  static const _customerChips = [
-    'Driver took too long',
-    'Change of plans',
-    'Emergency',
-    'Wrong address entered',
-    'Found another ride',
-    'Price too high',
-    'Driver unresponsive',
-    'Other',
-  ];
-
-  static const _driverChips = [
-    'Customer not at location',
-    'Route was unsafe',
-    'Vehicle breakdown',
-    'Emergency',
-    'Customer unresponsive',
-    'Fare too low',
-    'Wrong item / trip type',
-    'Other',
-  ];
-
-  @override
-  void dispose() {
-    _detailCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (_submitting || _selectedReason == null) return;
-    setState(() => _submitting = true);
-    await TripRatingService().submitCancellationFeedback(
-      tripId: widget.tripId,
-      userId: widget.userId,
-      role: widget.role,
-      reason: _selectedReason!,
-      detail: _detailCtrl.text,
-    );
-    if (mounted) Navigator.of(context).pop();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surfaceColor =
-        isDark ? const Color(0xFF1E1E28) : Colors.white;
-    final labelColor =
-        isDark ? Colors.grey.shade300 : Colors.grey.shade700;
-    final chips =
-        widget.isDriver ? _driverChips : _customerChips;
-
-    return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Drag handle
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF3A3A46)
-                      : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-
-            // Header
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.12),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.cancel_outlined,
-                      size: 20, color: Colors.orange),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Trip cancelled',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                      Text(
-                        'Please tell us what happened',
-                        style: TextStyle(
-                            fontSize: 12, color: labelColor),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Reason chips
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: chips.map((chip) {
-                final active = _selectedReason == chip;
-                return GestureDetector(
-                  onTap: _submitting
-                      ? null
-                      : () => setState(() => _selectedReason = chip),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: active
-                          ? AppColors.seseGold
-                          : (isDark
-                              ? const Color(0xFF252530)
-                              : Colors.grey.shade100),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: active
-                            ? AppColors.seseGold
-                            : (isDark
-                                ? const Color(0xFF3A3A46)
-                                : Colors.grey.shade300),
-                      ),
-                    ),
-                    child: Text(
-                      chip,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight:
-                            active ? FontWeight.bold : FontWeight.normal,
-                        color: active
-                            ? Colors.black
-                            : (isDark
-                                ? Colors.grey.shade300
-                                : Colors.grey.shade800),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-
-            // Optional detail field
-            TextField(
-              controller: _detailCtrl,
-              enabled: !_submitting,
-              maxLines: 2,
-              maxLength: 200,
-              decoration: InputDecoration(
-                hintText: 'Add extra details (optional)...',
-                hintStyle: TextStyle(
-                    fontSize: 12,
-                    color: isDark
-                        ? Colors.grey.shade500
-                        : Colors.grey.shade400),
-                filled: true,
-                fillColor: isDark
-                    ? const Color(0xFF252530)
-                    : Colors.grey.shade50,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      BorderSide(color: Colors.grey.shade300),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      BorderSide(color: Colors.grey.shade300),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Action row
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14),
-                      side: BorderSide(color: Colors.grey.shade400),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('Skip'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.seseGold,
-                      foregroundColor: Colors.black,
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: (_selectedReason == null || _submitting)
-                        ? null
-                        : _submit,
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
-                            ),
-                          )
-                        : const Text(
-                            'Send Feedback',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
