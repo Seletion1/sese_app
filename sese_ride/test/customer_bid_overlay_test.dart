@@ -153,8 +153,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Modal pop-up card appears over the underlying content
-    expect(find.text('NEW DRIVER OFFER'), findsOneWidget);
+    // Compact floating card appears over the underlying content
     expect(find.text('Bamiduro Micheal'), findsOneWidget);
     expect(find.text('₦5,400'), findsOneWidget);
     expect(find.text('Accept'), findsOneWidget);
@@ -212,7 +211,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('NEW DRIVER OFFER'), findsOneWidget);
+    expect(find.text('Bamiduro Micheal'), findsOneWidget);
 
     // Tap Reject button
     await tester.tap(find.text('Reject'));

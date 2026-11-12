@@ -296,10 +296,6 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
                         isBusy: _actionBusy,
                         onAccept: () => _acceptBid(_pendingBids[i]),
                         onReject: () => _rejectBid(_pendingBids[i]),
-                        onViewMap: () =>
-                            _navigateToLiveTrip(_pendingBids[i].tripId),
-                        // Collapse non-top banners to a compact summary strip.
-                        isTopCard: i == 0,
                       ),
                   ],
                 ),
@@ -320,30 +316,31 @@ class _TripBidPair {
   const _TripBidPair({required this.tripId, required this.bid});
 }
 
-// ── Banner Card Widget ────────────────────────────────────────────────────────
+// ── Compact Floating Bid Card ─────────────────────────────────────────────────
 
-/// A single floating bid offer card shown at the top of the screen.
+/// Single floating offer card — compact style identical to the Live Trip bid
+/// list (`_BidCard`).
 ///
-/// The top card shows full detail (driver, fare, timer, Accept/Reject).
-/// Subsequent cards collapse to a compact strip to avoid blocking content.
-/// Both render an inline countdown ticker using the bid's server-sourced
-/// [BidModel.expiresAt] — no client-side drift.
+/// Layout:
+/// - **Row 1**: avatar · name + verified chip | inline countdown + fare (gold)
+/// - **Row 2**: star + rating · vehicle details (plate, model, ETA)
+/// - **Row 3**: Accept (green filled) | Reject (surface outlined)
+///
+/// No modal backdrop, no "OFFERED FARE" box, no "NEW DRIVER OFFER" badge,
+/// no "View Full Trip Map" link. Every card in the stack — first or queued —
+/// uses this identical compact layout.
 class _BidBannerCard extends StatefulWidget {
   final _TripBidPair pair;
   final bool isBusy;
-  final bool isTopCard;
   final VoidCallback onAccept;
   final VoidCallback onReject;
-  final VoidCallback onViewMap;
 
   const _BidBannerCard({
     super.key,
     required this.pair,
     required this.isBusy,
-    required this.isTopCard,
     required this.onAccept,
     required this.onReject,
-    required this.onViewMap,
   });
 
   @override
@@ -370,7 +367,8 @@ class _BidBannerCardState extends State<_BidBannerCard> {
 
   void _startTicker() {
     _ticker?.cancel();
-    // Tick every 500ms for smooth countdown display.
+    // Tick every 500 ms for a smooth countdown display without excessive
+    // rebuilds.
     _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!mounted) return;
       setState(() {});
@@ -385,331 +383,213 @@ class _BidBannerCardState extends State<_BidBannerCard> {
 
   @override
   Widget build(BuildContext context) {
-    // Guard: should never be called for an expired bid (the overlay's expiry
-    // timer removes it), but defence-in-depth: render nothing if expired.
+    // Defence-in-depth: the overlay's precision expiry timer removes cards
+    // before they ever reach 0 s, but guard here just in case.
     if (widget.pair.bid.isExpired) return const SizedBox.shrink();
 
     final bid = widget.pair.bid;
     final remaining = bid.remainingSeconds;
     final isUrgent = remaining <= 3;
+    final timerColour = isUrgent ? Colors.red : AppColors.seseGold;
     final fareLabel = bid.fareFormatted.isNotEmpty
         ? bid.fareFormatted
         : '₦${bid.offeredFare.toStringAsFixed(0)}';
+    final vehicleDetails = [
+      if (bid.etaMinutes != null) '~${bid.etaMinutes} min away',
+      bid.vehicleModel,
+      bid.plateNumber,
+    ].where((s) => s.trim().isNotEmpty).join(' · ');
+    final cs = Theme.of(context).colorScheme;
 
-    if (!widget.isTopCard) {
-      // ── Compact collapsed strip for queued bids ──────────────────────────
-      return Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Material(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          elevation: 2,
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                UserAvatar(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        elevation: 6,
+        shadowColor: Colors.black26,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Row 1: avatar | name + verified  ·  countdown + fare ──────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  UserAvatar(
                     displayName: bid.driverName,
                     photoUrl: bid.photoUrl,
-                    radius: 14),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    bid.driverName,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 13),
-                    overflow: TextOverflow.ellipsis,
+                    radius: 16,
                   ),
-                ),
-                Text(
-                  fareLabel,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: AppColors.seseGold,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _CountdownBadge(remainingSec: remaining, isUrgent: isUrgent),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    // ── Full expanded top card ───────────────────────────────────────────────
-    return Material(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(16),
-      elevation: 8,
-      shadowColor: Colors.black38,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header: badge + countdown
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.seseGold.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.local_taxi_rounded,
-                          size: 14, color: AppColors.seseGold),
-                      SizedBox(width: 6),
-                      Text(
-                        'NEW DRIVER OFFER',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.seseGold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Spacer(),
-                _CountdownBadge(
-                    remainingSec: remaining, isUrgent: isUrgent),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Driver info row
-            Row(
-              children: [
-                UserAvatar(
-                  displayName: bid.driverName,
-                  photoUrl: bid.photoUrl,
-                  radius: 22,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              bid.driverName,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Name + verified badge
+                        Flexible(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  bid.driverName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                              if (bid.isVerifiedDriver) ...[
+                                const SizedBox(width: 4),
+                                const Icon(
+                                  Icons.verified,
+                                  size: 14,
+                                  color: AppColors.seseGold,
+                                ),
+                              ],
+                            ],
                           ),
-                          if (bid.isVerifiedDriver) ...[
-                            const SizedBox(width: 4),
-                            const Icon(Icons.verified,
-                                size: 15, color: AppColors.seseGold),
+                        ),
+                        const SizedBox(width: 8),
+                        // Inline countdown badge + fare amount
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: timerColour.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.timer_outlined,
+                                      size: 11, color: timerColour),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    '${remaining}s',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: timerColour,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              fareLabel,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: AppColors.seseGold,
+                              ),
+                            ),
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        [
-                          if (bid.etaMinutes != null)
-                            '~${bid.etaMinutes} min away',
-                          if (bid.vehicleModel.isNotEmpty) bid.vehicleModel,
-                          if (bid.plateNumber.isNotEmpty) bid.plateNumber,
-                        ].join(' · '),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant,
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Fare box
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .outline
-                      .withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'OFFERED FARE',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        fareLabel,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          color: AppColors.seseGold,
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 4),
 
-            // Action buttons
-            if (widget.isBusy)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else
+              // ── Row 2: rating · vehicle details ───────────────────────────
               Row(
                 children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: widget.onAccept,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF059669),
-                        foregroundColor: Colors.white,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                      icon: const Icon(Icons.check_circle_rounded,
-                          size: 16),
-                      label: const Text(
-                        'Accept',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
+                  if (bid.rating > 0) ...[
+                    const Icon(Icons.star, size: 12, color: Colors.amber),
+                    const SizedBox(width: 2),
+                    Text(
+                      bid.rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                  const SizedBox(width: 10),
+                    const SizedBox(width: 6),
+                    Text('·', style: TextStyle(color: cs.onSurfaceVariant)),
+                    const SizedBox(width: 6),
+                  ],
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: widget.onReject,
-                      style: OutlinedButton.styleFrom(
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 12),
-                        side: BorderSide(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .outline
-                              .withValues(alpha: 0.3),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      icon:
-                          const Icon(Icons.close_rounded, size: 16),
-                      label: const Text(
-                        'Reject',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
+                    child: Text(
+                      vehicleDetails.isNotEmpty
+                          ? vehicleDetails
+                          : 'Vehicle details available',
+                      style:
+                          TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
 
-            // View Map link
-            Center(
-              child: TextButton.icon(
-                onPressed: widget.onViewMap,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 4),
+              // ── Row 3: Accept | Reject ─────────────────────────────────────
+              if (widget.isBusy)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: widget.onAccept,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 32),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.check, size: 14),
+                        label: const Text(
+                          'Accept',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: widget.onReject,
+                        style: OutlinedButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: const Size(0, 32),
+                          side: BorderSide.none,
+                          backgroundColor: cs.surfaceContainerHighest,
+                          foregroundColor: cs.onSurface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.close, size: 14),
+                        label: const Text(
+                          'Reject',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                icon: const Icon(Icons.map_outlined, size: 14),
-                label: const Text(
-                  'View Full Trip Map',
-                  style: TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Countdown Badge ───────────────────────────────────────────────────────────
-
-/// Compact timer badge — displays remaining seconds with urgency colour.
-/// Never renders a "0s" expired state; the parent removes the card first.
-class _CountdownBadge extends StatelessWidget {
-  final int remainingSec;
-  final bool isUrgent;
-
-  const _CountdownBadge(
-      {required this.remainingSec, required this.isUrgent});
-
-  @override
-  Widget build(BuildContext context) {
-    final colour = isUrgent ? Colors.red : AppColors.seseGold;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: colour.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.timer_outlined, size: 13, color: colour),
-          const SizedBox(width: 4),
-          Text(
-            '${remainingSec}s',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: colour,
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
