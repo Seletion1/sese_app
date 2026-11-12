@@ -376,4 +376,134 @@ void main() {
       expect(vehicle.isApproved, isTrue);
     });
   });
+
+  group('Dynamic Config Models Null-Safety & Fallback Audits', () {
+    test('FinancialConfig parses null, empty, and numeric types safely', () {
+      final defaultConfig = FinancialConfig.fromMap(null);
+      expect(defaultConfig.minWalletBalanceToOnline, 1.0);
+      expect(defaultConfig.minTopUpAmount, 1300.0);
+      expect(defaultConfig.userReferralCommissionRate, 0.01);
+      expect(defaultConfig.dailyTopUpFrequency, 5);
+
+      final customConfig = FinancialConfig.fromMap({
+        'minWalletBalanceToOnline': 100.0,
+        'minTopUpAmount': 2000.0,
+        'dailyTopUpFrequency': 10,
+        'userReferralCommissionRate': 0.02,
+      });
+      expect(customConfig.minWalletBalanceToOnline, 100.0);
+      expect(customConfig.minTopUpAmount, 2000.0);
+      expect(customConfig.dailyTopUpFrequency, 10);
+      expect(customConfig.userReferralCommissionRate, 0.02);
+
+      final map = customConfig.toMap();
+      expect(map['minTopUpAmount'], 2000.0);
+      expect(map['dailyTopUpFrequency'], 10);
+    });
+
+    test('DispatchTuning handles null map, string coercion, and fallback alias keys', () {
+      final defaultConfig = DispatchTuning.fromMap(null);
+      expect(defaultConfig.dispatchRadiusKm, 15.0);
+      expect(defaultConfig.tier1RadiusKm, 3.0);
+      expect(defaultConfig.tier1TimeoutSec, 15);
+      expect(defaultConfig.publicPoolDurationMin, 60);
+
+      final mapConfig = DispatchTuning.fromMap({
+        'searchRadiusKm': 4.5,
+        'poolRadiusKm': 20.0,
+        'sequentialTimeoutSec': 20,
+        'publicPoolDurationMin': 45,
+        'bidCountdownSec': 10,
+        'maxOfferBoostPct': 150.0,
+      });
+
+      expect(mapConfig.tier1RadiusKm, 4.5);
+      expect(mapConfig.tier3RadiusKm, 20.0);
+      expect(mapConfig.tier1TimeoutSec, 20);
+      expect(mapConfig.publicPoolDurationMin, 45);
+      expect(mapConfig.bidCountdownSec, 10);
+      expect(mapConfig.maxOfferBoostPct, 150.0);
+
+      // Escalation rules
+      expect(mapConfig.shouldEscalateToPool(candidateCount: 0, attemptedCount: 0), isTrue);
+      expect(mapConfig.shouldEscalateToPool(candidateCount: 5, attemptedCount: 3), isTrue);
+      expect(mapConfig.shouldEscalateToPool(candidateCount: 5, attemptedCount: 1), isFalse);
+      expect(mapConfig.shouldEscalateToPool(candidateCount: 5, attemptedCount: 1, isTier1Expired: true), isTrue);
+    });
+
+    test('VehicleRecommendationConfig parses distance threshold bounds and null maps', () {
+      final defaultConfig = VehicleRecommendationConfig.fromMap(null);
+      expect(defaultConfig.bicycleMaxDistanceKm, 10.0);
+      expect(defaultConfig.kekeMaxDistanceKm, 5.0);
+      expect(defaultConfig.motorcycleMinDistanceKm, 10.0);
+
+      final customConfig = VehicleRecommendationConfig.fromMap({
+        'bicycleMaxDistanceKm': 8.0,
+        'kekeMaxDistanceKm': 4.0,
+        'motorcycleMinDistanceKm': 12.0,
+      });
+      expect(customConfig.bicycleMaxDistanceKm, 8.0);
+      expect(customConfig.kekeMaxDistanceKm, 4.0);
+      expect(customConfig.motorcycleMinDistanceKm, 12.0);
+
+      final map = customConfig.toMap();
+      expect(map['bicycleMaxDistanceKm'], 8.0);
+      expect(map['kekeMaxDistanceKm'], 4.0);
+      expect(map['motorcycleMinDistanceKm'], 12.0);
+    });
+
+    test('RemoteKeysConfig enforces public key validation, feature providers, and secret-key security', () {
+      final defaultConfig = RemoteKeysConfig.fromMap(null);
+      expect(defaultConfig.paystackPublicKey, '');
+      expect(defaultConfig.activeMapProvider, 'google');
+      expect(defaultConfig.googleMonthlyCap, 20000);
+
+      // Invalid Paystack key gets sanitized to empty string
+      final invalidKeyConfig = RemoteKeysConfig.fromMap({
+        'paystackPublicKey': 'invalid_key_string',
+        'activeMapProvider': 'mapbox',
+        'google_maps_api_key': 'AIzaSy_TEST_KEY',
+        'featureProviders': {'tracking': 'mapbox', 'navigation': 'google'},
+        'feature_geocoding': 'cartodb',
+      });
+
+      expect(invalidKeyConfig.paystackPublicKey, '');
+      expect(invalidKeyConfig.activeMapProvider, 'mapbox');
+      expect(invalidKeyConfig.googleMapsApiKey, 'AIzaSy_TEST_KEY');
+      expect(invalidKeyConfig.featureProviders['tracking'], 'mapbox');
+      expect(invalidKeyConfig.featureProviders['navigation'], 'google');
+      expect(invalidKeyConfig.featureProviders['geocoding'], 'cartodb');
+
+      // Valid test key passes
+      final validKeyConfig = RemoteKeysConfig.fromMap({
+        'paystackPublicKey': 'pk_test_1234567890abcdef',
+      });
+      expect(validKeyConfig.paystackPublicKey, 'pk_test_1234567890abcdef');
+
+      // Security check: toMap() must omit secret keys
+      final serialized = validKeyConfig.toMap();
+      expect(serialized.containsKey('paystackSecretKey'), isFalse);
+      expect(serialized.containsKey('resendApiKey'), isFalse);
+      expect(serialized.containsKey('exchangeRateApiKey'), isFalse);
+    });
+
+    test('AwarenessTooltipItem parses maxViews, title, and enabled state safely', () {
+      final item = AwarenessTooltipItem.fromMap('tooltip_1', {
+        'title': 'Test Tooltip',
+        'description': 'Test Description',
+        'enabled': true,
+        'maxViews': 3,
+      });
+
+      expect(item.id, 'tooltip_1');
+      expect(item.title, 'Test Tooltip');
+      expect(item.description, 'Test Description');
+      expect(item.enabled, isTrue);
+      expect(item.maxViews, 3);
+
+      final defaultItem = AwarenessTooltipItem.fromMap('tooltip_2', {});
+      expect(defaultItem.enabled, isTrue);
+      expect(defaultItem.maxViews, 2);
+    });
+  });
 }

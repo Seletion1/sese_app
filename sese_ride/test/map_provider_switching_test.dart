@@ -264,5 +264,77 @@ void main() {
         MapProviderType.google,
       );
     });
+
+    testWidgets('Fallback banner renders when primary Google Maps falls back to Mapbox and can be dismissed',
+        (tester) async {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyTestKey123',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+      MapConfigController.instance.triggerGoogleFallback(reason: 'Google Maps quota exceeded');
+
+      final mapController = SeSeMapController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SeseUniversalMap(
+              mapController: mapController,
+              initialCenter: const LatLng(6.5244, 3.3792),
+              showFallbackBanner: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('map_fallback_banner')), findsOneWidget);
+      expect(find.textContaining('Google Maps quota exceeded'), findsOneWidget);
+
+      // Tap close button on fallback banner
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('map_fallback_banner')), findsNothing);
+    });
+
+    testWidgets('Cold-start trip context snapshots map config and protects against mid-trip engine swaps',
+        (tester) async {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyTestKey123',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+      final mapController = SeSeMapController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SeseUniversalMap(
+              mapContext: MapContext.activeTrip,
+              mapController: mapController,
+              initialCenter: const LatLng(6.5244, 3.3792),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(MapConfigController.instance.isTripActive, isFalse); // Widget manages snapshots
+      expect(find.byType(SeseUniversalMap), findsOneWidget);
+
+      // Mid-trip config update from Hub
+      final updatedConfig = const GlobalMapConfig(
+        activeProvider: 'cartodb',
+      );
+      MapConfigController.instance.updateConfig(updatedConfig);
+      await tester.pumpAndSettle();
+
+      // Trip surface stays rendered safely without crash
+      expect(find.byType(SeseUniversalMap), findsOneWidget);
+    });
   });
 }

@@ -102,6 +102,7 @@ abstract class DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? vehicleId,
     String? sessionId,
     String? fcmToken,
   });
@@ -133,6 +134,7 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? vehicleId,
     String? sessionId,
     String? fcmToken,
   }) async {
@@ -148,13 +150,10 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
         'driverId': driverId,
         'fix': fix,
         'idToken': idToken,
+        if (vehicleId != null && vehicleId.isNotEmpty) 'vehicleId': vehicleId,
+        if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
+        if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
       };
-      if (sessionId != null && sessionId.isNotEmpty) {
-        payload['sessionId'] = sessionId;
-      }
-      if (fcmToken != null && fcmToken.isNotEmpty) {
-        payload['fcmToken'] = fcmToken;
-      }
       final result = await fn.httpsCallable('goOnline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
@@ -249,6 +248,7 @@ class DriverStatusService {
   Future<DriverStatusDecision> requestGoOnline({
     required String driverId,
     required DriverGpsFix fix,
+    String? vehicleId,
     String? sessionId,
     String? fcmToken,
   }) async {
@@ -264,6 +264,7 @@ class DriverStatusService {
       idToken,
       driverId: driverId,
       fix: fix.toMap(),
+      vehicleId: vehicleId,
       sessionId: sessionId,
       fcmToken: fcmToken,
     );

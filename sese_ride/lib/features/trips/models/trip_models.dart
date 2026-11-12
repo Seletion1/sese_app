@@ -239,6 +239,9 @@ class ActiveTrip {
   final bool phoneMasked;
 
   final List<String> tierIds;
+
+  /// Alias for [tierIds] representing selected vehicle categories/tiers for this trip.
+  List<String> get selectedTiers => tierIds;
   final String fareFormatted;
   final double distanceKm;
   final double durationMins;
@@ -403,7 +406,8 @@ class ActiveTrip {
     this.dropoffName = '',
     this.dropoffPhone = '',
     this.phoneMasked = false,
-    this.tierIds = const [],
+    List<String> tierIds = const [],
+    List<String>? selectedTiers,
     this.fareFormatted = '',
     this.distanceKm = 0,
     this.durationMins = 0,
@@ -457,7 +461,7 @@ class ActiveTrip {
     this.rejections = const [],
     this.attemptedDriverIds = const [],
     this.hasActiveBids = false,
-  });
+  }) : tierIds = selectedTiers ?? tierIds;
 
   /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
   /// or null if no active rejection entry exists for that driver.

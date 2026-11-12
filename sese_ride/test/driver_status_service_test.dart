@@ -13,6 +13,7 @@ class _FakeBackend implements DriverStatusBackend {
     String idToken, {
     required String driverId,
     required Map<String, dynamic> fix,
+    String? vehicleId,
     String? sessionId,
     String? fcmToken,
   }) async {

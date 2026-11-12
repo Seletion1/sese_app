@@ -21,6 +21,7 @@ class OrderFeed extends StatefulWidget {
   final DriverStreakService streakService;
   final TripRepository? tripRepository;
   final bool isOnline;
+  final String? activeVehicleCategory;
 
   const OrderFeed({
     super.key,
@@ -31,6 +32,7 @@ class OrderFeed extends StatefulWidget {
     required this.streakService,
     this.tripRepository,
     required this.isOnline,
+    this.activeVehicleCategory,
   });
 
   @override
@@ -74,6 +76,17 @@ class OrderFeedState extends State<OrderFeed> {
     );
   }
 
+  bool _matchesActiveVehicleCategory(ActiveTrip trip) {
+    final driverCat = widget.activeVehicleCategory?.trim().toLowerCase();
+    if (driverCat == null || driverCat.isEmpty) return true;
+    final reqCat = trip.vehicleCategory.trim().toLowerCase();
+    final reqTiers = trip.selectedTiers.map((s) => s.trim().toLowerCase()).toList();
+    if (reqCat.isNotEmpty && reqCat == driverCat) return true;
+    if (reqTiers.isNotEmpty && reqTiers.contains(driverCat)) return true;
+    if (reqCat.isEmpty && reqTiers.isEmpty) return true;
+    return false;
+  }
+
   /// Merges the driver's exclusive sequential offer (Step 1, 2, or 3) with Public Order Pool listings.
   ///
   /// Sequential offers are pushed exclusively to this driver only and take top priority.
@@ -95,6 +108,7 @@ class OrderFeedState extends State<OrderFeed> {
           t.status != TripStatus.returnedToCustomer &&
           t.status != TripStatus.expired &&
           _withinPoolRadius(t) &&
+          _matchesActiveVehicleCategory(t) &&
           !OrderPoolSession.isDismissed(t.tripId, t)) {
         byId.putIfAbsent(t.tripId, () => t);
       }

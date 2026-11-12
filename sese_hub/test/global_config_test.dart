@@ -60,4 +60,38 @@ void main() {
     // Completing the load after dispose must not throw
     // "setState() called after dispose()" or use disposed controllers.
   });
+
+  testWidgets('GlobalConfigScreen permits section navigation and scope selection', (tester) async {
+    final service = SystemConfigService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: GlobalConfigScreen(
+          configService: service,
+          isOwner: true,
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Scope & Region section is default active, showing regional & currency scoping
+    expect(find.text('1. Regional & Currency Scoping'), findsOneWidget);
+    expect(find.text('Global Default'), findsWidgets);
+  });
+
+  test('SystemConfigService handles null firestore gracefully with local fallback', () async {
+    final service = SystemConfigService(null);
+
+    final configs = await service.getAllConfigs();
+    expect(configs, isNotEmpty);
+    expect(configs.any((c) => c.id == 'global_default'), isTrue);
+
+    final tuning = await service.getDispatchTuning();
+    expect(tuning.dispatchRadiusKm, 15);
+    expect(tuning.tier1RadiusKm, 3);
+
+    final maxBids = await service.getMaxVisibleBids();
+    expect(maxBids, 5);
+  });
 }

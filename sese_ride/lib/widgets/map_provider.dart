@@ -535,26 +535,29 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 fallbackMessage = 'Google Play Services unavailable. Using CartoDB.';
               }
               isFallbackActive = true;
-            } else if (mapConfig.isGoogle) {
-              if (!gmsOk || MapConfigController.instance.isGoogleFallbackActive) {
-                final reason = MapConfigController.instance.fallbackReason;
-                if (mapConfig.hasValidMapboxToken &&
-                    !MapConfigController.instance.isMapboxFallbackActive) {
-                  targetProvider = MapProvider.mapbox;
-                  fallbackMessage = reason ?? (!gmsOk ? 'Google Play Services unavailable. Using Mapbox.' : 'Google Maps unavailable. Using Mapbox.');
-                } else {
-                  targetProvider = MapProvider.cartoDb;
-                  fallbackMessage = reason ?? (!gmsOk ? 'Google Play Services unavailable. Using CartoDB.' : 'Google Maps unavailable. Using CartoDB.');
-                }
-                isFallbackActive = true;
-              }
+            } else if (mapConfig.isGoogle &&
+                (!gmsOk ||
+                    MapConfigController.instance.isGoogleFallbackActive ||
+                    targetProvider != MapProvider.googleMaps)) {
+              final reason = MapConfigController.instance.fallbackReason;
+              fallbackMessage = reason ??
+                  (!gmsOk
+                      ? 'Google Play Services unavailable. Using fallback.'
+                      : 'Google Maps unavailable. Using fallback.');
+              isFallbackActive = true;
             } else if (mapConfig.isMapbox &&
                 (MapConfigController.instance.isMapboxFallbackActive ||
-                    !mapConfig.hasValidMapboxToken)) {
-              targetProvider = MapProvider.cartoDb;
+                    !mapConfig.hasValidMapboxToken ||
+                    targetProvider != MapProvider.mapbox)) {
               isFallbackActive = true;
               fallbackMessage = MapConfigController.instance.mapboxFallbackReason ??
                   'Mapbox unavailable. Using CartoDB tiles.';
+            } else if (mapConfig.isCartoDb &&
+                (MapConfigController.instance.isCartoFallbackActive ||
+                    targetProvider != MapProvider.cartoDb)) {
+              isFallbackActive = true;
+              fallbackMessage = MapConfigController.instance.cartoFallbackReason ??
+                  'CartoDB unavailable. Using fallback tiles.';
             }
 
             final currentEngine = targetProvider.name;

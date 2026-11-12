@@ -142,6 +142,7 @@ class OrderPoolSheet extends StatefulWidget {
   final String currencySymbol;
   final String? driverId;
   final TripRepository? tripRepository;
+  final String? activeVehicleCategory;
 
   const OrderPoolSheet({
     super.key,
@@ -150,6 +151,7 @@ class OrderPoolSheet extends StatefulWidget {
     required this.currencySymbol,
     this.driverId,
     this.tripRepository,
+    this.activeVehicleCategory,
   });
 
   @override
@@ -183,6 +185,17 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
     _breathe.dispose();
     _messenger?.hideCurrentSnackBar();
     super.dispose();
+  }
+
+  bool _matchesActiveVehicleCategory(ActiveTrip trip) {
+    final driverCat = widget.activeVehicleCategory?.trim().toLowerCase();
+    if (driverCat == null || driverCat.isEmpty) return true;
+    final reqCat = trip.vehicleCategory.trim().toLowerCase();
+    final reqTiers = trip.selectedTiers.map((s) => s.trim().toLowerCase()).toList();
+    if (reqCat.isNotEmpty && reqCat == driverCat) return true;
+    if (reqTiers.isNotEmpty && reqTiers.contains(driverCat)) return true;
+    if (reqCat.isEmpty && reqTiers.isEmpty) return true;
+    return false;
   }
 
   String _fareLabel(ActiveTrip trip) {
@@ -258,6 +271,7 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                     .where((t) => OrderFeedState.withinPoolRadius(
                         t, widget.driverPosition))
                     .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
+                    .where((t) => _matchesActiveVehicleCategory(t))
                     .toList();
                 // Opaque sheet surface: the modal opens with a transparent
                 // barrier background, so the content must carry its own

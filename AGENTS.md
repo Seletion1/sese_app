@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-12 — Multi-Vehicle Ownership, Strict Vehicle Approval & Session Category Isolation Audit
+
+- **1. Server-Authoritative Vehicle Selection & Approval Gate (`functions/src/driverStatus.ts`)**:
+  - Updated `goOnline` callable to accept `vehicleId` payload and strictly verify that the requested vehicle document (`drivers/{uid}/vehicles/{vehicleId}`) is approved (`APPROVED`/`VERIFIED`/`isVerified == true`). Unapproved vehicle requests are rejected with `failed-precondition`.
+  - When `vehicleId` is omitted, verifies `isActiveSelected` vehicle approval without falling back to random approved vehicles if the selected vehicle is unapproved.
+  - Atomically writes `activeVehicleId`, `activeVehicleCategory`, and `activePlateNumber` across `driver_status/{uid}` and `drivers/{uid}`.
+
+- **2. Category Isolation & Marketplace Claim/Bid Verification (`functions/src/trips.ts`)**:
+  - Refactored `findNearestDrivers` (sequential dispatch Step 1/2/3) to require non-empty `activeVehicleCategory` and strictly match against the order's required `vehicleCategory` or `selectedTiers`.
+  - Hardened `acceptTrip` and `submitBid` inside atomic Firestore transactions: verifies that the claimer's active vehicle is approved AND that the driver's active vehicle category matches the order's required category/tiers, blocking cross-category claims and counter-offers.
+
+- **3. Client Fleet Selection & Order Feed Filtering (`sese_ride`, `sese_core`)**:
+  - Enforced `isApproved == true` check inside `DriverFleetService.setActiveSelectedVehicle()`, throwing state errors if attempting to set unapproved vehicles as active.
+  - Updated `DriverStatusService.requestGoOnline()`, `OnlineVerificationShieldModal`, and `DriverDashboardScreen` to pass explicit `vehicleId` when going online.
+  - Added active vehicle category filtering to `OrderFeed` (`order_feed.dart`) and `OrderPoolSheet` (`order_pool_sheet.dart`) to guarantee complete driver UI category isolation.
+
+- **4. Verification & Deployment**:
+  - Unit/Integration Tests: 98/98 Cloud Functions tests passed (including `multi_vehicle_isolation.test.ts`); 14/14 Flutter tests passed (including `multi_vehicle_category_isolation_test.dart`).
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_core`, `sese_hub`, and `sese_ride`.
+  - Deployment: Cloud Functions built and deployed to Firebase production (`sese-ride`).
+
 ## 2026-11-12 — Driver Earnings & Trip Aggregation Calculations Audit, Timezone Bucketing & Multi-Stream Deduplication
 
 - **1. Driver Earnings Stream & Deduplication (`sese_ride/lib/features/wallet/earnings_service.dart`)**:

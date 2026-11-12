@@ -263,6 +263,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         driverPosition: _driverPosition,
         currencySymbol: _currencySymbol,
         driverId: widget.driverId,
+        activeVehicleCategory: _activeVehicle?.category.name,
       ),
     );
     if (accepted != null && mounted) {
@@ -1260,6 +1261,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       final decision = await _status.requestGoOnline(
         driverId: widget.driverId,
         fix: fix,
+        vehicleId: selectedVehicle.id,
       );
       if (!mounted) return;
       if (decision.granted) {

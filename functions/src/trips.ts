@@ -1153,7 +1153,8 @@ async function findNearestDrivers(
   tuning: DispatchTuning,
   radiusKm?: number,
   vehicleCategory?: string,
-  customerId?: string
+  customerId?: string,
+  selectedTiers?: string[]
 ): Promise<NearbyDriver[]> {
   const snap = await db()
     .collection("drivers")
@@ -1171,14 +1172,27 @@ async function findNearestDrivers(
 
     const data = doc.data();
 
-    // Strict Vehicle Category Matching Guard:
-    // When order specifies a category (e.g. bicycle, motorcycle, tricycle, car, van, truck),
-    // skip drivers whose active vehicle category does not match.
-    if (vehicleCategory) {
-      const activeCat = String(data.activeVehicleCategory ?? data.vehicleCategory ?? "").toLowerCase();
-      if (activeCat && activeCat !== vehicleCategory.toLowerCase()) {
-        continue;
+    // Strict Vehicle Category & Tier Isolation Guard:
+    // Drivers MUST have a valid active vehicle category set when online.
+    const activeCat = String(data.activeVehicleCategory ?? data.vehicleCategory ?? "").toLowerCase();
+    if (!activeCat) {
+      continue;
+    }
+
+    const allowedCats = new Set<string>();
+    if (vehicleCategory && vehicleCategory.trim()) {
+      allowedCats.add(vehicleCategory.trim().toLowerCase());
+    }
+    if (Array.isArray(selectedTiers)) {
+      for (const t of selectedTiers) {
+        if (typeof t === "string" && t.trim()) {
+          allowedCats.add(t.trim().toLowerCase());
+        }
       }
+    }
+
+    if (allowedCats.size > 0 && !allowedCats.has(activeCat)) {
+      continue;
     }
 
     const tiers: string[] = Array.isArray(data.serviceTiers)
@@ -1286,6 +1300,10 @@ async function advanceSequentialDispatch(
       ""
   );
 
+  const selectedTiers = Array.isArray(data.selectedTiers)
+    ? data.selectedTiers.map((t: unknown) => String(t).toLowerCase())
+    : [];
+
   const nearest =
     pickup == null
       ? []
@@ -1297,7 +1315,8 @@ async function advanceSequentialDispatch(
           tuning,
           tuning.tier1RadiusKm,
           vehicleCategory,
-          customerId
+          customerId,
+          selectedTiers
         );
 
   if (nearest.length === 0) {
@@ -1717,6 +1736,81 @@ export const acceptTrip = onCall(async (request) => {
       );
     }
 
+    // Zero-trust Active Vehicle Approval & Category Isolation Gate (runs for all trip acceptances)
+    const driverDocSnap = await tx.get(db().collection("drivers").doc(driverId));
+    if (!driverDocSnap.exists || driverDocSnap.data()?.isOnline !== true) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You are currently offline. Go online to accept trips."
+      );
+    }
+    const claimer = driverDocSnap.data()!;
+    const claimerStatus = String(
+      claimer.verificationStatus ?? claimer.status ?? ""
+    ).toLowerCase();
+    const claimerVerified =
+      claimerStatus === "verified" ||
+      claimerStatus === "approved" ||
+      claimerStatus === "active_verified" ||
+      claimer.isVerified === true ||
+      claimer.isProfileVerified === true;
+    if (!claimerVerified) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only active verified drivers can accept trips."
+      );
+    }
+
+    const activeVehicleId = String(claimer.activeVehicleId ?? "");
+    const activeVehicleCategory = String(claimer.activeVehicleCategory ?? "").toLowerCase();
+
+    const fleetSnap = await tx.get(
+      db()
+        .collection("drivers")
+        .doc(driverId)
+        .collection("vehicles")
+        .limit(20)
+    );
+
+    let activeDoc = fleetSnap.docs.find((vDoc) => vDoc.id === activeVehicleId);
+    if (!activeDoc) {
+      activeDoc = fleetSnap.docs.find((vDoc) => vDoc.data()?.isActiveSelected === true);
+    }
+
+    if (!activeDoc) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No active vehicle selected for this session. Go offline and select a verified vehicle."
+      );
+    }
+
+    const activeVData = activeDoc.data() ?? {};
+    const vStatus = String(activeVData.verificationStatus ?? activeVData.status ?? "").toUpperCase();
+    const isVehicleApproved = vStatus === "APPROVED" || vStatus === "VERIFIED" || activeVData.isVerified === true;
+    if (!isVehicleApproved) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Your active vehicle is pending admin approval and cannot accept orders."
+      );
+    }
+
+    // Category & Tier Isolation Check
+    const reqCat = String(data.vehicleCategory ?? "").toLowerCase();
+    const reqTiers = Array.isArray(data.selectedTiers)
+      ? data.selectedTiers.map((t: unknown) => String(t).toLowerCase())
+      : [];
+    const allowedCats = new Set<string>();
+    if (reqCat) allowedCats.add(reqCat);
+    for (const t of reqTiers) if (t) allowedCats.add(t);
+
+    const effectiveDriverCat = activeVehicleCategory || String(activeVData.category ?? "").toLowerCase();
+    if (allowedCats.size > 0 && !allowedCats.has(effectiveDriverCat)) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Your active vehicle (${effectiveDriverCat}) cannot accept orders for this trip category.`
+      );
+    }
+
     if (status === "WAITING_FOR_ACCEPTANCE") {
       if (!isPingTarget(data, driverId)) {
         throw new HttpsError(
@@ -1728,56 +1822,7 @@ export const acceptTrip = onCall(async (request) => {
         throw new HttpsError("deadline-exceeded", "Your ping expired.");
       }
     } else if (status === "MARKETPLACE_OPEN" || status === "MARKETPLACE_LIST") {
-      const driverDoc = await tx.get(db().collection("drivers").doc(driverId));
-      if (!driverDoc.exists || driverDoc.data()?.isOnline !== true) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Go online to claim marketplace requests."
-        );
-      }
-      // Zero-trust claim gate (mirrors submitBid): online alone is not
-      // enough. Verification or the fleet may have been revoked mid-session
-      // after goOnline granted, so re-check inside the transaction.
-      const claimer = driverDoc.data()!;
-      const claimerStatus = String(
-        claimer.verificationStatus ?? claimer.status ?? ""
-      ).toLowerCase();
-      const claimerVerified =
-        claimerStatus === "verified" ||
-        claimerStatus === "approved" ||
-        claimerStatus === "active_verified" ||
-        claimer.isVerified === true ||
-        claimer.isProfileVerified === true;
-      if (!claimerVerified) {
-        throw new HttpsError(
-          "permission-denied",
-          "Only active verified drivers can claim marketplace requests."
-        );
-      }
-      const fleetSnap = await tx.get(
-        db()
-          .collection("drivers")
-          .doc(driverId)
-          .collection("vehicles")
-          .limit(20)
-      );
-      const hasApprovedVehicle = fleetSnap.docs.some((vDoc) => {
-        const vData = vDoc.data() ?? {};
-        const vStatus = String(
-          vData.verificationStatus ?? vData.status ?? ""
-        ).toUpperCase();
-        return (
-          vStatus === "APPROVED" ||
-          vStatus === "VERIFIED" ||
-          vData.isVerified === true
-        );
-      });
-      if (!hasApprovedVehicle) {
-        throw new HttpsError(
-          "failed-precondition",
-          "An approved vehicle is required to claim marketplace requests."
-        );
-      }
+      // Vehicle checks handled by the zero-trust gate above
     } else {
       throw new HttpsError(
         "failed-precondition",
@@ -2607,6 +2652,56 @@ export const submitBid = onCall(async (request) => {
     throw new HttpsError("not-found", "Trip not found.");
   }
   const tripData = tripSnap.data()!;
+
+  // Active Vehicle Approval & Category Isolation Guard
+  const activeVehicleId = String(driverData.activeVehicleId ?? "");
+  const activeVehicleCategory = String(driverData.activeVehicleCategory ?? "").toLowerCase();
+
+  const fleetSnap = await db()
+    .collection("drivers")
+    .doc(driverId)
+    .collection("vehicles")
+    .limit(20)
+    .get();
+
+  let activeDoc = fleetSnap.docs.find((vDoc) => vDoc.id === activeVehicleId);
+  if (!activeDoc) {
+    activeDoc = fleetSnap.docs.find((vDoc) => vDoc.data()?.isActiveSelected === true);
+  }
+
+  if (!activeDoc) {
+    throw new HttpsError(
+      "failed-precondition",
+      "No active vehicle selected for this session. Go offline and select a verified vehicle."
+    );
+  }
+
+  const activeVData = activeDoc.data() ?? {};
+  const vStatus = String(activeVData.verificationStatus ?? activeVData.status ?? "").toUpperCase();
+  const isVehicleApproved = vStatus === "APPROVED" || vStatus === "VERIFIED" || activeVData.isVerified === true;
+  if (!isVehicleApproved) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Your active vehicle is pending admin approval and cannot submit bids."
+    );
+  }
+
+  // Category & Tier Isolation Check
+  const reqCat = String(tripData.vehicleCategory ?? "").toLowerCase();
+  const reqTiers = Array.isArray(tripData.selectedTiers)
+    ? tripData.selectedTiers.map((t: unknown) => String(t).toLowerCase())
+    : [];
+  const allowedCats = new Set<string>();
+  if (reqCat) allowedCats.add(reqCat);
+  for (const t of reqTiers) if (t) allowedCats.add(t);
+
+  const effectiveDriverCat = activeVehicleCategory || String(activeVData.category ?? "").toLowerCase();
+  if (allowedCats.size > 0 && !allowedCats.has(effectiveDriverCat)) {
+    throw new HttpsError(
+      "failed-precondition",
+      `Your active vehicle (${effectiveDriverCat}) cannot bid on orders for this trip category.`
+    );
+  }
 
   // Self-assignment guard: drivers cannot bid on orders they created as customer
   const orderCustomerId = String(tripData.customerId ?? tripData.userId ?? (tripData.customer && typeof tripData.customer === "object" ? tripData.customer.uid : "") ?? "");

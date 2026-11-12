@@ -291,6 +291,12 @@ class DriverFleetService {
         orElse: () => throw ArgumentError('Vehicle $vehicleId not found in driver fleet.'),
       );
 
+      if (!selected.isApproved) {
+        throw StateError(
+          'Vehicle ${selected.displayTitle} is pending admin approval and cannot be set as active.',
+        );
+      }
+
       final batch = db.batch();
       for (final v in vehicles) {
         final ref = col.doc(v.id);

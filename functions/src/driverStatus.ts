@@ -12,6 +12,7 @@ const db = () => admin.firestore();
 
 interface GoOnlineData {
   driverId?: string;
+  vehicleId?: string;
   sessionId?: string;
   fcmToken?: string;
   fix?: {
@@ -95,7 +96,7 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
     // Non-fatal — fall through to the fleet guard below
   }
 
-  // Fleet verification guard: at least one APPROVED vehicle.
+  // Fleet verification guard: strictly enforce single active approved vehicle.
   let activeVehicleId: string | null = null;
   let activeVehicleCategory: string | null = null;
   let activePlateNumber: string | null = null;
@@ -107,32 +108,76 @@ export const goOnline = onCall<GoOnlineData>(async (request) => {
       .collection("vehicles")
       .limit(20)
       .get();
-    
-    let activeDoc = fleetSnap.docs.find((d) => {
-      const data = d.data() ?? {};
-      const canonical = String(data.verificationStatus ?? "").toUpperCase();
-      const isAppr = canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
-      return data.isActiveSelected === true && isAppr;
-    });
 
-    if (!activeDoc) {
-      activeDoc = fleetSnap.docs.find((d) => {
-        const data = d.data() ?? {};
-        const canonical = String(data.verificationStatus ?? "").toUpperCase();
-        return canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
-      });
+    const isApprovedDoc = (doc: admin.firestore.QueryDocumentSnapshot) => {
+      const vData = doc.data() ?? {};
+      const canonical = String(vData.verificationStatus ?? vData.status ?? "").toUpperCase();
+      return canonical === "APPROVED" || canonical === "VERIFIED" || vData.isVerified === true;
+    };
+
+    const targetVehicleId = data.vehicleId ? String(data.vehicleId).trim() : null;
+    let activeDoc: admin.firestore.QueryDocumentSnapshot | undefined;
+
+    if (targetVehicleId) {
+      // Driver explicitly requested a specific vehicle session ID
+      activeDoc = fleetSnap.docs.find((d) => d.id === targetVehicleId);
+      if (!activeDoc) {
+        throw new HttpsError(
+          "not-found",
+          "Requested vehicle not found in your fleet."
+        );
+      }
+      if (!isApprovedDoc(activeDoc)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The selected vehicle is pending admin approval and cannot be used to go online."
+        );
+      }
+    } else {
+      // Look for a vehicle marked isActiveSelected === true
+      activeDoc = fleetSnap.docs.find((d) => d.data()?.isActiveSelected === true);
+      if (activeDoc) {
+        if (!isApprovedDoc(activeDoc)) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The selected active vehicle is pending admin approval and cannot be used to go online."
+          );
+        }
+      } else {
+        // Fallback: if only 1 vehicle exists and it is approved, use it.
+        const approvedDocs = fleetSnap.docs.filter(isApprovedDoc);
+        if (approvedDocs.length === 1) {
+          activeDoc = approvedDocs[0];
+        } else if (approvedDocs.length === 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "No verified vehicle found. Register a vehicle and wait for admin approval before going online."
+          );
+        } else {
+          throw new HttpsError(
+            "failed-precondition",
+            "Multiple approved vehicles found. Please select a specific verified vehicle before going online."
+          );
+        }
+      }
     }
 
     if (activeDoc) {
-      const vData = activeDoc.data();
+      const vData = activeDoc.data() ?? {};
       activeVehicleId = activeDoc.id;
       activeVehicleCategory = String(vData.category ?? "car").toLowerCase();
       activePlateNumber = String(vData.licensePlate ?? vData.plateNumber ?? "");
+
+      // Ensure isActiveSelected is atomically updated across fleet
+      const batch = db().batch();
+      for (const d of fleetSnap.docs) {
+        batch.update(d.ref, {
+          isActiveSelected: d.id === activeVehicleId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
     } else {
-      console.warn(
-        `goOnline[${uid}]: no approved vehicle ` +
-          `(${fleetSnap.size} vehicle docs scanned)`
-      );
       throw new HttpsError(
         "failed-precondition",
         "No verified vehicle found. Register a vehicle and wait for admin approval before going online."

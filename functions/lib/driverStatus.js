@@ -46,7 +46,7 @@ const LIVE_STATUSES = [
     "IN_PROGRESS",
 ];
 exports.goOnline = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to go online.");
     }
@@ -102,7 +102,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
             throw e;
         // Non-fatal — fall through to the fleet guard below
     }
-    // Fleet verification guard: at least one APPROVED vehicle.
+    // Fleet verification guard: strictly enforce single active approved vehicle.
     let activeVehicleId = null;
     let activeVehicleCategory = null;
     let activePlateNumber = null;
@@ -113,30 +113,62 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
             .collection("vehicles")
             .limit(20)
             .get();
-        let activeDoc = fleetSnap.docs.find((d) => {
-            var _a, _b;
-            const data = (_a = d.data()) !== null && _a !== void 0 ? _a : {};
-            const canonical = String((_b = data.verificationStatus) !== null && _b !== void 0 ? _b : "").toUpperCase();
-            const isAppr = canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
-            return data.isActiveSelected === true && isAppr;
-        });
-        if (!activeDoc) {
-            activeDoc = fleetSnap.docs.find((d) => {
-                var _a, _b;
-                const data = (_a = d.data()) !== null && _a !== void 0 ? _a : {};
-                const canonical = String((_b = data.verificationStatus) !== null && _b !== void 0 ? _b : "").toUpperCase();
-                return canonical === "APPROVED" || canonical === "VERIFIED" || data.isVerified === true;
-            });
-        }
-        if (activeDoc) {
-            const vData = activeDoc.data();
-            activeVehicleId = activeDoc.id;
-            activeVehicleCategory = String((_e = vData.category) !== null && _e !== void 0 ? _e : "car").toLowerCase();
-            activePlateNumber = String((_g = (_f = vData.licensePlate) !== null && _f !== void 0 ? _f : vData.plateNumber) !== null && _g !== void 0 ? _g : "");
+        const isApprovedDoc = (doc) => {
+            var _a, _b, _c;
+            const vData = (_a = doc.data()) !== null && _a !== void 0 ? _a : {};
+            const canonical = String((_c = (_b = vData.verificationStatus) !== null && _b !== void 0 ? _b : vData.status) !== null && _c !== void 0 ? _c : "").toUpperCase();
+            return canonical === "APPROVED" || canonical === "VERIFIED" || vData.isVerified === true;
+        };
+        const targetVehicleId = data.vehicleId ? String(data.vehicleId).trim() : null;
+        let activeDoc;
+        if (targetVehicleId) {
+            // Driver explicitly requested a specific vehicle session ID
+            activeDoc = fleetSnap.docs.find((d) => d.id === targetVehicleId);
+            if (!activeDoc) {
+                throw new https_1.HttpsError("not-found", "Requested vehicle not found in your fleet.");
+            }
+            if (!isApprovedDoc(activeDoc)) {
+                throw new https_1.HttpsError("failed-precondition", "The selected vehicle is pending admin approval and cannot be used to go online.");
+            }
         }
         else {
-            console.warn(`goOnline[${uid}]: no approved vehicle ` +
-                `(${fleetSnap.size} vehicle docs scanned)`);
+            // Look for a vehicle marked isActiveSelected === true
+            activeDoc = fleetSnap.docs.find((d) => { var _a; return ((_a = d.data()) === null || _a === void 0 ? void 0 : _a.isActiveSelected) === true; });
+            if (activeDoc) {
+                if (!isApprovedDoc(activeDoc)) {
+                    throw new https_1.HttpsError("failed-precondition", "The selected active vehicle is pending admin approval and cannot be used to go online.");
+                }
+            }
+            else {
+                // Fallback: if only 1 vehicle exists and it is approved, use it.
+                const approvedDocs = fleetSnap.docs.filter(isApprovedDoc);
+                if (approvedDocs.length === 1) {
+                    activeDoc = approvedDocs[0];
+                }
+                else if (approvedDocs.length === 0) {
+                    throw new https_1.HttpsError("failed-precondition", "No verified vehicle found. Register a vehicle and wait for admin approval before going online.");
+                }
+                else {
+                    throw new https_1.HttpsError("failed-precondition", "Multiple approved vehicles found. Please select a specific verified vehicle before going online.");
+                }
+            }
+        }
+        if (activeDoc) {
+            const vData = (_e = activeDoc.data()) !== null && _e !== void 0 ? _e : {};
+            activeVehicleId = activeDoc.id;
+            activeVehicleCategory = String((_f = vData.category) !== null && _f !== void 0 ? _f : "car").toLowerCase();
+            activePlateNumber = String((_h = (_g = vData.licensePlate) !== null && _g !== void 0 ? _g : vData.plateNumber) !== null && _h !== void 0 ? _h : "");
+            // Ensure isActiveSelected is atomically updated across fleet
+            const batch = db().batch();
+            for (const d of fleetSnap.docs) {
+                batch.update(d.ref, {
+                    isActiveSelected: d.id === activeVehicleId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+            await batch.commit();
+        }
+        else {
             throw new https_1.HttpsError("failed-precondition", "No verified vehicle found. Register a vehicle and wait for admin approval before going online.");
         }
     }
@@ -154,7 +186,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
             .limit(5)
             .get();
         for (const doc of activeTrips.docs) {
-            const status = String((_h = doc.data().status) !== null && _h !== void 0 ? _h : "");
+            const status = String((_j = doc.data().status) !== null && _j !== void 0 ? _j : "");
             if (LIVE_STATUSES.includes(status)) {
                 throw new https_1.HttpsError("failed-precondition", "You have an active trip. Complete it before changing status.");
             }
@@ -165,7 +197,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
             throw e;
     }
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const newSessionId = String((_j = data.sessionId) !== null && _j !== void 0 ? _j : db().collection("_").doc().id);
+    const newSessionId = String((_k = data.sessionId) !== null && _k !== void 0 ? _k : db().collection("_").doc().id);
     const newFcmToken = data.fcmToken ? String(data.fcmToken) : null;
     // Single-device online session lock:
     // If the driver is already online on Device A and now goes online on Device B,
@@ -173,7 +205,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
     try {
         const prevStatusDoc = await db().collection("driver_status").doc(uid).get();
         if (prevStatusDoc.exists) {
-            const prevData = (_k = prevStatusDoc.data()) !== null && _k !== void 0 ? _k : {};
+            const prevData = (_l = prevStatusDoc.data()) !== null && _l !== void 0 ? _l : {};
             const prevIsOnline = prevData.isOnline === true;
             const prevSessionId = prevData.activeSessionId ? String(prevData.activeSessionId) : null;
             const prevFcmToken = prevData.activeFcmToken ? String(prevData.activeFcmToken) : null;
@@ -182,7 +214,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
                 let targetToken = prevFcmToken;
                 if (!targetToken) {
                     const userDoc = await db().collection("users").doc(uid).get();
-                    targetToken = (_l = userDoc.data()) === null || _l === void 0 ? void 0 : _l.fcmToken;
+                    targetToken = (_m = userDoc.data()) === null || _m === void 0 ? void 0 : _m.fcmToken;
                 }
                 if (targetToken && typeof targetToken === "string") {
                     try {

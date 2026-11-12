@@ -900,7 +900,7 @@ async function getMinWalletBalanceToOnline() {
     catch (_) { }
     return 1.00;
 }
-async function findNearestDrivers(attempted, serviceType, pickup, count, tuning, radiusKm, vehicleCategory, customerId) {
+async function findNearestDrivers(attempted, serviceType, pickup, count, tuning, radiusKm, vehicleCategory, customerId, selectedTiers) {
     var _a, _b;
     const snap = await db()
         .collection("drivers")
@@ -916,14 +916,25 @@ async function findNearestDrivers(attempted, serviceType, pickup, count, tuning,
         if (customerId && doc.id === customerId)
             continue;
         const data = doc.data();
-        // Strict Vehicle Category Matching Guard:
-        // When order specifies a category (e.g. bicycle, motorcycle, tricycle, car, van, truck),
-        // skip drivers whose active vehicle category does not match.
-        if (vehicleCategory) {
-            const activeCat = String((_b = (_a = data.activeVehicleCategory) !== null && _a !== void 0 ? _a : data.vehicleCategory) !== null && _b !== void 0 ? _b : "").toLowerCase();
-            if (activeCat && activeCat !== vehicleCategory.toLowerCase()) {
-                continue;
+        // Strict Vehicle Category & Tier Isolation Guard:
+        // Drivers MUST have a valid active vehicle category set when online.
+        const activeCat = String((_b = (_a = data.activeVehicleCategory) !== null && _a !== void 0 ? _a : data.vehicleCategory) !== null && _b !== void 0 ? _b : "").toLowerCase();
+        if (!activeCat) {
+            continue;
+        }
+        const allowedCats = new Set();
+        if (vehicleCategory && vehicleCategory.trim()) {
+            allowedCats.add(vehicleCategory.trim().toLowerCase());
+        }
+        if (Array.isArray(selectedTiers)) {
+            for (const t of selectedTiers) {
+                if (typeof t === "string" && t.trim()) {
+                    allowedCats.add(t.trim().toLowerCase());
+                }
             }
+        }
+        if (allowedCats.size > 0 && !allowedCats.has(activeCat)) {
+            continue;
         }
         const tiers = Array.isArray(data.serviceTiers)
             ? data.serviceTiers.map(String)
@@ -1007,9 +1018,12 @@ async function advanceSequentialDispatch(tripRef, data, tuning) {
         ? data.selectedTiers[0]
         : "")).toLowerCase();
     const customerId = String((_e = (_d = (_c = data.customerId) !== null && _c !== void 0 ? _c : data.userId) !== null && _d !== void 0 ? _d : (data.customer && typeof data.customer === "object" ? data.customer.uid : "")) !== null && _e !== void 0 ? _e : "");
+    const selectedTiers = Array.isArray(data.selectedTiers)
+        ? data.selectedTiers.map((t) => String(t).toLowerCase())
+        : [];
     const nearest = pickup == null
         ? []
-        : await findNearestDrivers(attempted, serviceType, pickup, 1, tuning, tuning.tier1RadiusKm, vehicleCategory, customerId);
+        : await findNearestDrivers(attempted, serviceType, pickup, 1, tuning, tuning.tier1RadiusKm, vehicleCategory, customerId, selectedTiers);
     if (nearest.length === 0) {
         // No more eligible drivers within configured radius (0-3 km) -> drop directly to Public Order Pool
         await dropToPublicPool(tripRef);
@@ -1319,7 +1333,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
     await (0, accountGuard_1.requireAccountActive)(driverId, "driver");
     const snapshot = await driverSnapshot(driverId);
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
         const ref = db().collection("trips").doc(tripId);
         const snap = await tx.get(ref);
         if (!snap.exists) {
@@ -1360,6 +1374,56 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
         if (orderCustomerId && orderCustomerId === driverId) {
             throw new https_1.HttpsError("failed-precondition", "You cannot accept an order you created as a customer.");
         }
+        // Zero-trust Active Vehicle Approval & Category Isolation Gate (runs for all trip acceptances)
+        const driverDocSnap = await tx.get(db().collection("drivers").doc(driverId));
+        if (!driverDocSnap.exists || ((_j = driverDocSnap.data()) === null || _j === void 0 ? void 0 : _j.isOnline) !== true) {
+            throw new https_1.HttpsError("failed-precondition", "You are currently offline. Go online to accept trips.");
+        }
+        const claimer = driverDocSnap.data();
+        const claimerStatus = String((_l = (_k = claimer.verificationStatus) !== null && _k !== void 0 ? _k : claimer.status) !== null && _l !== void 0 ? _l : "").toLowerCase();
+        const claimerVerified = claimerStatus === "verified" ||
+            claimerStatus === "approved" ||
+            claimerStatus === "active_verified" ||
+            claimer.isVerified === true ||
+            claimer.isProfileVerified === true;
+        if (!claimerVerified) {
+            throw new https_1.HttpsError("permission-denied", "Only active verified drivers can accept trips.");
+        }
+        const activeVehicleId = String((_m = claimer.activeVehicleId) !== null && _m !== void 0 ? _m : "");
+        const activeVehicleCategory = String((_o = claimer.activeVehicleCategory) !== null && _o !== void 0 ? _o : "").toLowerCase();
+        const fleetSnap = await tx.get(db()
+            .collection("drivers")
+            .doc(driverId)
+            .collection("vehicles")
+            .limit(20));
+        let activeDoc = fleetSnap.docs.find((vDoc) => vDoc.id === activeVehicleId);
+        if (!activeDoc) {
+            activeDoc = fleetSnap.docs.find((vDoc) => { var _a; return ((_a = vDoc.data()) === null || _a === void 0 ? void 0 : _a.isActiveSelected) === true; });
+        }
+        if (!activeDoc) {
+            throw new https_1.HttpsError("failed-precondition", "No active vehicle selected for this session. Go offline and select a verified vehicle.");
+        }
+        const activeVData = (_p = activeDoc.data()) !== null && _p !== void 0 ? _p : {};
+        const vStatus = String((_r = (_q = activeVData.verificationStatus) !== null && _q !== void 0 ? _q : activeVData.status) !== null && _r !== void 0 ? _r : "").toUpperCase();
+        const isVehicleApproved = vStatus === "APPROVED" || vStatus === "VERIFIED" || activeVData.isVerified === true;
+        if (!isVehicleApproved) {
+            throw new https_1.HttpsError("failed-precondition", "Your active vehicle is pending admin approval and cannot accept orders.");
+        }
+        // Category & Tier Isolation Check
+        const reqCat = String((_s = data.vehicleCategory) !== null && _s !== void 0 ? _s : "").toLowerCase();
+        const reqTiers = Array.isArray(data.selectedTiers)
+            ? data.selectedTiers.map((t) => String(t).toLowerCase())
+            : [];
+        const allowedCats = new Set();
+        if (reqCat)
+            allowedCats.add(reqCat);
+        for (const t of reqTiers)
+            if (t)
+                allowedCats.add(t);
+        const effectiveDriverCat = activeVehicleCategory || String((_t = activeVData.category) !== null && _t !== void 0 ? _t : "").toLowerCase();
+        if (allowedCats.size > 0 && !allowedCats.has(effectiveDriverCat)) {
+            throw new https_1.HttpsError("failed-precondition", `Your active vehicle (${effectiveDriverCat}) cannot accept orders for this trip category.`);
+        }
         if (status === "WAITING_FOR_ACCEPTANCE") {
             if (!isPingTarget(data, driverId)) {
                 throw new https_1.HttpsError("failed-precondition", "This trip is no longer waiting on you.");
@@ -1369,44 +1433,12 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             }
         }
         else if (status === "MARKETPLACE_OPEN" || status === "MARKETPLACE_LIST") {
-            const driverDoc = await tx.get(db().collection("drivers").doc(driverId));
-            if (!driverDoc.exists || ((_j = driverDoc.data()) === null || _j === void 0 ? void 0 : _j.isOnline) !== true) {
-                throw new https_1.HttpsError("failed-precondition", "Go online to claim marketplace requests.");
-            }
-            // Zero-trust claim gate (mirrors submitBid): online alone is not
-            // enough. Verification or the fleet may have been revoked mid-session
-            // after goOnline granted, so re-check inside the transaction.
-            const claimer = driverDoc.data();
-            const claimerStatus = String((_l = (_k = claimer.verificationStatus) !== null && _k !== void 0 ? _k : claimer.status) !== null && _l !== void 0 ? _l : "").toLowerCase();
-            const claimerVerified = claimerStatus === "verified" ||
-                claimerStatus === "approved" ||
-                claimerStatus === "active_verified" ||
-                claimer.isVerified === true ||
-                claimer.isProfileVerified === true;
-            if (!claimerVerified) {
-                throw new https_1.HttpsError("permission-denied", "Only active verified drivers can claim marketplace requests.");
-            }
-            const fleetSnap = await tx.get(db()
-                .collection("drivers")
-                .doc(driverId)
-                .collection("vehicles")
-                .limit(20));
-            const hasApprovedVehicle = fleetSnap.docs.some((vDoc) => {
-                var _a, _b, _c;
-                const vData = (_a = vDoc.data()) !== null && _a !== void 0 ? _a : {};
-                const vStatus = String((_c = (_b = vData.verificationStatus) !== null && _b !== void 0 ? _b : vData.status) !== null && _c !== void 0 ? _c : "").toUpperCase();
-                return (vStatus === "APPROVED" ||
-                    vStatus === "VERIFIED" ||
-                    vData.isVerified === true);
-            });
-            if (!hasApprovedVehicle) {
-                throw new https_1.HttpsError("failed-precondition", "An approved vehicle is required to claim marketplace requests.");
-            }
+            // Vehicle checks handled by the zero-trust gate above
         }
         else {
             throw new https_1.HttpsError("failed-precondition", "This trip is no longer available.");
         }
-        if ((_m = data.driver) === null || _m === void 0 ? void 0 : _m.driverId) {
+        if ((_u = data.driver) === null || _u === void 0 ? void 0 : _u.driverId) {
             throw new https_1.HttpsError("failed-precondition", "Another driver claimed this trip first.");
         }
         // Verify pending bids before assignment: accept the claimer's own
@@ -1443,7 +1475,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             driver: snapshot,
             driverId: driverId,
             isPoolOrder: isPoolClaim,
-            dispatchTier: (_o = data.dispatchTier) !== null && _o !== void 0 ? _o : null,
+            dispatchTier: (_v = data.dispatchTier) !== null && _v !== void 0 ? _v : null,
             cancellationSource: null,
             cancellationReason: null,
             rejections: updatedRejections,
@@ -1452,10 +1484,10 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             pingExpiresAt: null,
             tierExpiresAt: null,
             hasActiveBids: false,
-            biddingCompleted: pendingBids.size > 0 ? true : ((_p = data.biddingCompleted) !== null && _p !== void 0 ? _p : false),
+            biddingCompleted: pendingBids.size > 0 ? true : ((_w = data.biddingCompleted) !== null && _w !== void 0 ? _w : false),
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
-                : ((_q = data.acceptedBidDriverId) !== null && _q !== void 0 ? _q : null),
+                : ((_x = data.acceptedBidDriverId) !== null && _x !== void 0 ? _x : null),
             statusHistory: admin.firestore.FieldValue.arrayUnion({
                 from: status,
                 to: "DRIVER_ACCEPTED",
@@ -2074,7 +2106,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 /** Driver submits a custom fare bid on an open trip document */
 exports.submitBid = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in to bid.");
     }
@@ -2110,21 +2142,58 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         throw new https_1.HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data();
+    // Active Vehicle Approval & Category Isolation Guard
+    const activeVehicleId = String((_d = driverData.activeVehicleId) !== null && _d !== void 0 ? _d : "");
+    const activeVehicleCategory = String((_e = driverData.activeVehicleCategory) !== null && _e !== void 0 ? _e : "").toLowerCase();
+    const fleetSnap = await db()
+        .collection("drivers")
+        .doc(driverId)
+        .collection("vehicles")
+        .limit(20)
+        .get();
+    let activeDoc = fleetSnap.docs.find((vDoc) => vDoc.id === activeVehicleId);
+    if (!activeDoc) {
+        activeDoc = fleetSnap.docs.find((vDoc) => { var _a; return ((_a = vDoc.data()) === null || _a === void 0 ? void 0 : _a.isActiveSelected) === true; });
+    }
+    if (!activeDoc) {
+        throw new https_1.HttpsError("failed-precondition", "No active vehicle selected for this session. Go offline and select a verified vehicle.");
+    }
+    const activeVData = (_f = activeDoc.data()) !== null && _f !== void 0 ? _f : {};
+    const vStatus = String((_h = (_g = activeVData.verificationStatus) !== null && _g !== void 0 ? _g : activeVData.status) !== null && _h !== void 0 ? _h : "").toUpperCase();
+    const isVehicleApproved = vStatus === "APPROVED" || vStatus === "VERIFIED" || activeVData.isVerified === true;
+    if (!isVehicleApproved) {
+        throw new https_1.HttpsError("failed-precondition", "Your active vehicle is pending admin approval and cannot submit bids.");
+    }
+    // Category & Tier Isolation Check
+    const reqCat = String((_j = tripData.vehicleCategory) !== null && _j !== void 0 ? _j : "").toLowerCase();
+    const reqTiers = Array.isArray(tripData.selectedTiers)
+        ? tripData.selectedTiers.map((t) => String(t).toLowerCase())
+        : [];
+    const allowedCats = new Set();
+    if (reqCat)
+        allowedCats.add(reqCat);
+    for (const t of reqTiers)
+        if (t)
+            allowedCats.add(t);
+    const effectiveDriverCat = activeVehicleCategory || String((_k = activeVData.category) !== null && _k !== void 0 ? _k : "").toLowerCase();
+    if (allowedCats.size > 0 && !allowedCats.has(effectiveDriverCat)) {
+        throw new https_1.HttpsError("failed-precondition", `Your active vehicle (${effectiveDriverCat}) cannot bid on orders for this trip category.`);
+    }
     // Self-assignment guard: drivers cannot bid on orders they created as customer
-    const orderCustomerId = String((_f = (_e = (_d = tripData.customerId) !== null && _d !== void 0 ? _d : tripData.userId) !== null && _e !== void 0 ? _e : (tripData.customer && typeof tripData.customer === "object" ? tripData.customer.uid : "")) !== null && _f !== void 0 ? _f : "");
+    const orderCustomerId = String((_o = (_m = (_l = tripData.customerId) !== null && _l !== void 0 ? _l : tripData.userId) !== null && _m !== void 0 ? _m : (tripData.customer && typeof tripData.customer === "object" ? tripData.customer.uid : "")) !== null && _o !== void 0 ? _o : "");
     if (orderCustomerId && orderCustomerId === driverId) {
         throw new https_1.HttpsError("failed-precondition", "You cannot bid on an order you created as a customer.");
     }
     // 2. Validate offered fare against baseline, rounded to nearest 100
-    const baseline = Number((_h = (_g = tripData.baselineFare) !== null && _g !== void 0 ? _g : tripData.fareAmount) !== null && _h !== void 0 ? _h : 0);
+    const baseline = Number((_q = (_p = tripData.baselineFare) !== null && _p !== void 0 ? _p : tripData.fareAmount) !== null && _q !== void 0 ? _q : 0);
     const roundedOfferedFare = (0, pricing_1.roundToNearest100)(offeredFare, baseline);
     if (baseline > 0 && roundedOfferedFare < baseline) {
         throw new https_1.HttpsError("invalid-argument", `Offered fare (₦${roundedOfferedFare}) cannot be lower than the baseline fare (₦${baseline}).`);
     }
-    if ((_j = tripData.driver) === null || _j === void 0 ? void 0 : _j.driverId) {
+    if ((_r = tripData.driver) === null || _r === void 0 ? void 0 : _r.driverId) {
         throw new https_1.HttpsError("failed-precondition", "This trip has already been claimed by another driver.");
     }
-    const currentStatus = String((_k = tripData.status) !== null && _k !== void 0 ? _k : "").trim().toUpperCase();
+    const currentStatus = String((_s = tripData.status) !== null && _s !== void 0 ? _s : "").trim().toUpperCase();
     const allowedStatuses = [
         "SEARCHING_DRIVER",
         "SEARCHING",
@@ -2149,7 +2218,7 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
             .get();
         for (const bDoc of existingPendingBids.docs) {
             const bData = bDoc.data();
-            const expMs = (_o = (_m = (_l = bData.expiresAt) === null || _l === void 0 ? void 0 : _l.toMillis) === null || _m === void 0 ? void 0 : _m.call(_l)) !== null && _o !== void 0 ? _o : 0;
+            const expMs = (_v = (_u = (_t = bData.expiresAt) === null || _t === void 0 ? void 0 : _t.toMillis) === null || _u === void 0 ? void 0 : _u.call(_t)) !== null && _v !== void 0 ? _v : 0;
             if (expMs > currentTime) {
                 throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
             }
@@ -2163,7 +2232,7 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
             const existingTripBid = await tripRef.collection("bids").doc(driverId).get();
             if (existingTripBid.exists) {
                 const bData = existingTripBid.data();
-                const expMs = (_r = (_q = (_p = bData === null || bData === void 0 ? void 0 : bData.expiresAt) === null || _p === void 0 ? void 0 : _p.toMillis) === null || _q === void 0 ? void 0 : _q.call(_p)) !== null && _r !== void 0 ? _r : 0;
+                const expMs = (_y = (_x = (_w = bData === null || bData === void 0 ? void 0 : bData.expiresAt) === null || _w === void 0 ? void 0 : _w.toMillis) === null || _x === void 0 ? void 0 : _x.call(_w)) !== null && _y !== void 0 ? _y : 0;
                 if ((bData === null || bData === void 0 ? void 0 : bData.status) === "pending" && expMs > currentTime) {
                     throw new https_1.HttpsError("failed-precondition", "You already have an active bid waiting for a customer decision.");
                 }
@@ -2183,7 +2252,7 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         bidId: driverId,
         tripId,
         driverId,
-        customerId: String((_s = tripData.customerId) !== null && _s !== void 0 ? _s : ""),
+        customerId: String((_z = tripData.customerId) !== null && _z !== void 0 ? _z : ""),
         driverName: snapshot.fullName,
         photoUrl: snapshot.photoUrl,
         rating: snapshot.rating,
@@ -2215,17 +2284,17 @@ exports.submitBid = (0, https_1.onCall)(async (request) => {
         : vehicleDetails;
     // Rich counter-bid alert: in-app notification + FCM push to the customer
     // with complete driver details, ETA, vehicle info, offered fare, and Accept/Reject payload
-    await notifyCustomer(String((_t = tripData.customerId) !== null && _t !== void 0 ? _t : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
+    await notifyCustomer(String((_0 = tripData.customerId) !== null && _0 !== void 0 ? _0 : ""), String(tripId), "New Driver Offer", `${snapshot.fullName} offered ₦${Number(roundedOfferedFare).toLocaleString()} (~${etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5} mins away)`, "driver_counter_bid", {
         driverId,
         driverName: String(snapshot.fullName),
-        driverPhoto: String((_u = snapshot.photoUrl) !== null && _u !== void 0 ? _u : ""),
-        driverRating: String((_v = snapshot.rating) !== null && _v !== void 0 ? _v : 0),
+        driverPhoto: String((_1 = snapshot.photoUrl) !== null && _1 !== void 0 ? _1 : ""),
+        driverRating: String((_2 = snapshot.rating) !== null && _2 !== void 0 ? _2 : 0),
         offeredFare: String(roundedOfferedFare),
         offeredFareFormatted: `₦${Number(roundedOfferedFare).toLocaleString()}`,
         etaMinutes: String(etaMinutes !== null && etaMinutes !== void 0 ? etaMinutes : 5),
-        vehicleModel: String((_w = snapshot.vehicleModel) !== null && _w !== void 0 ? _w : ""),
-        vehicleColor: String((_x = snapshot.vehicleColor) !== null && _x !== void 0 ? _x : ""),
-        plateNumber: String((_y = snapshot.plateNumber) !== null && _y !== void 0 ? _y : ""),
+        vehicleModel: String((_3 = snapshot.vehicleModel) !== null && _3 !== void 0 ? _3 : ""),
+        vehicleColor: String((_4 = snapshot.vehicleColor) !== null && _4 !== void 0 ? _4 : ""),
+        plateNumber: String((_5 = snapshot.plateNumber) !== null && _5 !== void 0 ? _5 : ""),
         vehicleDetails: vehicleStr,
     });
     return { ok: true, bidId: driverId };
