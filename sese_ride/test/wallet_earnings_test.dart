@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/payments/payment_service.dart';
+import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/features/wallet/earnings_service.dart';
 import 'package:sese_ride/features/wallet/earnings_screen.dart';
 import 'package:sese_ride/features/wallet/wallet_screen.dart';
@@ -40,8 +41,8 @@ class _FakeEarnings extends EarningsService {
 
   @override
   Stream<List<TripEarning>> completedTripEarningsStream(String driverId,
-          {int limit = 100}) =>
-      Stream.value(trips);
+          {int limit = 0}) =>
+      Stream.value(limit > 0 ? trips.take(limit).toList() : trips);
 }
 
 AppUser _driver() => AppUser(
@@ -361,6 +362,89 @@ void main() {
       expect(day.commission, 600.0);
       expect(day.net, 3400.0);
       expect(day.tripCount, 1);
+    });
+
+    test('recognizes all expanded backend incentive and bonus types', () {
+      final expandedTypes = [
+        'streak_level2_cashback',
+        'streak_level3_bonus',
+        'streak_grand_award',
+        'payout_bonus',
+        'referral_bonus',
+        'referral_credit',
+        'referral_earnings',
+        'referral_commission',
+        'REFERRAL_COMMISSION_DRIVER',
+        'REFERRAL_COMMISSION_CUSTOMER',
+        'driver_streak_milestone_bonus',
+        'customer_streak_milestone_bonus',
+        'driver_streak_grand_award',
+        'customer_streak_grand_award',
+        'incentive_bonus',
+        'trip_bonus',
+        'trip_cashback',
+      ];
+      for (final type in expandedTypes) {
+        expect(WalletTransaction.isIncentiveType(type), isTrue,
+            reason: 'Type $type should be recognized as incentive');
+      }
+
+      final transactions = expandedTypes.map((type) {
+        return WalletTransaction.fromMap('tx_$type', {
+          'type': type,
+          'amountKobo': 100000, // ₦1,000
+          'createdAt': '2026-09-15T12:00:00.000Z',
+        });
+      }).toList();
+
+      final totalIncentives = EarningsService.summarizeMonthIncentives(
+          transactions, 2026, 9);
+      expect(totalIncentives, expandedTypes.length * 1000.0);
+    });
+
+    test('ActiveTrip parsing handles flat and nested financial fields accurately', () {
+      final flatDoc = ActiveTrip.fromMap('trip_flat', {
+        'status': 'COMPLETED',
+        'fareAmount': 5000,
+        'commissionAmount': 750,
+        'commissionRate': 0.15,
+        'completedAt': '2026-09-10T14:30:00.000Z',
+      });
+      final earningFlat = TripEarning.fromTrip(flatDoc);
+      expect(earningFlat.grossNaira, 5000.0);
+      expect(earningFlat.commissionNaira, 750.0);
+      expect(earningFlat.netNaira, 4250.0);
+
+      final nestedDoc = ActiveTrip.fromMap('trip_nested', {
+        'status': 'COMPLETED',
+        'fareAmount': 6000,
+        'settlement': {
+          'commissionAmount': 900,
+          'commissionRate': 0.15,
+          'settledAt': '2026-09-10T15:30:00.000Z',
+        },
+      });
+      final earningNested = TripEarning.fromTrip(nestedDoc);
+      expect(earningNested.grossNaira, 6000.0);
+      expect(earningNested.commissionNaira, 900.0);
+      expect(earningNested.netNaira, 5100.0);
+    });
+
+    test('summarizeMonth includes all trips beyond 100 without truncation', () {
+      final monthTrips = List.generate(150, (i) {
+        return TripEarning(
+          tripId: 'trip_$i',
+          grossNaira: 1000,
+          commissionNaira: 100,
+          completedAt: DateTime(2026, 9, (i % 28) + 1, 10, 0),
+        );
+      });
+
+      final month = EarningsService.summarizeMonth(monthTrips, 2026, 9);
+      expect(month.tripCount, 150);
+      expect(month.gross, 150000.0);
+      expect(month.commission, 15000.0);
+      expect(month.net, 135000.0);
     });
   });
 }

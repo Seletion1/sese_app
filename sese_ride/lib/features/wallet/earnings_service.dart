@@ -81,10 +81,11 @@ class EarningsService {
   }
 
   /// Completed-trip earnings for [driverId], newest first.
-  /// Merges nested `driver.driverId` and flat `driverId` Firestore queries
-  /// so that every completed trip updates immediately with zero delay.
+  /// Merges nested `driver.driverId`, flat `driverId`, and `drivers/{driverId}/trip_history`
+  /// Firestore queries so that every completed trip updates immediately with zero missing records.
+  /// Default [limit] is 0 (unlimited/all trips) so period totals are never truncated.
   Stream<List<TripEarning>> completedTripEarningsStream(String driverId,
-      {int limit = 100}) {
+      {int limit = 0}) {
     final db = _db;
     if (db == null || driverId.isEmpty) {
       return Stream.value(const <TripEarning>[]);
@@ -92,19 +93,24 @@ class EarningsService {
 
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subNested;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subFlat;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subMirror;
     List<QueryDocumentSnapshot<Map<String, dynamic>>> nestedDocs = const [];
     List<QueryDocumentSnapshot<Map<String, dynamic>>> flatDocs = const [];
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> mirrorDocs = const [];
 
     late final StreamController<List<TripEarning>> controller;
 
     void emitCombined() {
       if (controller.isClosed) return;
       final map = <String, ActiveTrip>{};
-      for (final doc in [...nestedDocs, ...flatDocs]) {
+      for (final doc in [...nestedDocs, ...flatDocs, ...mirrorDocs]) {
         try {
           final trip = ActiveTrip.fromMap(doc.id, doc.data());
-          // Customer-booked trips created by this user must not leak into driver earnings
-          if (trip.customerId == driverId) continue;
+          // Customer-booked trips created by this user where they were NOT the driver
+          // must not leak into driver earnings.
+          if (trip.customerId == driverId && trip.driverId != driverId) {
+            continue;
+          }
 
           if (trip.status == TripStatus.completed) {
             map[trip.tripId] = trip;
@@ -113,7 +119,11 @@ class EarningsService {
       }
       final items = map.values.map(TripEarning.fromTrip).toList()
         ..sort((a, b) => _compareEarningDate(b, a));
-      controller.add(items.take(limit).toList());
+      if (limit > 0) {
+        controller.add(items.take(limit).toList());
+      } else {
+        controller.add(items);
+      }
     }
 
     controller = StreamController<List<TripEarning>>(
@@ -140,10 +150,23 @@ class EarningsService {
               },
               onError: (err) => emitCombined(),
             );
+        subMirror = db
+            .collection('drivers')
+            .doc(driverId)
+            .collection('trip_history')
+            .snapshots()
+            .listen(
+              (snap) {
+                mirrorDocs = snap.docs;
+                emitCombined();
+              },
+              onError: (err) => emitCombined(),
+            );
       },
       onCancel: () {
         subNested?.cancel();
         subFlat?.cancel();
+        subMirror?.cancel();
       },
     );
 
@@ -174,8 +197,9 @@ class EarningsService {
   /// Totals for a single calendar day + that day's trips (newest first).
   static ({DayEarnings day, List<TripEarning> trips}) summarizeDay(
       List<TripEarning> earnings, DateTime day) {
+    final lDay = day.toLocal();
     final trips = earnings
-        .where((e) => e.completedAt != null && _sameDay(e.completedAt!, day))
+        .where((e) => e.completedAt != null && _sameDay(e.completedAt!, lDay))
         .toList()
       ..sort((a, b) => _compareEarningDate(b, a));
     var gross = 0.0, commission = 0.0;
@@ -185,7 +209,7 @@ class EarningsService {
     }
     return (
       day: DayEarnings(
-        date: DateTime(day.year, day.month, day.day),
+        date: DateTime(lDay.year, lDay.month, lDay.day),
         gross: gross,
         commission: commission,
         net: gross - commission,
@@ -198,12 +222,15 @@ class EarningsService {
   /// Monday→Sunday buckets for the week containing [anchor].
   static List<DayEarnings> summarizeWeek(
       List<TripEarning> earnings, DateTime anchor) {
-    final monday =
-        DateTime(anchor.year, anchor.month, anchor.day)
-            .subtract(Duration(days: anchor.weekday - 1));
+    final lAnchor = anchor.toLocal();
+    final monday = DateTime(
+      lAnchor.year,
+      lAnchor.month,
+      lAnchor.day - (lAnchor.weekday - 1),
+    );
     return [
       for (var i = 0; i < 7; i++)
-        summarizeDay(earnings, monday.add(Duration(days: i))).day,
+        summarizeDay(earnings, DateTime(monday.year, monday.month, monday.day + i)).day,
     ];
   }
 

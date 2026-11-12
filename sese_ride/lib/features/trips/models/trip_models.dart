@@ -755,20 +755,24 @@ class ActiveTrip {
       arrivedAt: dateOf(map['arrivedAt']),
       dropoffArrivedAt: dateOf(map['dropoffArrivedAt'] ?? map['arrivedDropoffAt']),
       completedAt: dateOf(map['completedAt']) ?? dateOf(settlement['commissionSettledAt']),
-      settledAt: dateOf(settlement['settledAt']),
+      settledAt: dateOf(settlement['settledAt']) ?? dateOf(map['settledAt']),
       updatedAt: dateOf(map['updatedAt']),
       createdAt: dateOf(map['createdAt']) ?? dateOf(map['requestedAt']),
       fareAmount: fareAmount,
       isVerifiedCustomer: map['isVerifiedCustomer'] == true,
-      streakLevel: n(settlement['streakLevel'])?.toInt() ?? 0,
-      streakStep: n(settlement['streakStep'])?.toInt() ?? 0,
-      commissionRate: n(settlement['commissionRate'])?.toDouble() ?? 0,
-      commissionAmount: n(settlement['commissionAmount'])?.toDouble() ?? 0,
-      cashBackAmount: n(settlement['cashBackAmount'])?.toDouble() ?? 0,
-      cashBonusAmount: n(settlement['cashBonusAmount'])?.toDouble() ?? 0,
-      grandAwardTriggered: settlement['grandAwardTriggered'] == true,
+      streakLevel: n(settlement['streakLevel'])?.toInt() ?? n(map['streakLevel'])?.toInt() ?? 0,
+      streakStep: n(settlement['streakStep'])?.toInt() ?? n(map['streakStep'])?.toInt() ?? 0,
+      commissionRate: n(settlement['commissionRate'])?.toDouble() ?? n(map['commissionRate'])?.toDouble() ?? 0,
+      commissionAmount: n(settlement['commissionAmount'])?.toDouble() ??
+          n(settlement['commission'])?.toDouble() ??
+          n(map['commissionAmount'])?.toDouble() ??
+          n(map['commission'])?.toDouble() ??
+          0,
+      cashBackAmount: n(settlement['cashBackAmount'])?.toDouble() ?? n(map['cashBackAmount'])?.toDouble() ?? 0,
+      cashBonusAmount: n(settlement['cashBonusAmount'])?.toDouble() ?? n(map['cashBonusAmount'])?.toDouble() ?? 0,
+      grandAwardTriggered: settlement['grandAwardTriggered'] == true || map['grandAwardTriggered'] == true,
       grandAwardAmount:
-          n(settlement['grandAwardAmount'])?.toDouble() ?? 0,
+          n(settlement['grandAwardAmount'])?.toDouble() ?? n(map['grandAwardAmount'])?.toDouble() ?? 0,
       cancellationSource: (parsedStatus == TripStatus.completed ||
               parsedStatus == TripStatus.inProgress ||
               parsedStatus == TripStatus.driverAccepted ||

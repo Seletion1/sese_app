@@ -72,6 +72,25 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-12 — Driver Earnings & Trip Aggregation Calculations Audit, Timezone Bucketing & Multi-Stream Deduplication
+
+- **1. Driver Earnings Stream & Deduplication (`sese_ride/lib/features/wallet/earnings_service.dart`)**:
+  - Refactored `completedTripEarningsStream` to listen simultaneously to three document streams (`trips` with `driver.driverId`, `trips` with `driverId`, and `drivers/{driverId}/trip_history` server-maintained mirror).
+  - Deduplicated docs by `tripId` so that no completed trips are missed even if primary `trips` queries encounter index/permission constraints.
+  - Changed default `limit` parameter from `100` to `0` (unlimited), ensuring drivers with > 100 completed trips do not have older trips truncated when summarizing Weekly or Monthly totals.
+
+- **2. Timezone-Safe Period Bucketing (`earnings_service.dart`)**:
+  - Normalized `day` in `summarizeDay` using `final lDay = day.toLocal()` for `DateTime(lDay.year, lDay.month, lDay.day)` construction.
+  - Updated `summarizeWeek` to use calendar arithmetic `DateTime(lAnchor.year, lAnchor.month, lAnchor.day - (lAnchor.weekday - 1))` on local dates, preventing DST transitions or hour shifts from skewing Monday–Sunday bucketing.
+
+- **3. Expanded Incentive Recognition & Settlement Fallbacks (`payment_service.dart`, `trip_models.dart`)**:
+  - Expanded `WalletTransaction.isIncentiveType` to recognize all backend bonus/reward types (`driver_streak_milestone_bonus`, `driver_streak_grand_award`, `referral_credit`, `payout_bonus`, etc.).
+  - Added flat/nested parsing fallbacks in `ActiveTrip.fromMap` for `commissionRate`, `commissionAmount`, `cashBackAmount`, `cashBonusAmount`, and `grandAwardAmount`.
+
+- **4. Verification & Testing**:
+  - Unit/Widget Tests: 16/16 passed in `sese_ride/test/wallet_earnings_test.dart` (100%).
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride` and `sese_core`.
+
 ## 2026-11-11 — Transaction Security PIN Recovery, Password Reset & End-to-End Workflow Hardening
 
 - **1. Transaction PIN Reset Authority & Recovery (`functions/src/transactionPin.ts`, `sese_core`, `sese_ride`)**:
