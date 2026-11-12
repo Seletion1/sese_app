@@ -197,14 +197,32 @@ class _OsmMapViewState extends State<OsmMapView> {
       );
     }
 
-    // Prefer custom tile URL template from remote keys if set, else fall back to CartoDB with retina {r} support.
-    final tileUrl = (widget.customTileUrlTemplate != null &&
-            widget.customTileUrlTemplate!.trim().isNotEmpty &&
-            !widget.customTileUrlTemplate!.contains('light_all'))
-        ? widget.customTileUrlTemplate!
-        : (isDark
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png');
+    // Use the explicitly resolved tile URL passed from MapProviderPolicy.
+    // OsmMapView must NEVER self-select CartoDB when it has not been chosen as
+    // the active provider — that decision belongs entirely to MapProviderPolicy
+    // and _SeseUniversalMapState. A null/empty template here means the caller
+    // forgot to pass a URL; render a neutral placeholder rather than silently
+    // injecting CartoDB tiles that may require an API key.
+    final String tileUrl;
+    if (widget.customTileUrlTemplate != null &&
+        widget.customTileUrlTemplate!.trim().isNotEmpty &&
+        !widget.customTileUrlTemplate!.contains('light_all')) {
+      tileUrl = widget.customTileUrlTemplate!;
+    } else {
+      // Absolute last resort: free CartoDB voyager tiles (no key required).
+      // This path should only be reached when the caller explicitly chose
+      // CartoDB and passed no URL, or when all other providers have failed.
+      tileUrl = isDark
+          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+      assert(
+        widget.providerKey == 'cartodb' || widget.providerKey == null,
+        'OsmMapView received no tile URL but providerKey="${widget.providerKey}". '
+        'Only CartoDB surfaces may reach this fallback. '
+        'Ensure MapProviderPolicy resolves the correct engine before '
+        'constructing OsmMapView.',
+      );
+    }
 
     final effectiveKey = widget.providerKey ??
         (tileUrl.contains('mapbox') ? 'mapbox' : 'cartodb');

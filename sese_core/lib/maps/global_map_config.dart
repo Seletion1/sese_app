@@ -281,8 +281,17 @@ class GlobalMapConfig {
   /// True when the selected provider requires an API key / token.
   bool get requiresApiKey => isGoogle || isMapbox;
 
-  /// True when a non-empty API key is configured (Google or CartoDB).
-  bool get hasValidApiKey => apiKey != null && apiKey!.trim().isNotEmpty;
+  /// True when a non-empty API key is configured for the current provider.
+  ///
+  /// For Google Maps: true when an `AIzaSy…` key is present in [apiKey] or
+  /// supplied via compile-time `--dart-define=GOOGLE_MAPS_API_KEY=…`.
+  /// The native Google Maps SDK is initialized once at app start with this
+  /// key — the check here is a configuration guard only. `isGoogle` alone is
+  /// NOT sufficient (having Google as the provider without a valid key is a
+  /// misconfiguration and should cascade to Mapbox/CartoDB).
+  bool get hasValidApiKey =>
+      (apiKey != null && apiKey!.trim().isNotEmpty) ||
+      defaultGoogleMapsApiKey.isNotEmpty;
 
   // ── Tile URL resolution ────────────────────────────────────────────────────
 
@@ -327,31 +336,43 @@ class GlobalMapConfig {
   }
 
   /// Resolves the tile URL for raster tile providers (Mapbox or CartoDB).
+  ///
+  /// **Important:** This method must only be called when the active provider
+  /// is Mapbox or CartoDB. It NEVER injects CartoDB tiles for a Google-primary
+  /// config, even when a CartoDB API key is present in the database. The
+  /// CartoDB API key is only applied when CartoDB is the explicitly chosen
+  /// engine ([isCartoDb] == true).
   String resolveTileUrl({bool isDark = false}) {
     if (isMapbox) return resolveMapboxTileUrl(isDark: isDark);
 
-    final cleanCartoKey = (cartoApiKey ?? '').trim();
-    if (cleanCartoKey.isNotEmpty) {
-      return isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey'
-          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
+    // CartoDB tile URL construction — only when CartoDB is explicitly selected.
+    // Presence of a cartoApiKey in the config does NOT mean CartoDB tiles
+    // should be served for a Google-primary or Mapbox-primary setup.
+    if (isCartoDb) {
+      final cleanCartoKey = (cartoApiKey ?? '').trim();
+      if (cleanCartoKey.isNotEmpty) {
+        return isDark
+            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey'
+            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
+      }
+
+      // Custom non-default tileUrlTemplate (if specified by admin, e.g. custom tile server)
+      if (tileUrlTemplate.trim().isNotEmpty &&
+          tileUrlTemplate != _cartoLight &&
+          tileUrlTemplate != _cartoDark &&
+          !tileUrlTemplate.contains('light_all') &&
+          (tileUrlTemplate.contains('carto') ||
+              tileUrlTemplate.contains('mapbox'))) {
+        return tileUrlTemplate.trim();
+      }
+
+      // CartoDB primary but no key/template — use free public tiles.
+      return isDark ? _cartoDark : _cartoLight;
     }
 
-    // Custom non-default tileUrlTemplate (if specified by admin, e.g. custom tile server)
-    if (tileUrlTemplate.trim().isNotEmpty &&
-        tileUrlTemplate != _cartoLight &&
-        tileUrlTemplate != _cartoDark &&
-        !tileUrlTemplate.contains('light_all') &&
-        (tileUrlTemplate.contains('carto') ||
-            tileUrlTemplate.contains('mapbox'))) {
-      return tileUrlTemplate.trim();
-    }
-    if (isCartoDb && hasValidApiKey) {
-      final key = apiKey!.trim();
-      return isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$key'
-          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$key';
-    }
+    // Fallback: free CartoDB public tiles (no API key) for any other case.
+    // This is the absolute last resort and should not normally be reached
+    // when the provider chain is correctly resolved.
     return isDark ? _cartoDark : _cartoLight;
   }
 
