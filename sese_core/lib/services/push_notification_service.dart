@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Notification channels (Android importance max + custom chime).
 class PushChannels {
@@ -39,13 +40,45 @@ class PushChannels {
 /// the custom chime even when the app is killed. Order pings request the
 /// full-screen intent so the popup renders over lock/launcher.
 ///
+/// For driver offer pings (trip_offer, direct_ping, tier_ping,
+/// marketplace_broadcast) the enriched payload is additionally persisted to
+/// SharedPreferences under the key `pending_offer_payload` so the main
+/// isolate can pick it up on cold-start and immediately expand the overlay
+/// order card without a Firestore round-trip.
+///
 /// Must stay a top-level function for `@pragma('vm:entry-point')`.
 @pragma('vm:entry-point')
 Future<void> pushBackgroundHandler(RemoteMessage message) async {
   try {
     await PushNotificationService.showFromMessage(message);
   } catch (e) {
-    debugPrint('pushBackgroundHandler failed: $e');
+    debugPrint('pushBackgroundHandler: showFromMessage failed: $e');
+  }
+
+  // For driver offer pings, persist the enriched data payload so the
+  // foreground isolate can read it on cold-start and immediately render
+  // the interactive overlay card without waiting for a Firestore stream.
+  try {
+    final type = (message.data['type'] ?? '').toString();
+    const offerTypes = {
+      'trip_offer',
+      'direct_ping',
+      'tier_ping',
+      'marketplace_broadcast',
+    };
+    if (offerTypes.contains(type)) {
+      final prefs = await SharedPreferences.getInstance();
+      // Encode as a flat key=value string matching _payloadOf() format so
+      // the foreground can decode it with the same _dataOf() helper.
+      final entries = message.data.entries
+          .map((e) =>
+              '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value.toString())}')
+          .join('&');
+      await prefs.setString('pending_offer_payload', entries);
+      debugPrint('pushBackgroundHandler: persisted offer payload for cold-start pickup.');
+    }
+  } catch (e) {
+    debugPrint('pushBackgroundHandler: payload persist failed (non-fatal): $e');
   }
 }
 
@@ -469,6 +502,34 @@ class PushNotificationService {
       await _local.cancel(id: 9002);
     } catch (e) {
       debugPrint('PushNotificationService cancel-online-alert failed: $e');
+    }
+  }
+
+  // ── Cold-start offer handoff ──────────────────────────────────────────────
+
+  /// SharedPreferences key where [pushBackgroundHandler] persists the offer
+  /// FCM payload for the foreground isolate to consume on cold-start.
+  static const _pendingOfferKey = 'pending_offer_payload';
+
+  /// Reads and clears any driver offer payload that was stashed by
+  /// [pushBackgroundHandler] while the app was killed.
+  ///
+  /// Returns the decoded data map when a pending offer exists, or `null`
+  /// when there is nothing to consume. The entry is atomically deleted after
+  /// reading so it is never replayed on a subsequent launch.
+  ///
+  /// Call this once during app startup (after Firebase + notifications init)
+  /// to surface killed-state offers without a Firestore round-trip.
+  static Future<Map<String, String>?> consumePendingOfferPayload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pendingOfferKey);
+      if (raw == null || raw.isEmpty) return null;
+      await prefs.remove(_pendingOfferKey);
+      return _dataOf(raw);
+    } catch (e) {
+      debugPrint('PushNotificationService.consumePendingOfferPayload failed: $e');
+      return null;
     }
   }
 }
