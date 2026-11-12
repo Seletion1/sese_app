@@ -221,6 +221,8 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       useSafeArea: false,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PoolOrderDetailSheet(
@@ -242,21 +244,13 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
 
   @override
   Widget build(BuildContext context) {
-    final repo = widget.tripRepository ?? FirestoreTripRepository();
-    final effectiveDriverId =
-        widget.driverId ?? widget.streakService.driverId ?? '';
-
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.7,
       minChildSize: 0.4,
       maxChildSize: 0.92,
       builder: (context, scrollController) {
-        return StreamBuilder<BidModel?>(
-          stream: repo.activeDriverBidStream(effectiveDriverId),
-          builder: (context, activeBidSnap) {
-            final activeBid = activeBidSnap.data;
-            return StreamBuilder<List<ActiveTrip>>(
+        return StreamBuilder<List<ActiveTrip>>(
               stream: widget.streakService
                   .marketplaceStream(driverId: widget.driverId),
               builder: (context, snap) {
@@ -398,7 +392,6 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                                   typeLabel: _typeLabel(trip),
                                   ageText: _ageText(trip),
                                   driverPosition: widget.driverPosition,
-                                  activeBid: activeBid,
                                   onTap: () => _openDetails(trip),
                                 ),
                               );
@@ -410,8 +403,6 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                 );
               },
             );
-          },
-        );
       },
     );
   }
@@ -424,7 +415,6 @@ class _PoolRow extends StatelessWidget {
   final String ageText;
   final LatLng driverPosition;
   final VoidCallback onTap;
-  final BidModel? activeBid;
 
   const _PoolRow({
     required this.trip,
@@ -433,7 +423,6 @@ class _PoolRow extends StatelessWidget {
     required this.ageText,
     required this.driverPosition,
     required this.onTap,
-    this.activeBid,
   });
 
   @override
@@ -519,49 +508,20 @@ class _PoolRow extends StatelessWidget {
                                 color: scheme.onSurfaceVariant,
                               ),
                             ),
-                            if (activeBid != null &&
-                                activeBid!.tripId == trip.tripId &&
-                                !activeBid!.isExpired) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: Colors.amber.shade900
-                                      .withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                      color: Colors.amber.shade700, width: 0.8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.hourglass_top_rounded,
-                                        size: 10, color: Colors.amber.shade700),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      'Bid Pending (${activeBid!.remainingSeconds}s)',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.amber.shade700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ],
                     ),
                   ),
-                  Text(
-                    fareLabel,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 17,
-                      color: scheme.primary,
+                  Flexible(
+                    child: Text(
+                      fareLabel,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 17,
+                        color: scheme.primary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -1074,98 +1034,121 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                 trip.status == TripStatus.expired;
             final bool isTripCancelled = trip.status == TripStatus.cancelled || isTripExpired;
 
-            return StreamBuilder<DispatchTuning>(
-              stream: _dispatchTuningStream(),
-              builder: (context, tuningSnap) {
-                return SizedBox(
-                  height: MediaQuery.of(context).size.height,
-                  width: MediaQuery.of(context).size.width,
-                  child: Stack(
-                    children: [
-                      // ── Layer 0: Full-Screen Interactive Map with Tap Auto-Collapse ──
-                      Positioned.fill(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.translucent,
-                          onTap: () {
-                            if (_sheetController.isAttached) {
-                              _sheetController.animateTo(
-                                0.18,
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeOutCubic,
-                              );
-                            }
-                            _mapController.fitPoints(_pickup, _dropoff,
-                                padding: 64);
-                          },
-                          child: SeSeMapView(
-                            preferredProvider: MapConfigController.instance
-                                    .snapshotConfig()
-                                    .hasValidMapboxToken
-                                ? MapProvider.mapbox
-                                : MapProvider.cartoDb,
-                            mapController: _mapController,
-                            initialCenter: _pickup,
-                            initialZoom: 13.0,
-                            showMyLocation: true,
-                            markers: [
-                              SeSeMapView.pin(
-                                point: _pickup,
-                                color: Colors.green,
-                                label: 'Pickup (A)',
-                              ),
-                              SeSeMapView.pin(
-                                point: _dropoff,
-                                color: Colors.redAccent,
-                                label: 'Drop-off (B)',
-                              ),
-                              SeSeMapView.pin(
-                                point: widget.driverPosition,
-                                color: Colors.blue,
-                                label: 'You',
-                              ),
-                            ],
-                            polylines: [
-                              if (_routePoints.isNotEmpty)
-                                SeSeMapView.route(
-                                  points: _routePoints,
-                                  color: Colors.green.shade700,
-                                  width: 4,
-                                  id: 'pool-trip-route',
+            return PopScope(
+              canPop: !isBidPending,
+              onPopInvokedWithResult: (didPop, result) {
+                if (!didPop && isBidPending) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                          'Bidding in progress. Please wait for customer decision.'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+              child: StreamBuilder<DispatchTuning>(
+                stream: _dispatchTuningStream(),
+                builder: (context, tuningSnap) {
+                  return SizedBox(
+                    height: MediaQuery.of(context).size.height,
+                    width: MediaQuery.of(context).size.width,
+                    child: Stack(
+                      children: [
+                        // ── Layer 0: Full-Screen Interactive Map with Tap Auto-Collapse ──
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () {
+                              if (_sheetController.isAttached) {
+                                _sheetController.animateTo(
+                                  0.18,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeOutCubic,
+                                );
+                              }
+                              _mapController.fitPoints(_pickup, _dropoff,
+                                  padding: 64);
+                            },
+                            child: SeSeMapView(
+                              preferredProvider: MapConfigController.instance
+                                      .snapshotConfig()
+                                      .hasValidMapboxToken
+                                  ? MapProvider.mapbox
+                                  : MapProvider.cartoDb,
+                              mapController: _mapController,
+                              initialCenter: _pickup,
+                              initialZoom: 13.0,
+                              showMyLocation: true,
+                              markers: [
+                                SeSeMapView.pin(
+                                  point: _pickup,
+                                  color: Colors.green,
+                                  label: 'Pickup (A)',
                                 ),
-                              if (_driverLegPoints.isNotEmpty)
-                                SeSeMapView.route(
-                                  points: _driverLegPoints,
+                                SeSeMapView.pin(
+                                  point: _dropoff,
+                                  color: Colors.redAccent,
+                                  label: 'Drop-off (B)',
+                                ),
+                                SeSeMapView.pin(
+                                  point: widget.driverPosition,
                                   color: Colors.blue,
-                                  width: 3,
-                                  id: 'pool-driver-route',
+                                  label: 'You',
                                 ),
-                            ],
+                              ],
+                              polylines: [
+                                if (_routePoints.isNotEmpty)
+                                  SeSeMapView.route(
+                                    points: _routePoints,
+                                    color: Colors.green.shade700,
+                                    width: 4,
+                                    id: 'pool-trip-route',
+                                  ),
+                                if (_driverLegPoints.isNotEmpty)
+                                  SeSeMapView.route(
+                                    points: _driverLegPoints,
+                                    color: Colors.blue,
+                                    width: 3,
+                                    id: 'pool-driver-route',
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
 
-                      // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: SafeArea(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor:
-                                      scheme.surface.withValues(alpha: 0.95),
-                                  child: IconButton(
-                                    icon: const Icon(Icons.arrow_back),
-                                    tooltip: 'Back to pool',
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(),
+                        // ── Layer 1: Top Navigation Controls (Back & Zoom) ──
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: SafeArea(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 8),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: scheme.surface.withValues(
+                                        alpha: isBidPending ? 0.5 : 0.95),
+                                    child: IconButton(
+                                      icon: Icon(
+                                        Icons.arrow_back,
+                                        color: isBidPending
+                                            ? scheme.onSurface
+                                                .withValues(alpha: 0.3)
+                                            : null,
+                                      ),
+                                      tooltip: isBidPending
+                                          ? 'Bidding in progress'
+                                          : 'Back to pool',
+                                      onPressed: isBidPending
+                                          ? null
+                                          : () =>
+                                              Navigator.of(context).pop(),
+                                    ),
                                   ),
-                                ),
                                 Row(
                                   children: [
                                     _MapMiniButton(
@@ -1219,18 +1202,19 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                         child: Column(
                           children: [
                             const SizedBox(height: 10),
-                            // Sheet drag handle
-                            Center(
-                              child: Container(
-                                width: 44,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: scheme.onSurfaceVariant
-                                      .withValues(alpha: 0.4),
-                                  borderRadius: BorderRadius.circular(2),
+                            // Sheet drag handle — hidden during active bid to prevent drag-dismiss
+                            if (!isBidPending)
+                              Center(
+                                child: Container(
+                                  width: 44,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: scheme.onSurfaceVariant
+                                        .withValues(alpha: 0.4),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
                                 ),
                               ),
-                            ),
                             Expanded(
                               child: SingleChildScrollView(
                                 controller: scrollController,
@@ -1847,11 +1831,12 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
               ),
             );
           },
-        );
+        ),
+      );
+    },
+  );
       },
     );
-  },
-);
   }
 }
 
