@@ -170,7 +170,7 @@ class HubPendingCountsService {
     try {
       return db
           .collection('users')
-          .where('customerVerificationStatus', isEqualTo: 'pending')
+          .where('customerVerificationStatus', whereIn: ['pending', 'pending_verification'])
           .snapshots()
           .map((snap) => snap.docs.length)
           .handleError((_) => 0);

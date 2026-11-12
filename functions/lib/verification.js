@@ -33,7 +33,8 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.onDriverCreated = exports.onUserCreated = void 0;
+exports.onDriverVehicleVerified = exports.onDriverVerificationUpdated = exports.onUserVerificationUpdated = exports.reviewDriverVerification = exports.reviewCustomerVerification = exports.onDriverUpdated = exports.onUserUpdated = exports.onDriverCreated = exports.onUserCreated = void 0;
+exports._generateAndSaveReferralCode = _generateAndSaveReferralCode;
 exports.assertHubStaffOrAdmin = assertHubStaffOrAdmin;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -56,80 +57,96 @@ const db = () => admin.firestore();
  * @param collection - "users" | "drivers"
  */
 async function _generateAndSaveReferralCode(userId, collection) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u;
     const firestore = db();
     const profileRef = firestore.collection(collection).doc(userId);
-    // ── Idempotency check ──────────────────────────────────────────────────────
+    // ── Idempotency & Upgrade check ────────────────────────────────────────────
     const profileSnap = await profileRef.get();
     if (!profileSnap.exists) {
         console.warn(`_generateAndSaveReferralCode: ${collection}/${userId} not found, skipping.`);
-        return;
+        return null;
     }
     const profileData = (_a = profileSnap.data()) !== null && _a !== void 0 ? _a : {};
-    if (profileData.referralCode) {
-        // Code already exists — nothing to do.
-        return;
+    const existingCode = String((_b = profileData.referralCode) !== null && _b !== void 0 ? _b : "").trim();
+    const rawPhone = String((_e = (_d = (_c = profileData.phoneNumberE164) !== null && _c !== void 0 ? _c : profileData.phoneNumber) !== null && _d !== void 0 ? _d : profileData.phone) !== null && _e !== void 0 ? _e : "").trim();
+    const digits = rawPhone.replace(/\D/g, "");
+    const hasValidPhoneDigits = digits.length >= 4;
+    // If a valid referral code already exists (and is not a "0000" placeholder when valid phone digits exist), retain it
+    if (existingCode && (!existingCode.endsWith("0000") || !hasValidPhoneDigits)) {
+        return existingCode;
     }
     // ── Format Rule: First Initial + Last Initial + Last 4 phone digits ────────
-    const fullName = String((_c = (_b = profileData.fullName) !== null && _b !== void 0 ? _b : profileData.displayName) !== null && _c !== void 0 ? _c : "").trim();
-    const firstName = String((_d = profileData.firstName) !== null && _d !== void 0 ? _d : "").trim();
-    const lastName = String((_e = profileData.lastName) !== null && _e !== void 0 ? _e : "").trim();
+    const fullName = String((_g = (_f = profileData.fullName) !== null && _f !== void 0 ? _f : profileData.displayName) !== null && _g !== void 0 ? _g : "").trim();
+    const firstName = String((_h = profileData.firstName) !== null && _h !== void 0 ? _h : "").trim();
+    const lastName = String((_j = profileData.lastName) !== null && _j !== void 0 ? _j : "").trim();
     let fInitial = "X";
     let lInitial = "X";
     if (firstName.length > 0) {
-        fInitial = ((_g = (_f = firstName.match(/[A-Za-z]/)) === null || _f === void 0 ? void 0 : _f[0]) !== null && _g !== void 0 ? _g : "X").toUpperCase();
-        lInitial = lastName.length > 0 ? ((_j = (_h = lastName.match(/[A-Za-z]/)) === null || _h === void 0 ? void 0 : _h[0]) !== null && _j !== void 0 ? _j : fInitial).toUpperCase() : fInitial;
+        fInitial = ((_l = (_k = firstName.match(/[A-Za-z]/)) === null || _k === void 0 ? void 0 : _k[0]) !== null && _l !== void 0 ? _l : "X").toUpperCase();
+        lInitial = lastName.length > 0 ? ((_o = (_m = lastName.match(/[A-Za-z]/)) === null || _m === void 0 ? void 0 : _m[0]) !== null && _o !== void 0 ? _o : fInitial).toUpperCase() : fInitial;
     }
     else if (fullName.length > 0) {
         const parts = fullName.split(/\s+/).filter(Boolean);
         if (parts.length === 1) {
-            fInitial = ((_l = (_k = parts[0].match(/[A-Za-z]/)) === null || _k === void 0 ? void 0 : _k[0]) !== null && _l !== void 0 ? _l : "X").toUpperCase();
+            fInitial = ((_q = (_p = parts[0].match(/[A-Za-z]/)) === null || _p === void 0 ? void 0 : _p[0]) !== null && _q !== void 0 ? _q : "X").toUpperCase();
             lInitial = fInitial;
         }
         else if (parts.length > 1) {
-            fInitial = ((_o = (_m = parts[0].match(/[A-Za-z]/)) === null || _m === void 0 ? void 0 : _m[0]) !== null && _o !== void 0 ? _o : "X").toUpperCase();
-            lInitial = ((_q = (_p = parts[parts.length - 1].match(/[A-Za-z]/)) === null || _p === void 0 ? void 0 : _p[0]) !== null && _q !== void 0 ? _q : fInitial).toUpperCase();
+            fInitial = ((_s = (_r = parts[0].match(/[A-Za-z]/)) === null || _r === void 0 ? void 0 : _r[0]) !== null && _s !== void 0 ? _s : "X").toUpperCase();
+            lInitial = ((_u = (_t = parts[parts.length - 1].match(/[A-Za-z]/)) === null || _t === void 0 ? void 0 : _t[0]) !== null && _u !== void 0 ? _u : fInitial).toUpperCase();
         }
     }
     const initials = (fInitial + lInitial).toUpperCase();
-    const rawPhone = String((_r = profileData.phoneNumber) !== null && _r !== void 0 ? _r : "");
-    const digits = rawPhone.replace(/\D/g, ""); // strip non-numeric chars
     const last4 = digits.length >= 4 ? digits.slice(-4) : digits.padStart(4, "0");
     const baseCode = (initials + last4).toUpperCase();
-    let resolved = false;
+    let resolvedCode = null;
     // ── Collision Handling: Incrementally append counter 0, 1, 2, 3... ────────
     for (let counter = 0; counter < 50; counter++) {
         const candidate = counter === 0 ? baseCode : `${baseCode}${counter}`;
         try {
-            resolved = await firestore.runTransaction(async (tx) => {
-                var _a;
+            const resolved = await firestore.runTransaction(async (tx) => {
+                var _a, _b;
                 const codeRef = firestore.collection("referral_codes").doc(candidate);
                 const codeSnap = await tx.get(codeRef);
-                if (!codeSnap.exists) {
-                    tx.set(codeRef, {
-                        referrerId: userId,
-                        collection,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    tx.update(profileRef, { referralCode: candidate });
-                    return true;
+                const canClaim = !codeSnap.exists || ((_a = codeSnap.data()) === null || _a === void 0 ? void 0 : _a.referrerId) === userId;
+                if (!canClaim)
+                    return false;
+                tx.set(codeRef, {
+                    referrerId: userId,
+                    collection,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                tx.update(profileRef, { referralCode: candidate });
+                // Dual-role sync across users and drivers collections
+                const altCollection = collection === "users" ? "drivers" : "users";
+                const altRef = firestore.collection(altCollection).doc(userId);
+                const altSnap = await tx.get(altRef);
+                if (altSnap.exists) {
+                    tx.set(altRef, { referralCode: candidate }, { merge: true });
                 }
-                if (((_a = codeSnap.data()) === null || _a === void 0 ? void 0 : _a.referrerId) === userId) {
-                    tx.update(profileRef, { referralCode: candidate });
-                    return true;
+                // Clean up retired placeholder code (e.g. XX0000) if upgrading
+                if (existingCode && existingCode !== candidate && existingCode.endsWith("0000")) {
+                    const oldCodeRef = firestore.collection("referral_codes").doc(existingCode);
+                    const oldCodeSnap = await tx.get(oldCodeRef);
+                    if (oldCodeSnap.exists && ((_b = oldCodeSnap.data()) === null || _b === void 0 ? void 0 : _b.referrerId) === userId) {
+                        tx.delete(oldCodeRef);
+                    }
                 }
-                return false;
+                return true;
             });
+            if (resolved) {
+                resolvedCode = candidate;
+                break;
+            }
         }
         catch (err) {
             console.warn(`_generateAndSaveReferralCode: transaction error for ${candidate}:`, err);
         }
-        if (resolved)
-            break;
     }
-    if (!resolved) {
+    if (!resolvedCode) {
         console.error(`_generateAndSaveReferralCode: exhausted candidate attempts for ${collection}/${userId}.`);
     }
+    return resolvedCode;
 }
 /**
  * Trigger: onUserCreated
@@ -157,6 +174,58 @@ exports.onDriverCreated = (0, firestore_1.onDocumentCreated)("drivers/{driverId}
     }
     catch (err) {
         console.warn(`onDriverCreated referral code generation failed for ${driverId}:`, err);
+    }
+});
+/**
+ * Trigger: onUserUpdated
+ *
+ * Runs on updates to users/{userId}. Generates or upgrades referral code if
+ * phone number is linked, updated, or verified.
+ */
+exports.onUserUpdated = (0, firestore_1.onDocumentUpdated)("users/{userId}", async (event) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    const before = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
+    const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
+    if (!before || !after)
+        return;
+    const userId = event.params.userId;
+    const beforePhone = String((_e = (_d = (_c = before.phoneNumberE164) !== null && _c !== void 0 ? _c : before.phoneNumber) !== null && _d !== void 0 ? _d : before.phone) !== null && _e !== void 0 ? _e : "").trim();
+    const afterPhone = String((_h = (_g = (_f = after.phoneNumberE164) !== null && _f !== void 0 ? _f : after.phoneNumber) !== null && _g !== void 0 ? _g : after.phone) !== null && _h !== void 0 ? _h : "").trim();
+    if (beforePhone !== afterPhone ||
+        !after.referralCode ||
+        String(after.referralCode).endsWith("0000")) {
+        try {
+            await _generateAndSaveReferralCode(userId, "users");
+        }
+        catch (err) {
+            console.warn(`onUserUpdated referral code generation failed for ${userId}:`, err);
+        }
+    }
+});
+/**
+ * Trigger: onDriverUpdated
+ *
+ * Runs on updates to drivers/{driverId}. Generates or upgrades referral code if
+ * phone number is linked, updated, or verified.
+ */
+exports.onDriverUpdated = (0, firestore_1.onDocumentUpdated)("drivers/{driverId}", async (event) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    const before = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
+    const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
+    if (!before || !after)
+        return;
+    const driverId = event.params.driverId;
+    const beforePhone = String((_e = (_d = (_c = before.phone) !== null && _c !== void 0 ? _c : before.phoneNumberE164) !== null && _d !== void 0 ? _d : before.phoneNumber) !== null && _e !== void 0 ? _e : "").trim();
+    const afterPhone = String((_h = (_g = (_f = after.phone) !== null && _f !== void 0 ? _f : after.phoneNumberE164) !== null && _g !== void 0 ? _g : after.phoneNumber) !== null && _h !== void 0 ? _h : "").trim();
+    if (beforePhone !== afterPhone ||
+        !after.referralCode ||
+        String(after.referralCode).endsWith("0000")) {
+        try {
+            await _generateAndSaveReferralCode(driverId, "drivers");
+        }
+        catch (err) {
+            console.warn(`onDriverUpdated referral code generation failed for ${driverId}:`, err);
+        }
     }
 });
 const hubBootstrap_1 = require("./hubBootstrap");

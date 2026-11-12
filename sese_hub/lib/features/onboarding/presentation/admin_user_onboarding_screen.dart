@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/hub_onboarding_service.dart';
@@ -46,9 +47,12 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
       });
     } catch (e) {
       debugPrint('AdminUserOnboarding lookup error: $e');
+      String msg = 'Unable to lookup account. Please check the identifier and try again.';
+      if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
       setState(() {
-        _searchError =
-            'Unable to lookup account. Please check the identifier and try again.';
+        _searchError = msg;
       });
     } finally {
       setState(() {
@@ -284,7 +288,7 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
             StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
                   .collection('users')
-                  .where('customerVerificationStatus', isEqualTo: 'pending')
+                  .where('customerVerificationStatus', whereIn: ['pending', 'pending_verification'])
                   .limit(10)
                   .snapshots(),
               builder: (context, snapshot) {

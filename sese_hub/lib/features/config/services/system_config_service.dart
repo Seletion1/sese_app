@@ -272,6 +272,7 @@ class ReferralRevenueSettings {
   final double agentReferralCommissionRate;
   final int standardReferralDurationDays;
   final int agentReferralDurationDays;
+  final double fixedReferralBonusNaira;
 
   const ReferralRevenueSettings({
     this.platformBaseCommissionRate = 20.0,
@@ -281,6 +282,7 @@ class ReferralRevenueSettings {
     this.agentReferralCommissionRate = 0.02,
     this.standardReferralDurationDays = 365,
     this.agentReferralDurationDays = 547,
+    this.fixedReferralBonusNaira = 0.0,
   });
 
   factory ReferralRevenueSettings.fromMap(Map<String, dynamic>? map) {
@@ -295,6 +297,7 @@ class ReferralRevenueSettings {
       agentReferralCommissionRate: doubleOf('agentReferralCommissionRate', 0.02),
       standardReferralDurationDays: intOf('standardReferralDurationDays', 365),
       agentReferralDurationDays: intOf('agentReferralDurationDays', 547),
+      fixedReferralBonusNaira: doubleOf('fixedReferralBonusNaira', 0.0),
     );
   }
 
@@ -306,5 +309,6 @@ class ReferralRevenueSettings {
     'agentReferralCommissionRate': agentReferralCommissionRate,
     'standardReferralDurationDays': standardReferralDurationDays,
     'agentReferralDurationDays': agentReferralDurationDays,
+    'fixedReferralBonusNaira': fixedReferralBonusNaira,
   };
 }

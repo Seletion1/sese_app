@@ -70,6 +70,7 @@ const crypto = __importStar(require("crypto"));
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const accountGuard_1 = require("./accountGuard");
+const verification_1 = require("./verification");
 const db = () => admin.firestore();
 // ── 1. Normalization & Hashing ───────────────────────────────────────────────
 /**
@@ -410,6 +411,12 @@ exports.registerUser = (0, https_1.onCall)(async (request) => {
             tx.set(driverRef, Object.assign(Object.assign(Object.assign({ driverId: uid, fullName, phone: normPhone }, (normEmail ? { email: normEmail } : {})), { updatedAt: now }), (isNew ? { createdAt: now, verificationStatus: "pending_verification", isProfileVerified: false } : {})), { merge: true });
         }
     });
+    try {
+        await (0, verification_1._generateAndSaveReferralCode)(uid, "users");
+    }
+    catch (err) {
+        console.warn(`registerUser: referral code generation failed for ${uid}:`, err);
+    }
     return {
         success: true,
         uid,
@@ -532,6 +539,12 @@ exports.updateProfile = (0, https_1.onCall)(async (request) => {
             tx.set(driverRef, driverUpdates, { merge: true });
         }
     });
+    try {
+        await (0, verification_1._generateAndSaveReferralCode)(uid, "users");
+    }
+    catch (err) {
+        console.warn(`updateProfile: referral code generation failed for ${uid}:`, err);
+    }
     return {
         success: true,
         uid,

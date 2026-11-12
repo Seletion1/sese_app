@@ -24,22 +24,30 @@ const db = () => admin.firestore();
 async function _generateAndSaveReferralCode(
   userId: string,
   collection: "users" | "drivers"
-): Promise<void> {
+): Promise<string | null> {
   const firestore = db();
   const profileRef = firestore.collection(collection).doc(userId);
 
-  // ── Idempotency check ──────────────────────────────────────────────────────
+  // ── Idempotency & Upgrade check ────────────────────────────────────────────
   const profileSnap = await profileRef.get();
   if (!profileSnap.exists) {
     console.warn(
       `_generateAndSaveReferralCode: ${collection}/${userId} not found, skipping.`
     );
-    return;
+    return null;
   }
   const profileData = profileSnap.data() ?? {};
-  if (profileData.referralCode) {
-    // Code already exists — nothing to do.
-    return;
+  const existingCode = String(profileData.referralCode ?? "").trim();
+
+  const rawPhone = String(
+    profileData.phoneNumberE164 ?? profileData.phoneNumber ?? profileData.phone ?? ""
+  ).trim();
+  const digits = rawPhone.replace(/\D/g, "");
+  const hasValidPhoneDigits = digits.length >= 4;
+
+  // If a valid referral code already exists (and is not a "0000" placeholder when valid phone digits exist), retain it
+  if (existingCode && (!existingCode.endsWith("0000") || !hasValidPhoneDigits)) {
+    return existingCode;
   }
 
   // ── Format Rule: First Initial + Last Initial + Last 4 phone digits ────────
@@ -65,57 +73,73 @@ async function _generateAndSaveReferralCode(
   }
 
   const initials = (fInitial + lInitial).toUpperCase();
-
-  const rawPhone = String(profileData.phoneNumber ?? "");
-  const digits = rawPhone.replace(/\D/g, ""); // strip non-numeric chars
   const last4 = digits.length >= 4 ? digits.slice(-4) : digits.padStart(4, "0");
 
   const baseCode = (initials + last4).toUpperCase();
 
-  let resolved = false;
+  let resolvedCode: string | null = null;
 
   // ── Collision Handling: Incrementally append counter 0, 1, 2, 3... ────────
   for (let counter = 0; counter < 50; counter++) {
     const candidate = counter === 0 ? baseCode : `${baseCode}${counter}`;
 
     try {
-      resolved = await firestore.runTransaction(async (tx) => {
+      const resolved = await firestore.runTransaction(async (tx) => {
         const codeRef = firestore.collection("referral_codes").doc(candidate);
         const codeSnap = await tx.get(codeRef);
 
-        if (!codeSnap.exists) {
-          tx.set(codeRef, {
-            referrerId: userId,
-            collection,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-          tx.update(profileRef, { referralCode: candidate });
-          return true;
+        const canClaim = !codeSnap.exists || codeSnap.data()?.referrerId === userId;
+        if (!canClaim) return false;
+
+        tx.set(codeRef, {
+          referrerId: userId,
+          collection,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        tx.update(profileRef, { referralCode: candidate });
+
+        // Dual-role sync across users and drivers collections
+        const altCollection = collection === "users" ? "drivers" : "users";
+        const altRef = firestore.collection(altCollection).doc(userId);
+        const altSnap = await tx.get(altRef);
+        if (altSnap.exists) {
+          tx.set(altRef, { referralCode: candidate }, { merge: true });
         }
 
-        if (codeSnap.data()?.referrerId === userId) {
-          tx.update(profileRef, { referralCode: candidate });
-          return true;
+        // Clean up retired placeholder code (e.g. XX0000) if upgrading
+        if (existingCode && existingCode !== candidate && existingCode.endsWith("0000")) {
+          const oldCodeRef = firestore.collection("referral_codes").doc(existingCode);
+          const oldCodeSnap = await tx.get(oldCodeRef);
+          if (oldCodeSnap.exists && oldCodeSnap.data()?.referrerId === userId) {
+            tx.delete(oldCodeRef);
+          }
         }
 
-        return false;
+        return true;
       });
+
+      if (resolved) {
+        resolvedCode = candidate;
+        break;
+      }
     } catch (err) {
       console.warn(
         `_generateAndSaveReferralCode: transaction error for ${candidate}:`,
         err
       );
     }
-
-    if (resolved) break;
   }
 
-  if (!resolved) {
+  if (!resolvedCode) {
     console.error(
       `_generateAndSaveReferralCode: exhausted candidate attempts for ${collection}/${userId}.`
     );
   }
+
+  return resolvedCode;
 }
+
+export { _generateAndSaveReferralCode };
 
 /**
  * Trigger: onUserCreated
@@ -147,6 +171,82 @@ export const onDriverCreated = onDocumentCreated(
       await _generateAndSaveReferralCode(driverId, "drivers");
     } catch (err) {
       console.warn(`onDriverCreated referral code generation failed for ${driverId}:`, err);
+    }
+  }
+);
+
+/**
+ * Trigger: onUserUpdated
+ *
+ * Runs on updates to users/{userId}. Generates or upgrades referral code if
+ * phone number is linked, updated, or verified.
+ */
+export const onUserUpdated = onDocumentUpdated(
+  "users/{userId}",
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+
+    const userId = event.params.userId;
+    const beforePhone = String(
+      before.phoneNumberE164 ?? before.phoneNumber ?? before.phone ?? ""
+    ).trim();
+    const afterPhone = String(
+      after.phoneNumberE164 ?? after.phoneNumber ?? after.phone ?? ""
+    ).trim();
+
+    if (
+      beforePhone !== afterPhone ||
+      !after.referralCode ||
+      String(after.referralCode).endsWith("0000")
+    ) {
+      try {
+        await _generateAndSaveReferralCode(userId, "users");
+      } catch (err) {
+        console.warn(
+          `onUserUpdated referral code generation failed for ${userId}:`,
+          err
+        );
+      }
+    }
+  }
+);
+
+/**
+ * Trigger: onDriverUpdated
+ *
+ * Runs on updates to drivers/{driverId}. Generates or upgrades referral code if
+ * phone number is linked, updated, or verified.
+ */
+export const onDriverUpdated = onDocumentUpdated(
+  "drivers/{driverId}",
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+
+    const driverId = event.params.driverId;
+    const beforePhone = String(
+      before.phone ?? before.phoneNumberE164 ?? before.phoneNumber ?? ""
+    ).trim();
+    const afterPhone = String(
+      after.phone ?? after.phoneNumberE164 ?? after.phoneNumber ?? ""
+    ).trim();
+
+    if (
+      beforePhone !== afterPhone ||
+      !after.referralCode ||
+      String(after.referralCode).endsWith("0000")
+    ) {
+      try {
+        await _generateAndSaveReferralCode(driverId, "drivers");
+      } catch (err) {
+        console.warn(
+          `onDriverUpdated referral code generation failed for ${driverId}:`,
+          err
+        );
+      }
     }
   }
 );

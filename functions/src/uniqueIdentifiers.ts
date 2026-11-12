@@ -29,6 +29,7 @@ import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { _generateAndSaveReferralCode } from "./verification";
 
 const db = () => admin.firestore();
 
@@ -515,6 +516,12 @@ export const registerUser = onCall<RegisterUserData>(async (request) => {
     }
   });
 
+  try {
+    await _generateAndSaveReferralCode(uid, "users");
+  } catch (err) {
+    console.warn(`registerUser: referral code generation failed for ${uid}:`, err);
+  }
+
   return {
     success: true,
     uid,
@@ -644,6 +651,12 @@ export const updateProfile = onCall<UpdateProfileData>(async (request) => {
       tx.set(driverRef, driverUpdates, { merge: true });
     }
   });
+
+  try {
+    await _generateAndSaveReferralCode(uid, "users");
+  } catch (err) {
+    console.warn(`updateProfile: referral code generation failed for ${uid}:`, err);
+  }
 
   return {
     success: true,

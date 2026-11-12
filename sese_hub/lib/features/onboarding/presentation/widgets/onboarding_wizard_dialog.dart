@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:sese_core/sese_core.dart';
@@ -163,8 +164,11 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
       });
     } catch (e) {
       debugPrint('OnboardingWizard sendOtp error: $e');
-      setState(() => _errorMessage =
-          'Unable to send verification code. Please check connection and try again.');
+      String msg = 'Unable to send verification code. Please check connection and try again.';
+      if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
+      setState(() => _errorMessage = msg);
     } finally {
       setState(() => _isLoading = false);
     }
@@ -196,8 +200,11 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
       }
     } catch (e) {
       debugPrint('OnboardingWizard verifyOtp error: $e');
-      setState(() => _errorMessage =
-          'Verification failed. Please check the code and try again.');
+      String msg = 'Verification failed. Please check the code and try again.';
+      if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
+      setState(() => _errorMessage = msg);
     } finally {
       setState(() => _isLoading = false);
     }
@@ -292,8 +299,11 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
       }
     } catch (e) {
       debugPrint('OnboardingWizard register error: $e');
-      setState(() => _errorMessage =
-          'Unable to complete registration. Please verify details and try again.');
+      String msg = 'Unable to complete registration. Please verify details and try again.';
+      if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
+        msg = e.message!;
+      }
+      setState(() => _errorMessage = msg);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

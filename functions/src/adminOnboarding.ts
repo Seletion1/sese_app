@@ -11,18 +11,6 @@ function db() {
   return admin.firestore();
 }
 
-function normPhone(phone?: string): string {
-  if (!phone) return "";
-  const cleaned = phone.replace(/[^\d+]/g, "");
-  if (cleaned.startsWith("0")) {
-    return "234" + cleaned.substring(1);
-  }
-  if (cleaned.startsWith("+")) {
-    return cleaned.substring(1);
-  }
-  return cleaned;
-}
-
 /**
  * Asserts that the caller is authenticated as a staff member or administrator
  * with authority to manage users (or holding Super/Admin status or user_onboarding scope).
@@ -104,31 +92,63 @@ export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => 
 
   const isEmail = identifier.includes("@");
   let userSnap: admin.firestore.QueryDocumentSnapshot | null = null;
+  let authUser: admin.auth.UserRecord | null = null;
 
   if (isEmail) {
-    const q = await db().collection("users").where("email", "==", identifier.toLowerCase()).limit(1).get();
-    if (!q.empty) userSnap = q.docs[0];
+    const normEmail = normalizeIdentifier("email", identifier);
+    const q = await db().collection("users").where("email", "==", normEmail).limit(1).get();
+    if (!q.empty) {
+      userSnap = q.docs[0];
+    } else {
+      // Fallback search with raw identifier
+      const qRaw = await db().collection("users").where("email", "==", identifier.toLowerCase()).limit(1).get();
+      if (!qRaw.empty) userSnap = qRaw.docs[0];
+    }
   } else {
-    const phone = normPhone(identifier);
-    const q = await db().collection("users").where("phoneNumber", "==", phone).limit(1).get();
-    if (!q.empty) userSnap = q.docs[0];
+    const normPhoneStr = normalizeIdentifier("phone", identifier);
+    const barePhone = normPhoneStr.replace("+", "");
+
+    // Query across E.164, raw, and alternate phone fields
+    const q1 = await db().collection("users").where("phoneNumber", "==", normPhoneStr).limit(1).get();
+    if (!q1.empty) {
+      userSnap = q1.docs[0];
+    } else {
+      const q2 = await db().collection("users").where("phoneNumberE164", "==", normPhoneStr).limit(1).get();
+      if (!q2.empty) {
+        userSnap = q2.docs[0];
+      } else {
+        const q3 = await db().collection("users").where("phone", "==", normPhoneStr).limit(1).get();
+        if (!q3.empty) {
+          userSnap = q3.docs[0];
+        } else {
+          const q4 = await db().collection("users").where("phoneNumber", "==", barePhone).limit(1).get();
+          if (!q4.empty) userSnap = q4.docs[0];
+        }
+      }
+    }
   }
 
   if (!userSnap) {
-    // Check Auth directly as fallback
+    // Check Auth directly as fallback for incomplete registrations
     try {
-      const authUser = isEmail
-        ? await admin.auth().getUserByEmail(identifier.toLowerCase())
-        : await admin.auth().getUserByPhoneNumber("+" + normPhone(identifier));
-      
-      const doc = await db().collection("users").doc(authUser.uid).get();
-      if (doc.exists) {
-        userSnap = doc as any;
+      if (isEmail) {
+        const normEmail = normalizeIdentifier("email", identifier);
+        authUser = await admin.auth().getUserByEmail(normEmail);
+      } else {
+        const normPhoneStr = normalizeIdentifier("phone", identifier);
+        authUser = await admin.auth().getUserByPhoneNumber(normPhoneStr);
+      }
+
+      if (authUser) {
+        const doc = await db().collection("users").doc(authUser.uid).get();
+        if (doc.exists) {
+          userSnap = doc as any;
+        }
       }
     } catch (_) {}
   }
 
-  if (!userSnap) {
+  if (!userSnap && !authUser) {
     return {
       exists: false,
       identifier,
@@ -136,8 +156,18 @@ export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => 
     };
   }
 
-  const uid = userSnap.id;
-  const userData = userSnap.data();
+  const uid = userSnap ? userSnap.id : authUser!.uid;
+  const userData = userSnap
+    ? userSnap.data()
+    : {
+        uid: authUser!.uid,
+        fullName: authUser!.displayName || "",
+        email: authUser!.email || "",
+        phoneNumber: authUser!.phoneNumber || "",
+        role: (authUser!.customClaims?.role as string) || "customer",
+        customerVerificationStatus: "pending",
+      };
+
   const role = String(userData.role ?? "customer");
 
   let driverData: Record<string, unknown> | null = null;
@@ -153,7 +183,7 @@ export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => 
   }
 
   const missingSteps: string[] = [];
-  if (!userData.fullName || !userData.phoneNumber) missingSteps.push("profile_details");
+  if (!userData.fullName || (!userData.phoneNumber && !userData.email)) missingSteps.push("profile_details");
   if ((role === "driver" || role === "both") && vehicleCount === 0) missingSteps.push("vehicle_setup");
   if ((role === "driver" || role === "both") && !driverData?.isProfileVerified) missingSteps.push("verification_approval");
 
@@ -167,10 +197,10 @@ export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => 
     missingSteps,
     userData: {
       uid,
-      fullName: userData.fullName,
-      email: userData.email,
-      phoneNumber: userData.phoneNumber,
-      role: userData.role,
+      fullName: userData.fullName || authUser?.displayName || "",
+      email: userData.email || authUser?.email || "",
+      phoneNumber: userData.phoneNumber || authUser?.phoneNumber || "",
+      role: userData.role || (authUser?.customClaims?.role as string) || "customer",
       createdByAdminId: userData.createdByAdminId ?? null,
     },
     driverData,
@@ -186,16 +216,22 @@ interface SendOtpData {
 export const sendOnboardingOtp = onCall<SendOtpData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
-  const identifier = String(request.data?.identifier ?? "").trim();
-  if (!identifier) {
+  const rawIdentifier = String(request.data?.identifier ?? "").trim();
+  if (!rawIdentifier) {
     throw new HttpsError("invalid-argument", "Identifier is required.");
   }
+
+  const isEmail = rawIdentifier.includes("@");
+  const normalizedIdentifier = isEmail
+    ? normalizeIdentifier("email", rawIdentifier)
+    : normalizeIdentifier("phone", rawIdentifier);
 
   const otp = String(Math.floor(100000 + Math.random() * 900000));
   const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-  await db().collection("onboarding_otps").doc(identifier.toLowerCase()).set({
-    identifier: identifier.toLowerCase(),
+  await db().collection("onboarding_otps").doc(normalizedIdentifier).set({
+    identifier: normalizedIdentifier,
+    rawIdentifier,
     otp,
     verified: false,
     expiresAt,
@@ -203,12 +239,17 @@ export const sendOnboardingOtp = onCall<SendOtpData>(async (request) => {
     createdByAdminId: request.auth!.uid,
   });
 
-  console.log(`[sendOnboardingOtp] OTP generated for ${identifier}: ${otp}`);
+  console.log(`[sendOnboardingOtp] OTP generated for ${normalizedIdentifier}: ${otp}`);
+
+  const isDev =
+    process.env.FUNCTIONS_EMULATOR === "true" ||
+    process.env.NODE_ENV !== "production";
 
   return {
     success: true,
-    identifier,
-    message: `OTP dispatched to ${identifier}.`,
+    identifier: normalizedIdentifier,
+    devOtpHint: isDev ? otp : undefined,
+    message: `OTP dispatched to ${rawIdentifier}.`,
   };
 });
 
@@ -220,14 +261,19 @@ interface VerifyOtpData {
 export const verifyOnboardingOtp = onCall<VerifyOtpData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
-  const identifier = String(request.data?.identifier ?? "").trim().toLowerCase();
+  const rawIdentifier = String(request.data?.identifier ?? "").trim();
   const otp = String(request.data?.otp ?? "").trim();
 
-  if (!identifier || !otp) {
+  if (!rawIdentifier || !otp) {
     throw new HttpsError("invalid-argument", "Identifier and OTP are required.");
   }
 
-  const docRef = db().collection("onboarding_otps").doc(identifier);
+  const isEmail = rawIdentifier.includes("@");
+  const normalizedIdentifier = isEmail
+    ? normalizeIdentifier("email", rawIdentifier)
+    : normalizeIdentifier("phone", rawIdentifier);
+
+  const docRef = db().collection("onboarding_otps").doc(normalizedIdentifier);
   const snap = await docRef.get();
 
   if (!snap.exists) {
@@ -251,7 +297,7 @@ export const verifyOnboardingOtp = onCall<VerifyOtpData>(async (request) => {
   return {
     success: true,
     verified: true,
-    identifier,
+    identifier: normalizedIdentifier,
     message: "OTP verified successfully.",
   };
 });
@@ -295,22 +341,45 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
 
   const role = data.role === "driver" ? "driver" : "customer";
   const fullName = String(data.fullName ?? "").trim();
-  const phone = normPhone(data.phone);
-  const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
+  const rawPhone = String(data.phone ?? "").trim();
+  const rawEmail = data.email ? String(data.email).trim().toLowerCase() : undefined;
 
   if (!fullName) {
     throw new HttpsError("invalid-argument", "Full name is required.");
   }
-  if (!phone) {
+  if (!rawPhone) {
     throw new HttpsError("invalid-argument", "Phone number is required.");
   }
 
-  const normPhoneStr = normalizeIdentifier("phone", phone);
-  const normEmailStr = email ? normalizeIdentifier("email", email) : "";
+  const normPhoneStr = normalizeIdentifier("phone", rawPhone);
+  const normEmailStr = rawEmail ? normalizeIdentifier("email", rawEmail) : "";
   const normNinStr = data.ninNumber ? normalizeIdentifier("nin", data.ninNumber) : "";
   const normPlateStr = data.vehicleDetails?.licensePlate
     ? normalizeIdentifier("plate_number", data.vehicleDetails.licensePlate)
     : "";
+
+  // Verify OTP verification status unless in dev/emulator mode
+  const isDev =
+    process.env.FUNCTIONS_EMULATOR === "true" ||
+    process.env.NODE_ENV !== "production";
+
+  if (!isDev) {
+    const phoneOtpSnap = await db().collection("onboarding_otps").doc(normPhoneStr).get();
+    const emailOtpSnap = normEmailStr
+      ? await db().collection("onboarding_otps").doc(normEmailStr).get()
+      : null;
+
+    const phoneVerified = phoneOtpSnap.exists && phoneOtpSnap.data()?.verified === true;
+    const emailVerified =
+      emailOtpSnap && emailOtpSnap.exists && emailOtpSnap.data()?.verified === true;
+
+    if (!phoneVerified && !emailVerified) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Phone or email must be verified via OTP before registration can be finalized."
+      );
+    }
+  }
 
   let authUser: admin.auth.UserRecord;
 
@@ -388,12 +457,12 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
         phoneNumberE164: normPhoneStr,
         ...(normEmailStr ? { email: normEmailStr } : {}),
         role,
-        customerVerificationStatus: "pending_verification",
+        customerVerificationStatus: "pending",
         isVerifiedCustomer: false,
         address: data.address ?? "",
         ...(normNinStr ? { ninNumber: normNinStr } : {}),
         createdByAdminId: adminUid,
-        createdAt: now,
+        createdAt: userSnap.exists ? (userSnap.data()?.createdAt ?? now) : now,
         updatedAt: now,
       },
       { merge: true }
@@ -401,6 +470,8 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
 
     if (role === "driver") {
       const driverRef = db().collection("drivers").doc(uid);
+      const dSnap = await tx.get(driverRef);
+
       tx.set(
         driverRef,
         {
@@ -415,7 +486,7 @@ export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) =
           vehicleStatus: data.vehicleDetails ? "pending_verification" : "unregistered",
           photoUrl: data.livePhotoUrl ?? "",
           createdByAdminId: adminUid,
-          createdAt: now,
+          createdAt: dSnap.exists ? (dSnap.data()?.createdAt ?? now) : now,
           updatedAt: now,
         },
         { merge: true }
