@@ -86,16 +86,22 @@ class HubPendingCountsService {
           .snapshots();
 
       late StreamController<int> controller;
-      Set<String> set1 = {};
-      Set<String> set2 = {};
-      Set<String> set3 = {};
+      Map<String, Map<String, dynamic>> map1 = {};
+      Map<String, Map<String, dynamic>> map2 = {};
+      Map<String, Map<String, dynamic>> map3 = {};
 
       StreamSubscription? sub1;
       StreamSubscription? sub2;
       StreamSubscription? sub3;
 
       void emit() {
-        final combined = {...set1, ...set2, ...set3};
+        final combined = <String, Map<String, dynamic>>{};
+        for (final entry in [...map1.entries, ...map2.entries, ...map3.entries]) {
+          if (!DriverVerification.isPendingDriverKycDoc(entry.value)) {
+            continue;
+          }
+          combined[entry.key] = entry.value;
+        }
         if (!controller.isClosed) {
           controller.add(combined.length);
         }
@@ -105,21 +111,21 @@ class HubPendingCountsService {
         onListen: () {
           sub1 = s1.listen(
             (snap) {
-              set1 = snap.docs.map((d) => d.id).toSet();
+              map1 = {for (final d in snap.docs) d.id: d.data()};
               emit();
             },
             onError: (_) {},
           );
           sub2 = s2.listen(
             (snap) {
-              set2 = snap.docs.map((d) => d.id).toSet();
+              map2 = {for (final d in snap.docs) d.id: d.data()};
               emit();
             },
             onError: (_) {},
           );
           sub3 = s3.listen(
             (snap) {
-              set3 = snap.docs.map((d) => d.id).toSet();
+              map3 = {for (final d in snap.docs) d.id: d.data()};
               emit();
             },
             onError: (_) {},
@@ -330,6 +336,7 @@ class HubPendingCountsService {
         for (final sub in subs) {
           sub.cancel();
         }
+        subs.clear();
       },
     );
 

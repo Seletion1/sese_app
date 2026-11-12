@@ -70,13 +70,7 @@ class _DriverProfileApprovalsTabState
       void emit() {
         final combined = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
         for (final doc in [...map1.values, ...map2.values, ...map3.values]) {
-          final data = doc.data();
-          final status = (data[DriverVerification.fieldStatus] ?? '').toString().toLowerCase();
-          final profileStatus = (data['profileStatus'] ?? '').toString().toLowerCase();
-          if ((status == 'approved' || status == 'verified') && profileStatus != 'pending_verification') {
-            continue;
-          }
-          if (status == 'rejected' && profileStatus != 'pending_verification') {
+          if (!DriverVerification.isPendingDriverKycDoc(doc.data())) {
             continue;
           }
           combined[doc.id] = doc;

@@ -21,6 +21,23 @@ abstract final class DriverVerification {
   static const String fieldProfileVerified = 'isProfileVerified';
   static const String fieldVehicleVerified = 'isVehicleVerified';
   static const String fieldCanGoOnline = 'canGoOnline';
+
+  /// Returns true if a driver document represents an active pending profile
+  /// awaiting hub manual document audit (not already approved or rejected).
+  static bool isPendingDriverKycDoc(Map<String, dynamic> data) {
+    final status =
+        (data[fieldStatus] ?? '').toString().toLowerCase();
+    final profileStatus =
+        (data['profileStatus'] ?? '').toString().toLowerCase();
+    if ((status == 'approved' || status == 'verified') &&
+        profileStatus != 'pending_verification') {
+      return false;
+    }
+    if (status == 'rejected' && profileStatus != 'pending_verification') {
+      return false;
+    }
+    return true;
+  }
 }
 
 /// Customer profile verification lifecycle on `users/{uid}`.
