@@ -110,9 +110,10 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     if (_busy) return;
     _expiryHandled = true;
 
-    // 1. Stop the urgent alert immediately.
+    // 1. Stop the urgent alert and countdown timer immediately.
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
+    _countdown.stop();
 
     // 2. Instantly clear the offer card from the driver's screen.
     if (mounted) {
@@ -196,6 +197,7 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     // Stop urgent loop immediately (honors min 6s internally).
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
+    _countdown.stop();
     try {
       await widget.streakService.acceptTrip(widget.trip.tripId);
       if (mounted) Navigator.of(context).pop();
@@ -235,27 +237,25 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     if (_busy) return;
     _expiryHandled = true;
     setState(() => _busy = true);
-    // Stop urgent loop immediately.
+
+    // 1. Stop urgent alert and countdown timer immediately.
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
+    _countdown.stop();
+
+    // 2. Instantly pop the offer sheet so the UI transitions back to idle/waiting without lagging.
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+
+    // 3. Record the skip server-side fire-and-forget; dispatch re-matches or opens pool.
     try {
-      await widget.streakService.declineTrip(widget.trip.tripId, action: 'skipped');
-      if (mounted) Navigator.of(context).pop();
-    } on DriverStreakException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      await widget.streakService.declineTrip(
+        widget.trip.tripId,
+        action: 'skipped',
+      );
     } catch (e) {
       debugPrint('IncomingOfferSheet._skip error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to decline trip. Please try again.'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
     }
   }
 

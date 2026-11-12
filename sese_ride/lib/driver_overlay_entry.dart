@@ -253,13 +253,15 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
           .httpsCallable(callable)
           .call({'tripId': _tripId, 'action': action});
       await _share({'action': action, 'tripId': _tripId});
-      // Bring app to full foreground immediately on both Accept and Reject per spec
-      await DriverOverlayService.instance.bringToForeground();
-      if (mounted) {
-        setState(() => _result =
-            action == 'accepted' ? 'Trip Accepted! Opening app…' : 'Trip Declined. Opening app…');
+
+      if (action == 'accepted') {
+        // Bring app to full foreground immediately on Accept so driver sees active ride.
+        await DriverOverlayService.instance.bringToForeground();
+        if (mounted) {
+          setState(() => _result = 'Trip Accepted! Opening app…');
+        }
+        await Future.delayed(const Duration(milliseconds: 300));
       }
-      await Future.delayed(const Duration(milliseconds: 300));
       await _close();
     } catch (e) {
       debugPrint('overlay $callable failed: $e');

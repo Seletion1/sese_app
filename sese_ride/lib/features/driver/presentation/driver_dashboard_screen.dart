@@ -503,16 +503,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         await DriverOverlayService.instance.bringToForeground();
         break;
       case 'accepted':
-      case 'rejected':
-        // Overlay order was accepted or rejected: dismiss the overlay popup and
-        // immediately restore the full app to the foreground per Rule 3.
+        // Overlay order was accepted: dismiss the overlay popup and
+        // immediately open the full app to the foreground.
         await DriverOverlayService.instance.closeOverlayWidget();
         if (!mounted) return;
         await DriverOverlayService.instance.bringToForeground();
         setState(() {});
         break;
+      case 'rejected':
+      case 'skipped':
       case 'expired':
-        // Offer expired in the background overlay: restore floating bubble if still paused.
+        // Offer declined, skipped, or expired in the background overlay:
+        // restore floating logo bubble if still paused in background.
         if (_appPaused && _isOnline) {
           await DriverOverlayService.instance.showOverlayWidget();
         } else {
@@ -2646,9 +2648,8 @@ class _PingListenerState extends State<_PingListener> {
               if (widget.isOnBreak()) {
                 // Driver is resting — don't auto-popup the offer sheet.
               } else {
-                _sheetForTrip = ping.tripId;
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) _showPing(ping, streak);
+                  if (mounted && !_sheetOpen) _showPing(ping, streak);
                 });
               }
             }
@@ -2661,6 +2662,8 @@ class _PingListenerState extends State<_PingListener> {
 
   Future<void> _showPing(ActiveTrip ping, DriverStreakState streak) async {
     if (_sheetOpen || !mounted) return;
+    _sheetForTrip = ping.tripId;
+    _sheetOpen = true;
     final fareLabel = ping.fareFormatted.isNotEmpty
         ? ping.fareFormatted
         : '₦${ping.fareAmount.toStringAsFixed(0)}';
