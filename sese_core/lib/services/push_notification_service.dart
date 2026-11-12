@@ -395,6 +395,13 @@ class PushNotificationService {
                 ? AndroidNotificationCategory.call
                 : AndroidNotificationCategory.message,
             visibility: NotificationVisibility.public,
+            enableVibration: true,
+            vibrationPattern: channel == PushChannels.orders
+                ? Int64List.fromList([0, 1000, 500, 1000, 500, 1000])
+                : null,
+            audioAttributesUsage: channel == PushChannels.orders
+                ? AudioAttributesUsage.notificationRingtone
+                : AudioAttributesUsage.notification,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,

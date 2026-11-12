@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-12 — Driver Background/Killed-State Incoming Order Flow, FCM Payload & Foreground Wake-Up Hardening
+
+- **1. FCM Payload Enrichment & High-Priority Notification Channel (`functions/src/trips.ts`)**:
+  - Bound `android.notification.channelId = "sese_orders"` in `notifyCustomer` so Android places order notifications on the high-importance order channel.
+  - Added `click_action: "FLUTTER_NOTIFICATION_CLICK"` and `fullScreen: "true"` to FCM message data payload.
+  - Enriched FCM data payload for driver order pings (`startTier1`, `advanceSequentialDispatch`) with complete route and fare metadata (`pickupAddress`, `dropoffAddress`, `fareFormatted`, `fareAmount`, `distanceKm`, coordinates) so background/killed handlers and overlay windows render full offer cards immediately.
+
+- **2. Android Manifest & Continuous Ring-Vibration Configuration (`AndroidManifest.xml`, `push_notification_service.dart`)**:
+  - Added `<uses-permission android:name="android.permission.WAKE_LOCK" />` to `AndroidManifest.xml` to keep CPU active during high-priority push events.
+  - Added `<meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="sese_orders" />` in `<application>`.
+  - Configured `vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000])` for continuous ring-vibration pattern and `audioAttributesUsage: AudioAttributesUsage.notificationRingtone` on order alerts.
+
+- **3. Smart Push Tap Routing & Dashboard Foreground Handling (`sese_ride/lib/main.dart`)**:
+  - Refactored `_handlePushTap(data)` to inspect notification `type`: driver unaccepted offer pings (`trip_offer`, `direct_ping`, `tier_ping`, `marketplace_broadcast`) invoke `bringToForeground()` and route to `DriverHomeShell` / `DriverDashboardScreen` where `_PingListener` presents the interactive `IncomingOfferSheet` with countdown timer, streak badge, route preview, and ACCEPT/DECLINE controls.
+  - Active/accepted in-flight trips route directly to `LiveTripScreen`.
+
+- **4. Verification & Deployment**:
+  - Unit/Integration Tests: 101/101 Cloud Functions backend tests passed; 151/151 `sese_core` tests passed; 25/25 targeted `sese_ride` widget/unit tests passed.
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_core`, `sese_hub`, and `sese_ride`.
+  - Deployment: Cloud Functions built and deployed to Firebase production (`sese-ride`).
+
 ## 2026-11-12 — Multi-Vehicle Ownership, Strict Vehicle Approval & Session Category Isolation Audit
 
 - **1. Server-Authoritative Vehicle Selection & Approval Gate (`functions/src/driverStatus.ts`)**:

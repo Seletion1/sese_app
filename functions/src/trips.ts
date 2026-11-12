@@ -252,15 +252,38 @@ async function notifyCustomer(
     }
   }
   try {
+    const channelId =
+      type.startsWith("order") ||
+      type === "trip_offer" ||
+      type === "direct_ping" ||
+      type === "tier_ping" ||
+      type === "marketplace_broadcast"
+        ? "sese_orders"
+        : type === "broadcast"
+        ? "sese_high_priority_alerts"
+        : type.includes("chat") || type.includes("reply") || type.includes("escalated")
+        ? "sese_chat"
+        : "sese_system";
+
     await admin.messaging().send({
       topic: topicOverride ?? `user_${customerId}`,
       notification: { title, body },
       android: {
         priority: "high",
-        notification: { sound: "sese_alert_chime" },
+        notification: {
+          sound: "sese_alert_chime",
+          channelId,
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        },
       },
       apns: { payload: { aps: { sound: "default" } } },
-      data: { type, tripId, ...extra },
+      data: {
+        type,
+        tripId,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+        fullScreen: channelId === "sese_orders" ? "true" : (extra.fullScreen ?? "false"),
+        ...extra,
+      },
     });
   } catch (e) {
     console.warn(`notifyCustomer: FCM send failed for ${customerId}: ${e}`);
@@ -1361,6 +1384,15 @@ async function advanceSequentialDispatch(
     {
       tripId: tripRef.id,
       dispatchStep: String(nextStep),
+      pickupAddress: String(data.pickupAddress ?? data.pickup?.address ?? ""),
+      dropoffAddress: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
+      fareFormatted: String(data.fareFormatted ?? (data.fareAmount ? `₦${data.fareAmount}` : "")),
+      fareAmount: String(data.fareAmount ?? data.baselineFare ?? 0),
+      distanceKm: String(data.distanceKm ?? targetDriver.distanceKm ?? 0),
+      pickupLat: String(data.pickupLat ?? data.pickup?.lat ?? 0),
+      pickupLng: String(data.pickupLng ?? data.pickup?.lng ?? 0),
+      dropoffLat: String(data.dropoffLat ?? data.dropoff?.lat ?? 0),
+      dropoffLng: String(data.dropoffLng ?? data.dropoff?.lng ?? 0),
     },
     `driver_${targetDriver.id}`
   );

@@ -22,6 +22,7 @@ export 'driver_overlay_entry.dart' show overlayMain;
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
+import 'features/driver/services/driver_overlay_service.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
@@ -175,11 +176,24 @@ Future<String> _resolveInstalledVersion() async {
 /// no extra navigation that could fight the restore.
 void _handlePushTap(Map<String, String> data) {
   debugPrint('sese_ride push tap: $data');
-  if (data['type'] == 'foreground_request') {
+  final type = (data['type'] ?? '').toString();
+  if (type == 'foreground_request') {
     debugPrint('sese_ride: online-alert tap — app restored to foreground.');
+    DriverOverlayService.instance.bringToForeground();
     return;
   }
-  
+
+  // Driver unaccepted offer pings -> bring app/dashboard to foreground so
+  // _PingListener / overlay handles the offer sheet with full controls.
+  if (type == 'trip_offer' ||
+      type == 'direct_ping' ||
+      type == 'tier_ping' ||
+      type == 'marketplace_broadcast') {
+    debugPrint('sese_ride: driver trip offer tap ($type) — bringing app to foreground.');
+    DriverOverlayService.instance.bringToForeground();
+    return;
+  }
+
   final tripId = data['tripId'];
   if (tripId != null && tripId.isNotEmpty) {
     final navState = IncomingCallOverlay.navigatorKey.currentState;

@@ -195,6 +195,7 @@ const INBOX_TYPES = new Set([
  * custom wav is not in the iOS bundle).
  */
 async function notifyCustomer(customerId, tripId, title, body, type, extra = {}, topicOverride) {
+    var _a;
     if (!customerId)
         return;
     // Only persist to the inbox for high-value, non-transient event types.
@@ -214,15 +215,31 @@ async function notifyCustomer(customerId, tripId, title, body, type, extra = {},
         }
     }
     try {
+        const channelId = type.startsWith("order") ||
+            type === "trip_offer" ||
+            type === "direct_ping" ||
+            type === "tier_ping" ||
+            type === "marketplace_broadcast"
+            ? "sese_orders"
+            : type === "broadcast"
+                ? "sese_high_priority_alerts"
+                : type.includes("chat") || type.includes("reply") || type.includes("escalated")
+                    ? "sese_chat"
+                    : "sese_system";
         await admin.messaging().send({
             topic: topicOverride !== null && topicOverride !== void 0 ? topicOverride : `user_${customerId}`,
             notification: { title, body },
             android: {
                 priority: "high",
-                notification: { sound: "sese_alert_chime" },
+                notification: {
+                    sound: "sese_alert_chime",
+                    channelId,
+                    clickAction: "FLUTTER_NOTIFICATION_CLICK",
+                },
             },
             apns: { payload: { aps: { sound: "default" } } },
-            data: Object.assign({ type, tripId }, extra),
+            data: Object.assign({ type,
+                tripId, click_action: "FLUTTER_NOTIFICATION_CLICK", fullScreen: channelId === "sese_orders" ? "true" : ((_a = extra.fullScreen) !== null && _a !== void 0 ? _a : "false") }, extra),
         });
     }
     catch (e) {
@@ -1002,7 +1019,7 @@ async function dropToPublicPool(tripRef) {
  * - Step 4: Drop to Public Order Pool (MARKETPLACE_OPEN) if all three reject or time out.
  */
 async function advanceSequentialDispatch(tripRef, data, tuning) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4;
     const pickup = pickupOf(data);
     const attempted = attemptedIdsOf(data);
     const currentStep = typeof data.dispatchStep === "number" ? data.dispatchStep : attempted.length;
@@ -1057,6 +1074,15 @@ async function advanceSequentialDispatch(tripRef, data, tuning) {
     await notifyCustomer(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", {
         tripId: tripRef.id,
         dispatchStep: String(nextStep),
+        pickupAddress: String((_j = (_g = data.pickupAddress) !== null && _g !== void 0 ? _g : (_h = data.pickup) === null || _h === void 0 ? void 0 : _h.address) !== null && _j !== void 0 ? _j : ""),
+        dropoffAddress: String((_m = (_k = data.dropoffAddress) !== null && _k !== void 0 ? _k : (_l = data.dropoff) === null || _l === void 0 ? void 0 : _l.address) !== null && _m !== void 0 ? _m : ""),
+        fareFormatted: String((_o = data.fareFormatted) !== null && _o !== void 0 ? _o : (data.fareAmount ? `₦${data.fareAmount}` : "")),
+        fareAmount: String((_q = (_p = data.fareAmount) !== null && _p !== void 0 ? _p : data.baselineFare) !== null && _q !== void 0 ? _q : 0),
+        distanceKm: String((_s = (_r = data.distanceKm) !== null && _r !== void 0 ? _r : targetDriver.distanceKm) !== null && _s !== void 0 ? _s : 0),
+        pickupLat: String((_v = (_t = data.pickupLat) !== null && _t !== void 0 ? _t : (_u = data.pickup) === null || _u === void 0 ? void 0 : _u.lat) !== null && _v !== void 0 ? _v : 0),
+        pickupLng: String((_y = (_w = data.pickupLng) !== null && _w !== void 0 ? _w : (_x = data.pickup) === null || _x === void 0 ? void 0 : _x.lng) !== null && _y !== void 0 ? _y : 0),
+        dropoffLat: String((_1 = (_z = data.dropoffLat) !== null && _z !== void 0 ? _z : (_0 = data.dropoff) === null || _0 === void 0 ? void 0 : _0.lat) !== null && _1 !== void 0 ? _1 : 0),
+        dropoffLng: String((_4 = (_2 = data.dropoffLng) !== null && _2 !== void 0 ? _2 : (_3 = data.dropoff) === null || _3 === void 0 ? void 0 : _3.lng) !== null && _4 !== void 0 ? _4 : 0),
     }, `driver_${targetDriver.id}`);
     return true;
 }
