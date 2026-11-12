@@ -2407,6 +2407,26 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
         if (bidData.status !== "pending") {
             throw new https_1.HttpsError("failed-precondition", "This bid is no longer pending.");
         }
+        // ── Server-side expiry enforcement ───────────────────────────────────────
+        // Block any Accept that arrives after the bid timer has elapsed, even by a
+        // fraction of a second. The server timestamp is the authoritative clock.
+        if (bidData.expiresAt) {
+            const expiresAtMs = typeof bidData.expiresAt.toMillis === "function"
+                ? bidData.expiresAt.toMillis()
+                : Number(bidData.expiresAt);
+            const nowMs = Date.now();
+            if (nowMs >= expiresAtMs) {
+                // Mark the bid as expired atomically so the client stream reflects it
+                // immediately, clearing any stale banner without requiring a re-fetch.
+                tx.update(bidRef, {
+                    status: "expired",
+                    isExpired: true,
+                    expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                throw new https_1.HttpsError("deadline-exceeded", "This offer has expired. The driver will need to re-submit a bid.");
+            }
+        }
         // Perform all queries/reads BEFORE any writes to satisfy Firestore transaction requirements
         const otherBids = await tx.get(tripRef.collection("bids").where("status", "==", "pending"));
         const driverSnap = await tx.get(db().collection("drivers").doc(driverId));

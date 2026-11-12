@@ -1709,36 +1709,66 @@ class _BidCard extends StatefulWidget {
 }
 
 class _BidCardState extends State<_BidCard> {
-  Timer? _ticker;
+  /// High-frequency display ticker (500 ms) for smooth countdown numerals.
+  Timer? _displayTicker;
+
+  /// One-shot precision timer that fires at the exact expiry millisecond and
+  /// triggers the [StreamBuilder] above to drop this card from the list.
+  /// No "0s" expired state is ever rendered.
+  Timer? _expiryTimer;
 
   @override
   void initState() {
     super.initState();
-    _startTicker();
+    _startTimers();
   }
 
-  void _startTicker() {
-    _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (widget.bid.isExpired) {
-        timer.cancel();
-      }
+  @override
+  void didUpdateWidget(_BidCard old) {
+    super.didUpdateWidget(old);
+    if (old.bid.bidId != widget.bid.bidId ||
+        old.bid.expiresAt != widget.bid.expiresAt) {
+      _cancelTimers();
+      _startTimers();
+    }
+  }
+
+  void _startTimers() {
+    // Display ticker: redraw every 500 ms for a smooth countdown.
+    _displayTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (!mounted) return;
       setState(() {});
     });
+
+    // Precision expiry timer: triggers an empty rebuild so the StreamBuilder
+    // re-evaluates and drops this card the instant time is up.
+    if (widget.bid.expiresAt != null) {
+      final delay = widget.bid.expiresAt!.difference(DateTime.now());
+      if (!delay.isNegative) {
+        _expiryTimer = Timer(delay, () {
+          _cancelTimers();
+          if (mounted) setState(() {});
+        });
+      }
+    }
+  }
+
+  void _cancelTimers() {
+    _displayTicker?.cancel();
+    _displayTicker = null;
+    _expiryTimer?.cancel();
+    _expiryTimer = null;
   }
 
   @override
   void dispose() {
-    _ticker?.cancel();
+    _cancelTimers();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Guard: once expired, render nothing — no "Expired" state, no dead buttons.
     if (widget.bid.isExpired) return const SizedBox.shrink();
     final remainingSec = widget.bid.remainingSeconds;
     final cs = Theme.of(context).colorScheme;
