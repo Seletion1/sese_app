@@ -45,6 +45,34 @@ class DriverOverlayService {
   void Function(String action, String tripId)? _onAction;
   bool _listening = false;
 
+  /// Waits for the Flutter engine to be in the [AppLifecycleState.resumed]
+  /// state before returning, up to [timeout].
+  ///
+  /// Android 8.0+ (API 26+) blocks `startService()` calls issued from a
+  /// background process — the OS throws `IllegalStateException: Not allowed
+  /// to start service`. `flutter_overlay_window` calls `startService()`
+  /// internally inside `showOverlay()`. Calling this helper right before any
+  /// `showOverlay()` / `resizeOverlay()` invocation guarantees the app has
+  /// fully resumed and is classified as a foreground process by Android before
+  /// the native overlay service start is attempted.
+  ///
+  /// The 100 ms poll interval is intentionally coarse: resuming from background
+  /// normally completes within 200–600 ms on mid-range Android devices. 20
+  /// iterations × 100 ms = 2 s hard ceiling before we give up and proceed
+  /// anyway (the subsequent `showOverlay` will still throw on Android < 26 if
+  /// truly backgrounded, but those exceptions are silently caught).
+  Future<void> _waitForForeground({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (!supported) return;
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final state = WidgetsBinding.instance.lifecycleState;
+      if (state == AppLifecycleState.resumed) return;
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
   /// Ensures SYSTEM_ALERT_WINDOW permission, preceded by the mandatory Google
   /// Play prominent disclosure dialog on first call.
   ///
@@ -138,6 +166,11 @@ class DriverOverlayService {
       final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
       if (!hasPermission) return;
 
+      // Android 8.0+ forbids startService() from a background process.
+      // Wait until the Flutter engine is resumed before touching the overlay
+      // service so the OS classifies us as a foreground process.
+      await _waitForForeground();
+
       final active = await FlutterOverlayWindow.isActive();
       if (!active) {
         await FlutterOverlayWindow.showOverlay(
@@ -152,11 +185,19 @@ class DriverOverlayService {
           overlayContent: unifiedNotificationBody,
         );
       } else {
-        // If already active (e.g. returning from fullCover order popup or previous state),
-        // resize back to lightweight 140x140 bubble and re-enable dragging.
-        await FlutterOverlayWindow.resizeOverlay(140, 140, true);
+        // If already active (e.g. returning from fullCover order popup or
+        // previous state), resize back to lightweight 140×140 bubble and
+        // re-enable dragging. Guard with isActive() re-check: if showOverlay
+        // above raced and left the service not running yet, resizeOverlay
+        // would throw MissingPluginException on the channel.
+        if (await FlutterOverlayWindow.isActive()) {
+          await FlutterOverlayWindow.resizeOverlay(140, 140, true);
+        }
       }
-      await FlutterOverlayWindow.shareData({'mode': 'bubble'});
+      // Only share mode data when the overlay service is confirmed running.
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.shareData({'mode': 'bubble'});
+      }
     } catch (e) {
       debugPrint('DriverOverlayService.showBubble failed: $e');
     }
@@ -193,6 +234,11 @@ class DriverOverlayService {
       final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
       if (!hasPermission) return;
 
+      // Android 8.0+ forbids startService() from a background process.
+      // Wait until the Flutter engine is fully resumed before attempting to
+      // start the overlay service, ensuring we are classified as foreground.
+      await _waitForForeground();
+
       final active = await FlutterOverlayWindow.isActive();
       if (!active) {
         await FlutterOverlayWindow.showOverlay(
@@ -206,26 +252,33 @@ class DriverOverlayService {
         );
       } else {
         // Expand the active bubble overlay to full cover for the order card.
-        await FlutterOverlayWindow.resizeOverlay(
-          WindowSize.fullCover,
-          WindowSize.fullCover,
-          false,
-        );
+        // Re-check isActive() after showOverlay may have resolved: if the
+        // service is not yet alive, resizeOverlay throws MissingPluginException.
+        if (await FlutterOverlayWindow.isActive()) {
+          await FlutterOverlayWindow.resizeOverlay(
+            WindowSize.fullCover,
+            WindowSize.fullCover,
+            false,
+          );
+        }
       }
-      await FlutterOverlayWindow.shareData({
-        'mode': 'order',
-        'offer': {
-          'tripId': tripId,
-          'pickup': pickup,
-          'dropoff': dropoff,
-          'distanceKm': distanceKm,
-          'fareFormatted': fare,
-          'pickupLat': pickupLat,
-          'pickupLng': pickupLng,
-          'dropoffLat': dropoffLat,
-          'dropoffLng': dropoffLng,
-        },
-      });
+      // Only push offer data when the overlay service is confirmed running.
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.shareData({
+          'mode': 'order',
+          'offer': {
+            'tripId': tripId,
+            'pickup': pickup,
+            'dropoff': dropoff,
+            'distanceKm': distanceKm,
+            'fareFormatted': fare,
+            'pickupLat': pickupLat,
+            'pickupLng': pickupLng,
+            'dropoffLat': dropoffLat,
+            'dropoffLng': dropoffLng,
+          },
+        });
+      }
     } catch (e) {
       debugPrint('DriverOverlayService.showOrderOffer failed: $e');
     }
