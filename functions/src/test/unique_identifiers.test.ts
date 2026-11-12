@@ -103,21 +103,18 @@ describe("Unique Identifiers & Duplicate-Prevention Engine Tests", () => {
     assert.strictEqual(maskIdentifier("passport", "A12345678"), "A1••••78");
   });
 
-  test("8. Conflict Error Messages", () => {
+  test("8. Conflict Error Messages (Generic & Secure)", () => {
     const phoneErr = getConflictErrorMessage("phone", "+234••••••78");
-    assert.match(phoneErr, /phone number/i);
-    assert.match(phoneErr, /already registered/i);
+    assert.strictEqual(phoneErr, "Please check your details and try again.");
 
     const emailErr = getConflictErrorMessage("email", "m••••@gmail.com");
-    assert.match(emailErr, /email address/i);
-    assert.match(emailErr, /already associated/i);
+    assert.strictEqual(emailErr, "Please check your details and try again.");
 
     const plateErr = getConflictErrorMessage("plate_number", "LAG•••AA");
-    assert.match(plateErr, /plate number/i);
-    assert.match(plateErr, /already registered/i);
+    assert.strictEqual(plateErr, "Please check your details and try again.");
 
     const ninErr = getConflictErrorMessage("nin", "•••••••8901");
-    assert.match(ninErr, /National Identity Number/i);
+    assert.strictEqual(ninErr, "Please check your details and try again.");
   });
 
   test("9. Identifier Preparation & Deduplication", () => {

@@ -187,30 +187,13 @@ export function maskIdentifier(type: IdentifierType, value: string): string {
 }
 
 /**
- * Formats a clean, descriptive HttpsError message for uniqueness conflicts.
+ * Formats a secure, generic feedback message for uniqueness conflicts without leaking rules or PII.
  */
 export function getConflictErrorMessage(
-  type: IdentifierType,
-  masked: string
+  _type?: IdentifierType,
+  _masked?: string
 ): string {
-  switch (type) {
-    case "phone":
-      return `The phone number (${masked}) is already registered to another account.`;
-    case "email":
-      return `The email address (${masked}) is already associated with an existing account.`;
-    case "nin":
-      return `The National Identity Number (NIN: ${masked}) is already registered under another account.`;
-    case "bvn":
-      return `The Bank Verification Number (BVN: ${masked}) is already registered under another account.`;
-    case "passport":
-      return `The International Passport number (${masked}) is already registered under another account.`;
-    case "plate_number":
-      return `The vehicle/motorcycle plate number (${masked}) is already registered to another vehicle in the system.`;
-    case "drivers_license":
-      return `The Driver's License number (${masked}) is already registered under another account.`;
-    default:
-      return `The credential (${masked}) is already registered to another account.`;
-  }
+  return "Please check your details and try again.";
 }
 
 /**

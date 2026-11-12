@@ -232,7 +232,7 @@ class DriverFleetService {
         if (e.code == 'already-exists') {
           throw DriverFleetUploadException(
             'already-exists',
-            e.message ?? 'This vehicle plate number is already registered.',
+            'Please check your details and try again.',
           );
         }
         // Fall back to direct write if callable error is not a uniqueness conflict

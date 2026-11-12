@@ -566,13 +566,12 @@ class _AuthScreenState extends State<AuthScreen> {
       case 'invalid-email':
         return 'Please enter a valid email address.';
       case 'email-already-in-use':
-        return 'An account already exists for this email address. Please sign in instead.';
+      case 'already-exists':
+        return 'Please check your details and try again.';
       case 'account-exists-with-different-credential':
-        return 'This email is already registered with a different sign-in method. '
-            'Sign in with email & password first, then link Google from Settings.';
       case 'credential-already-in-use':
       case 'provider-already-linked':
-        return 'This sign-in method is already linked to your account. Please sign in normally.';
+        return 'Please verify your information and try again.';
       case 'requires-recent-login':
       case 'reauth-required':
         return 'For security, please sign out and sign back in, then try again.';

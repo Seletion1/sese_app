@@ -186,12 +186,13 @@ class _LoginPageState extends State<LoginPage> {
         return 'Too many failed attempts. Please wait a moment.';
       case 'user-disabled':
         return 'This account has been disabled. Contact an administrator.';
+      case 'email-already-in-use':
+      case 'already-exists':
+        return 'Please check your details and try again.';
       case 'account-exists-with-different-credential':
-        return 'This email is already registered with a different sign-in method. '
-            'Sign in with email & password instead.';
       case 'credential-already-in-use':
       case 'provider-already-linked':
-        return 'This sign-in method is already linked. Please sign in normally.';
+        return 'Please verify your information and try again.';
       case 'requires-recent-login':
         return 'For security, please sign out and sign back in, then try again.';
       case 'operation-not-allowed':

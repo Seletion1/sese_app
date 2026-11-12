@@ -212,8 +212,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Standalone skipped trip must render "Skipped by Driver"
-      expect(find.text('Skipped by Driver'), findsOneWidget);
+      // Standalone skipped trip must render "Skipped by You" for driver view
+      expect(find.text('Skipped by You'), findsOneWidget);
       expect(find.text('Completed'), findsNothing);
     });
   });

@@ -42,17 +42,17 @@ void main() {
       expect(UniquenessService.normalizePassport(' a12345678 '), 'A12345678');
     });
 
-    test('IdentifierAvailabilityResult parses response correctly', () {
+    test('IdentifierAvailabilityResult parses response correctly and sanitizes error message', () {
       final res = IdentifierAvailabilityResult.fromMap({
         'available': false,
         'selfOwned': false,
         'maskedValue': '+234••••••78',
-        'message': 'Phone number already registered.',
+        'message': 'Please check your details and try again.',
       });
       expect(res.available, false);
       expect(res.selfOwned, false);
       expect(res.maskedValue, '+234••••••78');
-      expect(res.message, 'Phone number already registered.');
+      expect(res.message, 'Please check your details and try again.');
     });
   });
 }

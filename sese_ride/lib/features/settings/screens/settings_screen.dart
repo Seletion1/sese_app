@@ -631,8 +631,9 @@ class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
         } else if (e.code == 'weak-password') {
           msg = 'The chosen password is too weak. Please use a stronger password.';
         } else if (e.code == 'email-already-in-use' ||
-            e.code == 'credential-already-in-use') {
-          msg = 'This email is already linked to another sign-in method. Sign in with it first, then retry.';
+            e.code == 'credential-already-in-use' ||
+            e.code == 'already-exists') {
+          msg = 'Please verify your information and try again.';
         } else if (e.code == 'network-request-failed') {
           msg = 'Connection unstable. Please check your network and try again.';
         }

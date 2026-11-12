@@ -299,9 +299,13 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
       }
     } catch (e) {
       debugPrint('OnboardingWizard register error: $e');
-      String msg = 'Unable to complete registration. Please verify details and try again.';
-      if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
-        msg = e.message!;
+      String msg = 'Unable to complete registration. Please check your details and try again.';
+      if (e is FirebaseFunctionsException) {
+        if (e.code == 'already-exists') {
+          msg = 'Please check your details and try again.';
+        } else if (e.message != null && e.message!.isNotEmpty) {
+          msg = e.message!;
+        }
       }
       setState(() => _errorMessage = msg);
     } finally {

@@ -30,11 +30,13 @@ class IdentifierAvailabilityResult {
   });
 
   factory IdentifierAvailabilityResult.fromMap(Map<String, dynamic> map) {
+    final available = map['available'] == true;
+    final rawMsg = map['message']?.toString();
     return IdentifierAvailabilityResult(
-      available: map['available'] == true,
+      available: available,
       selfOwned: map['selfOwned'] == true,
       maskedValue: (map['maskedValue'] ?? '').toString(),
-      message: map['message']?.toString(),
+      message: available ? rawMsg : (rawMsg ?? 'Please check your details and try again.'),
     );
   }
 }
@@ -118,9 +120,9 @@ class UniquenessService {
     } on FirebaseFunctionsException catch (e) {
       debugPrint('UniquenessService.checkAvailability functions error: $e');
       if (e.code == 'already-exists') {
-        return IdentifierAvailabilityResult(
+        return const IdentifierAvailabilityResult(
           available: false,
-          message: e.message ?? 'This credential is already registered.',
+          message: 'Please check your details and try again.',
         );
       }
       return IdentifierAvailabilityResult(

@@ -109,18 +109,15 @@ const uniqueIdentifiers_1 = require("../uniqueIdentifiers");
         node_assert_1.default.strictEqual((0, uniqueIdentifiers_1.maskIdentifier)("plate_number", "LAG123AA"), "LAG•••AA");
         node_assert_1.default.strictEqual((0, uniqueIdentifiers_1.maskIdentifier)("passport", "A12345678"), "A1••••78");
     });
-    (0, node_test_1.test)("8. Conflict Error Messages", () => {
+    (0, node_test_1.test)("8. Conflict Error Messages (Generic & Secure)", () => {
         const phoneErr = (0, uniqueIdentifiers_1.getConflictErrorMessage)("phone", "+234••••••78");
-        node_assert_1.default.match(phoneErr, /phone number/i);
-        node_assert_1.default.match(phoneErr, /already registered/i);
+        node_assert_1.default.strictEqual(phoneErr, "Please check your details and try again.");
         const emailErr = (0, uniqueIdentifiers_1.getConflictErrorMessage)("email", "m••••@gmail.com");
-        node_assert_1.default.match(emailErr, /email address/i);
-        node_assert_1.default.match(emailErr, /already associated/i);
+        node_assert_1.default.strictEqual(emailErr, "Please check your details and try again.");
         const plateErr = (0, uniqueIdentifiers_1.getConflictErrorMessage)("plate_number", "LAG•••AA");
-        node_assert_1.default.match(plateErr, /plate number/i);
-        node_assert_1.default.match(plateErr, /already registered/i);
+        node_assert_1.default.strictEqual(plateErr, "Please check your details and try again.");
         const ninErr = (0, uniqueIdentifiers_1.getConflictErrorMessage)("nin", "•••••••8901");
-        node_assert_1.default.match(ninErr, /National Identity Number/i);
+        node_assert_1.default.strictEqual(ninErr, "Please check your details and try again.");
     });
     (0, node_test_1.test)("9. Identifier Preparation & Deduplication", () => {
         const prepared = (0, uniqueIdentifiers_1.prepareIdentifiers)([
