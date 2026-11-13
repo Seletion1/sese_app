@@ -8,6 +8,22 @@ import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ---------------------------------------------------------------------------
+// _OverlayLifecycleObserver — internal WidgetsBindingObserver that drains
+// the pending action queue when the Flutter engine transitions to `resumed`.
+// ---------------------------------------------------------------------------
+class _OverlayLifecycleObserver extends WidgetsBindingObserver {
+  _OverlayLifecycleObserver(this._service);
+  final DriverOverlayService _service;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _service._drainPendingActions();
+    }
+  }
+}
+
 /// Main-isolate manager for the driver overlay window (Android only).
 ///
 /// - Bubble: persistent draggable SeSe bubble while ONLINE + minimized.
@@ -45,31 +61,79 @@ class DriverOverlayService {
   void Function(String action, String tripId)? _onAction;
   bool _listening = false;
 
-  /// Waits for the Flutter engine to be in the [AppLifecycleState.resumed]
-  /// state before returning, up to [timeout].
+  // ---------------------------------------------------------------------------
+  // Deferred action queue — Android 8+ background start-service fix.
+  //
+  // `showOverlay()` internally calls `startService()`, which Android 8.0+
+  // (API 26+) rejects with `IllegalStateException: Not allowed to start
+  // service` when the calling process is not in the foreground. The simple
+  // `_waitForForeground()` poll is insufficient when:
+  //   • the caller itself triggers `moveTaskToBack()` immediately before the
+  //     overlay call (driver_home_shell back-press path), or
+  //   • `didChangeAppLifecycleState(paused)` fires synchronously and the
+  //     overlay call races with the OS background classification.
+  //
+  // Fix: register a [WidgetsBindingObserver] once and drain queued actions
+  // the first time `AppLifecycleState.resumed` fires after they were queued.
+  // ---------------------------------------------------------------------------
+
+  /// Overlay actions waiting for the next `AppLifecycleState.resumed` event.
+  final List<Future<void> Function()> _pendingActions = [];
+
+  _OverlayLifecycleObserver? _lifecycleObserver;
+
+  /// Installs the lifecycle observer if not already registered.
   ///
-  /// Android 8.0+ (API 26+) blocks `startService()` calls issued from a
-  /// background process — the OS throws `IllegalStateException: Not allowed
-  /// to start service`. `flutter_overlay_window` calls `startService()`
-  /// internally inside `showOverlay()`. Calling this helper right before any
-  /// `showOverlay()` / `resizeOverlay()` invocation guarantees the app has
-  /// fully resumed and is classified as a foreground process by Android before
-  /// the native overlay service start is attempted.
+  /// Safe to call multiple times; subsequent calls are no-ops.
+  void _ensureObserver() {
+    if (_lifecycleObserver != null) return;
+    _lifecycleObserver = _OverlayLifecycleObserver(this);
+    WidgetsBinding.instance.addObserver(_lifecycleObserver!);
+  }
+
+  /// Drains and executes all pending overlay actions in FIFO order.
   ///
-  /// The 100 ms poll interval is intentionally coarse: resuming from background
-  /// normally completes within 200–600 ms on mid-range Android devices. 20
-  /// iterations × 100 ms = 2 s hard ceiling before we give up and proceed
-  /// anyway (the subsequent `showOverlay` will still throw on Android < 26 if
-  /// truly backgrounded, but those exceptions are silently caught).
-  Future<void> _waitForForeground({
-    Duration timeout = const Duration(seconds: 2),
-  }) async {
-    if (!supported) return;
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      final state = WidgetsBinding.instance.lifecycleState;
-      if (state == AppLifecycleState.resumed) return;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+  /// Called by [_OverlayLifecycleObserver] on `AppLifecycleState.resumed`.
+  /// Each action is wrapped in its own try/catch so a single failure does
+  /// not block subsequent actions in the queue.
+  Future<void> _drainPendingActions() async {
+    if (_pendingActions.isEmpty) return;
+    final actions = List<Future<void> Function()>.from(_pendingActions);
+    _pendingActions.clear();
+    for (final action in actions) {
+      try {
+        await action();
+      } catch (e) {
+        debugPrint('DriverOverlayService._drainPendingActions: action failed: $e');
+      }
+    }
+  }
+
+  /// Returns `true` when the Flutter engine is currently in the foreground
+  /// (`AppLifecycleState.resumed`).
+  bool get _isInForeground =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  /// Runs [action] immediately if the app is currently in the foreground,
+  /// otherwise enqueues it to execute on the next `AppLifecycleState.resumed`
+  /// event and returns immediately.
+  ///
+  /// This is the Android 8+ background-safe entry-point for all
+  /// `showOverlay()` / `closeOverlay()` calls that may originate from
+  /// lifecycle callbacks or push-notification paths where the Flutter process
+  /// is not guaranteed to be in the foreground.
+  Future<void> _enqueueOrRun(Future<void> Function() action) async {
+    if (_isInForeground) {
+      await action();
+    } else {
+      _ensureObserver();
+      _pendingActions.add(action);
+      if (kDebugMode) {
+        debugPrint(
+          'DriverOverlayService: app is backgrounded — overlay action queued '
+          '(queue length: ${_pendingActions.length}).',
+        );
+      }
     }
   }
 
@@ -168,23 +232,31 @@ class DriverOverlayService {
   /// on a live window via `flutter_overlay_window`'s resize API, so the bubble
   /// would retain `defaultFlag` and intercept ALL touches delivered to the app —
   /// the visible symptom is the app freezing with the bubble stuck centre-screen.
-  /// Re-showing from scratch guarantees a fresh window with [OverlayFlag.clickThrough].
+  /// Re-showing from scratch guarantees a fresh window with [OverlayFlag.defaultFlag].
+  ///
+  /// **Background-start fix**: If called while the app is not in the foreground
+  /// (e.g. from [didChangeAppLifecycleState] paused or the driver_home_shell
+  /// back-press path that calls [moveTaskToBack] immediately beforehand), the
+  /// action is enqueued via [_enqueueOrRun] and executes on the next
+  /// `AppLifecycleState.resumed` event, avoiding the Android 8+
+  /// `IllegalStateException: Not allowed to start service` crash.
   Future<void> showBubble() async {
     if (!supported) return;
+    await _enqueueOrRun(_showBubbleNow);
+  }
+
+  /// Internal implementation of [showBubble] that runs only when the Flutter
+  /// engine is confirmed to be in the foreground.
+  Future<void> _showBubbleNow() async {
     try {
       final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
       if (!hasPermission) return;
 
-      // Android 8.0+ forbids startService() from a background process.
-      // Wait until the Flutter engine is resumed before touching the overlay
-      // service so the OS classifies us as a foreground process.
-      await _waitForForeground();
-
       // Always close then re-open to guarantee the window is created with
-      // OverlayFlag.clickThrough.  A plain resizeOverlay() call does NOT
-      // change the flags of an already-live window, so a bubble that follows
-      // a full-cover order popup retains defaultFlag and intercepts all
-      // touches — causing the frozen-UI / bubble-stuck-centre-screen bug.
+      // OverlayFlag.defaultFlag (clickThrough-compatible). A plain resizeOverlay()
+      // call does NOT change the flags of an already-live window, so a bubble
+      // that follows a full-cover order popup retains defaultFlag and intercepts
+      // all touches — causing the frozen-UI / bubble-stuck-centre-screen bug.
       final active = await FlutterOverlayWindow.isActive();
       if (active) {
         try {
@@ -201,10 +273,9 @@ class DriverOverlayService {
         alignment: OverlayAlignment.centerRight,
         enableDrag: true,
         positionGravity: PositionGravity.auto,
-        // clickThrough lets touches pass through to the app beneath the bubble.
-        // This is safe for the bubble (which only needs its own onTap handled
-        // by its own GestureDetector) and prevents any foreground-return
-        // touch-interception race.
+        // defaultFlag allows the bubble's own GestureDetector to receive taps
+        // while letting touches outside the 140×140 window pass through to the
+        // app. This prevents the foreground-return touch-interception race.
         flag: OverlayFlag.defaultFlag,
         visibility: NotificationVisibility.visibilitySecret,
         overlayTitle: unifiedNotificationTitle,
@@ -235,6 +306,11 @@ class DriverOverlayService {
   /// card occupies the entire screen on lock-screen wake-ups. The
   /// `visibilitySecret` keeps the OverlayService foreground notification
   /// suppressed from the shade — same rationale as [showBubble].
+  ///
+  /// **Background-start fix**: If the app is backgrounded when this is called
+  /// (e.g. from an FCM handler path), the action is enqueued and runs on the
+  /// next `AppLifecycleState.resumed` event so Android's `startService()`
+  /// foreground restriction is not violated.
   Future<void> showOrderOffer({
     required String tripId,
     required String pickup,
@@ -247,14 +323,35 @@ class DriverOverlayService {
     double? dropoffLng,
   }) async {
     if (!supported) return;
+    await _enqueueOrRun(() => _showOrderOfferNow(
+          tripId: tripId,
+          pickup: pickup,
+          dropoff: dropoff,
+          distanceKm: distanceKm,
+          fare: fare,
+          pickupLat: pickupLat,
+          pickupLng: pickupLng,
+          dropoffLat: dropoffLat,
+          dropoffLng: dropoffLng,
+        ));
+  }
+
+  /// Internal implementation of [showOrderOffer] that runs only when the
+  /// Flutter engine is confirmed to be in the foreground.
+  Future<void> _showOrderOfferNow({
+    required String tripId,
+    required String pickup,
+    required String dropoff,
+    required String distanceKm,
+    required String fare,
+    double? pickupLat,
+    double? pickupLng,
+    double? dropoffLat,
+    double? dropoffLng,
+  }) async {
     try {
       final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
       if (!hasPermission) return;
-
-      // Android 8.0+ forbids startService() from a background process.
-      // Wait until the Flutter engine is fully resumed before attempting to
-      // start the overlay service, ensuring we are classified as foreground.
-      await _waitForForeground();
 
       final active = await FlutterOverlayWindow.isActive();
       if (!active) {
@@ -300,14 +397,19 @@ class DriverOverlayService {
       debugPrint('DriverOverlayService.showOrderOffer failed: $e');
     }
   }
-
   /// Hides the overlay (bubble or popup).
   ///
   /// Sends a `close` mode signal to the overlay isolate first so it can
   /// cancel any in-progress countdown timers, then calls [closeOverlay].
   /// A deferred safety check at +500 ms force-closes any ghost window that
   /// survived (e.g. due to a close/open race during foreground transition).
+  ///
+  /// Also clears any pending show-bubble/show-order actions that were enqueued
+  /// while backgrounded, so a dismissed overlay never re-appears on resume.
   Future<void> hide() async {
+    // Discard any queued show-bubble / show-order actions — the driver has
+    // explicitly come back to foreground so the in-app UI takes over.
+    _pendingActions.clear();
     if (!supported) return;
     try {
       if (await FlutterOverlayWindow.isActive()) {
@@ -354,5 +456,10 @@ class DriverOverlayService {
     _sub = null;
     _listening = false;
     _onAction = null;
+    if (_lifecycleObserver != null) {
+      WidgetsBinding.instance.removeObserver(_lifecycleObserver!);
+      _lifecycleObserver = null;
+    }
+    _pendingActions.clear();
   }
 }
