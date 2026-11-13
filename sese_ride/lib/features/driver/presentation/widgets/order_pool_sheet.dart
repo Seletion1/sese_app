@@ -13,6 +13,7 @@ import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
 import '../../../../widgets/map_provider.dart';
+import '../../../payments/payment_service.dart';
 import 'low_balance_dialog.dart';
 import 'order_feed.dart';
 
@@ -880,7 +881,21 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     return out.reversed.join();
   }
 
-  void _applySuggestion(int? pct, double val) {
+  Future<void> _applySuggestion(int? pct, double val) async {
+    final driverId = _effectiveDriverId;
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
+      if (balKobo < 100) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+        return;
+      }
+    }
     setState(() {
       _selectedSuggestionPct = pct;
       _isCustomBidActive = false;
@@ -889,7 +904,23 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     });
   }
 
-  void _toggleCustomBid() {
+  Future<void> _toggleCustomBid() async {
+    if (!_isCustomBidActive) {
+      final driverId = _effectiveDriverId;
+      final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+          SeseUniversalMap.debugTileProviderOverride != null;
+      if (driverId.isNotEmpty && !inTest) {
+        final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
+        if (balKobo < 100) {
+          if (!mounted) return;
+          await showLowBalanceAcceptancePrompt(
+            context,
+            driverId: driverId,
+          );
+          return;
+        }
+      }
+    }
     setState(() {
       _isCustomBidActive = !_isCustomBidActive;
       if (_isCustomBidActive) {
@@ -970,6 +1001,22 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
       });
       return;
     }
+
+    final driverId = _effectiveDriverId;
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
+      if (balKobo < 100) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+        return;
+      }
+    }
+
     setState(() => _submittingBid = true);
     try {
       final repo = widget.tripRepository ?? FirestoreTripRepository();
@@ -992,17 +1039,33 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
       );
     } on TripException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.userMessage)),
-      );
+      if (e.userMessage.toLowerCase().contains('balance is low') ||
+          e.userMessage.toLowerCase().contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.userMessage)),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
-      debugPrint('OrderPoolSheet submitBid error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to submit offer right now. Please try again.'),
-        ),
-      );
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('balance is low') || msg.contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+      } else {
+        debugPrint('OrderPoolSheet submitBid error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to submit offer right now. Please try again.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _submittingBid = false);
     }

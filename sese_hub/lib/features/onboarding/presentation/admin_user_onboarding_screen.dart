@@ -273,10 +273,13 @@ class _AdminUserOnboardingScreenState extends State<AdminUserOnboardingScreen> {
             const SizedBox(height: 28),
             Row(
               children: [
-                const Text(
-                  'Recent Profiles Pending Onboarding Verification',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Text(
+                    'Recent Profiles Pending Onboarding Verification',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
                 ),
+                const SizedBox(width: 8),
                 HubCountBadge.stream(
                   stream: HubPendingCountsService().pendingUserOnboardingCountStream,
                 ),

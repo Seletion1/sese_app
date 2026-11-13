@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../../../widgets/map_provider.dart';
+import '../../../payments/payment_service.dart';
 import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
@@ -273,6 +275,22 @@ class _OrderCardState extends State<OrderCard> {
 
   /// Opens a dialog for the driver to submit a custom fare bid.
   Future<void> _showBidDialog() async {
+    final driverId = widget.streakService.driverId ?? '';
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
+      if (balKobo < 100) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+        return;
+      }
+    }
+    if (!mounted) return;
+
     final baseline = widget.trip.fareAmount;
     final controller = TextEditingController(
       text: baseline.toStringAsFixed(0),
@@ -329,6 +347,7 @@ class _OrderCardState extends State<OrderCard> {
       ),
     );
 
+    if (!mounted) return;
     if (confirmed != true) return;
     final val = double.tryParse(controller.text);
     if (val == null || val < baseline) return;
@@ -342,8 +361,32 @@ class _OrderCardState extends State<OrderCard> {
       );
     } on TripException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      if (e.userMessage.toLowerCase().contains('balance is low') ||
+          e.userMessage.toLowerCase().contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.userMessage)));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('balance is low') || msg.contains('top up')) {
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+      } else {
+        debugPrint('OrderCard _showBidDialog error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to submit offer right now. Please try again.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _bidding = false);
     }

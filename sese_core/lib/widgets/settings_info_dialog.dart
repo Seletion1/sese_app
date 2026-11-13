@@ -271,11 +271,23 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget? trailingWidget = trailing;
+    Widget titleWidget = Text(
+      title,
+      style: titleStyle,
+    );
+
     if (infoDescription != null && infoDescription!.isNotEmpty) {
-      trailingWidget = Row(
+      titleWidget = Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          Flexible(
+            child: Text(
+              title,
+              style: titleStyle,
+            ),
+          ),
+          const SizedBox(width: 4),
           SettingsInfoButton(
             title: infoTitle ?? title,
             description: infoDescription!,
@@ -283,10 +295,6 @@ class SettingsTile extends StatelessWidget {
             tooltipId: tooltipId,
             userId: userId,
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 4),
-            trailing!,
-          ],
         ],
       );
     }
@@ -294,11 +302,8 @@ class SettingsTile extends StatelessWidget {
     return ListTile(
       key: tileKey,
       leading: leading,
-      title: Text(
-        title,
-        style: titleStyle,
-      ),
-      trailing: trailingWidget,
+      title: titleWidget,
+      trailing: trailing,
       onTap: onTap,
     );
   }
@@ -339,34 +344,44 @@ class SettingsSwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    Widget titleWidget = Text(
+      title,
+      style: titleStyle,
+    );
+
+    if (infoDescription != null && infoDescription!.isNotEmpty) {
+      titleWidget = Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              title,
+              style: titleStyle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          SettingsInfoButton(
+            title: infoTitle ?? title,
+            description: infoDescription!,
+            icon: infoIcon,
+            tooltipId: tooltipId,
+            userId: userId,
+          ),
+        ],
+      );
+    }
+
     return ListTile(
       key: tileKey,
       leading: leading,
-      title: Text(
-        title,
-        style: titleStyle,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (infoDescription != null && infoDescription!.isNotEmpty) ...[
-            SettingsInfoButton(
-              title: infoTitle ?? title,
-              description: infoDescription!,
-              icon: infoIcon,
-              tooltipId: tooltipId,
-              userId: userId,
-            ),
-            const SizedBox(width: 4),
-          ],
-          Switch.adaptive(
-            key: switchKey,
-            value: value,
-            activeThumbColor: activeThumbColor ?? AppColors.seseGold,
-            activeTrackColor: activeThumbColor ?? AppColors.seseGold,
-            onChanged: onChanged,
-          ),
-        ],
+      title: titleWidget,
+      trailing: Switch.adaptive(
+        key: switchKey,
+        value: value,
+        activeThumbColor: activeThumbColor ?? AppColors.seseGold,
+        activeTrackColor: activeThumbColor ?? AppColors.seseGold,
+        onChanged: onChanged,
       ),
       onTap: onChanged == null ? null : () => onChanged!(!value),
     );

@@ -2718,6 +2718,21 @@ export const submitBid = onCall(async (request) => {
     );
   }
 
+  // Low balance guard: Drivers with balance below minWalletBalanceToOnline (< 1.00) cannot submit bids.
+  const walletDoc = await db().collection("wallets").doc(driverId).get();
+  const wData = walletDoc.exists ? (walletDoc.data() ?? {}) : {};
+  const mainBal =
+    typeof wData.mainWalletBalance === "number"
+      ? wData.mainWalletBalance
+      : ((typeof wData.balance === "number" ? wData.balance : 0) / 100);
+  const minBalance = await getMinWalletBalanceToOnline();
+  if (mainBal < minBalance) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Your balance is low. Please top up to accept trips."
+    );
+  }
+
   // Category & Tier Isolation Check
   const reqCat = String(tripData.vehicleCategory ?? "").toLowerCase();
   const reqTiers = Array.isArray(tripData.selectedTiers)

@@ -44,9 +44,17 @@ class _FakeBiddingTripRepo implements TripRepository {
   @override
   Future<void> confirmCashCancellation(String tripId, {bool cashCollected = true}) async {}
 
+  bool throwLowBalance = false;
+
   @override
   Future<void> submitBid(String tripId, double offeredFare,
       {int? etaMinutes}) async {
+    if (throwLowBalance) {
+      throw const TripException(
+        'failed-precondition',
+        'Your balance is low. Please top up to accept trips.',
+      );
+    }
     lastSubmittedTripId = tripId;
     lastSubmittedFare = offeredFare;
     driverBidController.add(BidModel(
@@ -322,6 +330,67 @@ void main() {
 
       // VERIFY: Customer acceptance fires onAccepted
       expect(acceptedTrip, equals('trip-abc'));
+    });
+
+    testWidgets(
+        'PoolOrderDetailSheet displays Low Balance modal when submitBid throws low balance error',
+        (tester) async {
+      OsmMapView.debugTileProviderOverride = BlankTileProvider();
+      addTearDown(() => OsmMapView.debugTileProviderOverride = null);
+
+      final repo = _FakeBiddingTripRepo();
+      repo.throwLowBalance = true;
+      final streakService = _TestDriverStreakService();
+      final trip = ActiveTrip(
+        tripId: 'trip-xyz',
+        status: TripStatus.marketplaceOpen,
+        customerId: 'cust-999',
+        customerName: 'Adebayo',
+        pickupAddress: '34 Commercial Ave, Yaba',
+        pickupLat: 6.518,
+        pickupLng: 3.373,
+        dropoffAddress: '15 Allen Ave, Ikeja',
+        dropoffLat: 6.601,
+        dropoffLng: 3.351,
+        fareAmount: 4500.0,
+      );
+
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PoolOrderDetailSheet(
+              trip: trip,
+              driverPosition: const LatLng(6.518, 3.373),
+              currencySymbol: '₦',
+              streakService: streakService,
+              driverId: 'driver-123',
+              tripRepository: repo,
+              onAccepted: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Select +5% counter offer chip
+      await tester.ensureVisible(find.textContaining('+5%'));
+      await tester.pump();
+      await tester.tap(find.textContaining('+5%'));
+      await tester.pump();
+
+      final actionBtn = find.byKey(Key('pool_primary_action_${trip.tripId}'));
+      await tester.tap(actionBtn);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // VERIFY: Low Balance dialog pops up with "Low Balance" and "Top Up Now"
+      expect(find.text('Low Balance'), findsOneWidget);
+      expect(find.text('Your balance is low. Please top up to accept trips.'), findsNWidgets(2));
+      expect(find.text('Top Up Now'), findsOneWidget);
     });
   });
 }

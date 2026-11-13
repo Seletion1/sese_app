@@ -290,9 +290,6 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                   children: [
                     Positioned.fill(
                       child: SeSeMapView(
-                        preferredProvider: MapConfigController.instance.snapshotConfig().hasValidMapboxToken
-                            ? MapProvider.mapbox
-                            : MapProvider.cartoDb,
                         // Offer route preview (pre-accept browsing): Google Maps.
                         mapContext: MapContext.browsing,
                         mapController: _mapController,

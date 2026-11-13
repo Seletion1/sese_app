@@ -49,32 +49,15 @@ class MainActivity : FlutterActivity() {
 
     // Reports whether Google Play Services is installed and operational on this device.
     // Used by SeseUniversalMap to verify GMS presence before rendering Google Maps.
-    // Low-RAM or Android Go hardware gracefully opts for pure Dart raster tiles (CartoDB / Mapbox).
     private fun isGooglePlayServicesAvailable(): Boolean {
         return try {
-            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-            if (activityManager?.isLowRamDevice == true) {
-                return false
-            }
-            val memInfo = android.app.ActivityManager.MemoryInfo()
-            activityManager?.getMemoryInfo(memInfo)
-            // Devices with <= 3.2GB total memory or known budget SoCs (e.g. Nokia G20)
-            // gracefully fallback to pure Dart raster tiles to prevent Scudo OOM allocations.
-            if (memInfo.totalMem in 1..3200000000L) {
-                val model = Build.MODEL.lowercase()
-                val brand = Build.BRAND.lowercase()
-                if (model.contains("g20") || brand.contains("nokia") || memInfo.totalMem <= 2500000000L) {
-                    return false
-                }
-            }
-
             val apiClass = Class.forName("com.google.android.gms.common.GoogleApiAvailability")
             val instance = apiClass.getMethod("getInstance").invoke(null)
             val code = apiClass.getMethod("isGooglePlayServicesAvailable", Context::class.java)
                 .invoke(instance, this) as Int
             code == 0 // ConnectionResult.SUCCESS
         } catch (_: Exception) {
-            false
+            true // Fail open so standard Android builds render Google Maps natively
         }
     }
 
