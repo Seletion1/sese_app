@@ -675,6 +675,15 @@ class PoolOrderDetailSheet extends StatefulWidget {
 
 typedef _PoolOrderDetailSheet = PoolOrderDetailSheet;
 
+/// Snap fractions for the detail-sheet [DraggableScrollableSheet].
+///
+/// [_kSheetMinSnap]  — collapsed: map visible, sheet peeking.
+/// [_kSheetMidSnap]  — default open: all bidding controls visible.
+/// [_kSheetMaxSnap]  — fully expanded: scrollable content fills screen.
+const double _kSheetMinSnap = 0.18;
+const double _kSheetMidSnap = 0.65;
+const double _kSheetMaxSnap = 0.88;
+
 class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   final SeSeMapController _mapController = SeSeMapController();
   List<LatLng> _routePoints = [];
@@ -691,6 +700,9 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   BidStatus? _lastTrackedBidStatus;
   bool _hasShownTimeoutToast = false;
   bool _hasShownRejectToast = false;
+  /// Mirrors the latest `isBidPending` value from the stream so that
+  /// [_sheetController] can be driven from outside the [StreamBuilder] tree.
+  bool _isBidPending = false;
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
   LatLng get _dropoff => LatLng(widget.trip.dropoffLat, widget.trip.dropoffLng);
@@ -797,8 +809,36 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     _selectedSuggestionPct = null;
     _loadRoutes();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _mapController.fitPoints(_pickup, _dropoff, padding: 88);
+      if (!mounted) return;
+      _mapController.fitPoints(_pickup, _dropoff, padding: 88);
+      // Auto-expand the bottom sheet to the mid snap so all bidding controls
+      // are immediately visible without requiring the driver to drag manually.
+      if (_sheetController.isAttached) {
+        _sheetController.animateTo(
+          _kSheetMidSnap,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      // Enforce the bid-lock floor: if a bid is pending and the driver drags
+      // the sheet below [_kSheetMidSnap], snap it back up immediately.
+      _sheetController.addListener(_enforceSheetFloor);
     });
+  }
+
+  /// Snaps the sheet back to [_kSheetMidSnap] when [_isBidPending] and the
+  /// driver has dragged it below that threshold.  Called on every controller
+  /// position tick so the response is instantaneous.
+  void _enforceSheetFloor() {
+    if (!_isBidPending) return;
+    if (!_sheetController.isAttached) return;
+    if (_sheetController.size < _kSheetMidSnap - 0.02) {
+      _sheetController.animateTo(
+        _kSheetMidSnap,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   @override
@@ -1024,6 +1064,25 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                 activeBid.status == BidStatus.pending &&
                 !activeBid.isExpired;
 
+            // Sync the state flag so that the DraggableScrollableSheet key
+            // and the map-tap guard are driven by the same value.  When a bid
+            // becomes pending, animate the sheet up to _kSheetMidSnap so that
+            // all bidding controls remain visible and the driver can clearly
+            // see the countdown.
+            if (isBidPending != _isBidPending) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                setState(() => _isBidPending = isBidPending);
+                if (isBidPending && _sheetController.isAttached) {
+                  _sheetController.animateTo(
+                    _kSheetMidSnap,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                  );
+                }
+              });
+            }
+
             final bool isClaimedByAnotherDriver = driverId.isNotEmpty &&
                 trip.driverId.isNotEmpty &&
                 trip.driverId != driverId &&
@@ -1060,9 +1119,14 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
                             onTap: () {
+                              // During an active countdown the sheet is locked
+                              // at _kSheetMidSnap; tapping the map must not
+                              // collapse it below that floor.
                               if (_sheetController.isAttached) {
                                 _sheetController.animateTo(
-                                  0.18,
+                                  isBidPending
+                                      ? _kSheetMidSnap
+                                      : _kSheetMinSnap,
                                   duration: const Duration(milliseconds: 300),
                                   curve: Curves.easeOutCubic,
                                 );
@@ -1180,13 +1244,21 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                       ),
 
                       // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
+                      // During an active bid countdown [_enforceSheetFloor]
+                      // listens to the controller and snaps the sheet back to
+                      // [_kSheetMidSnap] if the driver drags below that floor,
+                      // effectively locking the sheet open during the wait.
                       DraggableScrollableSheet(
                         controller: _sheetController,
-                        initialChildSize: 0.38,
-                        minChildSize: 0.18,
-                        maxChildSize: 0.88,
+                        initialChildSize: _kSheetMidSnap,
+                        minChildSize: _kSheetMinSnap,
+                        maxChildSize: _kSheetMaxSnap,
                         snap: true,
-                        snapSizes: const [0.18, 0.38, 0.88],
+                        snapSizes: const [
+                          _kSheetMinSnap,
+                          _kSheetMidSnap,
+                          _kSheetMaxSnap,
+                        ],
                     builder: (context, scrollController) {
                       return Container(
                         decoration: BoxDecoration(
