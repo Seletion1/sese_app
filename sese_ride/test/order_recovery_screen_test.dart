@@ -107,10 +107,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // 1. Verify timeout notification header & helpful suggestion
-      expect(find.text('Order Returned to You'), findsOneWidget);
+      expect(find.text('All Drivers Are Currently Busy'), findsOneWidget);
       expect(
         find.text(
-            'Please increase the fare to catch nearby drivers\' attention.'),
+            'A small fare increase can help attract an available driver faster.'),
         findsOneWidget,
       );
 

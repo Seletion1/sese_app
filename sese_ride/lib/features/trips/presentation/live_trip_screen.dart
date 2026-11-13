@@ -512,7 +512,7 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
 
               // Title
               Text(
-                'Order Returned to You',
+                'All Drivers Are Currently Busy',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       fontSize: 20,
@@ -542,7 +542,7 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Please increase the fare to catch nearby drivers\' attention.',
+                        'A small fare increase can help attract an available driver faster.',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
