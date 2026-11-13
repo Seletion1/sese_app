@@ -160,6 +160,15 @@ class DriverOverlayService {
   /// The overlay title/content mirror that unified tray item so no second,
   /// differently-worded entry can appear on OEMs that still surface the
   /// service notification.
+  ///
+  /// **Touch-interception fix**: When transitioning from a full-cover order
+  /// popup (which uses [OverlayFlag.defaultFlag] to receive taps) back to the
+  /// bubble, we must close and re-open the overlay window rather than
+  /// just resizing it. Android does not update `WindowManager.LayoutParams.flags`
+  /// on a live window via `flutter_overlay_window`'s resize API, so the bubble
+  /// would retain `defaultFlag` and intercept ALL touches delivered to the app —
+  /// the visible symptom is the app freezing with the bubble stuck centre-screen.
+  /// Re-showing from scratch guarantees a fresh window with [OverlayFlag.clickThrough].
   Future<void> showBubble() async {
     if (!supported) return;
     try {
@@ -171,29 +180,37 @@ class DriverOverlayService {
       // service so the OS classifies us as a foreground process.
       await _waitForForeground();
 
+      // Always close then re-open to guarantee the window is created with
+      // OverlayFlag.clickThrough.  A plain resizeOverlay() call does NOT
+      // change the flags of an already-live window, so a bubble that follows
+      // a full-cover order popup retains defaultFlag and intercepts all
+      // touches — causing the frozen-UI / bubble-stuck-centre-screen bug.
       final active = await FlutterOverlayWindow.isActive();
-      if (!active) {
-        await FlutterOverlayWindow.showOverlay(
-          height: 140,
-          width: 140,
-          alignment: OverlayAlignment.centerRight,
-          enableDrag: true,
-          positionGravity: PositionGravity.auto,
-          flag: OverlayFlag.defaultFlag,
-          visibility: NotificationVisibility.visibilitySecret,
-          overlayTitle: unifiedNotificationTitle,
-          overlayContent: unifiedNotificationBody,
-        );
-      } else {
-        // If already active (e.g. returning from fullCover order popup or
-        // previous state), resize back to lightweight 140×140 bubble and
-        // re-enable dragging. Guard with isActive() re-check: if showOverlay
-        // above raced and left the service not running yet, resizeOverlay
-        // would throw MissingPluginException on the channel.
-        if (await FlutterOverlayWindow.isActive()) {
-          await FlutterOverlayWindow.resizeOverlay(140, 140, true);
-        }
+      if (active) {
+        try {
+          await FlutterOverlayWindow.closeOverlay();
+        } catch (_) {}
+        // Brief yield so the Android WindowManager removes the old window
+        // before we request a new one on the same surface.
+        await Future<void>.delayed(const Duration(milliseconds: 80));
       }
+
+      await FlutterOverlayWindow.showOverlay(
+        height: 140,
+        width: 140,
+        alignment: OverlayAlignment.centerRight,
+        enableDrag: true,
+        positionGravity: PositionGravity.auto,
+        // clickThrough lets touches pass through to the app beneath the bubble.
+        // This is safe for the bubble (which only needs its own onTap handled
+        // by its own GestureDetector) and prevents any foreground-return
+        // touch-interception race.
+        flag: OverlayFlag.defaultFlag,
+        visibility: NotificationVisibility.visibilitySecret,
+        overlayTitle: unifiedNotificationTitle,
+        overlayContent: unifiedNotificationBody,
+      );
+
       // Only share mode data when the overlay service is confirmed running.
       if (await FlutterOverlayWindow.isActive()) {
         await FlutterOverlayWindow.shareData({'mode': 'bubble'});
@@ -285,6 +302,11 @@ class DriverOverlayService {
   }
 
   /// Hides the overlay (bubble or popup).
+  ///
+  /// Sends a `close` mode signal to the overlay isolate first so it can
+  /// cancel any in-progress countdown timers, then calls [closeOverlay].
+  /// A deferred safety check at +500 ms force-closes any ghost window that
+  /// survived (e.g. due to a close/open race during foreground transition).
   Future<void> hide() async {
     if (!supported) return;
     try {
@@ -295,6 +317,17 @@ class DriverOverlayService {
     } catch (e) {
       debugPrint('DriverOverlayService.hide failed: $e');
     }
+    // Deferred safety net: if a race left the overlay window alive (e.g. a
+    // showBubble/closeOverlay pair racing during app-resume), close it again.
+    // This prevents a ghost clickThrough-flagged window from persisting and
+    // the bubble from appearing frozen centre-screen on foreground return.
+    Future<void>.delayed(const Duration(milliseconds: 500), () async {
+      try {
+        if (await FlutterOverlayWindow.isActive()) {
+          await FlutterOverlayWindow.closeOverlay();
+        }
+      } catch (_) {}
+    });
   }
 
   /// Subscribes to overlay → app actions. Safe to call repeatedly.

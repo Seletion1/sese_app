@@ -486,6 +486,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       // Back in foreground: overlay yields to the in-app UI.
       // ignore: discarded_futures
       DriverOverlayService.instance.closeOverlayWidget();
+      // Deferred safety net: if the overlay window survived the closeOverlay()
+      // call (e.g. a showBubble/close race during foreground transition), force
+      // another close after the engine has fully resumed.  This prevents the
+      // frozen-bubble / UI-freeze symptom where the overlay intercepts all
+      // touches after the app returns to foreground.
+      Future<void>.delayed(const Duration(milliseconds: 600), () {
+        if (!mounted) return;
+        // Only force-close if we are still in foreground (not re-minimized).
+        if (!_appPaused) {
+          // ignore: discarded_futures
+          DriverOverlayService.instance.closeOverlayWidget();
+        }
+      });
     }
   }
 
