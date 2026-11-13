@@ -13,6 +13,7 @@ import 'package:google_maps_flutter_android/google_maps_flutter_android.dart'
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart'
     show GoogleMapsFlutterPlatform;
 
+import 'background_handler.dart';
 import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
 import 'core/services/remote_config_service.dart';
@@ -128,7 +129,10 @@ void main() async {
   // Tap routing is handled per-screen; the overlay entry above stays
   // referenced so tree-shaking keeps `overlayMain`.
   // ignore: discarded_futures
-  PushNotificationService.init(onTap: _handlePushTap);
+  PushNotificationService.init(
+    onTap: _handlePushTap,
+    backgroundMessageHandler: driverBackgroundHandler,
+  );
   // Keep a static reference so the overlay entry-point is retained.
   // ignore: unnecessary_statements
   overlayMain;

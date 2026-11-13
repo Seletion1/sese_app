@@ -45,7 +45,9 @@
             android:value="sese_orders" />
         <service android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Driver order alerts while online" />
         </service>

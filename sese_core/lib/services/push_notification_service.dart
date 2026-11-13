@@ -36,56 +36,65 @@ class PushChannels {
   static const alertSound = 'sese_alert_chime';
 }
 
-/// Background FCM handler: shows a high-priority local notification with
-/// the custom chime even when the app is killed. Order pings request the
-/// full-screen intent so the popup renders over lock/launcher.
+/// Default background FCM handler used by [PushNotificationService.init] when
+/// the caller does not supply a custom [backgroundMessageHandler].
 ///
-/// For driver offer pings (trip_offer, direct_ping, tier_ping,
-/// marketplace_broadcast) the enriched payload is additionally persisted to
-/// SharedPreferences under the key `pending_offer_payload` so the main
-/// isolate can pick it up on cold-start and immediately expand the overlay
-/// order card without a Firestore round-trip.
+/// Renders a high-priority local notification for every message type.
+/// Driver apps (sese_ride) supply their own handler via
+/// [PushNotificationService.init] that fires the full-screen overlay order
+/// card directly for order pings — this default is the notification-only
+/// fallback for non-driver contexts (sese_hub) and unit tests.
+///
+/// **Payload persistence for cold-start**
+/// For offer-type messages the payload is written to SharedPreferences so the
+/// foreground isolate can consume it on the next launch via
+/// [PushNotificationService.consumePendingOfferPayload].
 ///
 /// Must stay a top-level function for `@pragma('vm:entry-point')`.
 @pragma('vm:entry-point')
 Future<void> pushBackgroundHandler(RemoteMessage message) async {
-  try {
-    await PushNotificationService.showFromMessage(message);
-  } catch (e) {
-    debugPrint('pushBackgroundHandler: showFromMessage failed: $e');
-  }
-
-  // For driver offer pings, persist the enriched data payload so the
-  // foreground isolate can read it on cold-start and immediately render
-  // the interactive overlay card without waiting for a Firestore stream.
-  try {
-    final type = (message.data['type'] ?? '').toString();
-    const offerTypes = {
-      'trip_offer',
-      'direct_ping',
-      'tier_ping',
-      'marketplace_broadcast',
-    };
-    if (offerTypes.contains(type)) {
+  // Persist offer payloads for cold-start handoff regardless of path.
+  final type = (message.data['type'] ?? '').toString();
+  const offerTypes = {
+    'trip_offer',
+    'direct_ping',
+    'tier_ping',
+    'marketplace_broadcast',
+  };
+  if (offerTypes.contains(type)) {
+    try {
       final prefs = await SharedPreferences.getInstance();
-      // Encode as a flat key=value string matching _payloadOf() format so
-      // the foreground can decode it with the same _dataOf() helper.
       final entries = message.data.entries
           .map((e) =>
               '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value.toString())}')
           .join('&');
       await prefs.setString('pending_offer_payload', entries);
-      debugPrint('pushBackgroundHandler: persisted offer payload for cold-start pickup.');
+      debugPrint(
+          'pushBackgroundHandler: persisted offer payload (trip: ${message.data['tripId']})');
+    } catch (e) {
+      debugPrint(
+          'pushBackgroundHandler: payload persist failed (non-fatal): $e');
     }
+  }
+
+  // Show a standard high-priority notification (non-driver contexts / fallback).
+  try {
+    await PushNotificationService.showFromMessage(message);
   } catch (e) {
-    debugPrint('pushBackgroundHandler: payload persist failed (non-fatal): $e');
+    debugPrint('pushBackgroundHandler: showFromMessage failed: $e');
   }
 }
+
+/// Typedef matching [FirebaseMessaging.onBackgroundMessage]'s handler signature
+/// so callers can inject a custom background handler via
+/// [PushNotificationService.init].
+typedef BackgroundMessageHandler = Future<void> Function(RemoteMessage message);
 
 /// Unified high-priority push pipeline (FCM + local notifications).
 ///
 /// - Foreground messages render immediately with sound.
-/// - Background/killed messages render via [pushBackgroundHandler].
+/// - Background/killed messages render via the handler supplied to [init]
+///   (defaults to [pushBackgroundHandler] — notification-only).
 /// - Taps route through [onTap] with the message data payload.
 /// - Topic helpers keep user/driver/staff subscriptions tidy.
 ///
@@ -163,8 +172,18 @@ class PushNotificationService {
 
   /// Initializes channels, permissions, foreground rendering, tap routing,
   /// and the background handler. Call once per app start (after Firebase).
+  ///
+  /// [onTap] is invoked with the FCM data map when the user taps a local
+  /// notification or a background message notification.
+  ///
+  /// [backgroundMessageHandler] overrides the default [pushBackgroundHandler].
+  /// Supply a custom top-level `@pragma('vm:entry-point')` function here when
+  /// the app needs richer background behaviour — for example, `sese_ride`
+  /// passes its overlay-capable handler so order pings fire the full-screen
+  /// order card directly instead of a banner notification.
   static Future<void> init({
     void Function(Map<String, String> data)? onTap,
+    BackgroundMessageHandler? backgroundMessageHandler,
   }) async {
     _onTap = onTap;
     try {
@@ -211,7 +230,8 @@ class PushNotificationService {
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
         _handleTap(_payloadOf(message));
       });
-      FirebaseMessaging.onBackgroundMessage(pushBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(
+          backgroundMessageHandler ?? pushBackgroundHandler);
 
       // Check if launched from a terminated/killed state notification tap
       final initialMessage = await messaging.getInitialMessage();
@@ -380,7 +400,17 @@ class PushNotificationService {
   }
 
   /// Renders a [RemoteMessage] as a high-priority local notification with
-  /// the custom chime. Order pings use the full-screen intent.
+  /// the custom chime.
+  ///
+  /// For driver order pings (`trip_offer`, `direct_ping`, `tier_ping`,
+  /// `marketplace_broadcast`) this is the **fallback path only** — the primary
+  /// path in [pushBackgroundHandler] fires the overlay full-screen card
+  /// directly and returns without calling this method. This method is called
+  /// when the overlay permission is missing or the overlay launch fails, so
+  /// the driver still receives a heads-up / full-screen-intent alert.
+  ///
+  /// Non-order message types (chat, system, broadcast) always flow through
+  /// here as the standard notification path.
   static Future<void> showFromMessage(RemoteMessage message) async {
     try {
       final data = Map<String, dynamic>.from(message.data);

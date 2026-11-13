@@ -417,7 +417,7 @@ packages:
     source: hosted
     version: "3.12.0"
   firebase_messaging:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: firebase_messaging
       sha256: "4c42147d1ad7d614eb5c8fb1cd110397a0a1108419e26c05d3dad8ac1cac06c3"
