@@ -117,6 +117,7 @@ class OsmMapView extends StatefulWidget {
     String? id,
     String? label,
     String? avatarUrl,
+    double? bearing,
   }) {
     return MapPin(
       id: id ?? '${point.latitude},${point.longitude},${color.toARGB32()}',
@@ -124,6 +125,7 @@ class OsmMapView extends StatefulWidget {
       color: color,
       label: label,
       avatarUrl: avatarUrl,
+      bearing: bearing,
     );
   }
 
@@ -323,12 +325,18 @@ class MapPin {
   /// Optional profile image URL for rendering customer avatar pin.
   final String? avatarUrl;
 
+  /// Compass bearing in degrees (0–360, clockwise from north) used to rotate
+  /// the navigation arrow marker (`label == 'NAV'`). Ignored for all other
+  /// pin types. Defaults to 0 (north-facing) when null.
+  final double? bearing;
+
   const MapPin({
     required this.id,
     required this.point,
     required this.color,
     this.label,
     this.avatarUrl,
+    this.bearing,
   });
 }
 

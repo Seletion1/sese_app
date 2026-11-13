@@ -381,6 +381,16 @@ class SeseUniversalMap extends StatefulWidget {
   /// native Google Map PlatformViews on top of the background map canvas.
   final MapProvider? preferredProvider;
 
+  /// Bottom padding applied to the Google Maps viewport so camera operations
+  /// (follow, fit-points, recenter) treat the visible area above the bottom
+  /// sheet as the usable map canvas. Set this to the current bottom sheet
+  /// height in pixels so the driver's position marker stays centered in the
+  /// visible region rather than hidden behind the sheet.
+  ///
+  /// Only applied to the Google Maps branch; OSM/raster engines use the
+  /// [SeSeMapController] camera helpers which accept explicit padding.
+  final double mapBottomPadding;
+
   /// Test seam: when set, renders a placeholder map without network tiles.
   static Object? get debugTileProviderOverride {
     assert(!kReleaseMode || OsmMapView.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
@@ -422,6 +432,7 @@ class SeseUniversalMap extends StatefulWidget {
     this.onInteractionStarted,
     this.onInteractionEnded,
     this.preferredProvider,
+    this.mapBottomPadding = 0.0,
   });
 
   /// Builds a colored map pin marker at [point].
@@ -431,6 +442,7 @@ class SeseUniversalMap extends StatefulWidget {
     String? id,
     String? label,
     String? avatarUrl,
+    double? bearing,
   }) {
     return OsmMapView.pin(
       point: point,
@@ -438,6 +450,7 @@ class SeseUniversalMap extends StatefulWidget {
       id: id,
       label: label,
       avatarUrl: avatarUrl,
+      bearing: bearing,
     );
   }
 
@@ -666,6 +679,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 onCameraMove: _handleGoogleCameraMove,
                 onCameraIdle: widget.onCameraIdle,
                 onTap: widget.onTap,
+                mapBottomPadding: widget.mapBottomPadding,
               );
             } else {
               // Mapbox or CartoDB — both rendered via OsmMapView (flutter_map TileLayer)
@@ -844,6 +858,12 @@ class _GoogleMapBranch extends StatefulWidget {
   /// Active provider identifier used to assign unique platform view keys.
   final String? providerKey;
 
+  /// Bottom inset applied to the Google Maps viewport via [GoogleMap.padding].
+  /// Keeps the visible camera area above the active bottom sheet so that
+  /// [GoogleMap] camera operations (animate, fit-bounds, follow) centre
+  /// on the driver's position in the visible strip above the sheet.
+  final double mapBottomPadding;
+
   const _GoogleMapBranch({
     super.key,
     required this.mapController,
@@ -859,6 +879,7 @@ class _GoogleMapBranch extends StatefulWidget {
     this.onCameraIdle,
     this.onTap,
     this.providerKey,
+    this.mapBottomPadding = 0.0,
   });
 
   @override
@@ -880,17 +901,24 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
   Future<void> _initNavArrowDescriptor() async {
     if (_navArrowDescriptor != null) return;
     try {
+      // Target: 40 logical pixels on screen.
+      // Render at the actual device pixel ratio so the bitmap is crisp on
+      // high-DPI displays. Supply imagePixelRatio so Google Maps SDK scales
+      // the PNG back to exactly 40 dp regardless of screen density.
+      const logicalSize = 40.0;
+      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final physSize = logicalSize * dpr;
+
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
-      const size = 128.0;
-      final center = Offset(size / 2, size / 2);
-      final radius = size / 2 - 12.0;
+      final center = Offset(physSize / 2, physSize / 2);
+      final radius = physSize / 2 - physSize * 0.08;
 
       // Drop shadow
       final shadowPaint = Paint()
         ..color = Colors.black38
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-      canvas.drawCircle(center.translate(0, 4), radius, shadowPaint);
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, physSize * 0.06);
+      canvas.drawCircle(center.translate(0, physSize * 0.03), radius, shadowPaint);
 
       // Outer white rim
       final borderPaint = Paint()
@@ -902,14 +930,14 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       final innerPaint = Paint()
         ..color = const Color(0xFF2563EB)
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(center, radius - 8.0, innerPaint);
+      canvas.drawCircle(center, radius - physSize * 0.06, innerPaint);
 
-      // Forward-pointing white navigation chevron/arrow
+      // Forward-pointing white navigation arrow (points north / up in the bitmap)
       final path = ui.Path();
       path.moveTo(center.dx, center.dy - radius * 0.55);
-      path.lineTo(center.dx + radius * 0.45, center.dy + radius * 0.45);
-      path.lineTo(center.dx, center.dy + radius * 0.15);
-      path.lineTo(center.dx - radius * 0.45, center.dy + radius * 0.45);
+      path.lineTo(center.dx + radius * 0.42, center.dy + radius * 0.42);
+      path.lineTo(center.dx, center.dy + radius * 0.14);
+      path.lineTo(center.dx - radius * 0.42, center.dy + radius * 0.42);
       path.close();
 
       final arrowPaint = Paint()
@@ -918,11 +946,16 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       canvas.drawPath(path, arrowPaint);
 
       final picture = recorder.endRecording();
-      final image = await picture.toImage(size.toInt(), size.toInt());
+      final imgSize = physSize.round();
+      final image = await picture.toImage(imgSize, imgSize);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData != null) {
-        _navArrowDescriptor =
-            gmaps.BitmapDescriptor.bytes(byteData.buffer.asUint8List());
+        // imagePixelRatio tells the SDK the logical→physical mapping so the
+        // marker renders at exactly logicalSize×logicalSize dp on screen.
+        _navArrowDescriptor = gmaps.BitmapDescriptor.bytes(
+          byteData.buffer.asUint8List(),
+          imagePixelRatio: dpr,
+        );
         if (mounted) setState(() {});
       }
     } catch (e) {
@@ -1025,6 +1058,14 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
             anchor: (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW')
                 ? const Offset(0.5, 0.5)
                 : const Offset(0.5, 1.0),
+            // Rotate the NAV arrow to match the driver's heading so the
+            // chevron always points in the direction of travel. The bearing
+            // field is 0–360° clockwise from north; Google Maps rotation is
+            // also 0–360° clockwise from north — a direct pass-through.
+            rotation: (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW')
+                ? (m.bearing ?? 0.0)
+                : 0.0,
+            flat: (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW'),
             infoWindow: (m.label != null &&
                     m.label!.isNotEmpty &&
                     m.label != 'NAV' &&
@@ -1063,6 +1104,10 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       mapToolbarEnabled: false,
       compassEnabled: true,
       style: isDark ? _darkMapStyle : null,
+      // Inset the viewport so the camera treats the visible strip above the
+      // bottom sheet as the usable canvas. The driver's position is then
+      // centred in that visible area rather than hidden behind the sheet.
+      padding: EdgeInsets.only(bottom: widget.mapBottomPadding),
       onMapCreated: (controller) {
         // ignore: discarded_futures
         _logMapCreated(controller);

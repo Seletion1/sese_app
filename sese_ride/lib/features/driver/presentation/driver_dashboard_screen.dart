@@ -282,6 +282,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// feeds the signed online payload plus the incoming-offer route preview.
   late LatLng _driverPosition;
 
+  /// Driver's real-time heading (compass bearing 0–360°, clockwise from north).
+  /// Updated on every GPS tick and forwarded to the NAV arrow marker so the
+  /// chevron always points in the direction of travel.
+  double _driverBearing = 0.0;
+
   late final DriverStatusService _status =
       widget.statusService ?? DriverStatusService();
 
@@ -685,6 +690,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           setState(() {
             _driverPosition = newPos;
             _currentSpeedKmh = speedKmh;
+            // Capture heading for the NAV arrow rotation. Only update when
+            // the fix carries a valid bearing — stale cold-start fixes often
+            // emit 0.0 and would snap the arrow back to north falsely.
+            if (pos.heading > 0.0 || pos.speed > 0.5) {
+              _driverBearing = pos.heading.clamp(0.0, 360.0);
+            }
           });
 
           // Live map camera follow during active trip or when set to follow
@@ -2000,6 +2011,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               point: _driverPosition,
               color: const Color(0xFF2563EB),
               label: 'NAV',
+              bearing: _driverBearing,
             ),
           );
 
@@ -2034,6 +2046,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       userLocation: _driverPosition,
       markers: markers,
       polylines: polylines,
+      // Keep the camera centred in the visible strip above the active-trip
+      // bottom sheet. When the sheet is attached compute its height in pixels
+      // (fraction × screen height); otherwise fall back to the collapsed
+      // sheet height so the driver's arrow is always above the sheet.
+      mapBottomPadding: () {
+        final screenH = MediaQuery.sizeOf(context).height;
+        if (_activeTripSheetController.isAttached) {
+          return screenH * _activeTripSheetController.size;
+        }
+        return screenH * _sheetCollapsedSize;
+      }(),
     );
   }
 
