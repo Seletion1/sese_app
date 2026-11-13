@@ -2,15 +2,14 @@
 /// from `sese_hub` and broadcast via Firestore `/system_config/remote_keys`.
 library;
 
-/// Supported map providers — in fallback order: Google → Mapbox → CartoDB.
+/// Supported map providers — in fallback order:
+/// **Google Maps (free tier) → Mapbox (free-tier buffer) → Google Maps (pay-as-you-go)**.
 ///
-/// `osm` is fully deprecated; any persisted `'osm'` or `'open_street_map'`
-/// code is silently promoted to `cartodb` (free CartoDB basemaps, no key
-/// required) so existing deployments never go blank on upgrade.
+/// Legacy providers (`cartodb`, `osm`, `open_street_map`) are fully deprecated;
+/// any persisted value with those codes is silently promoted to `google` or `mapbox`.
 enum MapProviderType {
   google('google', 'Google Maps'),
-  mapbox('mapbox', 'Mapbox'),
-  cartodb('cartodb', 'CartoDB');
+  mapbox('mapbox', 'Mapbox');
 
   final String code;
   final String displayName;
@@ -19,8 +18,7 @@ enum MapProviderType {
 
   /// Parses a Firestore-persisted provider code, including legacy aliases.
   ///
-  /// `null` / unknown / legacy `'osm'` / `'open_street_map'` all fall through
-  /// to [cartodb] so the app always renders something visible.
+  /// `null`, unknown, or legacy codes resolve to [google] (default primary).
   static MapProviderType fromCode(String? raw) {
     if (raw == null) return MapProviderType.google;
     final normalized = raw.trim().toLowerCase();
@@ -30,9 +28,7 @@ enum MapProviderType {
     if (normalized == 'mapbox') {
       return MapProviderType.mapbox;
     }
-    if (normalized == 'cartodb' || normalized == 'osm' || normalized == 'open_street_map') {
-      return MapProviderType.cartodb;
-    }
+    // Legacy / deprecated values → Google (default primary).
     return MapProviderType.google;
   }
 }
@@ -99,24 +95,24 @@ abstract final class MapboxStyles {
     navigationDayV1: 'Navigation Day',
   };
 }
+
 /// Global map configuration model stored in Firestore `/system_config/remote_keys`.
 ///
 /// Drives map rendering across customer and driver apps in real-time.
-/// Provider fallback chain: **Google Maps → Mapbox → CartoDB**.
+/// Billing chain: **Google Maps (free tier) → Mapbox (free-tier buffer) →
+/// Google Maps (pay-as-you-go)**. Resets automatically at the top of each
+/// UTC calendar month.
 ///
 /// Per-feature overrides ([featureProviders]) let Hub admins pin individual
 /// feature areas to a provider; `'auto'` (or absent) follows the global
 /// chain. Cold-start rule: tile surfaces snapshot this config when a trip
 /// is active and never switch engines mid-trip.
 class GlobalMapConfig {
-  /// The active map provider code: `'google'`, `'mapbox'`, or `'cartodb'`.
-  /// Legacy aliases `'google_maps'`, `'osm'`, and `'open_street_map'` are
-  /// normalised at read time.
+  /// The active map provider code: `'google'` or `'mapbox'`.
   final String activeProvider;
 
   /// Primary API credential:
-  /// • Google Maps — `AIzaSy…` key
-  /// • CartoDB     — optional; free basemaps require no key
+  /// • Google Maps — `AIzaSy…` key (used for both free-tier and pay-as-you-go)
   ///
   /// For Mapbox, prefer [mapboxToken]. If [mapboxToken] is absent and [apiKey]
   /// starts with `'pk.'`, it is used as the Mapbox token automatically.
@@ -126,12 +122,6 @@ class GlobalMapConfig {
   /// When set, this takes precedence over [apiKey] for the Mapbox provider.
   final String? mapboxToken;
 
-  /// CartoDB API Key (optional). When set, appended to CartoDB tile URLs.
-  final String? cartoApiKey;
-
-  /// Custom tile URL template for CartoDB or any other raster tile source.
-  final String tileUrlTemplate;
-
   /// Manual provider override managed from the Hub.
   ///
   /// When non-null and non-empty, forces the given provider regardless of
@@ -140,40 +130,20 @@ class GlobalMapConfig {
   final String? manualOverrideProvider;
 
   /// Per-feature provider pins, keyed by [MapFeature.code], valued by
-  /// provider code (`'google'` / `'mapbox'` / `'cartodb'`) or `'auto'`.
+  /// provider code (`'google'` / `'mapbox'`) or `'auto'`.
   /// Absent/unknown entries resolve to `'auto'`. Never null — an empty map
-  /// means every feature follows the global chain.
+  /// means every feature follows the global billing chain.
   final Map<String, String> featureProviders;
 
-  /// Mapbox style for the raster tile endpoint. Defaults to the Google-
-  /// mimesis light aesthetic (`light-v11`: near-white background `#f8f9fa`,
-  /// pale landuse, white roads). Accepts a style id (`mapbox/light-v11`,
-  /// `mapbox/streets-v12`, `mapbox/dark-v11`) or a full custom style URL
-  /// (`mapbox://styles/<user>/<id>`), which is normalized to the same
-  /// raster endpoint.
-  ///
-  /// Honest limitation: `flutter_map` renders raster tiles, not Mapbox GL
-  /// vector styles — the Appendix-A JSON cannot be consumed directly without
-  /// a vector-tile plugin. The rasterized style endpoint delivers the same
-  /// palette (light background, neutral landuse, white roads), which is what
-  /// this field controls.
+  /// Mapbox style for the raster tile endpoint.
   final String mapboxStyle;
 
   /// Configurable monthly request/usage caps for each provider.
   final int googleMonthlyCap;
   final int mapboxMonthlyCap;
-  final int cartoMonthlyCap;
 
   /// Default fallback Google Maps API key passed via compile-time environment `--dart-define`.
   static const String defaultGoogleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
-
-  /// CartoDB free basemap tiles — no API key required. Voyager matches the
-  /// Google Maps clean aesthetic (road colors, fonts); `{r}` serves @2x
-  /// retina tiles where the renderer requests them.
-  static const String _cartoLight =
-      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-  static const String _cartoDark =
-      'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
   /// Default Mapbox style: streets light theme (see [mapboxStyle]).
   static const String defaultMapboxStyle = MapboxStyles.streetsV12;
@@ -185,34 +155,29 @@ class GlobalMapConfig {
     this.activeProvider = 'google',
     this.apiKey = defaultGoogleMapsApiKey,
     this.mapboxToken,
-    this.cartoApiKey,
-    this.tileUrlTemplate = _cartoLight,
     this.manualOverrideProvider,
     this.featureProviders = const {},
     this.mapboxStyle = defaultMapboxStyle,
     this.googleMonthlyCap = 20000,
     this.mapboxMonthlyCap = 50000,
-    this.cartoMonthlyCap = 100000,
   });
 
   // ── Normalised provider resolution ────────────────────────────────────────
 
-  /// Canonical normalized provider name: `'google'`, `'mapbox'`, or `'cartodb'`.
+  /// Canonical normalized provider name: `'google'` or `'mapbox'`.
   ///
   /// Applies [manualOverrideProvider] first (unless `'auto'`), then falls back
-  /// to the configured [activeProvider].
+  /// to the configured [activeProvider]. Legacy codes are promoted to `'google'`.
   String get normalizedProvider {
     final override = manualOverrideProvider?.trim().toLowerCase();
     if (override != null && override.isNotEmpty && override != 'auto') {
       if (override == 'google' || override == 'google_maps') return 'google';
       if (override == 'mapbox') return 'mapbox';
-      if (override == 'cartodb' || override == 'osm') return 'cartodb';
       return 'google';
     }
     final lower = activeProvider.trim().toLowerCase();
     if (lower == 'google_maps' || lower == 'google') return 'google';
     if (lower == 'mapbox') return 'mapbox';
-    if (lower == 'cartodb' || lower == 'osm') return 'cartodb';
     return 'google';
   }
 
@@ -220,14 +185,9 @@ class GlobalMapConfig {
 
   bool get isGoogle => normalizedProvider == 'google';
   bool get isMapbox => normalizedProvider == 'mapbox';
-  bool get isCartoDb => normalizedProvider == 'cartodb';
 
   /// Backwards-compat alias — always false now that OSM is deprecated.
   bool get isOsm => false;
-
-  /// True when CartoDB is the effective provider or a CartoDB tile URL is configured.
-  bool get isCartoDbConfigured =>
-      isCartoDb || tileUrlTemplate.toLowerCase().contains('carto');
 
   // ── Per-feature provider resolution ──────────────────────────────────────
 
@@ -237,9 +197,6 @@ class GlobalMapConfig {
     final raw = (featureProviders[feature.code] ?? 'auto').trim().toLowerCase();
     if (raw == 'google' || raw == 'google_maps') return 'google';
     if (raw == 'mapbox') return 'mapbox';
-    if (raw == 'cartodb' || raw == 'osm' || raw == 'open_street_map') {
-      return 'cartodb';
-    }
     return 'auto';
   }
 
@@ -256,8 +213,7 @@ class GlobalMapConfig {
 
   // ── Mapbox credential helpers ──────────────────────────────────────────────
 
-  /// True when a valid Mapbox access token is available (from [mapboxToken] or
-  /// an [apiKey] that begins with `'pk.'`).
+  /// True when a valid Mapbox access token is available.
   bool get hasValidMapboxToken {
     if (mapboxToken != null && mapboxToken!.trim().isNotEmpty) return true;
     if (apiKey != null && apiKey!.trim().startsWith('pk.')) return true;
@@ -282,13 +238,6 @@ class GlobalMapConfig {
   bool get requiresApiKey => isGoogle || isMapbox;
 
   /// True when a non-empty API key is configured for the current provider.
-  ///
-  /// For Google Maps: true when an `AIzaSy…` key is present in [apiKey] or
-  /// supplied via compile-time `--dart-define=GOOGLE_MAPS_API_KEY=…`.
-  /// The native Google Maps SDK is initialized once at app start with this
-  /// key — the check here is a configuration guard only. `isGoogle` alone is
-  /// NOT sufficient (having Google as the provider without a valid key is a
-  /// misconfiguration and should cascade to Mapbox/CartoDB).
   bool get hasValidApiKey =>
       (apiKey != null && apiKey!.trim().isNotEmpty) ||
       defaultGoogleMapsApiKey.isNotEmpty;
@@ -296,9 +245,6 @@ class GlobalMapConfig {
   // ── Tile URL resolution ────────────────────────────────────────────────────
 
   /// Normalizes [mapboxStyle] to a `styles/v1/<user>/<style>` path.
-  /// Accepts `mapbox/light-v11`-style ids (default), bare ids (assumed
-  /// under the `mapbox` namespace), and full `mapbox://styles/<user>/<id>`
-  /// custom-style URLs.
   String get normalizedMapboxStyle {
     var style = mapboxStyle.trim();
     if (style.startsWith('mapbox://styles/')) {
@@ -311,20 +257,8 @@ class GlobalMapConfig {
   }
 
   /// Resolves the Mapbox raster tile URL for use with `flutter_map`'s `TileLayer`.
-  ///
-  /// Uses Mapbox's Styles API raster endpoint (256 px tiles, compatible with
-  /// `flutter_map` without any native Mapbox SDK). The style comes from
-  /// [mapboxStyle] (default `light-v11` Google mimesis). `{r}` serves @2x
-  /// retina tiles where the renderer requests them. Falls back to free
-  /// CartoDB tiles when no token is available so the map never goes blank.
   String resolveMapboxTileUrl({bool isDark = false}) {
-    final token = resolvedMapboxToken;
-    if (token == null || token.isEmpty) {
-      return isDark ? _cartoDark : _cartoLight;
-    }
-    // Dynamic theme-listening logic:
-    // When the app or device is in dark mode, dynamically use Mapbox dark style.
-    // When in light mode, use the selected style (defaulting to streets-v12).
+    final token = resolvedMapboxToken ?? '';
     final style = normalizedMapboxStyle;
     final String effectiveStyle;
     if (isDark) {
@@ -335,45 +269,9 @@ class GlobalMapConfig {
     return 'https://api.mapbox.com/styles/v1/$effectiveStyle/tiles/256/{z}/{x}/{y}{r}?access_token=$token';
   }
 
-  /// Resolves the tile URL for raster tile providers (Mapbox or CartoDB).
-  ///
-  /// **Important:** This method must only be called when the active provider
-  /// is Mapbox or CartoDB. It NEVER injects CartoDB tiles for a Google-primary
-  /// config, even when a CartoDB API key is present in the database. The
-  /// CartoDB API key is only applied when CartoDB is the explicitly chosen
-  /// engine ([isCartoDb] == true).
+  /// Resolves tile URL for raster tile surfaces (Mapbox).
   String resolveTileUrl({bool isDark = false}) {
-    if (isMapbox) return resolveMapboxTileUrl(isDark: isDark);
-
-    // CartoDB tile URL construction — only when CartoDB is explicitly selected.
-    // Presence of a cartoApiKey in the config does NOT mean CartoDB tiles
-    // should be served for a Google-primary or Mapbox-primary setup.
-    if (isCartoDb) {
-      final cleanCartoKey = (cartoApiKey ?? '').trim();
-      if (cleanCartoKey.isNotEmpty) {
-        return isDark
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey'
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=$cleanCartoKey';
-      }
-
-      // Custom non-default tileUrlTemplate (if specified by admin, e.g. custom tile server)
-      if (tileUrlTemplate.trim().isNotEmpty &&
-          tileUrlTemplate != _cartoLight &&
-          tileUrlTemplate != _cartoDark &&
-          !tileUrlTemplate.contains('light_all') &&
-          (tileUrlTemplate.contains('carto') ||
-              tileUrlTemplate.contains('mapbox'))) {
-        return tileUrlTemplate.trim();
-      }
-
-      // CartoDB primary but no key/template — use free public tiles.
-      return isDark ? _cartoDark : _cartoLight;
-    }
-
-    // Fallback: free CartoDB public tiles (no API key) for any other case.
-    // This is the absolute last resort and should not normally be reached
-    // when the provider chain is correctly resolved.
-    return isDark ? _cartoDark : _cartoLight;
+    return resolveMapboxTileUrl(isDark: isDark);
   }
 
   // ── Serialisation ──────────────────────────────────────────────────────────
@@ -403,21 +301,6 @@ class GlobalMapConfig {
         ?.toString()
         .trim();
 
-    final cartoKey = (map['cartoApiKey'] ??
-            map['carto_api_key'] ??
-            map['cartoKey'])
-        ?.toString()
-        .trim();
-
-    final tileUrl = (map['tileUrlTemplate'] ??
-            map['osmTileServerUrl'] ??
-            map['cartoTileUrl'] ??
-            map['tile_url_template'] ??
-            map['osm_tile_server_url'] ??
-            '')
-        .toString()
-        .trim();
-
     final override = (map['manualOverrideProvider'] ??
             map['manual_override_provider'] ??
             map['providerOverride'])
@@ -430,9 +313,6 @@ class GlobalMapConfig {
         ?.toString()
         .trim();
 
-    // Per-feature pins: flat `feature_<code>` keys (Hub writes these) plus
-    // an optional nested `featureProviders` map (API writes). Unknown codes
-    // normalize at read time via [featureProviderRaw].
     final features = <String, String>{};
     final nested = map['featureProviders'];
     if (nested is Map) {
@@ -447,19 +327,13 @@ class GlobalMapConfig {
       }
     }
 
-    final gCap = (map['googleMonthlyCap'] ?? map['googleQuotaCap'] ?? map['googleMonthlyCap']) as num?;
-    final mCap = (map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap'] ?? map['mapboxMonthlyCap']) as num?;
-    final cCap = (map['cartoMonthlyCap'] ?? map['cartoQuotaCap'] ?? map['cartoMonthlyCap']) as num?;
+    final gCap = (map['googleMonthlyCap'] ?? map['googleQuotaCap']) as num?;
+    final mCap = (map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap']) as num?;
 
     return GlobalMapConfig(
       activeProvider: provider,
       apiKey: (key != null && key.isNotEmpty) ? key : defaultGoogleMapsApiKey,
       mapboxToken: (mbToken != null && mbToken.isNotEmpty) ? mbToken : null,
-      cartoApiKey: (cartoKey != null && cartoKey.isNotEmpty) ? cartoKey : null,
-      tileUrlTemplate:
-          (tileUrl.isNotEmpty && !tileUrl.contains('light_all'))
-              ? tileUrl
-              : _cartoLight,
       manualOverrideProvider:
           (override != null && override.isNotEmpty && override != 'auto')
               ? override
@@ -470,14 +344,12 @@ class GlobalMapConfig {
           : defaultMapboxStyle,
       googleMonthlyCap: gCap?.toInt() ?? 20000,
       mapboxMonthlyCap: mCap?.toInt() ?? 50000,
-      cartoMonthlyCap: cCap?.toInt() ?? 100000,
     );
   }
 
   Map<String, dynamic> toMap() {
     final cleanKey = (apiKey ?? '').trim();
     final cleanMbToken = (mapboxToken ?? '').trim();
-    final cleanCartoKey = (cartoApiKey ?? '').trim();
     return {
       'activeProvider': normalizedProvider,
       'activeMapProvider': normalizedProvider,
@@ -487,15 +359,10 @@ class GlobalMapConfig {
       'mapboxToken': cleanMbToken,
       'mapbox_token': cleanMbToken,
       'mapboxApiKey': cleanMbToken,
-      'cartoApiKey': cleanCartoKey,
-      'carto_api_key': cleanCartoKey,
       'mapboxStyle': mapboxStyle.trim(),
-      'tileUrlTemplate': tileUrlTemplate.trim(),
-      'osmTileServerUrl': tileUrlTemplate.trim(),
       'featureProviders': Map<String, String>.from(featureProviders),
       'googleMonthlyCap': googleMonthlyCap,
       'mapboxMonthlyCap': mapboxMonthlyCap,
-      'cartoMonthlyCap': cartoMonthlyCap,
       for (final f in MapFeature.values)
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
@@ -508,28 +375,22 @@ class GlobalMapConfig {
     String? activeProvider,
     String? apiKey,
     String? mapboxToken,
-    String? cartoApiKey,
-    String? tileUrlTemplate,
     String? manualOverrideProvider,
     Map<String, String>? featureProviders,
     String? mapboxStyle,
     int? googleMonthlyCap,
     int? mapboxMonthlyCap,
-    int? cartoMonthlyCap,
   }) {
     return GlobalMapConfig(
       activeProvider: activeProvider ?? this.activeProvider,
       apiKey: apiKey ?? this.apiKey,
       mapboxToken: mapboxToken ?? this.mapboxToken,
-      cartoApiKey: cartoApiKey ?? this.cartoApiKey,
-      tileUrlTemplate: tileUrlTemplate ?? this.tileUrlTemplate,
       manualOverrideProvider:
           manualOverrideProvider ?? this.manualOverrideProvider,
       featureProviders: featureProviders ?? this.featureProviders,
       mapboxStyle: mapboxStyle ?? this.mapboxStyle,
       googleMonthlyCap: googleMonthlyCap ?? this.googleMonthlyCap,
       mapboxMonthlyCap: mapboxMonthlyCap ?? this.mapboxMonthlyCap,
-      cartoMonthlyCap: cartoMonthlyCap ?? this.cartoMonthlyCap,
     );
   }
 }

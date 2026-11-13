@@ -314,9 +314,11 @@ class PaymentService {
         .snapshots()
         .map((doc) {
           final data = doc.data();
-          num? balKobo = data?['balance'] as num?;
-          if (balKobo == null && data?['mainWalletBalance'] != null) {
+          num? balKobo;
+          if (data?['mainWalletBalance'] is num) {
             balKobo = (data!['mainWalletBalance'] as num) * 100;
+          } else if (data?['balance'] is num) {
+            balKobo = data!['balance'] as num;
           }
           final bal = (balKobo ?? cachedBal).round();
           LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
@@ -335,9 +337,11 @@ class PaymentService {
       final doc = await db.collection('wallets').doc(uid).get();
       final data = doc.data();
       if (data == null) return cachedBal;
-      num? balKobo = data['balance'] as num?;
-      if (balKobo == null && data['mainWalletBalance'] != null) {
+      num? balKobo;
+      if (data['mainWalletBalance'] is num) {
         balKobo = (data['mainWalletBalance'] as num) * 100;
+      } else if (data['balance'] is num) {
+        balKobo = data['balance'] as num;
       }
       final bal = (balKobo ?? cachedBal).round();
       LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
@@ -345,6 +349,24 @@ class PaymentService {
     } catch (_) {
       return cachedBal;
     }
+  }
+
+  /// Checks whether [driverId] holds at least the minimum wallet balance
+  /// threshold configured in the Hub (defaulting to ₦1.00 if unconfigured).
+  ///
+  /// Returns `true` if balance is sufficient (>= min threshold), `false` if low.
+  Future<bool> hasSufficientDriverBalance(
+    String driverId, {
+    double? overrideMinNaira,
+  }) async {
+    if (driverId.isEmpty) return true;
+    final config = await const FinancialConfigService().getConfig();
+    final minNaira = overrideMinNaira ?? config.minWalletBalanceToOnline;
+    final balKobo = await fetchWalletBalanceKobo(driverId);
+    return WalletCalculationEngine.isEligibleToGoOnline(
+      walletBalanceNaira: balKobo / 100.0,
+      minBalanceNaira: minNaira,
+    );
   }
 
   /// Wallet history, newest first. Denied/unavailable reads resolve to

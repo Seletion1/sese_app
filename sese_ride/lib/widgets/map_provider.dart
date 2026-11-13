@@ -40,29 +40,20 @@ enum MapContext {
 
 /// Which tile renderer a surface uses.
 ///
-/// Provider priority: [googleMaps] → [mapbox] → [cartoDb].
-/// [openStreetMap] is fully deprecated; any code path that would have selected
-/// it now selects [cartoDb] instead.
+/// Provider priority: [googleMaps] → [mapbox].
 enum MapProvider {
   googleMaps,
   mapbox,
-  cartoDb,
-
-  /// Deprecated — maps to [cartoDb] at runtime. Do not reference in new code.
-  @Deprecated('OSM is deprecated. Use cartoDb or mapbox instead.')
-  openStreetMap,
 }
 
 /// Map Provider Architecture Strategy.
 ///
 /// Dynamically resolves renderer based on [MapConfigController] state.
-/// Fallback chain: **Google Maps → Mapbox → CartoDB**.
+/// Fallback chain: **Google Maps → Mapbox → Google Maps (PAYG)**.
 ///
 /// Per-feature Hub pins ([MapFeature]) override the global chain for their
 /// feature area: navigation cockpit, live tracking, geocoding (service
-/// layer), and backend routing each resolve independently. Credential and
-/// fallback safety always applies — a pinned provider without a valid key
-/// still cascades down the chain.
+/// layer), and backend routing each resolve independently.
 abstract final class MapProviderPolicy {
   /// Maps a rendering context to its Hub feature slot. Browsing/idle
   /// surfaces follow the global chain (`null`); trip surfaces resolve
@@ -80,8 +71,8 @@ abstract final class MapProviderPolicy {
     }
   }
 
-  /// Resolves the renderer. Respects [MapConfigController.instance] circular
-  /// rotation fallback chain (**Google Maps → Mapbox → CartoDB → Google Maps**).
+  /// Resolves the renderer. Respects [MapConfigController.instance]
+  /// billing fallback chain (**Google Maps → Mapbox → Google Maps PAYG**).
   static MapProvider resolve(
     MapContext context, {
     String? activeMapProvider,
@@ -98,55 +89,30 @@ abstract final class MapProviderPolicy {
         return MapProvider.googleMaps;
       case MapProviderType.mapbox:
         return MapProvider.mapbox;
-      case MapProviderType.cartodb:
-        return MapProvider.cartoDb;
     }
   }
 
-  /// Resolves the best **lightweight raster** renderer for embedded map
-  /// surfaces (route-preview insets and similar widgets) that share the
-  /// screen with an **already-active, currently-visible** Google Maps native
-  /// platform view — avoiding a concurrent native-view collision.
-  ///
-  /// The rule: never hard-code CartoDB. Instead, follow the Hub config:
-  ///
-  /// - **Google primary + Mapbox token present** → Mapbox (zero GMS/JNI
-  ///   overhead, flutter_map tile rendering — the best lightweight layer).
-  /// - **Google primary + no Mapbox token** → Google Maps. A full-screen
-  ///   push route has no background native view in the same frame, so the
-  ///   collision concern does not apply; CartoDB must NOT be injected simply
-  ///   because no Mapbox token is available. Callers that genuinely cannot
-  ///   host a second native view (e.g. the route-preview inset inside an
-  ///   IndexedStack that holds a live Google Map) should guard separately.
-  /// - **Mapbox primary** → Mapbox directly.
-  /// - **CartoDB primary** → CartoDB directly.
-  ///
-  /// This is the correct call-site for [LocationPickerMap] and the
-  /// route-preview inset inside [CustomerDispatchScreen]. Full-screen push
-  /// screens like [PickOnMapScreen] should use
-  /// `MapProviderPolicy.resolve(MapContext.browsing)` (or omit
-  /// `preferredProvider` entirely) so the global Hub engine is applied
-  /// without the raster-only constraint.
+  /// Resolves the best lightweight renderer for embedded map surfaces while
+  /// respecting the active primary provider (Google Maps vs. Mapbox) and fallback state.
   static MapProvider resolveEmbedded() {
     final ctrl = MapConfigController.instance;
     final config = ctrl.currentConfig;
 
-    // CartoDB primary → CartoDB tiles directly.
-    if (config.isCartoDb) return MapProvider.cartoDb;
-
-    // Mapbox primary → Mapbox tiles directly.
     if (config.isMapbox) return MapProvider.mapbox;
 
-    // Google primary — prefer Mapbox to avoid a concurrent native platform
-    // view when a Google Map is already alive in the same frame.
+    if (config.isGoogle) {
+      if (ctrl.isGoogleFallbackActive &&
+          config.hasValidMapboxToken &&
+          !ctrl.isMapboxFallbackActive) {
+        return MapProvider.mapbox;
+      }
+      return MapProvider.googleMaps;
+    }
+
     if (config.hasValidMapboxToken && !ctrl.isMapboxFallbackActive) {
       return MapProvider.mapbox;
     }
 
-    // Google primary, no Mapbox token available → fall through to the
-    // global resolution chain (Google Maps). CartoDB is NOT injected here;
-    // that would display the CartoDB "API KEY REQUIRED" watermark on screens
-    // that the Hub has configured to use Google Maps.
     return MapProvider.googleMaps;
   }
 }
@@ -258,11 +224,11 @@ class MapFallbackBanner extends StatelessWidget {
 /// 100% of screens, modals, search sheets, and pin-drop pickers must use.
 ///
 /// Dynamically synchronizes with [MapConfigController.instance].
-/// Seamlessly handles Google Maps, Mapbox, and CartoDB engines with automatic
+/// Seamlessly handles Google Maps and Mapbox engines with automatic
 /// cascading degradation and graceful fallbacks.
 ///
 /// ## Provider fallback chain
-/// **Google Maps → Mapbox → CartoDB**
+/// **Google Maps (Free Tier) → Mapbox (Free Buffer) → Google Maps (PAYG)**
 ///
 /// ## Cold-start & mid-trip protection
 /// Trip contexts ([MapContext.activeTrip], [MapContext.realtimeTracking],
@@ -277,7 +243,7 @@ class MapFallbackBanner extends StatelessWidget {
 /// - One-touch camera recenter FAB ([showRecenterFab] + [onRecenterTap]).
 /// - Optional Google-style overlay ([showCenterBlueDot] + recenter FAB):
 ///   fixed center blue-dot indicator with a bottom-right target button.
-/// - Full gesture controls: pinch-zoom, pan, 360° rotation on all three renderers.
+/// - Full gesture controls: pinch-zoom, pan, 360° rotation on both renderers.
 class SeseUniversalMap extends StatefulWidget {
   /// Rendering context driving [MapProviderPolicy.resolve].
   final MapContext mapContext;
@@ -315,7 +281,7 @@ class SeseUniversalMap extends StatefulWidget {
 
   /// Live user fix for the raster-engine blue dot (see `OsmMapView`
   /// `userLocation`). The native Google dot tracks the OS location on its
-  /// own; Mapbox/CartoDB need this fix per GPS tick or the dot sits on a
+  /// own; Mapbox needs this fix per GPS tick or the dot sits on a
   /// stale coordinate while the camera moves. Null falls back to
   /// [initialCenter] (previous behavior).
   final LatLng? userLocation;
@@ -542,8 +508,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
       context == MapContext.inAppNavigation;
 
   void _handleTileError() {
-    // Tile errors on Mapbox or CartoDB branches are logged but do not
-    // automatically trigger fallback — these are free/lower-stakes renderers.
+    // Tile errors on raster branches are logged.
     debugPrint('SeseUniversalMap: Tile load error on raster branch.');
   }
 
@@ -578,25 +543,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
             String fallbackMessage = 'Primary map provider unavailable.';
 
             // ── Graceful Fallback Guard ──────────────────────────────────────
-            // Rule: CartoDB tiles are ONLY used when CartoDB is the explicitly
-            // configured primary engine, OR when BOTH Google and Mapbox have
-            // failed/are unavailable. Having a CartoDB API key in the config
-            // does NOT make CartoDB eligible as a silent auto-fallback for a
-            // Google-primary or Mapbox-primary setup.
             if (targetProvider == MapProvider.googleMaps && !gmsOk) {
-              // GMS missing (non-GMS Android / emulator): fall to Mapbox first.
               if (mapConfig.hasValidMapboxToken &&
                   !MapConfigController.instance.isMapboxFallbackActive) {
                 targetProvider = MapProvider.mapbox;
                 fallbackMessage = 'Google Play Services unavailable. Using Mapbox.';
-              } else if (mapConfig.isCartoDb) {
-                // CartoDB is the explicitly configured provider — allowed.
-                targetProvider = MapProvider.cartoDb;
-                fallbackMessage = 'Google Play Services unavailable. Using CartoDB.';
               } else {
-                // Neither Mapbox nor CartoDB is configured as primary.
-                // Keep Google selected — it will render its own error state.
-                // Do not silently inject CartoDB tiles.
                 fallbackMessage = 'Google Maps unavailable. Check API key.';
               }
               isFallbackActive = targetProvider != MapProvider.googleMaps;
@@ -608,17 +560,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                       ? 'Google Play Services unavailable. Using fallback.'
                       : 'Google Maps unavailable. Using fallback.');
               isFallbackActive = MapConfigController.instance.isGoogleFallbackActive;
-              // When Google falls back due to circuit breaker / quota, cascade
-              // to Mapbox — never to CartoDB unless CartoDB is the config engine.
-              if (isFallbackActive) {
-                if (mapConfig.hasValidMapboxToken &&
-                    !MapConfigController.instance.isMapboxFallbackActive) {
-                  targetProvider = MapProvider.mapbox;
-                  fallbackMessage =
-                      fallbackMessage.replaceAll('Using fallback.', 'Using Mapbox.');
-                }
-                // If Mapbox is also unavailable and CartoDB is the config engine,
-                // allow CartoDB. Otherwise stay on the best available provider.
+              if (isFallbackActive &&
+                  mapConfig.hasValidMapboxToken &&
+                  !MapConfigController.instance.isMapboxFallbackActive) {
+                targetProvider = MapProvider.mapbox;
+                fallbackMessage =
+                    fallbackMessage.replaceAll('Using fallback.', 'Using Mapbox.');
               }
             } else if (mapConfig.isMapbox &&
                 (MapConfigController.instance.isMapboxFallbackActive ||
@@ -626,12 +573,8 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               isFallbackActive = MapConfigController.instance.isMapboxFallbackActive ||
                   !mapConfig.hasValidMapboxToken;
               fallbackMessage = MapConfigController.instance.mapboxFallbackReason ??
-                  'Mapbox unavailable. Using CartoDB tiles.';
-            } else if (mapConfig.isCartoDb &&
-                MapConfigController.instance.isCartoFallbackActive) {
-              isFallbackActive = true;
-              fallbackMessage = MapConfigController.instance.cartoFallbackReason ??
-                  'CartoDB unavailable. Using fallback tiles.';
+                  'Mapbox unavailable. Falling back to Google Maps PAYG.';
+              targetProvider = MapProvider.googleMaps;
             }
 
             final currentEngine = targetProvider.name;
@@ -682,10 +625,8 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 mapBottomPadding: widget.mapBottomPadding,
               );
             } else {
-              // Mapbox or CartoDB — both rendered via OsmMapView (flutter_map TileLayer)
-              final tileUrl = targetProvider == MapProvider.mapbox
-                  ? mapConfig.resolveMapboxTileUrl(isDark: isDark)
-                  : mapConfig.resolveTileUrl(isDark: isDark);
+              // Mapbox rendered via OsmMapView (flutter_map TileLayer)
+              final tileUrl = mapConfig.resolveMapboxTileUrl(isDark: isDark);
 
               // Single authoritative live blue-dot pin for raster engines
               final rasterMarkers = List<MapPin>.from(baseMarkers);

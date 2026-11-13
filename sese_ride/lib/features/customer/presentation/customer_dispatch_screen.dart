@@ -1143,29 +1143,35 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             ? _pickupLayerLink
             : _dropoffLayerLink;
         final screenWidth = MediaQuery.of(context).size.width;
-        // top: 0 + left: 0 anchor the Positioned in the Overlay stack;
+        // top: 0 + left: 0 anchor Positioned in the Overlay stack;
         // CompositedTransformFollower then moves the child to sit directly
-        // below the active text field. Without explicit top/left the widget
-        // is unpositioned and may render off-screen on some device sizes.
+        // below the active text field. Width matches the active text field
+        // target width (link.leaderSize?.width) so the dropdown container
+        // aligns cleanly without horizontal side-shifting.
+        final targetWidth =
+            link.leaderSize?.width ?? (screenWidth - 48);
+
         return Positioned(
           top: 0,
           left: 0,
-          width: screenWidth - 32, // matches the 16px horizontal padding
           child: CompositedTransformFollower(
             link: link,
             showWhenUnlinked: false,
             targetAnchor: Alignment.bottomLeft,
             followerAnchor: Alignment.topLeft,
             offset: const Offset(0, 4),
-            child: Material(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
-              child: ConstrainedBox(
-                // Cap height so the panel never pushes off the bottom of the
-                // screen even for long result sets.
-                constraints: const BoxConstraints(maxHeight: 320),
-                child: _buildSuggestionsContent(),
+            child: SizedBox(
+              width: targetWidth,
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                clipBehavior: Clip.antiAlias,
+                child: ConstrainedBox(
+                  // Cap height so the panel never pushes off the bottom of the
+                  // screen even for long result sets.
+                  constraints: const BoxConstraints(maxHeight: 320),
+                  child: _buildSuggestionsContent(),
+                ),
               ),
             ),
           ),
@@ -3820,17 +3826,10 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       child: Stack(
         children: [
           SeSeMapView(
-            // Route-preview inset — this widget lives inside the
-            // IndexedStack that holds the always-alive CustomerHomeMapScreen
-            // Google Map native view. Spawning a second GoogleMap here would
-            // create a concurrent native platform-view in the same frame,
-            // causing ~380 KB of duplicate native allocations and GC storms.
-            // MapProviderPolicy.resolveEmbedded() chooses the best lightweight
-            // raster engine: Mapbox when a token is configured, Google Maps
-            // when it is the primary engine and no Mapbox token exists (the
-            // IndexedStack hides the background Google Map while the dispatch
-            // step is active, so there is no actual concurrent view), and
-            // CartoDB only when CartoDB is explicitly the configured engine.
+            // Route-preview map on the Send Item / Dispatch screen.
+            // MapProviderPolicy.resolveEmbedded() strictly respects the active
+            // primary engine (Google Maps) unless system quota or GMS
+            // availability triggers an automatic fallback switch.
             mapContext: MapContext.browsing,
             preferredProvider: MapProviderPolicy.resolveEmbedded(),
             mapController: _mapController,

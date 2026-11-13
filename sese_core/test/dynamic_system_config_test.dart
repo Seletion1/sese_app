@@ -464,7 +464,7 @@ void main() {
         'activeMapProvider': 'mapbox',
         'google_maps_api_key': 'AIzaSy_TEST_KEY',
         'featureProviders': {'tracking': 'mapbox', 'navigation': 'google'},
-        'feature_geocoding': 'cartodb',
+        'feature_geocoding': 'google',
       });
 
       expect(invalidKeyConfig.paystackPublicKey, '');
@@ -472,7 +472,7 @@ void main() {
       expect(invalidKeyConfig.googleMapsApiKey, 'AIzaSy_TEST_KEY');
       expect(invalidKeyConfig.featureProviders['tracking'], 'mapbox');
       expect(invalidKeyConfig.featureProviders['navigation'], 'google');
-      expect(invalidKeyConfig.featureProviders['geocoding'], 'cartodb');
+      expect(invalidKeyConfig.featureProviders['geocoding'], 'google');
 
       // Valid test key passes
       final validKeyConfig = RemoteKeysConfig.fromMap({

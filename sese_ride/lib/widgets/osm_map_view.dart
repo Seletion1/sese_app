@@ -87,8 +87,8 @@ class OsmMapView extends StatefulWidget {
   /// Optional map tap listener.
   final void Function(base.LatLng point)? onTap;
 
-  /// Optional active engine identifier (e.g. 'mapbox' or 'cartodb') used to enforce
-  /// clean unmounting and disposal of native platform views / tile caches on switch.
+  /// Optional active engine identifier (e.g. 'mapbox') used to enforce
+  /// clean unmounting and disposal of tile caches on switch.
   final String? providerKey;
 
   const OsmMapView({
@@ -199,35 +199,16 @@ class _OsmMapViewState extends State<OsmMapView> {
       );
     }
 
-    // Use the explicitly resolved tile URL passed from MapProviderPolicy.
-    // OsmMapView must NEVER self-select CartoDB when it has not been chosen as
-    // the active provider — that decision belongs entirely to MapProviderPolicy
-    // and _SeseUniversalMapState. A null/empty template here means the caller
-    // forgot to pass a URL; render a neutral placeholder rather than silently
-    // injecting CartoDB tiles that may require an API key.
     final String tileUrl;
     if (widget.customTileUrlTemplate != null &&
         widget.customTileUrlTemplate!.trim().isNotEmpty &&
         !widget.customTileUrlTemplate!.contains('light_all')) {
       tileUrl = widget.customTileUrlTemplate!;
     } else {
-      // Absolute last resort: free CartoDB voyager tiles (no key required).
-      // This path should only be reached when the caller explicitly chose
-      // CartoDB and passed no URL, or when all other providers have failed.
-      tileUrl = isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-          : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-      assert(
-        widget.providerKey == 'cartodb' || widget.providerKey == null,
-        'OsmMapView received no tile URL but providerKey="${widget.providerKey}". '
-        'Only CartoDB surfaces may reach this fallback. '
-        'Ensure MapProviderPolicy resolves the correct engine before '
-        'constructing OsmMapView.',
-      );
+      tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     }
 
-    final effectiveKey = widget.providerKey ??
-        (tileUrl.contains('mapbox') ? 'mapbox' : 'cartodb');
+    final effectiveKey = widget.providerKey ?? 'mapbox';
 
     return fm.FlutterMap(
       key: ValueKey('flutter_map_$effectiveKey'),
@@ -254,13 +235,10 @@ class _OsmMapViewState extends State<OsmMapView> {
           urlTemplate: tileUrl,
           subdomains: const ['a', 'b', 'c', 'd'],
           userAgentPackageName: 'com.sesetech.sese_ride',
-          // Cap native zoom to 18 for CartoDB to prevent 404 blank screens at zoom 19
           maxNativeZoom: 18,
           maxZoom: 19,
-          // Instantaneous display eliminates layer overlapping and tile ghosting
           tileDisplay: const fm.TileDisplay.instantaneous(),
           evictErrorTileStrategy: fm.EvictErrorTileStrategy.dispose,
-          // Only enable retinaMode when template has {r} or on Mapbox endpoints
           retinaMode: tileUrl.contains('{r}') || tileUrl.contains('mapbox'),
           errorTileCallback: (fm.TileImage tile, Object error, StackTrace? stackTrace) {
             widget.onTileError?.call();
@@ -301,7 +279,7 @@ class _OsmMapViewState extends State<OsmMapView> {
             fm.TextSourceAttribution(
               tileUrl.contains('mapbox')
                   ? '© Mapbox © OpenStreetMap'
-                  : '© CARTO © OpenStreetMap',
+                  : '© OpenStreetMap contributors',
             ),
           ],
         ),

@@ -886,8 +886,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
         SeseUniversalMap.debugTileProviderOverride != null;
     if (driverId.isNotEmpty && !inTest) {
-      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
-      if (balKobo < 100) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
         if (!mounted) return;
         await showLowBalanceAcceptancePrompt(
           context,
@@ -910,8 +910,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
       final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
           SeseUniversalMap.debugTileProviderOverride != null;
       if (driverId.isNotEmpty && !inTest) {
-        final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
-        if (balKobo < 100) {
+        final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+        if (!hasBal) {
           if (!mounted) return;
           await showLowBalanceAcceptancePrompt(
             context,
@@ -961,6 +961,21 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
 
   Future<void> _acceptNow() async {
     if (_accepting) return;
+    final driverId = _effectiveDriverId;
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+        return;
+      }
+    }
+
     setState(() => _accepting = true);
     try {
       await widget.streakService.acceptTrip(widget.trip.tripId);
@@ -1006,8 +1021,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
         SeseUniversalMap.debugTileProviderOverride != null;
     if (driverId.isNotEmpty && !inTest) {
-      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
-      if (balKobo < 100) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
         if (!mounted) return;
         await showLowBalanceAcceptancePrompt(
           context,
@@ -1191,10 +1206,7 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                             },
                             child: SeSeMapView(
                               // Use the policy-aware resolver so that
-                              // Google-primary setups render Google Maps
-                              // instead of CartoDB when no Mapbox token is
-                              // present.  CartoDB is only selected when it is
-                              // the explicitly configured Hub engine.
+                              // embedded maps use Mapbox or Google Maps.
                               preferredProvider:
                                   MapProviderPolicy.resolveEmbedded(),
                               mapController: _mapController,

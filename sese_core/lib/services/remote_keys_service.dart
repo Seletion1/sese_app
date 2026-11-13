@@ -6,12 +6,6 @@ import '../maps/global_map_config.dart';
 /// Dynamic Remote Keys & API Configuration stored in `/system_config/remote_keys`.
 ///
 /// SECURITY: Only PUBLIC/publishable credentials belong here.
-/// Paystack SECRET keys (`sk_test_…` / `sk_live_…`) are **server-only**:
-/// they live in Cloud Functions environment variables (`PAYSTACK_API_KEY`) or
-/// Firestore `system_config/remote_keys.paystackSecretKey` which is readable
-/// only by service-account-authenticated Cloud Functions — never by clients.
-/// The [paystackSecretKey] field has been intentionally removed; any legacy
-/// Firestore document field with that name is ignored on the client.
 class RemoteKeysConfig {
   final String paystackPublicKey;
   final String googleMapsApiKey;
@@ -19,8 +13,7 @@ class RemoteKeysConfig {
   /// Mapbox public access token (`pk.eyJ1…`). Empty when not configured.
   final String mapboxToken;
 
-  /// Mapbox style id for the raster endpoint (`mapbox/light-v11` default —
-  /// Google-mimesis light aesthetic). Accepts `mapbox://styles/<user>/<id>`.
+  /// Mapbox style id for the raster endpoint (`mapbox/light-v11` default).
   final String mapboxStyle;
 
   /// Per-feature provider pins, keyed by [MapFeature.code]
@@ -30,11 +23,7 @@ class RemoteKeysConfig {
   final String exchangeRateApiKey;
   final String resendApiKey;
 
-  /// CartoDB API Key (optional). Empty when not configured.
-  final String cartoApiKey;
-
-  /// Active map provider: `'google'`, `'mapbox'`, or `'cartodb'`.
-  /// Legacy `'open_street_map'` / `'osm'` values are normalised to `'cartodb'`.
+  /// Active map provider: `'google'` or `'mapbox'`.
   final String activeMapProvider;
 
   final String osmTileServerUrl;
@@ -55,20 +44,17 @@ class RemoteKeysConfig {
 
   final int googleMonthlyCap;
   final int mapboxMonthlyCap;
-  final int cartoMonthlyCap;
 
   const RemoteKeysConfig({
     this.paystackPublicKey = '',
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
-    this.cartoApiKey = '',
     this.featureProviders = const {},
     this.exchangeRateApiKey = '',
     this.resendApiKey = '',
     this.activeMapProvider = 'google',
-    this.osmTileServerUrl =
-        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    this.osmTileServerUrl = '',
     this.manualOverrideProvider = '',
     this.minimumWalletTopUp = 1300.0,
     this.withdrawalPayoutThreshold = 20000.0,
@@ -82,7 +68,6 @@ class RemoteKeysConfig {
     this.driverBreakEnabled = true,
     this.googleMonthlyCap = 20000,
     this.mapboxMonthlyCap = 50000,
-    this.cartoMonthlyCap = 100000,
   });
 
   factory RemoteKeysConfig.fromMap(Map<String, dynamic>? map) {
@@ -94,22 +79,9 @@ class RemoteKeysConfig {
             '')
         .toString()
         .trim();
-    // Accept only valid publishable-key prefixes; never fall back to a
-    // hardcoded key — an empty string surfaces as "payment not configured"
-    // in the UI, prompting ops to set the key via the Hub config screen.
     if (!pubKey.startsWith('pk_test_') && !pubKey.startsWith('pk_live_')) {
       pubKey = '';
     }
-
-    // ── SECRET KEY IS SERVER-ONLY ──────────────────────────────────────────
-    // The Paystack secret key (`sk_test_…` / `sk_live_…`) must NEVER be
-    // embedded in client-side Dart code or bundled into the compiled binary.
-    // It is consumed exclusively by Cloud Functions via the
-    // `PAYSTACK_API_KEY` environment variable (functions/.env, git-ignored).
-    // Any `paystackSecretKey` field present in the Firestore document is
-    // ignored here to prevent accidental secret leakage through the SDK
-    // client cache or device storage.
-    // ──────────────────────────────────────────────────────────────────────
 
     int intOf(dynamic v, int fallback) {
       if (v is num) return v.toInt();
@@ -162,13 +134,6 @@ class RemoteKeysConfig {
       }
     }
 
-    final rawCartoKey = (map['cartoApiKey'] ??
-            map['carto_api_key'] ??
-            map['cartoKey'] ??
-            '')
-        .toString()
-        .trim();
-
     return RemoteKeysConfig(
       paystackPublicKey: pubKey,
       googleMapsApiKey: rawGoogleKey.isNotEmpty
@@ -178,7 +143,6 @@ class RemoteKeysConfig {
       mapboxStyle: rawStyle.isNotEmpty
           ? rawStyle
           : GlobalMapConfig.defaultMapboxStyle,
-      cartoApiKey: rawCartoKey,
       featureProviders: features,
       exchangeRateApiKey: (map['exchangeRateApiKey'] ??
               map['exchange_rate_api_key'] ??
@@ -197,18 +161,12 @@ class RemoteKeysConfig {
               map['mapProvider'] ??
               'google')
           .toString(),
-      osmTileServerUrl: (() {
-        final raw = (map['osmTileServerUrl'] ??
-                map['osm_tile_server_url'] ??
-                map['tileUrlTemplate'] ??
-                map['tile_url_template'] ??
-                '')
-            .toString()
-            .trim();
-        return (raw.isNotEmpty && !raw.contains('light_all'))
-            ? raw
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-      })(),
+      osmTileServerUrl: (map['osmTileServerUrl'] ??
+              map['osm_tile_server_url'] ??
+              map['tileUrlTemplate'] ??
+              '')
+          .toString()
+          .trim(),
       manualOverrideProvider: rawOverride,
       minimumWalletTopUp: (map['minimumWalletTopUp'] is num)
           ? (map['minimumWalletTopUp'] as num).toDouble()
@@ -236,7 +194,6 @@ class RemoteKeysConfig {
       driverBreakEnabled: (map['driver_break_enabled'] ?? map['driverBreakEnabled']) != false,
       googleMonthlyCap: intOf(map['googleMonthlyCap'] ?? map['googleQuotaCap'], 20000),
       mapboxMonthlyCap: intOf(map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap'], 50000),
-      cartoMonthlyCap: intOf(map['cartoMonthlyCap'] ?? map['cartoQuotaCap'], 100000),
     );
   }
 
@@ -248,8 +205,6 @@ class RemoteKeysConfig {
         mapboxStyle: mapboxStyle.isNotEmpty
             ? mapboxStyle
             : GlobalMapConfig.defaultMapboxStyle,
-        cartoApiKey: cartoApiKey.isNotEmpty ? cartoApiKey : null,
-        tileUrlTemplate: osmTileServerUrl,
         manualOverrideProvider:
             manualOverrideProvider.isNotEmpty && manualOverrideProvider != 'auto'
                 ? manualOverrideProvider
@@ -257,7 +212,6 @@ class RemoteKeysConfig {
         featureProviders: Map<String, String>.from(featureProviders),
         googleMonthlyCap: googleMonthlyCap,
         mapboxMonthlyCap: mapboxMonthlyCap,
-        cartoMonthlyCap: cartoMonthlyCap,
       );
 
   Map<String, dynamic> toMap() {
@@ -265,15 +219,6 @@ class RemoteKeysConfig {
     return {
       'paystackPublicKey': paystackPublicKey.trim(),
       'paystack_public_key': paystackPublicKey.trim(),
-      // ── SECURITY: paystackSecretKey is intentionally OMITTED ──────────
-      // The Paystack secret key must NEVER be written by the Flutter client
-      // to Firestore. The Hub config screen reads it back for display, but
-      // persists it only via the `saveRemoteKeys` server path which applies
-      // field-level Firestore rules restricting secret-key writes to
-      // Hub-role service accounts. Emitting it here would cause every
-      // client SDK write (including customer devices) to inadvertently
-      // echo the secret back into Firestore.
-      // ──────────────────────────────────────────────────────────────────
       'googleMapsApiKey': googleMapsApiKey.trim(),
       'mapApiKey': googleMapsApiKey.trim(),
       'apiKey': googleMapsApiKey.trim(),
@@ -282,18 +227,12 @@ class RemoteKeysConfig {
       'mapboxApiKey': mapboxToken.trim(),
       'mapboxStyle': mapboxStyle.trim(),
       'mapbox_style': mapboxStyle.trim(),
-      'cartoApiKey': cartoApiKey.trim(),
-      'carto_api_key': cartoApiKey.trim(),
       'featureProviders': Map<String, String>.from(featureProviders),
       'googleMonthlyCap': googleMonthlyCap,
       'mapboxMonthlyCap': mapboxMonthlyCap,
-      'cartoMonthlyCap': cartoMonthlyCap,
       for (final f in MapFeature.values)
         if ((featureProviders[f.code] ?? '').isNotEmpty)
           'feature_${f.code}': featureProviders[f.code],
-      // ── SECURITY: exchangeRateApiKey and resendApiKey are server-only and OMITTED ──
-      // Secrets and third-party quota keys must NEVER be written by client SDKs to public Firestore.
-      // ──────────────────────────────────────────────────────────────────
       'activeMapProvider': activeMapProvider,
       'activeProvider': mapCfg.normalizedProvider,
       'osmTileServerUrl': osmTileServerUrl.trim(),
@@ -316,7 +255,6 @@ class RemoteKeysConfig {
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
-
 }
 
 /// Service that streams, fetches, and saves `/system_config/remote_keys`.
@@ -333,8 +271,6 @@ class RemoteKeysService {
     }
   }
 
-  /// Live stream of dynamic remote keys and map settings from `system_configs/global_default`
-  /// (publicly readable by all authenticated users) with fallback to `system_config/remote_keys`.
   Stream<RemoteKeysConfig> streamRemoteKeys() {
     final db = _db;
     if (db == null) return Stream.value(const RemoteKeysConfig());
@@ -349,14 +285,10 @@ class RemoteKeysService {
     });
   }
 
-  /// Live real-time stream of the global map configuration.
   Stream<GlobalMapConfig> streamGlobalMapConfig() {
     return streamRemoteKeys().map((cfg) => cfg.globalMapConfig);
   }
 
-  /// One-shot fetch of dynamic remote keys and map configuration.
-  /// Tries `system_configs/global_default` first (publicly readable by all authenticated users),
-  /// falling back to `system_config/remote_keys` and `system_config/global_default`.
   Future<RemoteKeysConfig> fetchRemoteKeys() async {
     try {
       final db = _db;
@@ -380,15 +312,11 @@ class RemoteKeysService {
     }
   }
 
-  /// One-shot fetch of [GlobalMapConfig].
   Future<GlobalMapConfig> fetchGlobalMapConfig() async {
     final cfg = await fetchRemoteKeys();
     return cfg.globalMapConfig;
   }
 
-  /// Saves remote keys configuration to `/system_config/remote_keys` and mirrors
-  /// to both `/system_config/global_default` and `/system_configs/global_default`
-  /// to prevent target document mismatch across hub and services.
   Future<void> saveRemoteKeys(RemoteKeysConfig config) async {
     final db = _db;
     if (db == null) return;

@@ -136,15 +136,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _paystackSecretKeyCtrl = TextEditingController();
   final _googleMapsApiKeyCtrl = TextEditingController();
   final _mapboxApiKeyCtrl = TextEditingController();
-  final _cartoApiKeyCtrl = TextEditingController();
   final _mapboxStyleCtrl =
       TextEditingController(text: GlobalMapConfig.defaultMapboxStyle);
   final _googleQuotaCapCtrl = TextEditingController(text: '20000');
   final _mapboxQuotaCapCtrl = TextEditingController(text: '50000');
-  final _cartoQuotaCapCtrl = TextEditingController(text: '100000');
   final _resendApiKeyCtrl = TextEditingController();
-  final _osmTileServerUrlCtrl = TextEditingController(
-      text: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png');
+  final _osmTileServerUrlCtrl = TextEditingController();
   final _remoteMinTopUpCtrl = TextEditingController(text: '1300');
   final _remoteWithdrawalThresholdCtrl = TextEditingController(text: '20000');
   final _maxCashTripAmountCtrl = TextEditingController(text: '50000');
@@ -162,7 +159,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _obscurePaystackSecret = true;
   bool _obscureGoogleMapsKey = true;
   bool _obscureMapboxKey = true;
-  bool _obscureCartoKey = true;
   bool _obscureResendKey = true;
 
   // Driver Resting Break & Timer Configuration
@@ -252,11 +248,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _paystackSecretKeyCtrl.dispose();
     _googleMapsApiKeyCtrl.dispose();
     _mapboxApiKeyCtrl.dispose();
-    _cartoApiKeyCtrl.dispose();
     _mapboxStyleCtrl.dispose();
     _googleQuotaCapCtrl.dispose();
     _mapboxQuotaCapCtrl.dispose();
-    _cartoQuotaCapCtrl.dispose();
     _resendApiKeyCtrl.dispose();
     _osmTileServerUrlCtrl.dispose();
     _remoteMinTopUpCtrl.dispose();
@@ -284,12 +278,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     if (!mounted) return;
     final remoteKeys = await const RemoteKeysService().fetchRemoteKeys();
     if (!mounted) return;
-    // Monthly API-call quota caps (backend-enforced sequential fallback).
-    // Missing doc/first run → compiled defaults; never throws. Loaded
-    // BEFORE setState (async has no place inside the sync closure).
     String? googleCapText;
     String? mapboxCapText;
-    String? cartoCapText;
     try {
       final quotas = await FirebaseFirestore.instance
           .collection('system_config')
@@ -304,10 +294,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         }
         final g = capOf(qd['googleMonthlyCap']);
         final m = capOf(qd['mapboxMonthlyCap']);
-        final c = capOf(qd['cartoMonthlyCap']);
         if (g != null && g > 0) googleCapText = g.toString();
         if (m != null && m > 0) mapboxCapText = m.toString();
-        if (c != null && c > 0) cartoCapText = c.toString();
       }
     } catch (_) {}
 
@@ -316,13 +304,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _allConfigs = configs;
       if (!silent) {
         _paystackPublicKeyCtrl.text = remoteKeys.paystackPublicKey;
-      // SECURITY: The Paystack secret key is server-only and is never loaded
-      // back into the client. The field below is write-only — enter the key
-      // to update it; leave blank to keep the existing server-side value.
-      // _paystackSecretKeyCtrl.text is intentionally NOT populated here.
       _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
-      _cartoApiKeyCtrl.text = remoteKeys.cartoApiKey;
       _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
       _activeMapProvider =
           GlobalMapConfig(activeProvider: remoteKeys.activeMapProvider).normalizedProvider;
@@ -335,12 +318,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           : GlobalMapConfig.defaultMapboxStyle;
       if (googleCapText != null) _googleQuotaCapCtrl.text = googleCapText;
       if (mapboxCapText != null) _mapboxQuotaCapCtrl.text = mapboxCapText;
-      if (cartoCapText != null) _cartoQuotaCapCtrl.text = cartoCapText;
-      final loadedTileUrl = remoteKeys.osmTileServerUrl.trim();
-      _osmTileServerUrlCtrl.text =
-          (loadedTileUrl.isEmpty || loadedTileUrl.contains('light_all'))
-              ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png'
-              : loadedTileUrl;
+      _osmTileServerUrlCtrl.text = remoteKeys.osmTileServerUrl.trim();
       _remoteMinTopUpCtrl.text = remoteKeys.minimumWalletTopUp.toStringAsFixed(0);
       _remoteWithdrawalThresholdCtrl.text = remoteKeys.withdrawalPayoutThreshold.toStringAsFixed(0);
       _maxCashTripAmountCtrl.text = remoteKeys.maxCashTripAmountNaira.toStringAsFixed(0);
@@ -677,14 +655,13 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         ),
       );
 
-      // Advisory check if Google Maps or CartoDB is selected with blank API key
       if ((_activeMapProvider == 'google' || _activeMapProvider == 'google_maps') &&
           _googleMapsApiKeyCtrl.text.trim().isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Admin Notice: Google Maps is selected without an API key. Client apps will cascade to Mapbox (if token is set) or CartoDB.',
+                'Admin Notice: Google Maps is selected without an API key. Client apps will cascade to Mapbox (if token is set).',
               ),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 4),
@@ -694,15 +671,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       }
 
       // Save Remote Keys & API Config.
-      // Note: RemoteKeysConfig.toMap() intentionally omits `paystackSecretKey`
-      // so that customer-app SDK writes never echo the secret back. The Hub
-      // persists the secret via a targeted merge immediately after, scoped
-      // only to the fields the operator explicitly typed in.
       final remoteKeysConfig = RemoteKeysConfig(
         paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
         googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
         mapboxToken: _mapboxApiKeyCtrl.text.trim(),
-        cartoApiKey: _cartoApiKeyCtrl.text.trim(),
         mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
             ? _mapboxStyleCtrl.text.trim()
             : GlobalMapConfig.defaultMapboxStyle,
@@ -731,17 +703,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
         mapboxMonthlyCap:
             int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
-        cartoMonthlyCap:
-            int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
       );
       await const RemoteKeysService().saveRemoteKeys(remoteKeysConfig);
 
-      // ── Secret-key targeted merge (Hub admin only) ──────────────────────
-      // The Paystack secret is written as a separate targeted Firestore
-      // merge ONLY when the Hub operator explicitly typed a non-empty value
-      // into the write-only field. An empty field means "keep existing" —
-      // no write occurs, so a stale empty field never accidentally clears
-      // a valid server-side secret.
       final enteredSecret = _paystackSecretKeyCtrl.text.trim();
       if (enteredSecret.isNotEmpty &&
           (enteredSecret.startsWith('sk_test_') ||
@@ -769,9 +733,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           mapboxToken: _mapboxApiKeyCtrl.text.trim().isNotEmpty
               ? _mapboxApiKeyCtrl.text.trim()
               : null,
-          cartoApiKey: _cartoApiKeyCtrl.text.trim().isNotEmpty
-              ? _cartoApiKeyCtrl.text.trim()
-              : null,
           mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
               ? _mapboxStyleCtrl.text.trim()
               : GlobalMapConfig.defaultMapboxStyle,
@@ -780,34 +741,22 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
           mapboxMonthlyCap:
               int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
-          cartoMonthlyCap:
-              int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000,
-          tileUrlTemplate: (_osmTileServerUrlCtrl.text.trim().isNotEmpty &&
-                  !_osmTileServerUrlCtrl.text.trim().contains('light_all'))
-              ? _osmTileServerUrlCtrl.text.trim()
-              : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
           manualOverrideProvider:
               _manualOverrideProvider == 'auto' ? null : _manualOverrideProvider,
         ),
       );
 
-      // Save monthly API-call quota caps (backend sequential fallback).
-      // Admin-scoped write per firestore.rules; counters themselves are
-      // server-managed. Never blocks the config publish on failure.
       try {
         final googleCap =
             int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000;
         final mapboxCap =
             int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000;
-        final cartoCap =
-            int.tryParse(_cartoQuotaCapCtrl.text.trim()) ?? 100000;
         await FirebaseFirestore.instance
             .collection('system_config')
             .doc('map_quotas')
             .set({
           'googleMonthlyCap': googleCap > 0 ? googleCap : 20000,
           'mapboxMonthlyCap': mapboxCap > 0 ? mapboxCap : 50000,
-          'cartoMonthlyCap': cartoCap > 0 ? cartoCap : 100000,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } catch (_) {}
@@ -1117,31 +1066,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     ),
                   ),
                 ),
-                _CappedField(
-                  preferredWidth: 320,
-                  child: TextFormField(
-                    controller: _cartoApiKeyCtrl,
-                    obscureText: _obscureCartoKey,
-                    decoration: InputDecoration(
-                      labelText: 'CartoDB API Key (Optional)',
-                      helperText:
-                          'Optional API key for CartoDB basemap tiles. Leave blank to use free public CDN.',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureCartoKey
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureCartoKey = !_obscureCartoKey;
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ),
+
                 _CappedField(
                   preferredWidth: 320,
                   child: TextFormField(
@@ -1172,7 +1097,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Active Map Engine (All Screens)',
                       helperText:
-                          'Fallback chain: Google Maps → Mapbox → CartoDB. OSM is deprecated.',
+                          'Billing chain: Google Maps (Free Tier) → Mapbox (Free Buffer) → Google Maps (PAYG).',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
@@ -1182,23 +1107,17 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     child: DropdownButton<String>(
                       value: (_activeMapProvider == 'google_maps' || _activeMapProvider == 'google')
                           ? 'google'
-                          : (_activeMapProvider == 'mapbox'
-                              ? 'mapbox'
-                              : 'cartodb'),
+                          : 'mapbox',
                       isExpanded: true,
                       underline: const SizedBox.shrink(),
                       items: const [
                         DropdownMenuItem(
                           value: 'google',
-                          child: Text('Google Maps (Primary — Pay-as-you-go)'),
+                          child: Text('Google Maps (Primary — Free Tier)'),
                         ),
                         DropdownMenuItem(
                           value: 'mapbox',
-                          child: Text('Mapbox (Secondary — Token required)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'cartodb',
-                          child: Text('CartoDB (Tertiary — Free basemaps, no key)'),
+                          child: Text('Mapbox (Secondary — Buffer)'),
                         ),
                       ],
                       onChanged: (val) {
@@ -1215,7 +1134,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Manual Provider Override (Admin Pin)',
                       helperText:
-                          'Auto-Fallback: normal cascade logic. Pinning a provider bypasses fallback.',
+                          'Auto-Fallback: normal billing chain. Pinning a provider bypasses automatic fallback.',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
@@ -1239,10 +1158,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           value: 'mapbox',
                           child: Text('Force Mapbox'),
                         ),
-                        DropdownMenuItem(
-                          value: 'cartodb',
-                          child: Text('Force CartoDB'),
-                        ),
                       ],
                       onChanged: (val) {
                         if (val != null) {
@@ -1253,16 +1168,13 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   ),
                 ),
                 // ── Per-feature provider pins ──────────────────────────
-                // Each feature area follows the global engine above on
-                // 'auto', or pins to one provider (credential/fallback
-                // safety still applies — a pin without a key cascades).
                 for (final feature in MapFeature.values)
                   _CappedField(
                     preferredWidth: 360,
                     child: InputDecorator(
                       decoration: InputDecoration(
                         labelText: feature.displayName,
-                        helperText: 'Auto = follow the global engine.',
+                        helperText: 'Auto = follow global engine.',
                         border: const OutlineInputBorder(),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -1285,10 +1197,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           DropdownMenuItem(
                             value: 'mapbox',
                             child: Text('Force Mapbox'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'cartodb',
-                            child: Text('Force CartoDB / Nominatim'),
                           ),
                         ],
                         onChanged: (val) {
@@ -1351,9 +1259,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       ),
                     ),
                   ),
-                // ── Monthly API-call quota caps (backend sequential
-                // fallback: Google → Mapbox → CartoDB/coast → Google PAYG).
-                // Counters reset on month roll-over, server-side.
+                // ── Monthly API-call quota caps
                 _CappedField(
                   preferredWidth: 200,
                   child: TextFormField(
@@ -1361,7 +1267,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Google Monthly Call Cap',
-                      helperText: 'Free-tier allowance before Mapbox rollover.',
+                      helperText: 'Free-tier allowance before Mapbox buffer rollover.',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1373,20 +1279,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'Mapbox Monthly Call Cap',
-                      helperText: 'Allowance before CartoDB/PAYG overflow.',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: _cartoQuotaCapCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'CartoDB Monthly Call Cap',
-                      helperText:
-                          'Policy marker only — tiles load direct client→CDN, so this is not enforced.',
+                      helperText: 'Free buffer allowance before Google PAYG fallback.',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -1408,7 +1301,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Admin Alert: Google Maps is active without an API key. Client apps cascade to Mapbox (if token set) or CartoDB.',
+                              'Admin Alert: Google Maps is active without an API key. Client apps cascade to Mapbox.',
                               style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
                             ),
                           ),
@@ -1433,7 +1326,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Admin Alert: Mapbox is active without an access token. Client apps will fall back to CartoDB.',
+                              'Admin Alert: Mapbox is active without an access token.',
                               style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
                             ),
                           ),
@@ -1441,7 +1334,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       ),
                     ),
                   ),
-                // ── Live Map Provider Usage Stats & Circular Rotation Controls ──
+                // ── Live Map Provider Usage Stats & Billing Hierarchy Controls ──
                 _CappedField(
                   preferredWidth: 700,
                   child: ValueListenableBuilder<GlobalMapConfig>(
@@ -1450,11 +1343,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       final ctrl = MapConfigController.instance;
                       final gCap = int.tryParse(_googleQuotaCapCtrl.text) ?? 20000;
                       final mCap = int.tryParse(_mapboxQuotaCapCtrl.text) ?? 50000;
-                      final cCap = int.tryParse(_cartoQuotaCapCtrl.text) ?? 100000;
 
                       final gRatio = (ctrl.googleUsageCount / (gCap > 0 ? gCap : 1)).clamp(0.0, 1.0);
                       final mRatio = (ctrl.mapboxUsageCount / (mCap > 0 ? mCap : 1)).clamp(0.0, 1.0);
-                      final cRatio = (ctrl.cartoUsageCount / (cCap > 0 ? cCap : 1)).clamp(0.0, 1.0);
 
                       return Container(
                         padding: const EdgeInsets.all(14),
@@ -1472,7 +1363,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                 const SizedBox(width: 8),
                                 const Expanded(
                                   child: Text(
-                                    'Circular Fallback Rotation Chain: Google Maps ➔ Mapbox ➔ CartoDB ➔ Google Maps',
+                                    'Billing Fallback Chain: Google Maps (Free Tier) ➔ Mapbox (Free Buffer) ➔ Google Maps (PAYG)',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                   ),
                                 ),
@@ -1486,7 +1377,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Google Maps Usage: ${ctrl.googleUsageCount} / $gCap calls',
+                                        'Google Maps Free Tier: ${ctrl.googleUsageCount} / $gCap calls',
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
@@ -1496,7 +1387,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                       const SizedBox(height: 4),
                                       LinearProgressIndicator(
                                         value: gRatio,
-                                        color: ctrl.isGoogleQuotaExceeded ? Colors.red : Colors.blue,
+                                        color: ctrl.isGoogleQuotaExceeded ? Colors.orange : Colors.blue,
                                         backgroundColor: Colors.grey.shade200,
                                       ),
                                     ],
@@ -1508,7 +1399,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Mapbox Usage: ${ctrl.mapboxUsageCount} / $mCap calls',
+                                        'Mapbox Buffer Usage: ${ctrl.mapboxUsageCount} / $mCap calls',
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w600,
@@ -1519,28 +1410,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                       LinearProgressIndicator(
                                         value: mRatio,
                                         color: ctrl.isMapboxQuotaExceeded ? Colors.red : Colors.purple,
-                                        backgroundColor: Colors.grey.shade200,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'CartoDB Usage: ${ctrl.cartoUsageCount} / $cCap calls',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: ctrl.isCartoQuotaExceeded ? Colors.red : null,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      LinearProgressIndicator(
-                                        value: cRatio,
-                                        color: ctrl.isCartoQuotaExceeded ? Colors.red : Colors.orange,
                                         backgroundColor: Colors.grey.shade200,
                                       ),
                                     ],
@@ -1582,8 +1451,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   child: TextFormField(
                     controller: _osmTileServerUrlCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'Tile Server URL Template (CartoDB / Mapbox / Custom)',
-                      helperText: 'Default: https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png (CartoDB Voyager)',
+                      labelText: 'Custom Tile Server URL Template (Optional)',
+                      helperText: 'Optional custom tile server endpoint URL template.',
                       border: OutlineInputBorder(),
                     ),
                   ),

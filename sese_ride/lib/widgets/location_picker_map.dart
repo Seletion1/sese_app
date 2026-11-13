@@ -9,7 +9,7 @@ import 'map_provider.dart';
 /// Interactive Center Pin Map Widget driven by [SeseUniversalMap].
 ///
 /// Features:
-/// - Unifies Google Maps, Mapbox, and CartoDB through the centralized
+/// - Unifies Google Maps and Mapbox through the centralized
 ///   map engine configuration.
 /// - The pin remains **fixed at the exact center of the map viewport** layered
 ///   directly above the map in a [Stack].
@@ -115,14 +115,7 @@ class _LocationPickerMapState extends State<LocationPickerMap> {
     final theme = Theme.of(context);
 
     final Widget mapCanvas = SeseUniversalMap(
-      // LocationPickerMap is always embedded inside a modal or sheet that may
-      // overlay an already-active Google Maps surface. When a Mapbox token is
-      // configured, Mapbox is used as the lightweight raster layer to avoid a
-      // concurrent native platform-view. When no Mapbox token is available,
-      // MapProviderPolicy.resolveEmbedded() now returns googleMaps (the Hub's
-      // primary engine) rather than CartoDB — CartoDB is only selected when it
-      // is the explicitly configured primary provider. This prevents the
-      // "API KEY REQUIRED / carto.com" watermark on Google-primary setups.
+      // LocationPickerMap uses resolveEmbedded() to pick Mapbox or Google Maps.
       preferredProvider: MapProviderPolicy.resolveEmbedded(),
       mapController: _mapController,
       initialCenter: widget.initialCenter,

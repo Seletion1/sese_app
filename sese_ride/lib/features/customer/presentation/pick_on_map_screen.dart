@@ -32,7 +32,7 @@ class PickOnMapResult {
 /// (Google proxy → Nominatim fallback) and pops with a [PickOnMapResult].
 ///
 /// Fully centralized: respects [MapConfigController] dynamically, rendering
-/// Google Maps, Mapbox, or CartoDB based on global configuration.
+/// Google Maps or Mapbox based on global configuration.
 class PickOnMapScreen extends StatefulWidget {
   /// Initial camera position, typically the user's last-known GPS fix so the
   /// map opens on their area, not the middle of the ocean.
@@ -174,14 +174,9 @@ class _PickOnMapScreenState extends State<PickOnMapScreen> {
       body: Stack(
         children: [
           // ── Unified Map — global Hub engine ───────────────────────────────────
-          // PickOnMapScreen is a full-screen push route; the background
-          // CustomerHomeMapScreen Google Map is off-screen (in an IndexedStack
-          // that is not rendered while this route is on top). There is therefore
-          // no concurrent native-view collision risk and we must NOT force a
-          // raster-only provider here. Use MapContext.browsing so the global Hub
-          // engine (Google Maps, Mapbox, or CartoDB as configured) is applied
-          // exactly as intended. When the Hub says "Google Maps (Primary)",
-          // this screen renders Google Maps — not CartoDB tiles.
+          // PickOnMapScreen is a full-screen push route.
+          // Uses MapContext.browsing so the global Hub engine (Google Maps or
+          // Mapbox as configured) is applied.
           SeseUniversalMap(
             mapContext: MapContext.browsing,
             mapController: _mapController,

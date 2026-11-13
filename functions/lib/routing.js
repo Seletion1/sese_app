@@ -5,19 +5,11 @@
  * Sequential fallback order (see `mapQuotas.ts`):
  *   1. Google Maps Directions (free-tier allowance first).
  *   2. Mapbox Directions (automatic rollover past Google's cap).
- *   3. Crow-flies estimation by the CALLER (CartoDB has no routing API —
- *      pinning the Hub routing slot to `cartodb` skips paid engines
- *      entirely and goes straight to estimation).
- *   4. Google Pay-As-You-Go overflow (same Directions API, recorded as
- *      `payg`; Cloud Billing budgets — not code — cap the spend).
+ *   3. Google Pay-As-You-Go overflow (same Directions API).
  *
  * The Hub routing slot (`system_config/remote_keys` `feature_routing`)
  * pins one engine: `google` (Directions only), `mapbox` (Mapbox only),
- * `cartodb` (estimation only — zero paid calls), or `auto` (the chain).
- *
- * On total failure the caller receives a thrown Error; the `calculateFare`
- * function in `index.ts` catches it and falls back to crow-flies
- * estimation, which is the right server-authoritative degradation path.
+ * or `auto` (the chain).
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -73,11 +65,6 @@ async function routingPin() {
             return "google";
         if (code === "mapbox")
             return "mapbox";
-        if (code === "cartodb" ||
-            code === "osm" ||
-            code === "open_street_map") {
-            return "cartodb";
-        }
         return "auto";
     }
     catch (_d) {
@@ -87,16 +74,9 @@ async function routingPin() {
 /**
  * Fetches the fastest driving route between two coordinates, following the
  * Hub routing pin + quota chain (Google → Mapbox → PAYG overflow).
- *
- * Throws `Error` on any failure — callers should catch and fall back to
- * crow-flies distance if needed (see `calculateFare` in index.ts).
  */
 async function fetchRoute(pickupLat, pickupLng, dropoffLat, dropoffLng) {
     const pin = await routingPin();
-    if (pin === "cartodb") {
-        // Zero-paid-calls mode: straight to caller-side estimation.
-        throw new Error("Routing pinned to CartoDB (no routing API) — use estimation.");
-    }
     const ordered = pin === "google"
         ? ["google", "googlePayg"]
         : pin === "mapbox"
@@ -123,9 +103,7 @@ async function fetchRoute(pickupLat, pickupLng, dropoffLat, dropoffLng) {
     throw new Error(`All routing engines failed — ${errors.join(" | ")}`);
 }
 /**
- * Google Maps Directions engine (free-tier AND pay-as-you-go overflow —
- * same API; the quota layer decides which allowance this call consumes).
- * Traffic-aware duration (`duration_in_traffic`) when available.
+ * Google Maps Directions engine (free-tier AND pay-as-you-go overflow).
  */
 async function fetchGoogleRoute(pickupLat, pickupLng, dropoffLat, dropoffLng) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
@@ -166,8 +144,7 @@ async function fetchGoogleRoute(pickupLat, pickupLng, dropoffLat, dropoffLng) {
     return { distanceKm, durationMins };
 }
 /**
- * Mapbox Directions engine (quota-chain rollover target). Token from
- * `MAPBOX_TOKEN` env (server-side only — never ships to clients).
+ * Mapbox Directions engine.
  */
 async function fetchMapboxRoute(pickupLat, pickupLng, dropoffLat, dropoffLng) {
     var _a, _b, _c, _d, _e, _f;

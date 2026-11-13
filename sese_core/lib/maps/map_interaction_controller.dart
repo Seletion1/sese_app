@@ -7,7 +7,7 @@ import 'package:geolocator/geolocator.dart';
 /// intelligent bottom sheet minimization (snap-to-edge), and dual restoration
 /// triggers (inactivity timer and GPS movement / driving away).
 ///
-/// Abstracted uniformly across Google Maps, Mapbox, and CartoDB mapping engines.
+/// Abstracted uniformly across Google Maps and Mapbox mapping engines.
 ///
 /// ### Core Responsibilities:
 /// 1. **Interaction Detection:** Captures taps, panning, and gestures across any map engine.

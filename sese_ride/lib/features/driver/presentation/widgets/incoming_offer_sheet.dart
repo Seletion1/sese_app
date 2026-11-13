@@ -7,6 +7,7 @@ import 'package:sese_core/sese_core.dart';
 import '../../../../core/services/remote_config_service.dart';
 import '../../../../widgets/map_provider.dart';
 import '../../../customer/services/location_service.dart';
+import '../../../payments/payment_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_streak_service.dart';
@@ -189,6 +190,22 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
 
   Future<void> _accept() async {
     if (_busy) return;
+    final driverId = widget.driverId ?? widget.user?.uid ?? '';
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+          user: widget.user,
+        );
+        return;
+      }
+    }
+
     _expiryHandled = true;
     setState(() {
       _busy = true;

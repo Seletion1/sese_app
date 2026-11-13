@@ -249,6 +249,21 @@ class _OrderCardState extends State<OrderCard> {
 
   Future<void> _accept() async {
     if (_sending) return;
+    final driverId = widget.streakService.driverId ?? '';
+    final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
+        SeseUniversalMap.debugTileProviderOverride != null;
+    if (driverId.isNotEmpty && !inTest) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: driverId,
+        );
+        return;
+      }
+    }
+
     setState(() => _sending = true);
     try {
       await widget.streakService.acceptTrip(widget.trip.tripId);
@@ -279,8 +294,8 @@ class _OrderCardState extends State<OrderCard> {
     final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
         SeseUniversalMap.debugTileProviderOverride != null;
     if (driverId.isNotEmpty && !inTest) {
-      final balKobo = await PaymentService().fetchWalletBalanceKobo(driverId);
-      if (balKobo < 100) {
+      final hasBal = await PaymentService().hasSufficientDriverBalance(driverId);
+      if (!hasBal) {
         if (!mounted) return;
         await showLowBalanceAcceptancePrompt(
           context,

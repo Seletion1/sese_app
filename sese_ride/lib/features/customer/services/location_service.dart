@@ -213,8 +213,7 @@ class LocationService {
     bool isRaw(String s) =>
         s.trim().isEmpty || RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(s.trim());
 
-    // Fallback chain: Google Maps → Mapbox → CartoDB (Nominatim).
-    // Honors explicit Hub engine selection.
+    // Fallback chain: Google Maps → Mapbox → Nominatim.
     if (controller.isMapbox) {
       if (cfg.hasValidMapboxToken) {
         final mbAddr = await _mapbox.reverseGeocode(lat, lng);
@@ -227,25 +226,6 @@ class LocationService {
       if (!isRaw(nom)) {
         CountryDetectionService.instance.updateFromAddress(nom);
         return nom;
-      }
-      final gAddr = await _maps.reverseGeocode(lat, lng);
-      if (!isRaw(gAddr)) {
-        CountryDetectionService.instance.updateFromAddress(gAddr);
-        return gAddr;
-      }
-      return fallbackCoord;
-    } else if (controller.isCartoDb) {
-      final nom = await _nominatimReverseGeocode(lat, lng);
-      if (!isRaw(nom)) {
-        CountryDetectionService.instance.updateFromAddress(nom);
-        return nom;
-      }
-      if (cfg.hasValidMapboxToken) {
-        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
-        if (!isRaw(mbAddr)) {
-          CountryDetectionService.instance.updateFromAddress(mbAddr);
-          return mbAddr;
-        }
       }
       final gAddr = await _maps.reverseGeocode(lat, lng);
       if (!isRaw(gAddr)) {
@@ -268,7 +248,7 @@ class LocationService {
           return mbAddr;
         }
       }
-      // Fallback 2: CartoDB / Nominatim
+      // Fallback 2: Nominatim
       final nom = await _nominatimReverseGeocode(lat, lng);
       if (!isRaw(nom)) {
         CountryDetectionService.instance.updateFromAddress(nom);
@@ -372,20 +352,6 @@ class LocationService {
         if (details != null) return LatLng(details.lat, details.lng);
       } catch (_) {}
       return null;
-    } else if (controller.isCartoDb) {
-      final nomResults = await _nominatimSearch(trimmed);
-      if (nomResults.isNotEmpty) return nomResults.first.latLng;
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.geocode(trimmed);
-          if (mb != null) return LatLng(mb.lat, mb.lng);
-        } catch (_) {}
-      }
-      try {
-        final details = await _maps.geocode(trimmed);
-        if (details != null) return LatLng(details.lat, details.lng);
-      } catch (_) {}
-      return null;
     } else {
       // Primary: Google Maps
       try {
@@ -449,20 +415,6 @@ class LocationService {
       }
       final nom = await _nominatimSearch(trimmed);
       if (nom.isNotEmpty) return nom;
-      try {
-        final g = await _maps.autocomplete(trimmed, lat: biasLat, lng: biasLng);
-        if (g.isNotEmpty) return toSuggestions(g);
-      } catch (_) {}
-      return [];
-    } else if (controller.isCartoDb) {
-      final nom = await _nominatimSearch(trimmed);
-      if (nom.isNotEmpty) return nom;
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
-          if (mb.isNotEmpty) return toSuggestions(mb);
-        } catch (_) {}
-      }
       try {
         final g = await _maps.autocomplete(trimmed, lat: biasLat, lng: biasLng);
         if (g.isNotEmpty) return toSuggestions(g);
@@ -652,13 +604,6 @@ class LocationService {
       if (mb != null) return mb;
       final osrm = await tryOsrm();
       if (osrm != null) return osrm;
-      final g = await tryGoogle();
-      if (g != null) return g;
-    } else if (controller.isCartoDb) {
-      final osrm = await tryOsrm();
-      if (osrm != null) return osrm;
-      final mb = await tryMapbox();
-      if (mb != null) return mb;
       final g = await tryGoogle();
       if (g != null) return g;
     } else {

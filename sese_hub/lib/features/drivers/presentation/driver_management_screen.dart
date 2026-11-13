@@ -16,7 +16,7 @@ import '../../auth/hub_session_guard.dart';
 /// 3. Profile & History Inspector: personal details, profile/selfie captures,
 ///    assigned vehicle details, ratings, and past ride/delivery history stream.
 /// 4. Real-time Live Location Map Viewer: renders the driver's exact coordinates
-///    on an interactive FlutterMap with CartoDB Voyager tiles, coordinates audit,
+///    on an interactive FlutterMap with Mapbox raster tiles, coordinates audit,
 ///    and external Google Maps deep-link navigation.
 /// 5. Administrative Status Toggle: manually switch any driver between Online
 ///    and Offline with atomic server callable execution + Firestore fallback.

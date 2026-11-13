@@ -2543,9 +2543,8 @@ class _RasterCredit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isMapbox = MapConfigController.instance.isMapbox;
     return Text(
-      isMapbox ? '© Mapbox © OpenStreetMap' : '© CARTO',
+      '© Mapbox © OpenStreetMap',
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
