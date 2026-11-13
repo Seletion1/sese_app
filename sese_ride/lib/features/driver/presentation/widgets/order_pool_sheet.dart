@@ -681,7 +681,7 @@ typedef _PoolOrderDetailSheet = PoolOrderDetailSheet;
 /// [_kSheetMidSnap]  — default open: all bidding controls visible.
 /// [_kSheetMaxSnap]  — fully expanded: scrollable content fills screen.
 const double _kSheetMinSnap = 0.18;
-const double _kSheetMidSnap = 0.65;
+const double _kSheetMidSnap = 0.50;
 const double _kSheetMaxSnap = 0.88;
 
 class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
@@ -1281,11 +1281,17 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                   ),
                                 ),
                               ),
-                            Expanded(
+                            // Flexible(loose) lets the scrollable content area shrink to
+                            // its natural height instead of forcing Expanded to fill the
+                            // entire remaining sheet space — which was the source of the
+                            // empty white gap below the bidding controls after removing the
+                            // distance metric chips.
+                            Flexible(
+                              fit: FlexFit.loose,
                               child: SingleChildScrollView(
                                 controller: scrollController,
                                 padding:
-                                    const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                                    const EdgeInsets.fromLTRB(16, 10, 16, 4),
                                 child: Column(
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
