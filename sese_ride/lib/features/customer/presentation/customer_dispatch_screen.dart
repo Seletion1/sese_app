@@ -3820,14 +3820,17 @@ class _RouteMapPreviewState extends State<_RouteMapPreview> {
       child: Stack(
         children: [
           SeSeMapView(
-            // Route preview — policy-aware raster engine: picks Mapbox when a
-            // token is configured (Google primary hub setting), CartoDB as last
-            // resort. Never spawns a second native Google Maps platform view on
-            // top of the always-alive CustomerHomeMapScreen Google Map in the
-            // IndexedStack. CartoDB is NOT injected simply because a CartoDB
-            // API key is present in the config — MapProviderPolicy.resolveEmbedded()
-            // enforces the full Hub engine chain: Mapbox first, CartoDB only
-            // as an absolute last resort (no Mapbox token AND CartoDB primary).
+            // Route-preview inset — this widget lives inside the
+            // IndexedStack that holds the always-alive CustomerHomeMapScreen
+            // Google Map native view. Spawning a second GoogleMap here would
+            // create a concurrent native platform-view in the same frame,
+            // causing ~380 KB of duplicate native allocations and GC storms.
+            // MapProviderPolicy.resolveEmbedded() chooses the best lightweight
+            // raster engine: Mapbox when a token is configured, Google Maps
+            // when it is the primary engine and no Mapbox token exists (the
+            // IndexedStack hides the background Google Map while the dispatch
+            // step is active, so there is no actual concurrent view), and
+            // CartoDB only when CartoDB is explicitly the configured engine.
             mapContext: MapContext.browsing,
             preferredProvider: MapProviderPolicy.resolveEmbedded(),
             mapController: _mapController,

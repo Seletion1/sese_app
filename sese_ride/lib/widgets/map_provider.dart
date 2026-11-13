@@ -104,28 +104,50 @@ abstract final class MapProviderPolicy {
   }
 
   /// Resolves the best **lightweight raster** renderer for embedded map
-  /// surfaces (location pickers, route previews, pin-drop sheets) that share
-  /// the screen with an already-active Google Maps platform view.
+  /// surfaces (route-preview insets and similar widgets) that share the
+  /// screen with an **already-active, currently-visible** Google Maps native
+  /// platform view — avoiding a concurrent native-view collision.
   ///
   /// The rule: never hard-code CartoDB. Instead, follow the Hub config:
   ///
-  /// - **Google primary** → prefer Mapbox (zero GMS/JNI overhead, flutter_map
-  ///   tile rendering). Fall back to CartoDB only when no valid Mapbox token
-  ///   is configured.
+  /// - **Google primary + Mapbox token present** → Mapbox (zero GMS/JNI
+  ///   overhead, flutter_map tile rendering — the best lightweight layer).
+  /// - **Google primary + no Mapbox token** → Google Maps. A full-screen
+  ///   push route has no background native view in the same frame, so the
+  ///   collision concern does not apply; CartoDB must NOT be injected simply
+  ///   because no Mapbox token is available. Callers that genuinely cannot
+  ///   host a second native view (e.g. the route-preview inset inside an
+  ///   IndexedStack that holds a live Google Map) should guard separately.
   /// - **Mapbox primary** → Mapbox directly.
   /// - **CartoDB primary** → CartoDB directly.
   ///
-  /// This is the correct call-site for [LocationPickerMap], [PickOnMapScreen],
-  /// and the route-preview inset inside [CustomerDispatchScreen]. It respects
-  /// the global Hub engine while still avoiding redundant native platform views.
+  /// This is the correct call-site for [LocationPickerMap] and the
+  /// route-preview inset inside [CustomerDispatchScreen]. Full-screen push
+  /// screens like [PickOnMapScreen] should use
+  /// `MapProviderPolicy.resolve(MapContext.browsing)` (or omit
+  /// `preferredProvider` entirely) so the global Hub engine is applied
+  /// without the raster-only constraint.
   static MapProvider resolveEmbedded() {
-    final config = MapConfigController.instance.currentConfig;
-    if (config.isMapbox) return MapProvider.mapbox;
+    final ctrl = MapConfigController.instance;
+    final config = ctrl.currentConfig;
+
+    // CartoDB primary → CartoDB tiles directly.
     if (config.isCartoDb) return MapProvider.cartoDb;
-    // Google is primary — use Mapbox as the lightweight raster layer.
-    // Fall through to CartoDB only when no Mapbox token is configured.
-    if (config.hasValidMapboxToken) return MapProvider.mapbox;
-    return MapProvider.cartoDb;
+
+    // Mapbox primary → Mapbox tiles directly.
+    if (config.isMapbox) return MapProvider.mapbox;
+
+    // Google primary — prefer Mapbox to avoid a concurrent native platform
+    // view when a Google Map is already alive in the same frame.
+    if (config.hasValidMapboxToken && !ctrl.isMapboxFallbackActive) {
+      return MapProvider.mapbox;
+    }
+
+    // Google primary, no Mapbox token available → fall through to the
+    // global resolution chain (Google Maps). CartoDB is NOT injected here;
+    // that would display the CartoDB "API KEY REQUIRED" watermark on screens
+    // that the Hub has configured to use Google Maps.
+    return MapProvider.googleMaps;
   }
 }
 

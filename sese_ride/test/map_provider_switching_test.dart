@@ -265,7 +265,35 @@ void main() {
       );
     });
 
-    testWidgets('Fallback banner renders when primary Google Maps falls back to Mapbox and can be dismissed',
+    testWidgets('Fallback banner defaults to hidden (showFallbackBanner: false) on map surfaces',
+        (tester) async {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyTestKey123',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+      MapConfigController.instance.triggerGoogleFallback(reason: 'Google Maps quota exceeded');
+
+      final mapController = SeSeMapController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SeseUniversalMap(
+              mapController: mapController,
+              initialCenter: const LatLng(6.5244, 3.3792),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // By default (showFallbackBanner = false), technical banners are never shown to end-users/drivers
+      expect(find.byKey(const Key('map_fallback_banner')), findsNothing);
+    });
+
+    testWidgets('Fallback banner renders when primary Google Maps falls back to Mapbox and showFallbackBanner is true',
         (tester) async {
       final config = const GlobalMapConfig(
         activeProvider: 'google',
@@ -335,6 +363,151 @@ void main() {
 
       // Trip surface stays rendered safely without crash
       expect(find.byType(SeseUniversalMap), findsOneWidget);
+    });
+  });
+
+  // ── Regression tests: resolveEmbedded() CartoDB watermark fix ─────────────
+  //
+  // Before the fix, resolveEmbedded() returned MapProvider.cartoDb whenever
+  // the active provider was Google Maps but no Mapbox token was configured.
+  // This caused the "API KEY REQUIRED / carto.com" watermark on the
+  // "Send Item" location-picker screen and all PickOnMapScreen pushes.
+  group('Phase 5: resolveEmbedded() — no CartoDB injection on Google-primary', () {
+    test(
+        'Google primary + no Mapbox token → resolveEmbedded returns googleMaps, never cartoDb',
+        () {
+      // Simulate the exact Hub config from the screenshots:
+      //   Active Map Engine = "Google Maps (Primary — Pay-as-you-go)"
+      //   No Mapbox token configured anywhere.
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyRealProductionKey',
+        // mapboxToken intentionally absent — matches the prod config in screenshots
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      final result = MapProviderPolicy.resolveEmbedded();
+
+      expect(
+        result,
+        MapProvider.googleMaps,
+        reason:
+            'resolveEmbedded() must return googleMaps when Google is primary '
+            'and no Mapbox token is configured — not cartoDb, which shows '
+            'the "API KEY REQUIRED / carto.com" watermark.',
+      );
+    });
+
+    test(
+        'Google primary + valid Mapbox token → resolveEmbedded returns mapbox '
+        '(lightweight raster, avoids concurrent native view)',
+        () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyRealProductionKey',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      final result = MapProviderPolicy.resolveEmbedded();
+
+      expect(
+        result,
+        MapProvider.mapbox,
+        reason:
+            'resolveEmbedded() should prefer Mapbox as the lightweight '
+            'raster layer when a token is available and Google is primary.',
+      );
+    });
+
+    test(
+        'CartoDB primary → resolveEmbedded returns cartoDb '
+        '(CartoDB is the explicitly configured engine)',
+        () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'cartodb',
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      final result = MapProviderPolicy.resolveEmbedded();
+
+      expect(
+        result,
+        MapProvider.cartoDb,
+        reason:
+            'resolveEmbedded() should return cartoDb when CartoDB is the '
+            'explicitly chosen global engine.',
+      );
+    });
+
+    test(
+        'Mapbox primary → resolveEmbedded returns mapbox directly',
+        () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'mapbox',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      final result = MapProviderPolicy.resolveEmbedded();
+
+      expect(result, MapProvider.mapbox);
+    });
+
+    test(
+        'Google primary + no Mapbox token + Mapbox fallback active → resolveEmbedded returns googleMaps',
+        () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyRealProductionKey',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+      // Trigger Mapbox fallback so it is not usable
+      MapConfigController.instance.triggerMapboxFallback(
+          reason: 'Mapbox quota exceeded');
+
+      final result = MapProviderPolicy.resolveEmbedded();
+
+      // Mapbox is unavailable; Google primary with no alternative →
+      // should fall through to googleMaps, not cartoDb.
+      expect(
+        result,
+        MapProvider.googleMaps,
+        reason:
+            'When Mapbox is in fallback and Google is primary, '
+            'resolveEmbedded must return googleMaps, not cartoDb.',
+      );
+    });
+
+    test(
+        'Auto (follow global engine) for sub-features correctly inherits Google Maps — '
+        'PickOnMapScreen mapContext.browsing resolves to googleMaps',
+        () {
+      // Hub config: Google primary, all sub-settings = Auto (follow global engine)
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: 'AIzaSyRealProductionKey',
+        featureProviders: {
+          'geocoding': 'auto',
+          'navigation': 'auto',
+          'tracking': 'auto',
+          'routing': 'auto',
+        },
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      // PickOnMapScreen uses MapContext.browsing (no preferredProvider)
+      final resolved = MapProviderPolicy.resolve(MapContext.browsing);
+
+      expect(
+        resolved,
+        MapProvider.googleMaps,
+        reason:
+            'When all sub-settings are Auto and Google Maps is the global '
+            'engine, every browsing/picking surface must resolve to '
+            'googleMaps — the CartoDB fallback must never activate.',
+      );
     });
   });
 }

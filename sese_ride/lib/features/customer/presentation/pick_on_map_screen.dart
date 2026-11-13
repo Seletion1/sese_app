@@ -173,17 +173,17 @@ class _PickOnMapScreenState extends State<PickOnMapScreen> {
       ),
       body: Stack(
         children: [
-          // ── Unified Map — policy-aware raster engine ─────────────────────────
-          // PickOnMapScreen is always pushed on top of an already-active Google
-          // Maps platform view (CustomerHomeMapScreen or CustomerDispatchScreen),
-          // so spawning another GoogleMap here would create a 3rd or 4th native
-          // platform view. Each Google Map costs ~380 KB of native allocations
-          // and triggers its own tile-prep GC storm. MapProviderPolicy.resolveEmbedded()
-          // picks the best lightweight raster provider (Mapbox when a token is
-          // configured; CartoDB as last resort) while strictly following the Hub
-          // global engine — it never injects CartoDB when Mapbox is available.
+          // ── Unified Map — global Hub engine ───────────────────────────────────
+          // PickOnMapScreen is a full-screen push route; the background
+          // CustomerHomeMapScreen Google Map is off-screen (in an IndexedStack
+          // that is not rendered while this route is on top). There is therefore
+          // no concurrent native-view collision risk and we must NOT force a
+          // raster-only provider here. Use MapContext.browsing so the global Hub
+          // engine (Google Maps, Mapbox, or CartoDB as configured) is applied
+          // exactly as intended. When the Hub says "Google Maps (Primary)",
+          // this screen renders Google Maps — not CartoDB tiles.
           SeseUniversalMap(
-            preferredProvider: MapProviderPolicy.resolveEmbedded(),
+            mapContext: MapContext.browsing,
             mapController: _mapController,
             initialCenter: widget.initialCenter,
             initialZoom: 16.0,
