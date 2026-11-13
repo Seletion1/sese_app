@@ -1071,11 +1071,13 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                   padding: 64);
                             },
                             child: SeSeMapView(
-                              preferredProvider: MapConfigController.instance
-                                      .snapshotConfig()
-                                      .hasValidMapboxToken
-                                  ? MapProvider.mapbox
-                                  : MapProvider.cartoDb,
+                              // Use the policy-aware resolver so that
+                              // Google-primary setups render Google Maps
+                              // instead of CartoDB when no Mapbox token is
+                              // present.  CartoDB is only selected when it is
+                              // the explicitly configured Hub engine.
+                              preferredProvider:
+                                  MapProviderPolicy.resolveEmbedded(),
                               mapController: _mapController,
                               initialCenter: _pickup,
                               initialZoom: 13.0,
