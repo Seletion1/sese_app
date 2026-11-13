@@ -1022,14 +1022,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
         final plus5Val = _roundTo100(baseline * 1.05);
         final plus10Val = _roundTo100(baseline * 1.10);
 
-        const distanceCalc = Distance();
-        final pickupKm = distanceCalc.as(
-            LengthUnit.Kilometer, widget.driverPosition, _pickup);
-        final pickupEtaMins = ((pickupKm / 30.0) * 60).round().clamp(1, 120);
-        final tripDurationMins = trip.durationMins > 0
-            ? trip.durationMins
-            : ((trip.distanceKm / 30.0) * 60).round().clamp(2, 240);
-
         final senderName =
             trip.customerName.isNotEmpty ? trip.customerName : 'Sender';
         final fareLabel = trip.fareFormatted.isNotEmpty
@@ -1448,84 +1440,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                           ),
                                         ],
                                       ),
-                                    ),
-                                    const SizedBox(height: 10),
-
-                                    // Distance & Time Metrics
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 8),
-                                            decoration: BoxDecoration(
-                                              color: scheme.surface,
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                              border: Border.all(
-                                                color: scheme.outlineVariant
-                                                    .withValues(alpha: 0.4),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const Icon(Icons.near_me,
-                                                    size: 14,
-                                                    color: Colors.blue),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Text(
-                                                    'To Pickup: ${pickupKm.toStringAsFixed(1)} km (~$pickupEtaMins min)',
-                                                    style: const TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 8),
-                                            decoration: BoxDecoration(
-                                              color: scheme.surface,
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                              border: Border.all(
-                                                color: scheme.outlineVariant
-                                                    .withValues(alpha: 0.4),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                const Icon(Icons.alt_route,
-                                                    size: 14,
-                                                    color: Colors.green),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Text(
-                                                    'Trip: ${trip.distanceKm.toStringAsFixed(1)} km (~$tripDurationMins min)',
-                                                    style: const TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ],
                                     ),
                                     const SizedBox(height: 16),
 
