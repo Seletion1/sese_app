@@ -46,6 +46,7 @@ const fareToken_1 = require("./fareToken");
 const driverStreak_1 = require("./driverStreak");
 const pricing_1 = require("./pricing");
 const accountGuard_1 = require("./accountGuard");
+const payments_1 = require("./payments");
 /**
  * Live dispatch state machine (server-authoritative).
  *
@@ -244,6 +245,41 @@ async function notifyCustomer(customerId, tripId, title, body, type, extra = {},
     }
     catch (e) {
         console.warn(`notifyCustomer: FCM send failed for ${customerId}: ${e}`);
+    }
+}
+async function notifyDriver(driverId, tripId, title, body, type, extra = {}) {
+    if (!driverId)
+        return;
+    try {
+        await db()
+            .collection("drivers")
+            .doc(driverId)
+            .collection("notifications")
+            .add(Object.assign(Object.assign({ title,
+            body,
+            tripId,
+            type }, extra), { createdAt: admin.firestore.FieldValue.serverTimestamp() }));
+    }
+    catch (_) { }
+    try {
+        await admin.messaging().send({
+            topic: `driver_${driverId}`,
+            notification: { title, body },
+            android: {
+                priority: "high",
+                notification: {
+                    sound: "sese_alert_chime",
+                    channelId: "sese_orders",
+                    clickAction: "FLUTTER_NOTIFICATION_CLICK",
+                },
+            },
+            apns: { payload: { aps: { sound: "default" } } },
+            data: Object.assign({ type,
+                tripId, click_action: "FLUTTER_NOTIFICATION_CLICK" }, extra),
+        });
+    }
+    catch (e) {
+        console.warn(`notifyDriver: FCM send failed for ${driverId}: ${e}`);
     }
 }
 /**
@@ -509,7 +545,7 @@ async function maskedPhones(customerId, pickupPhone, dropoffPhone, d) {
  * the live trip document. Returns `{ tripId }`.
  */
 exports.createTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to book.");
     }
@@ -672,28 +708,20 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     }
     let customerName = "Customer";
     let customerPhone = "";
-    let outstandingNegativeBalance = 0;
+    let userNegativeBalance = 0;
     try {
         const custSnap = await db().collection("users").doc(customerId).get();
         if (custSnap.exists) {
             const cData = custSnap.data();
             customerName = String((_u = (_t = cData.fullName) !== null && _t !== void 0 ? _t : cData.name) !== null && _u !== void 0 ? _u : "Customer");
             customerPhone = (0, exports.normPhone)((_w = (_v = cData.phoneNumberE164) !== null && _v !== void 0 ? _v : cData.phoneNumber) !== null && _w !== void 0 ? _w : "");
-            outstandingNegativeBalance = Math.max(0, Number((_x = cData.outstandingNegativeBalance) !== null && _x !== void 0 ? _x : 0));
+            userNegativeBalance = Math.max(0, Number((_x = cData.outstandingNegativeBalance) !== null && _x !== void 0 ? _x : 0));
         }
     }
     catch (_) { }
-    const adjustedProposedFare = proposedFare + outstandingNegativeBalance;
-    const adjustedBaselineFare = baselineFare + outstandingNegativeBalance;
-    // Clear outstanding negative balance from user account since it is rolled into the new trip fare
-    if (outstandingNegativeBalance > 0) {
-        try {
-            await db().collection("users").doc(customerId).set({ outstandingNegativeBalance: 0 }, { merge: true });
-        }
-        catch (_) { }
-    }
     // ── Wallet Escrow & Cash Collection Breakdown Engine ───────────────────
     let availableWalletBalance = 0;
+    let walletNegativeBalance = 0;
     const custWalletRef = db().collection("wallets").doc(customerId);
     try {
         const custWalletSnap = await custWalletRef.get();
@@ -703,14 +731,28 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
                 ? wData.mainWalletBalance
                 : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
             const escrowBal = typeof wData.escrowBalance === "number" ? wData.escrowBalance : 0;
+            if (mainBal < 0) {
+                walletNegativeBalance = Math.abs(mainBal);
+            }
             availableWalletBalance = Math.max(0, mainBal - escrowBal);
         }
     }
     catch (e) {
         console.warn(`createTrip: wallet lookup warning: ${e}`);
     }
+    const clientRecoveredDebt = Number((_y = d.recoveredDebt) !== null && _y !== void 0 ? _y : 0);
+    const recoveredDebt = Math.max(userNegativeBalance, walletNegativeBalance, clientRecoveredDebt);
+    const baseFare = proposedFare;
+    const totalFare = baseFare + recoveredDebt;
+    // Clear outstanding negative balance from user account since it is rolled into the new trip fare
+    if (userNegativeBalance > 0) {
+        try {
+            await db().collection("users").doc(customerId).set({ outstandingNegativeBalance: 0 }, { merge: true });
+        }
+        catch (_) { }
+    }
     let walletCoverageAmount = 0;
-    let cashToCollect = adjustedProposedFare;
+    let cashToCollect = totalFare;
     let collectAt = "pickup";
     let payerRole = "sender";
     let escrowLocked = false;
@@ -719,16 +761,16 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
     if (paymentMode === "receiver_pays") {
         // Receiver Pays: Cash Only, driver collects full fare from receiver at drop-off
         walletCoverageAmount = 0;
-        cashToCollect = adjustedProposedFare;
-        receiverCashToCollect = adjustedProposedFare;
+        cashToCollect = totalFare;
+        receiverCashToCollect = totalFare;
         collectAt = "dropoff";
         payerRole = "receiver";
         escrowLocked = false;
     }
     else if (paymentMode === "split") {
         payerRole = "split";
-        const senderShare = Number((_y = d.senderShareAmount) !== null && _y !== void 0 ? _y : adjustedProposedFare / 2);
-        const receiverShare = Number((_z = d.receiverShareAmount) !== null && _z !== void 0 ? _z : (adjustedProposedFare - senderShare));
+        const senderShare = Number((_z = d.senderShareAmount) !== null && _z !== void 0 ? _z : totalFare / 2);
+        const receiverShare = Number((_0 = d.receiverShareAmount) !== null && _0 !== void 0 ? _0 : (totalFare - senderShare));
         receiverCashToCollect = receiverShare;
         if (paymentMethod === "cash") {
             walletCoverageAmount = 0;
@@ -751,19 +793,19 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         // "sender_pays"
         payerRole = "sender";
         collectAt = "pickup";
-        if (paymentMethod === "cash") {
+        if (paymentMethod === "cash" || (paymentMethod === "auto" && availableWalletBalance <= 0)) {
             walletCoverageAmount = 0;
-            cashToCollect = adjustedProposedFare;
-            senderCashToCollect = adjustedProposedFare;
+            cashToCollect = totalFare;
+            senderCashToCollect = totalFare;
             escrowLocked = false;
         }
         else {
             // Auto (smart default) or Wallet / Card
-            walletCoverageAmount = (0, pricing_1.roundToNearest100)(Math.min(adjustedProposedFare, availableWalletBalance));
-            if (walletCoverageAmount > adjustedProposedFare) {
-                walletCoverageAmount = adjustedProposedFare;
+            walletCoverageAmount = (0, pricing_1.roundToNearest100)(Math.min(totalFare, availableWalletBalance));
+            if (walletCoverageAmount > totalFare) {
+                walletCoverageAmount = totalFare;
             }
-            cashToCollect = Math.max(0, adjustedProposedFare - walletCoverageAmount);
+            cashToCollect = Math.max(0, totalFare - walletCoverageAmount);
             senderCashToCollect = cashToCollect;
             escrowLocked = walletCoverageAmount > 0;
         }
@@ -798,7 +840,10 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             phone: safeCustomerPhone,
         }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, order: {
             requireDeliveryPin: isPinRequired,
-        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_1 = (_0 = d.vehicleCategory) !== null && _0 !== void 0 ? _0 : d.category) !== null && _1 !== void 0 ? _1 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baselineFare: adjustedBaselineFare, proposedFare: adjustedProposedFare, fareAmount: adjustedProposedFare, fareFormatted: `₦${adjustedProposedFare.toLocaleString()}`, outstandingBalanceIncluded: outstandingNegativeBalance, fareBoosted: false, boostPercent: 0, paymentMethod,
+        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_2 = (_1 = d.vehicleCategory) !== null && _1 !== void 0 ? _1 : d.category) !== null && _2 !== void 0 ? _2 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baseFare,
+        recoveredDebt,
+        totalFare,
+        baselineFare, proposedFare: baseFare, fareAmount: baseFare, fareFormatted: `₦${totalFare.toLocaleString()}`, outstandingBalanceIncluded: recoveredDebt, fareBoosted: false, boostPercent: 0, paymentMethod,
         paymentMode,
         walletCoverageAmount,
         cashToCollect,
@@ -807,7 +852,9 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         escrowLocked,
         senderCashToCollect,
         receiverCashToCollect, paymentBreakdown: {
-            totalFare: adjustedProposedFare,
+            baseFare,
+            recoveredDebt,
+            totalFare,
             walletCoverageAmount,
             cashToCollect,
             senderCashToCollect,
@@ -1688,7 +1735,7 @@ const DRIVER_TRANSITIONS = {
 };
 /** Driver advances arrival/progress/completion along the allowed chain. */
 exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Drivers must sign in.");
     }
@@ -1799,6 +1846,56 @@ exports.advanceTripStatus = (0, https_1.onCall)(async (request) => {
         const customerId = String((_b = tripObj.customerId) !== null && _b !== void 0 ? _b : "");
         const driverName = String((_d = (_c = tripObj.driver) === null || _c === void 0 ? void 0 : _c.fullName) !== null && _d !== void 0 ? _d : "Your driver");
         await notifyCustomer(customerId, String(tripId), "Driver arrived", `${driverName} has arrived at the pickup point.`, "driver_arrived");
+    }
+    else if (status === "IN_PROGRESS" && snapAfterData) {
+        const liveTrip = snapAfterData;
+        const paymentMethod = String((_e = liveTrip["paymentMethod"]) !== null && _e !== void 0 ? _e : "cash").toLowerCase();
+        const customerId = String((_f = liveTrip["customerId"]) !== null && _f !== void 0 ? _f : "");
+        const driverId = String((_j = (_h = (_g = liveTrip["driver"]) === null || _g === void 0 ? void 0 : _g["driverId"]) !== null && _h !== void 0 ? _h : liveTrip["driverId"]) !== null && _j !== void 0 ? _j : request.auth.uid);
+        const cashToCollect = Number((_k = liveTrip["cashToCollect"]) !== null && _k !== void 0 ? _k : 0);
+        if ((paymentMethod === "card" || paymentMethod === "paystack" || paymentMethod === "wallet") &&
+            cashToCollect > 0 &&
+            !liveTrip["paidViaCard"]) {
+            try {
+                const chargeResult = await (0, payments_1.chargePaystackCardAuthorization)({
+                    uid: customerId,
+                    tripId: String(tripId),
+                    amountNaira: cashToCollect,
+                });
+                if (chargeResult.success) {
+                    await db().collection("trips").doc(String(tripId)).update({
+                        paymentMethod: "online",
+                        cashToCollect: 0,
+                        paidViaCard: true,
+                        paymentStatus: "paid",
+                        paystackReference: chargeResult.reference,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    await notifyDriver(driverId, String(tripId), "Card Payment Successful", `Card payment of ₦${cashToCollect.toLocaleString()} was processed successfully. DO NOT collect cash from customer.`, "card_payment_success");
+                }
+                else {
+                    await db().collection("trips").doc(String(tripId)).update({
+                        paymentMethod: "cash",
+                        paymentStatus: "cash_fallback",
+                        cardPaymentFailed: true,
+                        cardPaymentFailureReason: (_l = chargeResult.failureReason) !== null && _l !== void 0 ? _l : "Card charge failed",
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    await notifyDriver(driverId, String(tripId), "Card Payment Failed - Collect Cash", `Card payment failed (${(_m = chargeResult.failureReason) !== null && _m !== void 0 ? _m : "failed"}). Collect full cash amount (₦${cashToCollect.toLocaleString()}) from customer upon trip completion.`, "card_payment_failed");
+                }
+            }
+            catch (e) {
+                console.warn(`advanceTripStatus[${tripId}]: automated card charge error: ${e}`);
+                await db().collection("trips").doc(String(tripId)).update({
+                    paymentMethod: "cash",
+                    paymentStatus: "cash_fallback",
+                    cardPaymentFailed: true,
+                    cardPaymentFailureReason: String(e),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                await notifyDriver(driverId, String(tripId), "Card Payment Failed - Collect Cash", `Card payment failed. Collect full cash amount (₦${cashToCollect.toLocaleString()}) from customer upon trip completion.`, "card_payment_failed");
+            }
+        }
     }
     return { ok: true };
 });

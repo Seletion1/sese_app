@@ -540,7 +540,6 @@ export async function handleTripCompletion(
     return;
   }
 
-  // Determine fare amount from the trip doc (prioritize top-level fareAmount/proposedFare/finalFare)
   const fareTiers: Array<{ tierId: string; fareAmount: number }> =
     Array.isArray(after["fareTiers"]) ? after["fareTiers"] : [];
   const selectedTiers: string[] = Array.isArray(after["selectedTiers"])
@@ -549,17 +548,27 @@ export async function handleTripCompletion(
   const matchedTier = fareTiers.find((t) =>
     selectedTiers.includes(t.tierId)
   );
-  const fareAmount: number = Number(
-    after["fareAmount"] ??
+
+  const baseFare: number = Number(
+    after["baseFare"] ??
       after["proposedFare"] ??
-      after["finalFare"] ??
+      after["fareAmount"] ??
       matchedTier?.fareAmount ??
       fareTiers[0]?.fareAmount ??
       0
   );
+  const recoveredDebt: number = Number(
+    after["recoveredDebt"] ??
+      after["paymentBreakdown"]?.["recoveredDebt"] ??
+      after["outstandingBalanceIncluded"] ??
+      0
+  );
+  const paymentMethod: string = String(
+    after["paymentMethod"] ?? "cash"
+  ).toLowerCase();
 
-  if (fareAmount <= 0) {
-    console.warn(`handleTripCompletion[${tripId}]: fareAmount=0, skipping`);
+  if (baseFare <= 0) {
+    console.warn(`handleTripCompletion[${tripId}]: baseFare=0, skipping`);
     return;
   }
 
@@ -602,7 +611,8 @@ export async function handleTripCompletion(
     baseCommissionRate: cfg.baseCommissionRate,
   };
 
-  const result = computeCommission(streak, fareAmount, cfg, isPoolOrder);
+  // Commission Base Protection: commission is computed strictly on baseFare, never on total cash / recovered debt
+  const result = computeCommission(streak, baseFare, cfg, isPoolOrder);
 
   const tripRef = db().collection("trips").doc(tripId);
   const driverWalletRef = db().collection("wallets").doc(driverId);
@@ -689,6 +699,82 @@ export async function handleTripCompletion(
         timestamp: Date.now(),
         stage: "completion",
       });
+    }
+
+    // 2b. Platform Debt Settlement (Driver Wallet Debit for recovered debt collected in cash)
+    const liveCashToCollect = Number(liveTrip.cashToCollect ?? after["cashToCollect"] ?? 0);
+    const recoveredDebtKobo = nairaToKobo(recoveredDebt);
+    if (recoveredDebtKobo > 0 && (paymentMethod === "cash" || liveCashToCollect > 0)) {
+      tx.set(
+        driverWalletRef,
+        {
+          balance: admin.firestore.FieldValue.increment(-recoveredDebtKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-recoveredDebt),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const debtDebitTxRef = driverWalletRef
+        .collection("transactions")
+        .doc(`${tripId}_recovered_debt_debit`);
+      tx.set(debtDebitTxRef, {
+        type: "recovered_debt_debit",
+        amount: -recoveredDebtKobo,
+        amountKobo: -recoveredDebtKobo,
+        amountNaira: -recoveredDebt,
+        tripId,
+        currency: "NGN",
+        note: `Platform debt collected in cash from customer on trip ${tripId}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      persistFinancialAuditLogInTx(tx, {
+        tripId,
+        type: "recovered_debt_debit",
+        accountId: driverId,
+        amountNaira: -recoveredDebt,
+        amountKobo: -recoveredDebtKobo,
+        currency: "NGN",
+        note: `Driver debited for platform debt collected in cash on trip ${tripId}`,
+        timestamp: Date.now(),
+        stage: "completion",
+      });
+
+      // Clear customer negative balance / credit customer wallet
+      if (custWalletRef) {
+        tx.set(
+          custWalletRef,
+          {
+            balance: admin.firestore.FieldValue.increment(recoveredDebtKobo),
+            mainWalletBalance: admin.firestore.FieldValue.increment(recoveredDebt),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        const custDebtCreditTxRef = custWalletRef
+          .collection("transactions")
+          .doc(`${tripId}_debt_settled`);
+        tx.set(custDebtCreditTxRef, {
+          type: "debt_settled_cash",
+          amount: recoveredDebtKobo,
+          amountKobo: recoveredDebtKobo,
+          amountNaira: recoveredDebt,
+          tripId,
+          currency: "NGN",
+          note: `Outstanding debt settled via cash payment to driver on trip ${tripId}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (custUserRef) {
+        tx.set(
+          custUserRef,
+          { outstandingNegativeBalance: 0 },
+          { merge: true }
+        );
+      }
     }
 
     // 3. Credit cash-back / bonus to driver wallet (Level 2 & 3)
@@ -918,7 +1004,7 @@ export async function handleTripCompletion(
       customerId,
       driverId,
       driverName,
-      fareAmount
+      baseFare
     );
 
     await db().collection("trips").doc(tripId).update({
@@ -969,7 +1055,7 @@ export async function handleTripCompletion(
   console.log(
     `handleTripCompletion[${tripId}] driver=${driverId} ` +
     `L${streak.currentLevel}S${streak.currentStep} ` +
-    `fare=${fareAmount} commission=${result.commissionAmount} ` +
+    `fare=${baseFare} commission=${result.commissionAmount} ` +
     `cashBack=${result.cashBackAmount} bonus=${result.cashBonusAmount} ` +
     `grandAward=${result.grandAwardTriggered}`
   );

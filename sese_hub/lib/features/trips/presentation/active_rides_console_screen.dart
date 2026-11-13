@@ -955,20 +955,40 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
               ),
               const SizedBox(height: 16),
 
-              // Split Payment Ledger
+              // Financial & Payment Ledger Breakdown
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('3. Split Payment Ledger', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      const Text('3. Financial & Payment Ledger',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                       const SizedBox(height: 8),
+                      Text('Base Trip Fare: ₦${((data['baseFare'] is num) ? (data['baseFare'] as num).toDouble() : ((data['proposedFare'] is num) ? (data['proposedFare'] as num).toDouble() : 0.0)).toStringAsFixed(2)}'),
+                      if ((data['recoveredDebt'] is num && (data['recoveredDebt'] as num) > 0) ||
+                          (data['outstandingBalanceIncluded'] is num && (data['outstandingBalanceIncluded'] as num) > 0)) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Recovered Debt (Negative Balance): ₦${((data['recoveredDebt'] is num) ? (data['recoveredDebt'] as num).toDouble() : ((data['outstandingBalanceIncluded'] is num) ? (data['outstandingBalanceIncluded'] as num).toDouble() : 0.0)).toStringAsFixed(2)}',
+                          style: TextStyle(color: Colors.red.shade700, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        'Total Cash to Collect: ₦${((data['cashToCollect'] is num) ? (data['cashToCollect'] as num).toDouble() : 0.0).toStringAsFixed(2)}',
+                        style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold),
+                      ),
+                      if (data['walletCoverageAmount'] is num && (data['walletCoverageAmount'] as num) > 0) ...[
+                        const SizedBox(height: 4),
+                        Text('Wallet Escrow Lock: ₦${(data['walletCoverageAmount'] as num).toDouble().toStringAsFixed(2)}'),
+                      ],
+                      const Divider(height: 16),
                       if (isSplit) ...[
                         Text('Sender Share: ₦${senderShare.toStringAsFixed(2)} ($senderMethod)'),
                         Text('Receiver Share: ₦${receiverShare.toStringAsFixed(2)} ($receiverMethod)'),
                       ] else ...[
-                        Text('Single Payer Order (100% $senderMethod)'),
+                        Text('Payment Method: $senderMethod'),
                       ],
                     ],
                   ),

@@ -574,3 +574,82 @@ export const paystackWebhook = onRequest(async (req, res) => {
     res.status(500).send("Internal settlement error");
   }
 });
+
+export interface CardChargeRequest {
+  uid: string;
+  tripId: string;
+  amountNaira: number;
+}
+
+export interface CardChargeResponse {
+  success: boolean;
+  reference?: string;
+  failureReason?: string;
+}
+
+/**
+ * Triggers an automated Paystack charge using a stored reusable card authorization code.
+ * Used when a trip with card payment method transitions to IN_PROGRESS.
+ */
+export async function chargePaystackCardAuthorization(
+  req: CardChargeRequest
+): Promise<CardChargeResponse> {
+  const { uid, tripId, amountNaira } = req;
+  if (!uid || amountNaira <= 0) {
+    return { success: false, failureReason: "INVALID_CHARGE_PARAMETERS" };
+  }
+
+  try {
+    const userSnap = await db().collection("users").doc(uid).get();
+    const walletSnap = await db().collection("wallets").doc(uid).get();
+
+    const uData = userSnap.exists ? userSnap.data()! : {};
+    const wData = walletSnap.exists ? walletSnap.data()! : {};
+
+    const authCode = String(
+      uData["paystackAuthorizationCode"] ??
+        wData["paystackAuthorizationCode"] ??
+        uData["paystackAuthCode"] ??
+        ""
+    ).trim();
+    const email = String(
+      uData["email"] ?? uData["emailAddress"] ?? `${uid}@sese.app`
+    ).trim();
+
+    if (!authCode) {
+      return { success: false, failureReason: "NO_STORED_CARD" };
+    }
+
+    const secret = await paystackSecret();
+    const reference = newReference(uid);
+    const amountKobo = Math.round(amountNaira * 100);
+
+    const data = await paystackPost(
+      "/transaction/charge_authorization",
+      {
+        authorization_code: authCode,
+        email,
+        amount: amountKobo,
+        reference,
+        currency: "NGN",
+        metadata: { tripId, purpose: "automated_trip_card_charge" },
+      },
+      secret
+    );
+
+    const status = String(data["status"] ?? "");
+    if (status === "success") {
+      return { success: true, reference };
+    }
+    return {
+      success: false,
+      failureReason: String(data["gateway_response"] ?? "CARD_CHARGE_FAILED"),
+    };
+  } catch (e: any) {
+    console.warn(`chargePaystackCardAuthorization error for trip ${tripId}: ${e}`);
+    return {
+      success: false,
+      failureReason: e?.message ?? String(e),
+    };
+  }
+}

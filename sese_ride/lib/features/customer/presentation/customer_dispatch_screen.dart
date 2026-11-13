@@ -1599,6 +1599,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final pickupName = _pickupNameController.text.trim();
     final dropoffName = _dropoffNameController.text.trim();
     final totalFare = _currentEstimatedFare;
+    final negativeBalance =
+        _customerWalletBalance < 0 ? _customerWalletBalance.abs() : 0.0;
     double walletCoverage = 0.0;
     double cashToCollect = totalFare;
     String collectAt = 'pickup';
@@ -1612,12 +1614,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     } else {
       payerRole = 'sender';
       collectAt = 'pickup';
-      if (_paymentMethod == 'cash') {
+      if (_paymentMethod == 'cash' ||
+          (_paymentMethod == 'auto' && _customerWalletBalance <= 0)) {
         walletCoverage = 0.0;
-        cashToCollect = totalFare;
+        cashToCollect = totalFare + negativeBalance;
       } else {
-        walletCoverage = math.min(totalFare, _customerWalletBalance);
-        cashToCollect = math.max(0.0, totalFare - walletCoverage);
+        if (_customerWalletBalance > 0) {
+          walletCoverage = math.min(totalFare, _customerWalletBalance);
+          cashToCollect = math.max(0.0, totalFare - walletCoverage);
+        } else {
+          walletCoverage = 0.0;
+          cashToCollect = totalFare + negativeBalance;
+        }
       }
     }
 
@@ -1653,6 +1661,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           receiverShareAmount: null,
           walletCoverageAmount: walletCoverage,
           cashToCollect: cashToCollect,
+          recoveredDebt: negativeBalance,
           collectAt: collectAt,
           payerRole: payerRole,
           // Rides never request a PIN (no toggle exists in the ride review;
@@ -3111,6 +3120,8 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Widget _buildPaymentOptionSelector({required bool isDelivery}) {
     final totalFare = _currentEstimatedFare;
     final availableWallet = _customerWalletBalance;
+    final double negativeBalance =
+        availableWallet < 0 ? availableWallet.abs() : 0.0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Calculate smart breakdown
@@ -3121,12 +3132,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       cashToCollect = totalFare;
     } else {
       // sender_pays
-      if (_paymentMethod == 'cash') {
+      if (_paymentMethod == 'cash' ||
+          (_paymentMethod == 'auto' && availableWallet <= 0)) {
         walletCoverage = 0.0;
-        cashToCollect = totalFare;
+        cashToCollect = totalFare + negativeBalance;
       } else {
-        walletCoverage = math.min(totalFare, availableWallet);
-        cashToCollect = math.max(0.0, totalFare - walletCoverage);
+        if (availableWallet > 0) {
+          walletCoverage = math.min(totalFare, availableWallet);
+          cashToCollect = math.max(0.0, totalFare - walletCoverage);
+        } else {
+          walletCoverage = 0.0;
+          cashToCollect = totalFare + negativeBalance;
+        }
       }
     }
 
@@ -3429,6 +3446,57 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         ),
                       ),
                     ] else ...[
+                      if (negativeBalance > 0) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Base Trip Fare:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            Text(
+                              '₦${totalFare.toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Outstanding Debt Recovery:',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isDark
+                                    ? const Color(0xFFF87171)
+                                    : const Color(0xFFDC2626),
+                              ),
+                            ),
+                            Text(
+                              '₦${negativeBalance.toStringAsFixed(0)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isDark
+                                    ? const Color(0xFFF87171)
+                                    : const Color(0xFFDC2626),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 12),
+                      ],
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -3436,24 +3504,29 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                             'Total Cash to Collect:',
                             style: TextStyle(
                               fontSize: 12,
+                              fontWeight: FontWeight.bold,
                               color: isDark
-                                  ? Colors.grey.shade400
-                                  : Colors.grey.shade700,
+                                  ? Colors.grey.shade300
+                                  : Colors.grey.shade800,
                             ),
                           ),
                           Text(
-                            '₦${totalFare.toStringAsFixed(0)}',
+                            '₦${cashToCollect.toStringAsFixed(0)}',
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
+                              color: isDark
+                                  ? const Color(0xFFFBBF24)
+                                  : const Color(0xFFD97706),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Paid in cash to the driver at pickup.',
+                        negativeBalance > 0
+                            ? 'Paid in cash to the driver at pickup. Includes ₦${negativeBalance.toStringAsFixed(0)} outstanding debt recovery.'
+                            : 'Paid in cash to the driver at pickup.',
                         style: TextStyle(
                           fontSize: 11,
                           color: isDark

@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.paystackWebhook = exports.verifyPayment = exports.initializePaystackTopUp = exports.initializePayment = void 0;
+exports.chargePaystackCardAuthorization = chargePaystackCardAuthorization;
 const admin = __importStar(require("firebase-admin"));
 const node_crypto_1 = require("node:crypto");
 const https_1 = require("firebase-functions/v2/https");
@@ -490,4 +491,52 @@ exports.paystackWebhook = (0, https_1.onRequest)(async (req, res) => {
         res.status(500).send("Internal settlement error");
     }
 });
+/**
+ * Triggers an automated Paystack charge using a stored reusable card authorization code.
+ * Used when a trip with card payment method transitions to IN_PROGRESS.
+ */
+async function chargePaystackCardAuthorization(req) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    const { uid, tripId, amountNaira } = req;
+    if (!uid || amountNaira <= 0) {
+        return { success: false, failureReason: "INVALID_CHARGE_PARAMETERS" };
+    }
+    try {
+        const userSnap = await db().collection("users").doc(uid).get();
+        const walletSnap = await db().collection("wallets").doc(uid).get();
+        const uData = userSnap.exists ? userSnap.data() : {};
+        const wData = walletSnap.exists ? walletSnap.data() : {};
+        const authCode = String((_c = (_b = (_a = uData["paystackAuthorizationCode"]) !== null && _a !== void 0 ? _a : wData["paystackAuthorizationCode"]) !== null && _b !== void 0 ? _b : uData["paystackAuthCode"]) !== null && _c !== void 0 ? _c : "").trim();
+        const email = String((_e = (_d = uData["email"]) !== null && _d !== void 0 ? _d : uData["emailAddress"]) !== null && _e !== void 0 ? _e : `${uid}@sese.app`).trim();
+        if (!authCode) {
+            return { success: false, failureReason: "NO_STORED_CARD" };
+        }
+        const secret = await paystackSecret();
+        const reference = newReference(uid);
+        const amountKobo = Math.round(amountNaira * 100);
+        const data = await paystackPost("/transaction/charge_authorization", {
+            authorization_code: authCode,
+            email,
+            amount: amountKobo,
+            reference,
+            currency: "NGN",
+            metadata: { tripId, purpose: "automated_trip_card_charge" },
+        }, secret);
+        const status = String((_f = data["status"]) !== null && _f !== void 0 ? _f : "");
+        if (status === "success") {
+            return { success: true, reference };
+        }
+        return {
+            success: false,
+            failureReason: String((_g = data["gateway_response"]) !== null && _g !== void 0 ? _g : "CARD_CHARGE_FAILED"),
+        };
+    }
+    catch (e) {
+        console.warn(`chargePaystackCardAuthorization error for trip ${tripId}: ${e}`);
+        return {
+            success: false,
+            failureReason: (_h = e === null || e === void 0 ? void 0 : e.message) !== null && _h !== void 0 ? _h : String(e),
+        };
+    }
+}
 //# sourceMappingURL=payments.js.map

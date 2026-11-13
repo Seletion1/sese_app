@@ -922,6 +922,9 @@ class TripDraft {
   /// Who pays the cash: 'sender', 'receiver', or 'split'.
   final String payerRole;
 
+  /// Amount of customer negative balance / debt recovered on this trip.
+  final double recoveredDebt;
+
   const TripDraft({
     required this.customerId,
     required this.pickupLat,
@@ -952,6 +955,7 @@ class TripDraft {
     this.cashToCollect = 0.0,
     this.collectAt = 'pickup',
     this.payerRole = 'sender',
+    this.recoveredDebt = 0.0,
   });
 
   Map<String, dynamic> toMap() {
@@ -990,6 +994,7 @@ class TripDraft {
         'receiverShareAmount': receiverShareAmount,
       if (walletCoverageAmount > 0) 'walletCoverageAmount': walletCoverageAmount,
       if (cashToCollect > 0) 'cashToCollect': cashToCollect,
+      if (recoveredDebt > 0) 'recoveredDebt': recoveredDebt,
       'collectAt': collectAt,
       'payerRole': payerRole,
       'requireDeliveryPin': requireDeliveryPin,
