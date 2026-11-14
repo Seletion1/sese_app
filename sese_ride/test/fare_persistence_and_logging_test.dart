@@ -27,6 +27,9 @@ class MockTripRepository implements TripRepository {
   Future<void> confirmCashCancellation(String tripId, {bool cashCollected = true}) async {}
 
   @override
+  Future<void> respondDropoffApproval(String tripId, {required bool approved}) async {}
+
+  @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
 
   @override

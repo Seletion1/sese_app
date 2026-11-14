@@ -2933,6 +2933,15 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                   ),
                 ),
 
+                // Out-of-range drop-off confirmation prompt from driver
+                if (trip.isDropoffApprovalPending) ...[
+                  _CustomerDropoffApprovalCard(
+                    trip: trip,
+                    repository: widget.repository,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
                 // a. Unified status banner:
                 //    • When a live driver GPS fix exists → show the ETA card
                 //      which already embeds a rich status line ("Driver
@@ -4117,6 +4126,210 @@ class _ReadOnlyTripSummaryView extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Out-of-range drop-off confirmation prompt presented to the customer when
+/// the driver requests remote approval to complete the trip.
+class _CustomerDropoffApprovalCard extends StatefulWidget {
+  final ActiveTrip trip;
+  final TripRepository repository;
+
+  const _CustomerDropoffApprovalCard({
+    required this.trip,
+    required this.repository,
+  });
+
+  @override
+  State<_CustomerDropoffApprovalCard> createState() =>
+      _CustomerDropoffApprovalCardState();
+}
+
+class _CustomerDropoffApprovalCardState
+    extends State<_CustomerDropoffApprovalCard> {
+  bool _busy = false;
+
+  Future<void> _respond(bool approved) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.repository.respondDropoffApproval(
+        widget.trip.tripId,
+        approved: approved,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              approved
+                  ? 'Drop-off confirmed and trip completed.'
+                  : 'Out-of-range drop-off rejected. Driver has been notified.',
+            ),
+            backgroundColor:
+                approved ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit response: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final distM = widget.trip.dropoffApprovalDistanceMeters;
+    final distLabel = distM > 0
+        ? (distM >= 1000
+            ? '${(distM / 1000).toStringAsFixed(1)} km'
+            : '${distM.toStringAsFixed(0)} m')
+        : null;
+
+    return Container(
+      key: const Key('customer_dropoff_approval_card'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2E2413) : const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFF59E0B),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.withValues(alpha: 0.15),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.pin_drop_rounded,
+                  color: Color(0xFFD97706),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Drop-off Confirmation Required',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.amber.shade100 : const Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            widget.trip.isCourier
+                ? 'Confirm driver has dropped off your item at your new location?'
+                : 'Confirm driver has dropped off at your new location?',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
+              height: 1.3,
+            ),
+          ),
+          if (distLabel != null) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: isDark ? Colors.amber.shade200 : const Color(0xFFB45309),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Driver is ~$distLabel from initial drop-off location',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.amber.shade200 : const Color(0xFFB45309),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  key: const Key('dropoff_approval_reject_button'),
+                  onPressed: _busy ? null : () => _respond(false),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFEF4444),
+                    side: const BorderSide(color: Color(0xFFEF4444)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Reject',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  key: const Key('dropoff_approval_approve_button'),
+                  onPressed: _busy ? null : () => _respond(true),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: _busy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Approve',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

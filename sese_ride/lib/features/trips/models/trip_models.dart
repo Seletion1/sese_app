@@ -387,6 +387,22 @@ class ActiveTrip {
   /// True when drivers have submitted custom fare offers/bids on this trip.
   final bool hasActiveBids;
 
+  /// Status of out-of-range drop-off confirmation: 'PENDING', 'APPROVED', 'REJECTED', or empty.
+  final String dropoffApprovalStatus;
+
+  /// Timestamp when driver requested remote customer out-of-range drop-off approval.
+  final DateTime? dropoffApprovalRequestedAt;
+
+  /// Distance in meters from the scheduled drop-off location when approval was requested.
+  final double dropoffApprovalDistanceMeters;
+
+  /// Driver's stated reason for requesting remote drop-off confirmation.
+  final String dropoffApprovalReason;
+
+  bool get isDropoffApprovalPending => dropoffApprovalStatus == 'PENDING';
+  bool get isDropoffApprovalApproved => dropoffApprovalStatus == 'APPROVED';
+  bool get isDropoffApprovalRejected => dropoffApprovalStatus == 'REJECTED';
+
   const ActiveTrip({
     required this.tripId,
     required this.status,
@@ -461,6 +477,10 @@ class ActiveTrip {
     this.rejections = const [],
     this.attemptedDriverIds = const [],
     this.hasActiveBids = false,
+    this.dropoffApprovalStatus = '',
+    this.dropoffApprovalRequestedAt,
+    this.dropoffApprovalDistanceMeters = 0.0,
+    this.dropoffApprovalReason = '',
   }) : tierIds = selectedTiers ?? tierIds;
 
   /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
@@ -503,6 +523,14 @@ class ActiveTrip {
     final action = driverRejectionAction(driverId);
     return action == 'rejected' || action == 'declined';
   }
+
+  /// True if this is a courier / package delivery order.
+  bool get isCourier =>
+      vehicleCategory.toLowerCase() == 'courier' ||
+      serviceType.toLowerCase() == 'courier' ||
+      serviceType.toLowerCase() == 'send_package' ||
+      serviceType.toLowerCase() == 'receive_item' ||
+      deliveryPinRequired;
 
   /// True for prepaid rails (auto-start eligible); cash/split/unknown
   /// trips must never auto-start (departure protection).
@@ -844,6 +872,11 @@ class ActiveTrip {
               .toList(),
       attemptedDriverIds: stringList(map['attemptedDriverIds']),
       hasActiveBids: map['hasActiveBids'] == true,
+      dropoffApprovalStatus: (map['dropoffApprovalStatus'] ?? '').toString(),
+      dropoffApprovalRequestedAt: dateOf(map['dropoffApprovalRequestedAt']),
+      dropoffApprovalDistanceMeters:
+          n(map['dropoffApprovalDistanceMeters'])?.toDouble() ?? 0.0,
+      dropoffApprovalReason: (map['dropoffApprovalReason'] ?? '').toString(),
     );
   }
 }

@@ -164,6 +164,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   // Driver Resting Break & Timer Configuration
   final _driverBreakOption1Ctrl = TextEditingController(text: '30');
   final _driverBreakOption2Ctrl = TextEditingController(text: '60');
+  final _dropoffRadiusCtrl = TextEditingController(text: '500');
   bool _driverBreakEnabled = true;
   bool _enableWaitingTimeBilling = true;
 
@@ -258,6 +259,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _maxCashTripAmountCtrl.dispose();
     _driverBreakOption1Ctrl.dispose();
     _driverBreakOption2Ctrl.dispose();
+    _dropoffRadiusCtrl.dispose();
     super.dispose();
   }
 
@@ -329,6 +331,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _driverBreakOption1Ctrl.text = remoteKeys.driverBreakOption1Minutes.toString();
       _driverBreakOption2Ctrl.text = remoteKeys.driverBreakOption2Minutes.toString();
       _driverBreakEnabled = remoteKeys.driverBreakEnabled;
+      _dropoffRadiusCtrl.text = remoteKeys.dropoffCompletionRadiusMeters.toStringAsFixed(0);
       _maxVisibleBidsCtrl.text = maxBids.toString();
       _radiusCtrl.text = tuning.dispatchRadiusKm.toString();
       _tier1RadiusCtrl.text = tuning.tier1RadiusKm.toString();
@@ -699,6 +702,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         driverBreakOption2Minutes:
             int.tryParse(_driverBreakOption2Ctrl.text.trim()) ?? 60,
         driverBreakEnabled: _driverBreakEnabled,
+        dropoffCompletionRadiusMeters:
+            double.tryParse(_dropoffRadiusCtrl.text.trim()) ?? 500.0,
         googleMonthlyCap:
             int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
         mapboxMonthlyCap:
@@ -1525,6 +1530,20 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     onChanged: (val) {
                       setState(() => _enableWaitingTimeBilling = val);
                     },
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 250,
+                  child: TextFormField(
+                    controller: _dropoffRadiusCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Drop-Off Completion Radius (m)',
+                      helperText: 'Max distance to complete (default 500m)',
+                      suffixText: 'm',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.radar_outlined),
+                    ),
                   ),
                 ),
                 _CappedField(

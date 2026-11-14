@@ -85,6 +85,13 @@ abstract class TripRepository {
   /// Customer requests to continue searching after auto-reassignment threshold is reached.
   Future<void> keepSearchingTrip(String tripId);
 
+  /// Customer responds to out-of-range drop-off confirmation request.
+  /// If approved, backend completes trip and triggers synchronous settlement.
+  Future<void> respondDropoffApproval(
+    String tripId, {
+    required bool approved,
+  }) async {}
+
   /// Live stream of all bids on a trip, ordered newest-first.
   /// Only pending bids are relevant for the carousel; accepted/rejected
   /// are included so the UI can reflect outcomes in real time.
@@ -429,6 +436,17 @@ class FirestoreTripRepository implements TripRepository {
   Future<void> keepSearchingTrip(String tripId) async {
     await _callWithAuthRetry(() => _fn.httpsCallable('keepSearchingTrip').call({
       'tripId': tripId,
+    }));
+  }
+
+  @override
+  Future<void> respondDropoffApproval(
+    String tripId, {
+    required bool approved,
+  }) async {
+    await _callWithAuthRetry(() => _fn.httpsCallable('respondDropoffApproval').call({
+      'tripId': tripId,
+      'approved': approved,
     }));
   }
 

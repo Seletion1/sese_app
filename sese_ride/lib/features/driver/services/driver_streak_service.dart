@@ -24,8 +24,10 @@ abstract class DriverStreakBackend {
   Future<Map<String, dynamic>> callDeclineTrip(String tripId, {String action = 'rejected'});
   Future<Map<String, dynamic>> callAdvanceTripStatus(
     String tripId,
-    String status,
-  );
+    String status, {
+    double? driverLat,
+    double? driverLng,
+  });
   Future<Map<String, dynamic>> callCancelTrip(String tripId, {String? reason});
   Future<Map<String, dynamic>> callConfirmCashCancellation(
     String tripId, {
@@ -33,8 +35,10 @@ abstract class DriverStreakBackend {
   });
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
     String tripId,
-    String pin,
-  );
+    String pin, {
+    double? driverLat,
+    double? driverLng,
+  });
 
   /// Skips the 4-digit delivery PIN after the recipient is unreachable for
   /// 10 minutes. The server enforces the time gate; the client must have
@@ -50,6 +54,19 @@ abstract class DriverStreakBackend {
 
   /// Records arrival at drop-off for drop-off waiting and billing tracking.
   Future<Map<String, dynamic>> callRecordDropoffArrival(String tripId) =>
+      Future.value(const {'ok': true});
+
+  /// Driver requests remote customer confirmation for out-of-range drop-off.
+  Future<Map<String, dynamic>> callRequestDropoffApproval(
+    String tripId, {
+    required double driverLat,
+    required double driverLng,
+    String? reason,
+  }) =>
+      Future.value(const {'ok': true});
+
+  /// Driver cancels pending out-of-range drop-off approval request.
+  Future<Map<String, dynamic>> callCancelDropoffApprovalRequest(String tripId) =>
       Future.value(const {'ok': true});
 }
 
@@ -80,8 +97,16 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
   @override
   Future<Map<String, dynamic>> callAdvanceTripStatus(
     String tripId,
-    String status,
-  ) => _call('advanceTripStatus', {'tripId': tripId, 'status': status});
+    String status, {
+    double? driverLat,
+    double? driverLng,
+  }) =>
+      _call('advanceTripStatus', {
+        'tripId': tripId,
+        'status': status,
+        'driverLat': ?driverLat,
+        'driverLng': ?driverLng,
+      });
 
   @override
   Future<Map<String, dynamic>> callCancelTrip(String tripId, {String? reason}) =>
@@ -103,9 +128,34 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
   @override
   Future<Map<String, dynamic>> callVerifyDeliveryPin(
     String tripId,
-    String pin,
-  ) =>
-      _call('verifyDeliveryPin', {'tripId': tripId, 'pin': pin});
+    String pin, {
+    double? driverLat,
+    double? driverLng,
+  }) =>
+      _call('verifyDeliveryPin', {
+        'tripId': tripId,
+        'pin': pin,
+        'driverLat': ?driverLat,
+        'driverLng': ?driverLng,
+      });
+
+  @override
+  Future<Map<String, dynamic>> callRequestDropoffApproval(
+    String tripId, {
+    required double driverLat,
+    required double driverLng,
+    String? reason,
+  }) =>
+      _call('requestDropoffApproval', {
+        'tripId': tripId,
+        'driverLat': driverLat,
+        'driverLng': driverLng,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      });
+
+  @override
+  Future<Map<String, dynamic>> callCancelDropoffApprovalRequest(String tripId) =>
+      _call('cancelDropoffApprovalRequest', {'tripId': tripId});
 
   @override
   /// Invokes the `skipDeliveryPin` server callable. The server validates that
@@ -326,7 +376,21 @@ class DriverStreakService {
   /// Advances DRIVER_ACCEPTED → DRIVER_ARRIVING → DRIVER_ARRIVED →
   /// IN_PROGRESS → COMPLETED along the server chain.
   Future<void> advanceTripStatus(String tripId, String status) =>
-      _guard(() => _ops.callAdvanceTripStatus(tripId, status));
+      advanceTripStatusWithLocation(tripId, status);
+
+  /// Advances trip status with live driver GPS coordinates for geofence validation.
+  Future<void> advanceTripStatusWithLocation(
+    String tripId,
+    String status, {
+    double? driverLat,
+    double? driverLng,
+  }) =>
+      _guard(() => _ops.callAdvanceTripStatus(
+            tripId,
+            status,
+            driverLat: driverLat,
+            driverLng: driverLng,
+          ));
 
   /// Cancels the assigned trip. The server decides streak protection
   /// (customer cancel / arrived + waited no-show are protected). [reason]
@@ -349,10 +413,22 @@ class DriverStreakService {
       );
 
   /// Submits the recipient's 4-digit delivery PIN to complete a delivery.
-  /// The server verifies the code and settles through the normal completion
-  /// path; wrong codes throw with a user-safe message.
   Future<void> verifyDeliveryPin(String tripId, String pin) =>
-      _guard(() => _ops.callVerifyDeliveryPin(tripId, pin));
+      verifyDeliveryPinWithLocation(tripId, pin);
+
+  /// Submits the recipient's 4-digit delivery PIN with live driver GPS coordinates.
+  Future<void> verifyDeliveryPinWithLocation(
+    String tripId,
+    String pin, {
+    double? driverLat,
+    double? driverLng,
+  }) =>
+      _guard(() => _ops.callVerifyDeliveryPin(
+            tripId,
+            pin,
+            driverLat: driverLat,
+            driverLng: driverLng,
+          ));
 
   /// Skips the delivery PIN after 10 minutes of recipient unavailability.
   ///
@@ -366,6 +442,24 @@ class DriverStreakService {
   /// Records arrival at drop-off for drop-off waiting and billing tracking.
   Future<void> recordDropoffArrival(String tripId) =>
       _guard(() => _ops.callRecordDropoffArrival(tripId));
+
+  /// Driver requests remote customer confirmation when completing outside drop-off radius.
+  Future<void> requestDropoffApproval({
+    required String tripId,
+    required double driverLat,
+    required double driverLng,
+    String? reason,
+  }) =>
+      _guard(() => _ops.callRequestDropoffApproval(
+            tripId,
+            driverLat: driverLat,
+            driverLng: driverLng,
+            reason: reason,
+          ));
+
+  /// Cancels an active pending drop-off confirmation request.
+  Future<void> cancelDropoffApprovalRequest(String tripId) =>
+      _guard(() => _ops.callCancelDropoffApprovalRequest(tripId));
 
   /// GPS heartbeat for the live trip (powers the customer marker +
   /// proximity triggers). Mocked fixes are rejected server-side; the

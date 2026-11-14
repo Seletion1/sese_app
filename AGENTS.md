@@ -72,6 +72,34 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Secure Drop-off Geofencing, Hub-Configurable Radius & Remote Customer Approval Workflow
+
+- **1. Hub-Configurable Drop-Off Radius (`sese_core`, `sese_hub`)**:
+  - Added `dropoffCompletionRadiusMeters` parameter (default `500.0` meters) to `RemoteKeysConfig` in `sese_core/lib/services/remote_keys_service.dart`.
+  - Added "Drop-Off Completion Radius (m)" configuration field and persistence handling in `sese_hub/lib/features/config/presentation/global_config_screen.dart`, backed by `system_configs/global_default` and `system_config/remote_keys`.
+
+- **2. Strict Server-Side Geofence Enforcement (`functions/src/trips.ts`, `functions/src/index.ts`)**:
+  - Created `getDropoffRadiusMeters()` helper reading configured completion radius from system configs (fallback 500m).
+  - Hardened `advanceTripStatus` (`COMPLETED`) and `verifyDeliveryPin`: strictly validates driver's real-time coordinates against trip drop-off destination (`dropoffLocation` / `dropoffLat`/`dropoffLng`). Completion is denied with `failed-precondition` if out of range, unless remote customer approval was granted (`dropoffApprovalStatus === 'APPROVED'`).
+  - Added `requestDropoffApproval`: verifies assigned driver, calculates distance from drop-off, sets `dropoffApprovalStatus: 'PENDING'` with timestamp and distance in Firestore, and sends high-priority FCM notification and inbox alert to the customer.
+  - Added `respondDropoffApproval`: verifies customer identity. On `approve`, marks `APPROVED`, finalizes trip completion, invokes canonical settlement (`handleTripCompletion`), and notifies the driver. On `reject`, marks `REJECTED`, retains trip in `IN_PROGRESS`, and notifies the driver.
+  - Added `cancelDropoffApprovalRequest`: allows driver to cancel pending verification.
+
+- **3. Driver Out-of-Range Handling & Non-Blocking Verification State (`driver_active_trip_card.dart`, `driver_streak_service.dart`)**:
+  - Tapping "Complete" or "Deliver" verifies driver coordinates (`widget.driverPosition` or `trip.driverLat`). If out of range, displays modal prompt: *"You are outside the drop-off location. Send confirmation request to customer?"* ([Yes] / [No]).
+  - Upon sending request, renders non-blocking **"Customer Verification Pending"** card with distance metric, live contact button, and "Cancel Request" option. Driver can safely navigate away, close app, or call customer; reopening restores the pending state.
+  - Tapping "Reject" by customer renders red alert banner on driver card with guidance to reach destination or contact support.
+
+- **4. Customer In-App & Remote Push Approval Sheet (`live_trip_screen.dart`, `trip_models.dart`)**:
+  - Added `dropoffApprovalStatus`, `dropoffApprovalRequestedAt`, `dropoffApprovalDistanceMeters`, and `dropoffApprovalReason` fields + getters to `ActiveTrip`.
+  - Rendered `_CustomerDropoffApprovalCard` in `LiveTripScreen` when `trip.isDropoffApprovalPending`: presents out-of-range drop-off confirmation details with Approve and Reject action buttons wired to `TripRepository.respondDropoffApproval`.
+
+- **5. Comprehensive Verification & Production Deployment**:
+  - Unit/Integration Tests: 124/124 backend tests passed (including `dropoff_geofence.test.ts`); 151/151 `sese_core` tests passed; 71/71 `sese_hub` tests passed; 17/17 `sese_ride` targeted tests passed (`dropoff_geofence_test.dart` and `driver_active_trip_card_test.dart`).
+  - Static Analysis: `dart analyze` clean with 0 issues across all modified files.
+  - Backend Deployment: Cloud Functions built (`tsc`) and deployed to production `sese-ride`.
+
+
 ## 2026-11-12 — Driver Background/Killed-State Incoming Order Flow, FCM Payload & Foreground Wake-Up Hardening
 
 - **1. FCM Payload Enrichment & High-Priority Notification Channel (`functions/src/trips.ts`)**:

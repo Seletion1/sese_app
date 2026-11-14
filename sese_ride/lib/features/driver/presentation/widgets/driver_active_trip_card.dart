@@ -339,14 +339,34 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         if (confirmed != true) return;
       }
 
+      // Check drop-off geofence if not already customer-approved
+      if (!trip.isDropoffApprovalApproved &&
+          trip.dropoffLat != 0 &&
+          trip.dropoffLng != 0) {
+        final allowed = await _checkDropoffGeofenceOrPrompt(trip);
+        if (!allowed) return;
+      }
+
       if (trip.serviceType != 'ride' && trip.deliveryPinRequired) {
         await _askDeliveryPin(trip);
         return;
       }
     }
 
+    final lat = widget.driverPosition?.latitude ?? trip.driverLat;
+    final lng = widget.driverPosition?.longitude ?? trip.driverLng;
     final success = await _run(
-      () => widget.streakService.advanceTripStatus(trip.tripId, next),
+      () => lat != null && lng != null
+          ? widget.streakService.advanceTripStatusWithLocation(
+              trip.tripId,
+              next,
+              driverLat: lat,
+              driverLng: lng,
+            )
+          : widget.streakService.advanceTripStatus(
+              trip.tripId,
+              next,
+            ),
       'Could not update trip status.',
     );
     if (success) {
@@ -610,6 +630,229 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     );
   }
 
+  /// Validates that the driver's current position is within the Hub-configured drop-off radius.
+  /// If outside, prompts the driver: "You are outside the drop-off location. Send confirmation request to customer?" ([Yes] / [No]).
+  /// If Yes, calls `requestDropoffApproval` and puts the trip into non-blocking pending approval state.
+  Future<bool> _checkDropoffGeofenceOrPrompt(ActiveTrip trip) async {
+    final driverLat = widget.driverPosition?.latitude ?? trip.driverLat ?? 0.0;
+    final driverLng = widget.driverPosition?.longitude ?? trip.driverLng ?? 0.0;
+
+    if (driverLat == 0.0 || driverLng == 0.0) {
+      // If unable to resolve GPS locally, let server authority validate
+      return true;
+    }
+
+    // Hub-configurable radius (defaulting to 500m)
+    double allowedRadiusMeters = 500.0;
+    try {
+      final remoteKeys = await const RemoteKeysService().fetchRemoteKeys();
+      if (remoteKeys.dropoffCompletionRadiusMeters > 0) {
+        allowedRadiusMeters = remoteKeys.dropoffCompletionRadiusMeters;
+      }
+    } catch (_) {}
+
+    final distM = ProximityTriggerService.haversineM(
+      driverLat,
+      driverLng,
+      trip.dropoffLat,
+      trip.dropoffLng,
+    );
+
+    if (distM <= allowedRadiusMeters) {
+      return true;
+    }
+
+    if (!mounted) return false;
+    final distStr = distM >= 1000
+        ? '${(distM / 1000).toStringAsFixed(1)}km'
+        : '${distM.toStringAsFixed(0)}m';
+
+    final shouldSendRequest = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        key: const Key('driver_out_of_range_dialog'),
+        title: const Row(
+          children: [
+            Icon(Icons.location_off_outlined, color: Color(0xFFD97706)),
+            SizedBox(width: 8),
+            Expanded(child: Text('Outside Drop-Off Location')),
+          ],
+        ),
+        content: Text(
+          'You are outside the drop-off location ($distStr away, maximum allowed radius is ${allowedRadiusMeters.toStringAsFixed(0)}m).\n\n'
+          'Send confirmation request to customer?',
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('driver_out_of_range_no_button'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            key: const Key('driver_out_of_range_yes_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFD97706),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldSendRequest == true && mounted) {
+      final success = await _run(
+        () => widget.streakService.requestDropoffApproval(
+          tripId: trip.tripId,
+          driverLat: driverLat,
+          driverLng: driverLng,
+        ),
+        'Could not send drop-off confirmation request.',
+      );
+
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Drop-off confirmation request sent to customer.'),
+            backgroundColor: Color(0xFFD97706),
+          ),
+        );
+      }
+    }
+
+    return false;
+  }
+
+  Widget _buildCustomerVerificationPendingCard(ActiveTrip trip) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final distStr = trip.dropoffApprovalDistanceMeters >= 1000
+        ? '${(trip.dropoffApprovalDistanceMeters / 1000).toStringAsFixed(1)}km'
+        : '${trip.dropoffApprovalDistanceMeters.toStringAsFixed(0)}m';
+
+    return Container(
+      key: const Key('customer_verification_pending_card'),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2E2415) : const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFFD97706) : const Color(0xFFF59E0B),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD97706)),
+                ),
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Customer Verification Pending',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFD97706),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Waiting for customer confirmation for drop-off at your current location ($distStr away from original drop-off).\n\n'
+            'You may navigate away, call the customer, or wait — this trip will complete automatically once approved.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('pending_call_customer_button'),
+                  onPressed: () => _makeDirectPhoneCall(context, trip),
+                  icon: const Icon(Icons.phone, size: 16),
+                  label: const Text('Call Customer'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFD97706),
+                    side: const BorderSide(color: Color(0xFFD97706)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                key: const Key('pending_cancel_request_button'),
+                onPressed: () => _run(
+                  () => widget.streakService.cancelDropoffApprovalRequest(trip.tripId),
+                  'Could not cancel request.',
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  side: BorderSide(
+                    color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                ),
+                child: const Text('Cancel Request'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerVerificationRejectedBanner() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      key: const Key('customer_verification_rejected_banner'),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF3B1818) : const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFEF4444),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cancel_outlined, color: Color(0xFFEF4444), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Customer declined out-of-range drop-off. Please reach the scheduled drop-off location or contact support.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.red.shade200 : Colors.red.shade900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _askDeliveryPin(ActiveTrip trip) async {
     final pin = await showDialog<String>(
       context: context,
@@ -672,8 +915,20 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       return;
     }
 
+    final lat = widget.driverPosition?.latitude ?? trip.driverLat;
+    final lng = widget.driverPosition?.longitude ?? trip.driverLng;
     final verifySuccess = await _run(
-      () => widget.streakService.verifyDeliveryPin(trip.tripId, pin),
+      () => lat != null && lng != null
+          ? widget.streakService.verifyDeliveryPinWithLocation(
+              trip.tripId,
+              pin,
+              driverLat: lat,
+              driverLng: lng,
+            )
+          : widget.streakService.verifyDeliveryPin(
+              trip.tripId,
+              pin,
+            ),
       'Could not complete delivery.',
     );
     if (verifySuccess) {
@@ -822,6 +1077,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
   /// Label for the slide-to-action button — direct action verbs only,
   /// no "Slide to" prefix (the animated arrow thumb already conveys the gesture).
   String get _nextLabel {
+    if (widget.trip.isDropoffApprovalPending) {
+      return 'Verification Pending...';
+    }
     switch (_nextStatus) {
       case 'DRIVER_ARRIVING':
         return 'On My Way';
@@ -1737,12 +1995,17 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
               ),
             ),
 
+            if (trip.isDropoffApprovalPending)
+              _buildCustomerVerificationPendingCard(trip)
+            else if (trip.isDropoffApprovalRejected)
+              _buildCustomerVerificationRejectedBanner(),
+
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(
               key: const Key('driver_slide_action_button'),
               label: _nextLabel,
               busy: _busy,
-              enabled: next != null,
+              enabled: next != null && !trip.isDropoffApprovalPending,
               onSlideComplete: () {
                 if (next != null) {
                   _advanceOrPin(trip, next);

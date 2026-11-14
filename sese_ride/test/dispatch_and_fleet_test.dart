@@ -131,6 +131,9 @@ class _FakeTripRepository implements TripRepository {
   }) async {}
 
   @override
+  Future<void> respondDropoffApproval(String tripId, {required bool approved}) async {}
+
+  @override
   Future<void> submitBid(String tripId, double offeredFare, {int? etaMinutes}) async {}
 
   @override

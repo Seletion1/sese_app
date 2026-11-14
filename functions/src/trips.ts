@@ -208,6 +208,9 @@ const INBOX_TYPES = new Set([
   "split_payment_request",
   "support_escalated",
   "support_reply",
+  "dropoff_approval_request",
+  "dropoff_approved",
+  "dropoff_rejected",
 ]);
 
 /**
@@ -401,6 +404,28 @@ export function haversineKm(
       Math.sin(dLng / 2) *
       Math.sin(dLng / 2);
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Reads Hub-configured maximum drop-off completion radius in meters.
+ * Defaults to 500 meters if unconfigured or invalid.
+ */
+export async function getDropoffRadiusMeters(): Promise<number> {
+  try {
+    const snap = await db().collection("system_config").doc("remote_keys").get();
+    if (snap.exists) {
+      const val = snap.data()?.dropoffCompletionRadiusMeters ?? snap.data()?.dropoff_completion_radius_meters;
+      if (typeof val === "number" && val > 0) return val;
+    }
+  } catch (_) {}
+  try {
+    const snap = await db().collection("system_configs").doc("global_default").get();
+    if (snap.exists) {
+      const val = snap.data()?.dropoffCompletionRadiusMeters ?? snap.data()?.dropoff_completion_radius_meters;
+      if (typeof val === "number" && val > 0) return val;
+    }
+  } catch (_) {}
+  return 500;
 }
 
 /**
@@ -2188,6 +2213,7 @@ export const advanceTripStatus = onCall(async (request) => {
   let alreadyInStatus = false;
   let fromStatus = "";
   let snapAfterData: admin.firestore.DocumentData | null = null;
+  const dropoffRadiusMeters = await getDropoffRadiusMeters();
 
   await db().runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -2227,6 +2253,39 @@ export const advanceTripStatus = onCall(async (request) => {
         "failed-precondition",
         `Cannot move from ${currentStatus} to ${status}.`
       );
+    }
+
+    // ── Drop-off Geofencing Check ───────────────────────────────────────────
+    if (status === "COMPLETED" && data.dropoffApprovalStatus !== "APPROVED") {
+      const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
+      const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
+      if (dropoffLat !== 0 && dropoffLng !== 0) {
+        const driverLat = Number(
+          request.data?.driverLat ??
+          request.data?.lat ??
+          request.data?.latitude ??
+          data.driverLocation?.lat ??
+          data.driverLocation?.latitude ??
+          0
+        );
+        const driverLng = Number(
+          request.data?.driverLng ??
+          request.data?.lng ??
+          request.data?.longitude ??
+          data.driverLocation?.lng ??
+          data.driverLocation?.longitude ??
+          0
+        );
+        if (driverLat !== 0 && driverLng !== 0) {
+          const distM = Math.round(haversineKm(driverLat, driverLng, dropoffLat, dropoffLng) * 1000);
+          if (distM > dropoffRadiusMeters) {
+            throw new HttpsError(
+              "failed-precondition",
+              `OUT_OF_RANGE: Driver is outside drop-off location (${distM}m away, max allowed is ${dropoffRadiusMeters}m). Customer confirmation required.`
+            );
+          }
+        }
+      }
     }
     const update: Record<string, unknown> = {
       status,
@@ -3626,6 +3685,40 @@ export const verifyDeliveryPin = onCall(async (request) => {
     );
   }
 
+  // ── Drop-off Geofencing Check ───────────────────────────────────────────
+  if (data.dropoffApprovalStatus !== "APPROVED") {
+    const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
+    const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
+    if (dropoffLat !== 0 && dropoffLng !== 0) {
+      const driverLat = Number(
+        request.data?.driverLat ??
+        request.data?.lat ??
+        request.data?.latitude ??
+        data.driverLocation?.lat ??
+        data.driverLocation?.latitude ??
+        0
+      );
+      const driverLng = Number(
+        request.data?.driverLng ??
+        request.data?.lng ??
+        request.data?.longitude ??
+        data.driverLocation?.lng ??
+        data.driverLocation?.longitude ??
+        0
+      );
+      if (driverLat !== 0 && driverLng !== 0) {
+        const distM = Math.round(haversineKm(driverLat, driverLng, dropoffLat, dropoffLng) * 1000);
+        const radiusM = await getDropoffRadiusMeters();
+        if (distM > radiusM) {
+          throw new HttpsError(
+            "failed-precondition",
+            `OUT_OF_RANGE: Driver is outside drop-off location (${distM}m away, max allowed is ${radiusM}m). Customer confirmation required.`
+          );
+        }
+      }
+    }
+  }
+
   const batch = db().batch();
   batch.update(ref, {
     deliveryPinVerified: true,
@@ -4345,6 +4438,280 @@ export const recordDropoffArrival = onCall(async (request) => {
       });
     }
   });
+  return { ok: true };
+});
+
+/**
+ * Driver requests customer approval for completing an out-of-range drop-off.
+ *
+ * Triggered when the driver taps complete while outside the Hub-configured
+ * drop-off completion radius. Puts the order in a non-blocking `PENDING`
+ * customer approval state and alerts the customer via push and in-app prompt.
+ */
+export const requestDropoffApproval = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Drivers must sign in.");
+  }
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "driver");
+
+  const driverId = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const driverLat = Number(
+    request.data?.driverLat ?? request.data?.lat ?? request.data?.latitude ?? 0
+  );
+  const driverLng = Number(
+    request.data?.driverLng ?? request.data?.lng ?? request.data?.longitude ?? 0
+  );
+  const reason = String(
+    request.data?.reason ?? "Driver dropped off at customer's new location"
+  ).trim();
+
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "tripId is required.");
+  }
+  if (!driverLat || !driverLng) {
+    throw new HttpsError("invalid-argument", "Valid driver GPS location is required.");
+  }
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+  const data = snap.data()!;
+
+  const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+  if (assignedDriverId !== driverId) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  if (data.status !== "IN_PROGRESS") {
+    throw new HttpsError(
+      "failed-precondition",
+      `Trip must be IN_PROGRESS (currently ${data.status}).`
+    );
+  }
+
+  const dropoffLat = Number(
+    data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0
+  );
+  const dropoffLng = Number(
+    data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0
+  );
+  let distanceM = 0;
+  if (dropoffLat !== 0 && dropoffLng !== 0) {
+    distanceM = Math.round(haversineKm(driverLat, driverLng, dropoffLat, dropoffLng) * 1000);
+  }
+
+  const radiusM = await getDropoffRadiusMeters();
+
+  await ref.update({
+    dropoffApprovalStatus: "PENDING",
+    dropoffApprovalRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    dropoffApprovalDriverLocation: { lat: driverLat, lng: driverLng },
+    dropoffApprovalDistanceMeters: distanceM,
+    dropoffApprovalReason: reason,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    statusHistory: admin.firestore.FieldValue.arrayUnion({
+      from: String(data.status),
+      to: String(data.status),
+      actor: driverId,
+      role: "driver",
+      action: "request_dropoff_approval",
+      distanceMeters: distanceM,
+      timestamp: nowMs(),
+    }),
+  });
+
+  const customerId = String(data.customerId ?? data.userId ?? "");
+  if (customerId) {
+    const distStr = distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)}km` : `${distanceM}m`;
+    await notifyCustomer(
+      customerId,
+      tripId,
+      "Drop-off Confirmation Required",
+      "Confirm driver has dropped off your item at your new location?",
+      "dropoff_approval_request",
+      {
+        tripId,
+        type: "dropoff_approval_request",
+        distanceMeters: String(distanceM),
+        distanceText: distStr,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+      }
+    );
+  }
+
+  return { ok: true, pending: true, distanceMeters: distanceM, radiusMeters: radiusM };
+});
+
+/**
+ * Customer responds to an out-of-range drop-off confirmation request.
+ *
+ * If approved: the server immediately and securely finalizes and completes the trip,
+ * triggers synchronous commission and wallet settlement, and alerts the driver.
+ * If rejected: keeps trip in `IN_PROGRESS` and alerts the driver to proceed to destination.
+ */
+export const respondDropoffApproval = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid);
+
+  const customerId = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const approved = request.data?.approved === true;
+
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "tripId is required.");
+  }
+
+  const ref = db().collection("trips").doc(tripId);
+  let snapAfterData: admin.firestore.DocumentData | null = null;
+  let driverId = "";
+
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+    const data = snap.data()!;
+
+    const tripCustomerId = String(data.customerId ?? data.userId ?? "");
+    if (tripCustomerId !== customerId) {
+      throw new HttpsError(
+        "permission-denied",
+        "Only the customer who ordered this trip can respond to drop-off approval."
+      );
+    }
+
+    if (data.dropoffApprovalStatus !== "PENDING") {
+      if (data.status === "COMPLETED") {
+        return; // Idempotent
+      }
+      throw new HttpsError("failed-precondition", "No pending drop-off approval request.");
+    }
+
+    driverId = String(data.driver?.driverId ?? data.driverId ?? "");
+
+    if (approved) {
+      const currentStatus = String(data.status);
+      const update: Record<string, unknown> = {
+        dropoffApprovalStatus: "APPROVED",
+        dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: "COMPLETED",
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancellationSource: null,
+        cancellationReason: null,
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+          from: currentStatus,
+          to: "COMPLETED",
+          actor: customerId,
+          role: "customer",
+          reason: "remote_customer_dropoff_approved",
+          timestamp: nowMs(),
+        }),
+      };
+      tx.update(ref, update);
+      snapAfterData = { ...data, ...update };
+      persistTripChangeLogInTx(tx, {
+        tripId,
+        from: currentStatus,
+        to: "COMPLETED",
+        actor: customerId,
+        role: "customer",
+        reason: "remote_customer_dropoff_approved",
+        timestamp: nowMs(),
+      });
+    } else {
+      const update: Record<string, unknown> = {
+        dropoffApprovalStatus: "REJECTED",
+        dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        statusHistory: admin.firestore.FieldValue.arrayUnion({
+          from: String(data.status),
+          to: String(data.status),
+          actor: customerId,
+          role: "customer",
+          reason: "remote_customer_dropoff_rejected",
+          timestamp: nowMs(),
+        }),
+      };
+      tx.update(ref, update);
+      snapAfterData = { ...data, ...update };
+    }
+  });
+
+  if (approved && snapAfterData) {
+    logTripTransition({
+      tripId,
+      from: "IN_PROGRESS",
+      to: "COMPLETED",
+      actor: customerId,
+      role: "customer",
+      reason: "remote_customer_dropoff_approved",
+      timestamp: nowMs(),
+    });
+
+    try {
+      await handleTripCompletion(tripId, snapAfterData);
+    } catch (e) {
+      console.warn(`respondDropoffApproval[${tripId}]: synchronous settlement warning: ${e}`);
+    }
+
+    if (driverId) {
+      await notifyCustomer(
+        driverId,
+        tripId,
+        "Drop-off Approved",
+        "Customer has confirmed drop-off. Trip completed successfully!",
+        "dropoff_approved",
+        { tripId, type: "dropoff_approved" },
+        `driver_${driverId}`
+      );
+    }
+    return { ok: true, approved: true, completed: true };
+  } else {
+    if (driverId) {
+      await notifyCustomer(
+        driverId,
+        tripId,
+        "Drop-off Confirmation Rejected",
+        "Customer declined out-of-range drop-off. Please reach the scheduled drop-off location or contact support.",
+        "dropoff_rejected",
+        { tripId, type: "dropoff_rejected" },
+        `driver_${driverId}`
+      );
+    }
+    return { ok: true, approved: false, completed: false };
+  }
+});
+
+/** Driver cancels an active pending out-of-range drop-off confirmation request. */
+export const cancelDropoffApprovalRequest = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Drivers must sign in.");
+  }
+  enforceAppCheck(request);
+  const driverId = request.auth.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
+
+  const ref = db().collection("trips").doc(tripId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+  const data = snap.data()!;
+
+  const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+  if (assignedDriverId !== driverId) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  if (data.dropoffApprovalStatus === "PENDING") {
+    await ref.update({
+      dropoffApprovalStatus: null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
   return { ok: true };
 });
 

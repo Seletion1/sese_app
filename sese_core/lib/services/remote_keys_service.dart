@@ -42,6 +42,12 @@ class RemoteKeysConfig {
   final int driverBreakOption2Minutes;
   final bool driverBreakEnabled;
 
+  /// Maximum allowed driver drop-off completion radius in meters (default 500m).
+  ///
+  /// Outside this geofence, server-side completion requires remote customer
+  /// out-of-range approval.
+  final double dropoffCompletionRadiusMeters;
+
   final int googleMonthlyCap;
   final int mapboxMonthlyCap;
 
@@ -66,6 +72,7 @@ class RemoteKeysConfig {
     this.driverBreakOption1Minutes = 30,
     this.driverBreakOption2Minutes = 60,
     this.driverBreakEnabled = true,
+    this.dropoffCompletionRadiusMeters = 500.0,
     this.googleMonthlyCap = 20000,
     this.mapboxMonthlyCap = 50000,
   });
@@ -192,6 +199,11 @@ class RemoteKeysConfig {
           map['driver_break_option_2_minutes'] ?? map['driverBreakOption2Minutes'],
           60),
       driverBreakEnabled: (map['driver_break_enabled'] ?? map['driverBreakEnabled']) != false,
+      dropoffCompletionRadiusMeters: (map['dropoffCompletionRadiusMeters'] is num)
+          ? (map['dropoffCompletionRadiusMeters'] as num).toDouble()
+          : ((map['dropoff_completion_radius_meters'] is num)
+              ? (map['dropoff_completion_radius_meters'] as num).toDouble()
+              : 500.0),
       googleMonthlyCap: intOf(map['googleMonthlyCap'] ?? map['googleQuotaCap'], 20000),
       mapboxMonthlyCap: intOf(map['mapboxMonthlyCap'] ?? map['mapboxQuotaCap'], 50000),
     );
@@ -252,6 +264,8 @@ class RemoteKeysConfig {
       'driverBreakOption2Minutes': driverBreakOption2Minutes,
       'driver_break_enabled': driverBreakEnabled,
       'driverBreakEnabled': driverBreakEnabled,
+      'dropoffCompletionRadiusMeters': dropoffCompletionRadiusMeters,
+      'dropoff_completion_radius_meters': dropoffCompletionRadiusMeters,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
