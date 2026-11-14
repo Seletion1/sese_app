@@ -1633,8 +1633,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     }
 
     final controller = widget.sheetController ?? _internalSheetController;
-    final initialSize =
-        widget.sheetController != null ? _sheetCollapsedSize : _sheetExpandedSize;
+    final initialSize = widget.sheetController != null
+        ? _sheetCollapsedSize
+        : _sheetExpandedSize;
 
     return DraggableScrollableSheet(
       controller: controller,

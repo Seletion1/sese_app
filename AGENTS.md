@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Turn-by-Turn Navigation Camera Tracking, Bearing Rotation, Lower-Middle Viewport Anchor & Active Sheet Collapse
+
+- **1. Dynamic Viewport Padding & Lower-Middle Camera Anchor (`sese_ride/lib/widgets/osm_map_view.dart`, `map_provider.dart`)**:
+  - Implemented forward camera offset projection vector in `computeBottomCenterTarget(target, zoom, {bearing})`:
+    $\Delta\text{lat} = \text{offsetDist} \cdot \cos(\text{rad})$ and $\Delta\text{lng} = \text{offsetDist} \cdot \frac{\sin(\text{rad})}{\cos(\text{lat})}$.
+    Instead of projecting solely North, the offset projects forward along the vehicle's dynamic travel bearing $B$. When the map is rotated to heading $B$, the camera look-ahead is positioned along the driver's forward travel vector, perfectly anchoring the driver marker in the lower-middle visible strip of the viewport across all 360 degrees.
+  - Added dynamic viewport padding configuration to `SeseUniversalMap` and `_GoogleMapBranch`: passes `mapBottomPadding` (dynamically synced with `DraggableScrollableSheet` height) and `mapTopPadding` (clearing turn-by-turn instruction banner).
+  - Updated `followToBottomCenter` and `recenterToBottomCenter` to execute `gmaps.CameraUpdate.newCameraPosition(CameraPosition(target: offsetTarget, zoom: zoom, bearing: bearing, tilt: tilt))` on Google Maps and `_native.move` + `_native.rotate` on OSM.
+
+- **2. Heading-Up Dynamic Bearing & Smooth Marker Rotation (`driver_dashboard_screen.dart`, `location_service.dart`, `map_provider.dart`)**:
+  - Made `calculateBearing(LatLng start, LatLng end)` public in `LocationService` to compute live azimuth when GPS position reports `heading <= 0.0`.
+  - Added short-path circular angular lerp `_smoothBearing(current, target, factor: 0.4)` across the $0^\circ / 360^\circ$ discontinuity to eliminate sudden orientation flips.
+  - Synchronized `_driverBearing` with `SeseUniversalMap.userBearing`, `isNavigationMode: hasActiveTrip`, and `_PinGlyph` raster marker rotation transform.
+  - Fixed inherited widget assertion by reading `PlatformDispatcher.instance.views.firstOrNull?.devicePixelRatio` instead of `View.maybeOf(context)` in `_initNavArrowDescriptor`.
+
+- **3. Automatic Active Bottom Sheet Collapse on Ride Start & Movement (`driver_dashboard_screen.dart`, `driver_active_trip_card.dart`)**:
+  - Added immediate bottom sheet collapse when transitioning to `TripStatus.inProgress` (heading to drop-off) and upon detecting vehicle motion ($\ge 1.0\text{ m/s}$ or displacement $\ge 15\text{ m}$).
+  - Connected `_activeTripSheetController.addListener(_onActiveTripSheetChanged)` to dynamically adjust `_sheetBottomPadding` and update map padding smoothly as the sheet moves.
+  - In `driver_active_trip_card.dart`, configured `initialChildSize` to start collapsed when `widget.sheetController != null` (production navigation) while preserving `_sheetExpandedSize` for standalone component widget tests.
+
+- **4. Verification & Testing**:
+  - Flutter Unit & Widget Tests: 25/25 passed across `driver_navigation_telemetry_test.dart`, `driver_full_screen_nav_test.dart`, `driver_active_trip_card_test.dart`, and `dropoff_geofence_test.dart` (100%).
+  - Static Analysis: `dart analyze` clean with 0 warnings or errors across all modified files.
+
+
+
 ## 2026-11-14 — Server-Authoritative Financial Scoping, Broadcast Payload Delivery & Debt Recovery
 
 - **1. Server-Authoritative Financial Payload Generation (`functions/src/trips.ts`)**:

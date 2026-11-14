@@ -266,11 +266,21 @@ class _OsmMapViewState extends State<OsmMapView> {
                 point: _toFm(m.point),
                 width: 52,
                 height: 52,
-                child: _PinGlyph(
-                  color: m.color,
-                  label: m.label,
-                  avatarUrl: m.avatarUrl,
-                ),
+                child: m.bearing != null &&
+                        (m.label == 'NAV' || m.label == 'NAVIGATION_ARROW')
+                    ? Transform.rotate(
+                        angle: (m.bearing! * math.pi) / 180.0,
+                        child: _PinGlyph(
+                          color: m.color,
+                          label: m.label,
+                          avatarUrl: m.avatarUrl,
+                        ),
+                      )
+                    : _PinGlyph(
+                        color: m.color,
+                        label: m.label,
+                        avatarUrl: m.avatarUrl,
+                      ),
               ),
           ],
         ),
@@ -587,6 +597,14 @@ class SeSeMapController {
   /// via `onMapCreated`). Null on OSM surfaces and in widget tests.
   gmaps.GoogleMapController? _google;
 
+  base.LatLng? _lastTarget;
+  double _lastZoom = 17.0;
+  double _lastBearing = 0.0;
+  double _lastTilt = 0.0;
+
+  /// Returns the most recently commanded camera bearing (in degrees, 0..360).
+  double get lastBearing => _lastBearing;
+
   /// Direct access for advanced camera ops (zoom in/out buttons).
   /// Prefer [move]/[fitPoints]; guard with try/catch — the controller
   /// throws while no map is bound.
@@ -719,22 +737,57 @@ class SeSeMapController {
     return Future.value();
   }
 
-  /// Offset calculation to anchor [target] at bottom-center of the viewport.
-  static base.LatLng computeBottomCenterTarget(base.LatLng target, double zoom) {
-    final zoomFactor = math.pow(2.0, (17.0 - zoom).clamp(-4.0, 4.0));
-    final latOffset = 0.0018 * zoomFactor;
-    return base.LatLng(target.latitude + latOffset, target.longitude);
+  /// Offset calculation to anchor [target] at the lower-middle section of the visible viewport.
+  /// Uses travel heading/bearing so the camera target is placed ahead of the vehicle along its
+  /// direction of travel vector (Heading-Up mode), ensuring the road ahead stretches toward the
+  /// top of the screen and the vehicle marker sits comfortably in the lower-middle section.
+  static base.LatLng computeBottomCenterTarget(
+    base.LatLng target,
+    double zoom, {
+    double bearing = 0.0,
+  }) {
+    final zoomFactor = math.pow(2.0, (17.0 - zoom).clamp(-3.0, 3.0));
+    // Forward distance offset in degrees (~85 meters at zoom 17)
+    final offsetDist = 0.00085 * zoomFactor;
+    final rad = (bearing * math.pi) / 180.0;
+    final latOffset = offsetDist * math.cos(rad);
+    final cosLat = math.cos((target.latitude * math.pi) / 180.0);
+    final safeCosLat = cosLat.abs() < 0.01 ? 0.01 : cosLat;
+    final lngOffset = offsetDist * (math.sin(rad) / safeCosLat);
+    return base.LatLng(target.latitude + latOffset, target.longitude + lngOffset);
   }
 
-  /// Follows live fix with bottom-center camera locking during active navigation.
-  Future<void> followToBottomCenter(base.LatLng target, {double? zoom}) {
+  /// Follows live fix with lower-middle camera locking and dynamic Heading-Up bearing rotation.
+  Future<void> followToBottomCenter(
+    base.LatLng target, {
+    double? zoom,
+    double? bearing,
+    double? tilt,
+  }) {
     final currentZoom = zoom ?? (_ready ? _native.camera.zoom : 17.0);
-    final offsetTarget = computeBottomCenterTarget(target, currentZoom);
+    final currentBearing = ((bearing ?? 0.0) % 360.0 + 360.0) % 360.0;
+    final currentTilt = tilt ?? 38.0;
+    final offsetTarget = computeBottomCenterTarget(
+      target,
+      currentZoom,
+      bearing: currentBearing,
+    );
+    _lastTarget = offsetTarget;
+    _lastZoom = currentZoom;
+    _lastBearing = currentBearing;
+    _lastTilt = currentTilt;
     void run() {
       final google = _google;
       if (google != null) {
         google.animateCamera(
-          gmaps.CameraUpdate.newLatLngZoom(_toG(offsetTarget), currentZoom),
+          gmaps.CameraUpdate.newCameraPosition(
+            gmaps.CameraPosition(
+              target: _toG(offsetTarget),
+              zoom: currentZoom,
+              bearing: currentBearing,
+              tilt: currentTilt,
+            ),
+          ),
         );
         return;
       }
@@ -742,6 +795,9 @@ class SeSeMapController {
         LatLng(offsetTarget.latitude, offsetTarget.longitude),
         currentZoom,
       );
+      if (currentBearing != 0.0) {
+        _native.rotate(currentBearing);
+      }
     }
 
     if (!_ready && _google == null) {
@@ -757,15 +813,61 @@ class SeSeMapController {
     return Future.value();
   }
 
-  /// Re-center action with bottom-center anchor locking during active navigation.
-  Future<void> recenterToBottomCenter(base.LatLng target, {double zoom = 17.0}) {
+  /// Re-center action with lower-middle camera locking and dynamic Heading-Up rotation.
+  Future<void> recenterToBottomCenter(
+    base.LatLng target, {
+    double zoom = 17.0,
+    double? bearing,
+    double? tilt,
+  }) {
     if (!isFollowingUser) {
       isFollowingUser = true;
       onFollowingChanged?.call();
     } else {
       isFollowingUser = true;
     }
-    return followToBottomCenter(target, zoom: zoom);
+    return followToBottomCenter(
+      target,
+      zoom: zoom,
+      bearing: bearing,
+      tilt: tilt,
+    );
+  }
+
+  /// Rotates camera bearing directly to [bearing] degrees (Heading-Up mode).
+  Future<void> rotateTo(double bearing) {
+    final effectiveBearing = (bearing % 360.0 + 360.0) % 360.0;
+    _lastBearing = effectiveBearing;
+    void run() {
+      final google = _google;
+      if (google != null) {
+        final target = _lastTarget ?? const base.LatLng(6.5244, 3.3792);
+        google.animateCamera(
+          gmaps.CameraUpdate.newCameraPosition(
+            gmaps.CameraPosition(
+              target: _toG(target),
+              zoom: _lastZoom,
+              bearing: effectiveBearing,
+              tilt: _lastTilt,
+            ),
+          ),
+        );
+        return;
+      }
+      _native.rotate(effectiveBearing);
+    }
+
+    if (!_ready && _google == null) {
+      _pending.add(run);
+      return Future.value();
+    }
+    try {
+      _noteProgrammatic();
+      run();
+    } catch (e) {
+      debugPrint('SeSeMapController.rotateTo failed: $e');
+    }
+    return Future.value();
   }
 
   /// Called by [OsmMapView] once the tile map is ready; flushes queued moves.
@@ -804,6 +906,8 @@ class SeSeMapController {
 
   /// Centers the camera on [target] at [zoom].
   Future<void> move(base.LatLng target, double zoom) async {
+    _lastTarget = target;
+    _lastZoom = zoom;
     void run() {
       _noteProgrammatic();
       final google = _google;

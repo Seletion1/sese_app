@@ -766,7 +766,9 @@ class LocationService {
     return result;
   }
 
-  static double _calculateBearing(LatLng start, LatLng end) {
+  /// Computes compass bearing in degrees (0–360° clockwise from north)
+  /// between two geographical coordinates [start] and [end].
+  static double calculateBearing(LatLng start, LatLng end) {
     final startLat = start.latitude * (math.pi / 180.0);
     final startLng = start.longitude * (math.pi / 180.0);
     final endLat = end.latitude * (math.pi / 180.0);
@@ -780,6 +782,9 @@ class LocationService {
     final bearing = math.atan2(y, x) * (180.0 / math.pi);
     return (bearing + 360.0) % 360.0;
   }
+
+  static double _calculateBearing(LatLng start, LatLng end) =>
+      calculateBearing(start, end);
 
   static List<RouteStep> _generateFallbackSteps(
       List<LatLng> points, LatLng pickup, LatLng dropoff) {

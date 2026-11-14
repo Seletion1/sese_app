@@ -357,6 +357,18 @@ class SeseUniversalMap extends StatefulWidget {
   /// [SeSeMapController] camera helpers which accept explicit padding.
   final double mapBottomPadding;
 
+  /// Top padding applied to the viewport so the camera and map controls clear
+  /// the top navigation instruction banner.
+  final double mapTopPadding;
+
+  /// Driver's real-time heading/bearing (0–360° clockwise from north).
+  /// Passed to navigation camera updates and NAV arrow rotation.
+  final double? userBearing;
+
+  /// Whether turn-by-turn navigation mode (Heading-Up tracking and lower-middle
+  /// camera anchor) is active.
+  final bool isNavigationMode;
+
   /// Test seam: when set, renders a placeholder map without network tiles.
   static Object? get debugTileProviderOverride {
     assert(!kReleaseMode || OsmMapView.debugTileProviderOverride == null, 'FATAL: debugTileProviderOverride active in release build');
@@ -399,6 +411,9 @@ class SeseUniversalMap extends StatefulWidget {
     this.onInteractionEnded,
     this.preferredProvider,
     this.mapBottomPadding = 0.0,
+    this.mapTopPadding = 0.0,
+    this.userBearing,
+    this.isNavigationMode = false,
   });
 
   /// Builds a colored map pin marker at [point].
@@ -481,8 +496,20 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
     if (fix != null &&
         fix != oldWidget.userLocation &&
         widget.mapController.isFollowingUser) {
-      // ignore: discarded_futures
-      widget.mapController.followTo(fix);
+      if (widget.isNavigationMode ||
+          widget.mapContext == MapContext.realtimeTracking ||
+          widget.mapContext == MapContext.inAppNavigation) {
+        // ignore: discarded_futures
+        widget.mapController.followToBottomCenter(
+          fix,
+          zoom: 17.0,
+          bearing: widget.userBearing,
+          tilt: 38.0,
+        );
+      } else {
+        // ignore: discarded_futures
+        widget.mapController.followTo(fix);
+      }
     }
   }
 
@@ -623,6 +650,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 onCameraIdle: widget.onCameraIdle,
                 onTap: widget.onTap,
                 mapBottomPadding: widget.mapBottomPadding,
+                mapTopPadding: widget.mapTopPadding,
               );
             } else {
               // Mapbox rendered via OsmMapView (flutter_map TileLayer)
@@ -805,6 +833,10 @@ class _GoogleMapBranch extends StatefulWidget {
   /// on the driver's position in the visible strip above the sheet.
   final double mapBottomPadding;
 
+  /// Top inset applied to the Google Maps viewport via [GoogleMap.padding].
+  /// Keeps camera operations clear of the top turn-by-turn guidance banner.
+  final double mapTopPadding;
+
   const _GoogleMapBranch({
     super.key,
     required this.mapController,
@@ -821,6 +853,7 @@ class _GoogleMapBranch extends StatefulWidget {
     this.onTap,
     this.providerKey,
     this.mapBottomPadding = 0.0,
+    this.mapTopPadding = 0.0,
   });
 
   @override
@@ -847,7 +880,7 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       // high-DPI displays. Supply imagePixelRatio so Google Maps SDK scales
       // the PNG back to exactly 40 dp regardless of screen density.
       const logicalSize = 40.0;
-      final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+      final dpr = (ui.PlatformDispatcher.instance.views.firstOrNull?.devicePixelRatio ?? 2.0).clamp(1.0, 3.0);
       final physSize = logicalSize * dpr;
 
       final recorder = ui.PictureRecorder();
@@ -1045,10 +1078,13 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       mapToolbarEnabled: false,
       compassEnabled: true,
       style: isDark ? _darkMapStyle : null,
-      // Inset the viewport so the camera treats the visible strip above the
-      // bottom sheet as the usable canvas. The driver's position is then
-      // centred in that visible area rather than hidden behind the sheet.
-      padding: EdgeInsets.only(bottom: widget.mapBottomPadding),
+      // Inset the viewport so the camera treats the visible strip between the
+      // top guidance banner and the bottom sheet as the usable canvas.
+      // The driver's position is then positioned cleanly in that visible area.
+      padding: EdgeInsets.only(
+        top: widget.mapTopPadding,
+        bottom: widget.mapBottomPadding,
+      ),
       onMapCreated: (controller) {
         // ignore: discarded_futures
         _logMapCreated(controller);

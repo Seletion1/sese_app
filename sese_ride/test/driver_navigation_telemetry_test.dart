@@ -79,7 +79,39 @@ void main() {
 
       // Target latitude must be greater than driver latitude (shifts viewpoint north, driver renders at bottom-center)
       expect(offsetTarget.latitude, greaterThan(driverPos.latitude));
-      expect(offsetTarget.longitude, equals(driverPos.longitude));
+      expect(offsetTarget.longitude, closeTo(driverPos.longitude, 0.00001));
+    });
+
+    test('SeSeMapController.computeBottomCenterTarget shifts target ahead along dynamic travel bearing', () {
+      const driverPos = LatLng(6.5244, 3.3792);
+
+      // East heading (90 degrees): camera center shifts eastward
+      final eastTarget = SeSeMapController.computeBottomCenterTarget(driverPos, 17.0, bearing: 90.0);
+      expect(eastTarget.longitude, greaterThan(driverPos.longitude));
+      expect(eastTarget.latitude, closeTo(driverPos.latitude, 0.0001));
+
+      // South heading (180 degrees): camera center shifts southward
+      final southTarget = SeSeMapController.computeBottomCenterTarget(driverPos, 17.0, bearing: 180.0);
+      expect(southTarget.latitude, lessThan(driverPos.latitude));
+      expect(southTarget.longitude, closeTo(driverPos.longitude, 0.0001));
+
+      // West heading (270 degrees): camera center shifts westward
+      final westTarget = SeSeMapController.computeBottomCenterTarget(driverPos, 17.0, bearing: 270.0);
+      expect(westTarget.longitude, lessThan(driverPos.longitude));
+      expect(westTarget.latitude, closeTo(driverPos.latitude, 0.0001));
+    });
+
+    test('LocationService.calculateBearing accurately resolves cardinal directions', () {
+      const origin = LatLng(6.5244, 3.3792);
+      const northPoint = LatLng(6.5344, 3.3792);
+      const eastPoint = LatLng(6.5244, 3.3892);
+      const southPoint = LatLng(6.5144, 3.3792);
+      const westPoint = LatLng(6.5244, 3.3692);
+
+      expect(LocationService.calculateBearing(origin, northPoint), closeTo(0.0, 1.0));
+      expect(LocationService.calculateBearing(origin, eastPoint), closeTo(90.0, 1.0));
+      expect(LocationService.calculateBearing(origin, southPoint), closeTo(180.0, 1.0));
+      expect(LocationService.calculateBearing(origin, westPoint), closeTo(270.0, 1.0));
     });
 
     test('Speedometer GPS speed conversion correctly converts m/s to km/h', () {

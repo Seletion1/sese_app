@@ -308,6 +308,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _resolvePosition();
     _startLivePositionTracking();
     _initSessionControl();
+    _activeTripSheetController.addListener(_onActiveTripSheetChanged);
     _mapController.onFollowingChanged = () {
       if (mounted) {
         setState(() {
@@ -443,8 +444,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     unawaited(_persistOnlineSession(null));
   }
 
+  void _onActiveTripSheetChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _activeTripSheetController.removeListener(_onActiveTripSheetChanged);
     _mapInteractionController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _statusSubscription?.cancel();
@@ -604,8 +610,17 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
   void _recenterMap() {
     final active = _currentActiveTrip;
-    if (active != null && active.status == TripStatus.inProgress) {
-      _mapController.recenterToBottomCenter(_driverPosition, zoom: 17.0);
+    final isNav = active != null &&
+        (active.status == TripStatus.inProgress ||
+            active.status == TripStatus.driverAccepted ||
+            active.status == TripStatus.driverArriving);
+    if (isNav) {
+      _mapController.recenterToBottomCenter(
+        _driverPosition,
+        zoom: 17.0,
+        bearing: _driverBearing,
+        tilt: 38.0,
+      );
     } else {
       _mapController.recenterTo(_driverPosition, 16.5);
     }
@@ -647,11 +662,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     // Auto-resume tracking if movement progresses or idle timeout reaches 15s
     if (isMoving || secondsSincePan >= 15) {
       _recenterMap();
-      // Restore standard trip sheet state when movement resumes navigation
+      // Ensure trip sheet stays collapsed during navigation on movement
       if (_currentActiveTrip != null && isMoving) {
-        _expandActiveTripSheetToStandard();
+        _collapseActiveTripSheet();
       }
     }
+  }
+
+  /// Smooths bearing transitions using angular interpolation across 0/360 boundary.
+  static double _smoothBearing(double current, double target, {double factor = 0.4}) {
+    if (current == 0.0 && target > 0.0) return target;
+    double diff = (target - current + 180.0) % 360.0 - 180.0;
+    if (diff < -180.0) diff += 360.0;
+    return (current + diff * factor + 360.0) % 360.0;
   }
 
   /// Continuously follows live GPS movement during active trips and idle positioning.
@@ -689,22 +712,46 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             speed: pos.speed,
           );
 
+          // Calculate driver heading / bearing:
+          double resolvedBearing = _driverBearing;
+          if (pos.heading > 0.0) {
+            resolvedBearing = pos.heading.clamp(0.0, 360.0);
+          } else if (_lastGpsPosition != null) {
+            final distM = const Distance().as(LengthUnit.Meter, _lastGpsPosition!, newPos);
+            if (distM >= 1.5) {
+              resolvedBearing = LocationService.calculateBearing(_lastGpsPosition!, newPos);
+            }
+          }
+          if (resolvedBearing == 0.0 && _activeRoutePoints.length >= 2) {
+            resolvedBearing = LocationService.calculateBearing(newPos, _activeRoutePoints[1]);
+          }
+
+          // Smooth bearing with angular lerp to prevent jitter and stutter across 0/360
+          double nextBearing = _driverBearing;
+          if (resolvedBearing > 0.0 || pos.speed > 0.3) {
+            nextBearing = _smoothBearing(_driverBearing, resolvedBearing);
+          }
+
           setState(() {
             _driverPosition = newPos;
             _currentSpeedKmh = speedKmh;
-            // Capture heading for the NAV arrow rotation. Only update when
-            // the fix carries a valid bearing — stale cold-start fixes often
-            // emit 0.0 and would snap the arrow back to north falsely.
-            if (pos.heading > 0.0 || pos.speed > 0.5) {
-              _driverBearing = pos.heading.clamp(0.0, 360.0);
-            }
+            _driverBearing = nextBearing;
           });
 
           // Live map camera follow during active trip or when set to follow
           if (_isFollowingUser) {
             final active = _currentActiveTrip;
-            if (active != null && active.status == TripStatus.inProgress) {
-              _mapController.followToBottomCenter(newPos, zoom: 17.0);
+            final isNav = active != null &&
+                (active.status == TripStatus.inProgress ||
+                    active.status == TripStatus.driverAccepted ||
+                    active.status == TripStatus.driverArriving);
+            if (isNav) {
+              _mapController.followToBottomCenter(
+                newPos,
+                zoom: 17.0,
+                bearing: _driverBearing,
+                tilt: 38.0,
+              );
             } else {
               _mapController.followTo(newPos);
             }
@@ -731,8 +778,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (trip.tripId != _trackedTripId || trip.status != _lastTrackedStatus) {
       if (trip.status == TripStatus.inProgress &&
           _lastTrackedStatus != TripStatus.inProgress) {
-        _hasAutoCollapsedForTrip = false;
+        _hasAutoCollapsedForTrip = true;
         _tripStartLocation = LatLng(pos.latitude, pos.longitude);
+        _collapseActiveTripSheet();
       }
       _trackedTripId = trip.tripId;
       _lastTrackedStatus = trip.status;
@@ -744,7 +792,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
     // Vehicle movement detection:
     // Speed threshold: speed > 1.2 m/s (~4.3 km/h, clear vehicle driving movement)
-    // Distance threshold: moved > 15m from trip start location
+    // Distance threshold: moved > 10m from trip start location
     bool isMoving = pos.speed > 1.2;
     if (!isMoving && _tripStartLocation != null) {
       final movedM = const Distance().as(
@@ -752,7 +800,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         _tripStartLocation!,
         LatLng(pos.latitude, pos.longitude),
       );
-      if (movedM > 15.0) {
+      if (movedM > 10.0) {
         isMoving = true;
       }
     }
@@ -767,7 +815,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   static const double _sheetStandardSize = 0.44;
 
   void _collapseActiveTripSheet() {
-    if (!_activeTripSheetController.isAttached) return;
+    if (!_activeTripSheetController.isAttached) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_activeTripSheetController.isAttached) return;
+        try {
+          _activeTripSheetController.animateTo(
+            _sheetCollapsedSize,
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutCubic,
+          );
+        } catch (_) {}
+      });
+      return;
+    }
     try {
       _activeTripSheetController.animateTo(
         _sheetCollapsedSize,
@@ -1583,7 +1643,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               if (active.status == TripStatus.inProgress &&
                   _driverPosition.latitude != 0.0) {
                 _isFollowingUser = true;
-                _mapController.recenterToBottomCenter(_driverPosition, zoom: 17.0);
+                _mapController.recenterToBottomCenter(
+                  _driverPosition,
+                  zoom: 17.0,
+                  bearing: _driverBearing,
+                  tilt: 38.0,
+                );
               }
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
@@ -2046,18 +2111,24 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       showMyLocation: !hasActiveTrip,
       showRecenterFab: false,
       userLocation: _driverPosition,
+      userBearing: _driverBearing,
+      isNavigationMode: hasActiveTrip,
+      mapTopPadding: hasActiveTrip
+          ? (MediaQuery.paddingOf(context).top + 115.0)
+          : 0.0,
       markers: markers,
       polylines: polylines,
-      // Keep the camera centred in the visible strip above the active-trip
-      // bottom sheet. When the sheet is attached compute its height in pixels
-      // (fraction × screen height); otherwise fall back to the collapsed
-      // sheet height so the driver's arrow is always above the sheet.
+      // Viewport padding ensures camera operations treat the visible strip
+      // between the top turn banner and the bottom sheet as the usable canvas.
       mapBottomPadding: () {
         final screenH = MediaQuery.sizeOf(context).height;
-        if (_activeTripSheetController.isAttached) {
-          return screenH * _activeTripSheetController.size;
+        if (hasActiveTrip) {
+          final sheetFraction = _activeTripSheetController.isAttached
+              ? _activeTripSheetController.size
+              : _sheetCollapsedSize;
+          return screenH * sheetFraction + 20.0;
         }
-        return screenH * _sheetCollapsedSize;
+        return 0.0;
       }(),
     );
   }
