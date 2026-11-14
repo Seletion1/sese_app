@@ -72,6 +72,29 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Send Item Location Selection Redesign: Unified Single White Sheet, Header Step Indicator Realignment & Clean List Styling
+
+- **1. Unified Single White Sheet (`customer_dispatch_screen.dart`)**:
+  - Eliminated the floating card margins (`top: 8, left: 12, right: 12`) in Layer 1 of `_buildStep1Content()`, switching to full-width flush positioning (`top: 0, left: 0, right: 0`).
+  - Converted the container into a single unified white surface (`Material` with `color: surfaceColor`, `borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20))`, subtle drop shadow), eliminating double-sheet / card-in-card visual separation.
+  - Removed colored container backgrounds: stripped the grey card background fill (`Colors.grey.shade100`) from `_buildUnifiedRouteInputContainer` so fields render crisp on white with subtle borders (`Colors.grey.shade200`).
+  - Removed the grey section bar from `_buildSuggestionsContent` so "Recent Places" renders directly on the clean white sheet.
+
+- **2. Header & Step Indicator Realignment (`customer_dispatch_screen.dart`)**:
+  - Completely removed the redundant `"Step 1: Locations"` text label and internal step badge from `_buildStep1ExpandedCard` and `_buildStep1CollapsedSummary`.
+  - Moved the `1-2-3` step indicator dots badge (`_buildHeaderStepBadge()`) to the top AppBar title row directly beside `"Send Item"` across all steps (`_currentStep == 0, 1, 2`), providing persistent top-level progress.
+
+- **3. Clean List Styling & Text Removal (`customer_dispatch_screen.dart`)**:
+  - Re-architected `"Pick on map"` into a clean list item directly on the white sheet (`_buildPickOnMapRow`), eliminating the yellow card container background (`primaryContainer`) and borders.
+  - Stripped all sub-explanation text (`"Set location by dragging pin on map"`), rendering **only** `"Pick on map"`.
+  - Aligned padding (`horizontal: 16`), icon sizing (32x32 circle), and chevron to flow seamlessly with the `"Recent Places"` address suggestion list.
+
+- **4. Verification & Testing**:
+  - Flutter Unit & Widget Tests: 5/5 passed in `customer_home_map_test.dart`; 8/8 regression tests passed in `driver_navigation_telemetry_test.dart` and `driver_full_screen_nav_test.dart`.
+  - Static Analysis: `dart analyze` clean with 0 warnings or errors across all modified files.
+
+
+
 ## 2026-11-14 — Turn-by-Turn Navigation Camera Tracking, Bearing Rotation, Lower-Middle Viewport Anchor & Active Sheet Collapse
 
 - **1. Dynamic Viewport Padding & Lower-Middle Camera Anchor (`sese_ride/lib/widgets/osm_map_view.dart`, `map_provider.dart`)**:

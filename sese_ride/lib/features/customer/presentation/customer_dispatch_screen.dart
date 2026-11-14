@@ -1740,11 +1740,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           // screens; the badge keeps a fixed mini size.
           title: Row(
             children: [
-              Expanded(child: Text(title, overflow: TextOverflow.ellipsis)),
-              if (_currentStep != 0) ...[
-                const SizedBox(width: 8),
-                _buildHeaderStepBadge(),
-              ],
+              Flexible(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildHeaderStepBadge(),
             ],
           ),
           leading: BackButton(
@@ -2064,11 +2067,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             ),
           ),
 
-        // ── Layer 1: Merged Draggable / Collapsible Address Sheet ──
+        // ── Layer 1: Unified Single White Address Sheet ──
         Positioned(
-          top: 8,
-          left: 12,
-          right: 12,
+          top: 0,
+          left: 0,
+          right: 0,
           child: _buildStep1AddressSheet(),
         ),
       ],
@@ -2100,29 +2103,34 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   }
 
   Widget _buildStep1CollapsedSummary(ColorScheme scheme) {
-    return Card(
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final surfaceColor = isDark ? theme.colorScheme.surface : Colors.white;
+
+    return Material(
+      color: surfaceColor,
       elevation: 4,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => setState(() => _isAddressCardCollapsed = false),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
+                  const Icon(Icons.route_outlined, size: 16),
+                  const SizedBox(width: 8),
                   const Text(
-                    'Step 1: Locations',
+                    'Locations',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                   const Spacer(),
-                  _buildHeaderStepBadge(),
-                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
@@ -2226,9 +2234,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Widget _buildUnifiedRouteInputContainer(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
     final containerBg = isDark
-        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
-        : Colors.grey.shade100;
-    final borderColor = theme.dividerColor.withValues(alpha: 0.2);
+        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3)
+        : Colors.white;
+    final borderColor = isDark
+        ? theme.dividerColor.withValues(alpha: 0.2)
+        : Colors.grey.shade200;
 
     return Container(
       decoration: BoxDecoration(
@@ -2377,65 +2387,49 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
-  /// Prominent "Pick on Map" action row placed right above recent places / search results.
+  /// Clean "Pick on map" list item directly on the white sheet (no background card box,
+  /// no yellow background fill, and no sub-explanation text). Follows seamlessly with recent places.
   Widget _buildPickOnMapRow(ThemeData theme) {
-    return Container(
-      margin: const EdgeInsets.only(top: 8, bottom: 4),
-      child: Material(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: const Key('pick_on_map_action_row'),
-          onTap: () => _openPickOnMap(),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.map_outlined,
-                    size: 18,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Pick on map',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        'Set location by dragging pin on map',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  size: 20,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ],
+    final isDark = theme.brightness == Brightness.dark;
+    return InkWell(
+      key: const Key('pick_on_map_action_row'),
+      onTap: () => _openPickOnMap(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? theme.colorScheme.surfaceContainerHighest
+                    : Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.map_outlined,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
             ),
-          ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                'Pick on map',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
+          ],
         ),
       ),
     );
@@ -2443,14 +2437,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   Widget _buildStep1ExpandedCard(ColorScheme scheme) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final surfaceColor = isDark ? theme.colorScheme.surface : Colors.white;
 
-    return Card(
-      elevation: 6,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Material(
+      color: surfaceColor,
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: 0.12),
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+      clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.65,
+          maxHeight: MediaQuery.of(context).size.height * 0.70,
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -2458,47 +2456,22 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        const Text(
-                          'Step 1: Locations',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const Spacer(),
-                        _buildHeaderStepBadge(),
-                        if (_addressesReady) ...[
-                          const SizedBox(width: 6),
-                          IconButton(
-                            icon: const Icon(Icons.keyboard_arrow_up),
-                            tooltip: 'Collapse sheet',
-                            onPressed: () =>
-                                setState(() => _isAddressCardCollapsed = true),
-                            visualDensity: VisualDensity.compact,
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 8),
                     if (_selectedModeIndex == 0)
                       _buildContextAwareModeSelector(),
-                    const SizedBox(height: 4),
                     // ── Unified Route Input Container ──
                     _buildUnifiedRouteInputContainer(theme),
-                    // ── Prominent "Pick on Map" Action Row ──
-                    _buildPickOnMapRow(theme),
                   ],
                 ),
               ),
+              const SizedBox(height: 4),
+              // ── Clean "Pick on map" List Item ──
+              _buildPickOnMapRow(theme),
+              const Divider(height: 1, thickness: 0.8),
               // ── Recent Places / Autocomplete Search Results ──
               if (_suggestions.isNotEmpty || _isLoadingSuggestions)
                 _buildSuggestionsContent(),
@@ -2507,7 +2480,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   _suggestions.isEmpty &&
                   !_isLoadingSuggestions)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
                   child: Row(
                     children: [
                       Icon(
@@ -2568,7 +2541,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// latest [_suggestions] list without re-inserting the overlay.
   Widget _buildSuggestionsContent() {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     if (_isLoadingSuggestions && _suggestions.isEmpty) {
       return Padding(
@@ -2602,21 +2574,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Section Header Bar
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: isDark
-                ? Colors.grey.shade900
-                : theme.colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.5,
-                  ),
-            border: Border(
-              bottom: BorderSide(
-                color: theme.dividerColor.withValues(alpha: 0.15),
-              ),
-            ),
-          ),
+        // Section Header Row (clean white background)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
           child: Row(
             children: [
               Icon(
@@ -2628,7 +2588,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               Text(
                 hasCached ? 'Recent Places' : 'Search Results',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: theme.colorScheme.onSurfaceVariant,
                   letterSpacing: 0.2,
@@ -2696,7 +2656,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           ? _selectPickupSuggestion(s)
           : _selectSuggestion(s),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             Container(

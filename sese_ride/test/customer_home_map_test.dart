@@ -59,7 +59,7 @@ void main() {
 
       // Focused ride page: Title is 'Book a Ride', Step 1 is active.
       expect(find.text('Book a Ride'), findsOneWidget);
-      expect(find.text('Step 1: Locations'), findsOneWidget);
+      expect(find.text('Pick on map'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
     });
@@ -72,7 +72,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.widgetWithText(AppBar, 'Send Item'), findsOneWidget);
-      expect(find.text('Step 1: Locations'), findsOneWidget);
+      expect(find.text('Pick on map'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
       expect(find.text('Ride-Hailing'), findsNothing);
@@ -86,7 +86,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
 
       expect(find.widgetWithText(AppBar, 'Receive Item'), findsOneWidget);
-      expect(find.text('Step 1: Locations'), findsOneWidget);
+      expect(find.text('Pick on map'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
       expect(find.text('Ride-Hailing'), findsNothing);
