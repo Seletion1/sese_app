@@ -346,6 +346,7 @@ async function settleIntent(reference, verifiedAmountKobo) {
         const txRef = walletRef.collection("transactions").doc();
         tx.set(txRef, {
             type: intent["purpose"] === "trip_payment" ? "trip_payment" : "wallet_topup",
+            role: intent["role"] || "customer",
             amountKobo: verifiedAmountKobo,
             amount: verifiedAmountKobo / 100,
             status: "success",

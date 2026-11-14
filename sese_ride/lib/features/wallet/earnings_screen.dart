@@ -84,7 +84,7 @@ class EarningsScreenState extends State<EarningsScreen> {
               builder: (context, tripSnap) {
                 return StreamBuilder<List<WalletTransaction>>(
                   stream: _payments.walletHistoryStream(widget.user.uid,
-                      limit: 100),
+                      role: 'driver', limit: 100),
                   builder: (context, walletSnap) {
                     final trips = tripSnap.data ?? const <TripEarning>[];
                     final wallet =

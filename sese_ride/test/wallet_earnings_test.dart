@@ -4,6 +4,7 @@ import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/payments/payment_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/features/wallet/earnings_service.dart';
+import 'package:sese_ride/features/wallet/customer_wallet_screen.dart';
 import 'package:sese_ride/features/wallet/earnings_screen.dart';
 import 'package:sese_ride/features/wallet/wallet_screen.dart';
 
@@ -25,8 +26,15 @@ class _FakePayments extends PaymentService {
 
   @override
   Stream<List<WalletTransaction>> walletHistoryStream(String uid,
-          {int limit = 20}) =>
-      Stream.value(ledger);
+          {int limit = 20, String? role}) {
+    var items = ledger;
+    if (role == 'customer') {
+      items = items.where((t) => t.isCustomerFacing).toList();
+    } else if (role == 'driver') {
+      items = items.where((t) => t.isDriverFacing).toList();
+    }
+    return Stream.value(limit > 0 ? items.take(limit).toList() : items);
+  }
 
   @override
   Stream<List<DriverPayout>> driverPayoutsStream(String uid,
@@ -54,11 +62,21 @@ AppUser _driver() => AppUser(
       createdAt: DateTime(2024),
     );
 
-WalletTransaction _tx(String id, String type, int kobo) =>
+AppUser _customer() => AppUser(
+      uid: 'customer_1',
+      fullName: 'Test Customer',
+      email: 'customer@test.co',
+      phoneNumber: '08011111111',
+      role: UserRole.customer,
+      createdAt: DateTime(2024),
+    );
+
+WalletTransaction _tx(String id, String type, int kobo, {String? role}) =>
     WalletTransaction.fromMap(id, {
       'type': type,
       'amountKobo': kobo,
       'createdAt': '2026-09-25T10:00:00.000Z',
+      'role': ?role,
     });
 
 void main() {
@@ -86,6 +104,66 @@ void main() {
       expect(_tx('f', 'bank_withdrawal', 100000).isCredit, isFalse);
       expect(
           _tx('f', 'bank_withdrawal', 100000).label, 'Bank withdrawal');
+    });
+
+    test('clean sign formatting eliminates colliding +- and -+ signs', () {
+      // Negative amounts formatted cleanly with signedAmount
+      final negComm = _tx('nc', 'platform_commission', -76500);
+      expect(negComm.isCredit, isFalse);
+      expect(negComm.signedAmount, '-₦765.00');
+      expect(negComm.signedAmount.contains('+-'), isFalse);
+      expect(negComm.signedAmount.contains('-+'), isFalse);
+
+      final negHold = _tx('nh', 'trip_escrow_hold', -100000);
+      expect(negHold.isCredit, isFalse);
+      expect(negHold.signedAmount, '-₦1,000.00');
+      expect(negHold.signedAmount.contains('+-'), isFalse);
+
+      final negPay = _tx('np', 'trip_payment', -100000);
+      expect(negPay.isCredit, isFalse);
+      expect(negPay.signedAmount, '-₦1,000.00');
+      expect(negPay.signedAmount.contains('+-'), isFalse);
+
+      final posRefund = _tx('rf', 'trip_escrow_refund', 100000);
+      expect(posRefund.isCredit, isTrue);
+      expect(posRefund.signedAmount, '+₦1,000.00');
+
+      // PaymentService.formatSignedNaira helper
+      expect(PaymentService.formatSignedNaira(765, isCredit: false), '-₦765.00');
+      expect(PaymentService.formatSignedNaira(-765, isCredit: false), '-₦765.00');
+      expect(PaymentService.formatSignedNaira(1000, isCredit: true), '+₦1,000.00');
+      expect(PaymentService.formatSignedNaira(-1000, isCredit: true), '+₦1,000.00');
+    });
+
+    test('strict role segregation classifies customer vs driver transactions cleanly', () {
+      // Customer-facing transactions
+      expect(_tx('1', 'wallet_topup', 250000).isCustomerFacing, isTrue);
+      expect(_tx('2', 'trip_escrow_hold', -100000).isCustomerFacing, isTrue);
+      expect(_tx('3', 'trip_escrow_refund', 100000).isCustomerFacing, isTrue);
+      expect(_tx('4', 'trip_payment', -100000).isCustomerFacing, isTrue);
+      expect(_tx('5', 'waiting_fee_paid', -20000).isCustomerFacing, isTrue);
+      expect(_tx('6', 'customer_streak_milestone_bonus', 50000).isCustomerFacing, isTrue);
+
+      // Driver-specific entries MUST NOT be customer-facing
+      expect(_tx('d1', 'platform_commission', -76500).isCustomerFacing, isFalse);
+      expect(_tx('d2', 'commission_fee', -50000).isCustomerFacing, isFalse);
+      expect(_tx('d3', 'trip_wallet_settlement', 450000).isCustomerFacing, isFalse);
+      expect(_tx('d4', 'weekly_payout', 200000).isCustomerFacing, isFalse);
+      expect(_tx('d5', 'payout', 200000).isCustomerFacing, isFalse);
+      expect(_tx('d6', 'driver_escrow_hold', -10000).isCustomerFacing, isFalse);
+      expect(_tx('d7', 'streak_level2_cashback', 30000).isCustomerFacing, isFalse);
+      expect(_tx('d8', 'trip_payment', 401000).isCustomerFacing, isFalse); // driver fare income
+
+      // Driver-facing entries
+      expect(_tx('d1', 'platform_commission', -76500).isDriverFacing, isTrue);
+      expect(_tx('d3', 'trip_wallet_settlement', 450000).isDriverFacing, isTrue);
+      expect(_tx('d4', 'weekly_payout', 200000).isDriverFacing, isTrue);
+      expect(_tx('1', 'wallet_topup', 250000).isDriverFacing, isTrue);
+
+      // Customer escrows and passenger payments MUST NOT be driver-facing
+      expect(_tx('2', 'trip_escrow_hold', -100000).isDriverFacing, isFalse);
+      expect(_tx('3', 'trip_escrow_refund', 100000).isDriverFacing, isFalse);
+      expect(_tx('4', 'trip_payment', -100000).isDriverFacing, isFalse);
     });
 
     test('incentive families are recognized', () {
@@ -199,6 +277,91 @@ void main() {
       expect(find.text('Earnings breakdown'), findsNothing);
       expect(find.text('Recent payouts'), findsOneWidget);
       expect(find.text('Transaction history'), findsOneWidget);
+    });
+  });
+
+  group('CustomerWalletScreen customer role filtering & clean sign formatting', () {
+    Future<void> pumpCustomerWallet(
+      WidgetTester tester,
+      _FakePayments payments,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomerWalletScreen(
+            user: _customer(),
+            payments: payments,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'renders only customer-facing items, hides driver entries, formats clean signs (+/-) without +-',
+        (tester) async {
+      await pumpCustomerWallet(
+        tester,
+        _FakePayments(
+          balanceKobo: 500000,
+          ledger: [
+            _tx('c1', 'wallet_topup', 250000),
+            _tx('c2', 'trip_escrow_refund', 100000),
+            _tx('c3', 'trip_escrow_hold', -100000),
+            _tx('c4', 'trip_payment', -100000),
+            // Driver specific entries in the same user's ledger:
+            _tx('d1', 'platform_commission', -76500),
+            _tx('d2', 'weekly_payout', 200000),
+            _tx('d3', 'trip_wallet_settlement', 450000),
+            _tx('d4', 'streak_level2_cashback', 30000),
+          ],
+        ),
+      );
+
+      // Verify title & balance
+      expect(find.text('Wallet & Payments'), findsOneWidget);
+      expect(find.text('Transactions'), findsOneWidget);
+
+      // Customer-facing items ARE displayed
+      expect(find.text('Wallet top-up'), findsOneWidget);
+      expect(find.text('+₦2,500.00'), findsOneWidget);
+
+      expect(find.text('Trip escrow refund'), findsOneWidget);
+      expect(find.text('+₦1,000.00'), findsOneWidget);
+
+      expect(find.text('Trip escrow hold'), findsOneWidget);
+      expect(find.text('Trip payment'), findsOneWidget);
+      expect(find.text('-₦1,000.00'), findsNWidgets(2));
+
+      // Driver-specific items MUST NOT be displayed in Customer mode
+      expect(find.text('Platform commission fee'), findsNothing);
+      expect(find.text('-₦765.00'), findsNothing);
+      expect(find.text('Ride fare received'), findsNothing);
+      expect(find.text('Streak cash-back'), findsNothing);
+      expect(find.text('weekly_payout'), findsNothing);
+
+      // Verify NO widget has colliding '+-' or '-+' signs
+      final allTextWidgets = tester.widgetList<Text>(find.byType(Text));
+      for (final textWidget in allTextWidgets) {
+        final text = textWidget.data ?? '';
+        expect(text.contains('+-'), isFalse,
+            reason: 'Found colliding sign "+-" in: "$text"');
+        expect(text.contains('-+'), isFalse,
+            reason: 'Found colliding sign "-+" in: "$text"');
+        expect(text.contains('+−'), isFalse,
+            reason: 'Found colliding sign "+−" in: "$text"');
+      }
+    });
+
+    testWidgets('shows empty placeholder when customer has no transactions',
+        (tester) async {
+      await pumpCustomerWallet(
+        tester,
+        _FakePayments(balanceKobo: 0, ledger: const []),
+      );
+
+      expect(find.text('No transactions yet'), findsOneWidget);
+      expect(find.text('Top-ups and trip payments will appear here'),
+          findsOneWidget);
     });
   });
 

@@ -156,7 +156,7 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
           ),
           StreamBuilder<List<WalletTransaction>>(
             stream:
-                _payments.walletHistoryStream(widget.user.uid),
+                _payments.walletHistoryStream(widget.user.uid, role: 'customer'),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
                 return const SeseListSkeleton(itemCount: 4);
@@ -167,44 +167,13 @@ class _CustomerWalletScreenState extends State<CustomerWalletScreen> {
                   leading: Icon(Icons.receipt_long_outlined),
                   title: Text('No transactions yet'),
                   subtitle:
-                      Text('Top-ups and earnings will appear here'),
+                      Text('Top-ups and trip payments will appear here'),
                 );
               }
               return Column(
                 children: [
                   for (final tx in items)
-                    Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor:
-                              Colors.green.shade50,
-                          child: Icon(
-                            tx.type.contains('topup') ||
-                                    tx.type.contains('top_up')
-                                ? Icons.arrow_downward
-                                : Icons.payments_outlined,
-                            color: Colors.green.shade800,
-                            size: 20,
-                          ),
-                        ),
-                        title: Text(tx.label,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 14)),
-                        subtitle: Text(
-                          tx.createdAt != null
-                              ? tx.createdAt!.toLocal().toString().split('.').first
-                              : tx.paymentReference,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                        trailing: Text(
-                          '+${PaymentService.formatNaira(tx.amountNaira)}',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green.shade800),
-                        ),
-                      ),
-                    ),
+                    _CustomerTransactionRow(tx: tx),
                 ],
               );
             },
@@ -282,4 +251,44 @@ Future<void> showWalletBalanceSheet(
       );
     },
   );
+}
+
+class _CustomerTransactionRow extends StatelessWidget {
+  final WalletTransaction tx;
+
+  const _CustomerTransactionRow({required this.tx});
+
+  @override
+  Widget build(BuildContext context) {
+    final credit = tx.isCredit;
+    final color = credit ? Colors.green.shade800 : Colors.red.shade800;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor:
+              credit ? Colors.green.shade50 : Colors.red.shade50,
+          child: Icon(
+            credit ? Icons.arrow_downward : Icons.arrow_upward,
+            color: color,
+            size: 20,
+          ),
+        ),
+        title: Text(
+          tx.displayLabel(driverView: false),
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+        ),
+        subtitle: Text(
+          tx.createdAt != null
+              ? tx.createdAt!.toLocal().toString().split('.').first
+              : tx.paymentReference,
+          style: const TextStyle(fontSize: 12),
+        ),
+        trailing: Text(
+          tx.signedAmount,
+          style: TextStyle(fontWeight: FontWeight.bold, color: color),
+        ),
+      ),
+    );
+  }
 }

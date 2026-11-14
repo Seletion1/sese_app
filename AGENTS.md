@@ -72,6 +72,25 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Wallet Transaction History Strict Role Segregation & Amount Sign Formatting Fix
+
+- **1. Strict Role-Based Transaction Filtering (`sese_ride`, `payment_service.dart`, `customer_wallet_screen.dart`, `wallet_screen.dart`)**:
+  - Implemented `isCustomerFacing` and `isDriverFacing` dynamic classification on `WalletTransaction`.
+  - In **Customer Mode** (`CustomerWalletScreen`): strictly filters transaction streams via `walletHistoryStream(..., role: 'customer')`. Shows only passenger ride payments, wallet top-ups, customer escrow holds, and customer refunds. Completely hides driver-specific ledger entries (platform commission fees, driver debt debits, driver trip settlements, driver streak bonuses, and payout logs).
+  - In **Driver Mode** (`WalletScreen`): streams driver-specific financial records and earnings (`role: 'driver'`) while filtering out passenger escrow holds, customer refunds, and passenger ride payments.
+  - Added role tagging (`role: "customer"` / `role: "driver"`) to backend transaction writes across `functions/src/driverStreak.ts`, `functions/src/trips.ts`, `functions/src/payments.ts`, and `functions/src/payouts.ts`.
+
+- **2. Colliding Sign Bug (+−) Elimination & Clean Currency Formatting (`payment_service.dart`, `customer_wallet_screen.dart`)**:
+  - Replaced faulty string concatenation (`'+${PaymentService.formatNaira(tx.amountNaira)}'`) in `CustomerWalletScreen` with `tx.signedAmount` and dedicated `_CustomerTransactionRow`.
+  - Added `PaymentService.formatSignedNaira(double amount, {bool? isCredit})` which formats the absolute value with `formatNaira(amount.abs())` and prepends a single explicit sign (`+` or `-`).
+  - Evaluates `isCredit` dynamically for debits (red upward arrow and single `-`, e.g. `-₦1,000.00`, `-₦765.00`) and credits (green downward arrow and single `+`, e.g. `+₦1,000.00`, `+₦2,500.00`), eliminating overlapping `+−` symbols permanently.
+
+- **3. Verification & Deployment**:
+  - Flutter Unit & Widget Tests: 31/31 passed in `sese_ride` (`test/wallet_earnings_test.dart` and `test/payment_service_test.dart`), including widget test assertions validating role segregation and zero colliding signs.
+  - Backend Tests: 124/124 tests passed in `functions`.
+  - Static Analysis: `dart analyze` clean with 0 issues.
+  - Cloud Functions deployed to Firebase production (`sese-ride`).
+
 ## 2026-11-14 — Secure Drop-off Geofencing, Hub-Configurable Radius & Remote Customer Approval Workflow
 
 - **1. Hub-Configurable Drop-Off Radius (`sese_core`, `sese_hub`)**:

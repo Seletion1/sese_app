@@ -393,6 +393,7 @@ export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
 
       tx.set(ledgerRef, {
         type: "wallet_withdrawal",
+        role: "driver",
         amount: requestedAmountKobo,
         requestedAmountKobo,
         feeKobo,
@@ -626,6 +627,7 @@ export const approveWeeklyPayout = onCall<ApproveWeeklyPayoutData>(
 
       tx.set(ledgerRef, {
         type: "weekly_payout",
+        role: "driver",
         amount: balanceKobo,
         amountKobo: balanceKobo,
         amountNaira: balanceKobo / 100,
@@ -962,6 +964,7 @@ export async function settleTransfer(
         walletRef.collection("transactions").doc(`${reference}_refund`),
         {
           type: "wallet_withdrawal_refund",
+          role: "driver",
           amount: amountKobo,
           amountKobo,
           amountNaira: amountKobo / 100,

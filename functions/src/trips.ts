@@ -1158,6 +1158,7 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
           custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`),
           {
             type: "trip_escrow_hold",
+            role: "customer",
             amountNaira: -actualCoverage,
             amountKobo: -actualCoverageKobo,
             amount: -actualCoverageKobo,
@@ -2480,6 +2481,7 @@ export async function releaseTripEscrow(
 
     tx.set(refundTxRef, {
       type: "trip_escrow_refund",
+      role: "customer",
       amountNaira: walletCoverage,
       amountKobo: coverageKobo,
       amount: coverageKobo,
@@ -3993,6 +3995,7 @@ export const confirmCashCancellation = onCall(async (request) => {
             custWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_debited`),
             {
               type: "waiting_fee_paid",
+              role: "customer",
               amountNaira: -fee,
               amountKobo: -feeKobo,
               amount: -feeKobo,
@@ -4027,6 +4030,7 @@ export const confirmCashCancellation = onCall(async (request) => {
             driverWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_credited`),
             {
               type: "waiting_fee_credited",
+              role: "driver",
               amountNaira: fee,
               amountKobo: feeKobo,
               amount: feeKobo,

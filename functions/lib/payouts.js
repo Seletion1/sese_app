@@ -303,6 +303,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
         });
         tx.set(ledgerRef, {
             type: "wallet_withdrawal",
+            role: "driver",
             amount: requestedAmountKobo,
             requestedAmountKobo,
             feeKobo,
@@ -497,6 +498,7 @@ exports.approveWeeklyPayout = (0, https_1.onCall)(async (request) => {
         });
         tx.set(ledgerRef, {
             type: "weekly_payout",
+            role: "driver",
             amount: balanceKobo,
             amountKobo: balanceKobo,
             amountNaira: balanceKobo / 100,
@@ -791,6 +793,7 @@ async function settleTransfer(reference, outcome, reason) {
             });
             tx.set(walletRef.collection("transactions").doc(`${reference}_refund`), {
                 type: "wallet_withdrawal_refund",
+                role: "driver",
                 amount: amountKobo,
                 amountKobo,
                 amountNaira: amountKobo / 100,

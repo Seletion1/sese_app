@@ -31,6 +31,7 @@ class WalletTransaction {
   final String currency;
   final String paymentReference;
   final DateTime? createdAt;
+  final String? role;
 
   const WalletTransaction({
     required this.id,
@@ -39,6 +40,7 @@ class WalletTransaction {
     this.currency = 'NGN',
     this.paymentReference = '',
     this.createdAt,
+    this.role,
   });
 
   double get amountNaira => amountKobo / 100.0;
@@ -70,9 +72,27 @@ class WalletTransaction {
         return 'Platform commission fee';
       case 'bank_withdrawal':
       case 'withdrawal':
+      case 'wallet_withdrawal':
         return 'Bank withdrawal';
       case 'payout':
+      case 'driver_payout':
+      case 'weekly_payout':
+      case 'monthly_payout':
         return 'Payout';
+      case 'waiting_fee_paid':
+      case 'unpaid_waiting_fee_debited':
+        return 'Waiting fee';
+      case 'waiting_fee_credited':
+      case 'unpaid_waiting_fee_credited':
+        return 'Waiting fee earned';
+      case 'debt_settled_cash':
+        return 'Debt settled';
+      case 'customer_streak_milestone_bonus':
+      case 'driver_streak_milestone_bonus':
+        return 'Streak milestone bonus';
+      case 'customer_streak_grand_award':
+      case 'driver_streak_grand_award':
+        return 'Streak grand award';
       case 'referral_bonus':
       case 'referral_earnings':
       case 'referral_commission':
@@ -92,39 +112,127 @@ class WalletTransaction {
     return label;
   }
 
-  /// Ledger direction. Every type the backend writes today is a credit;
-  /// known debit families (and `*_debit`/`*_fee`/`*_withdrawal`/`*_payout`
-  /// suffixes for forward-compat) resolve to debit.
+  /// Ledger direction. Every credit adds to the wallet balance; debits subtract.
+  /// Dynamically evaluates amounts, role context, and known debit/credit families.
   bool get isCredit {
     if (amountKobo < 0 || amountNaira < 0) return false;
+    final lower = type.toLowerCase();
+    if (role == 'customer' &&
+        (lower == 'trip_payment' || lower == 'trip_charge')) {
+      return false;
+    }
     const debitTypes = {
       'platform_commission',
       'commission_fee',
       'commission',
+      'recovered_debt_debit',
       'bank_withdrawal',
       'withdrawal',
+      'wallet_withdrawal',
       'payout',
+      'weekly_payout',
+      'monthly_payout',
       'trip_charge',
       'fee',
       'debit',
       'penalty',
       'trip_escrow_hold',
       'escrow_hold',
+      'waiting_fee_paid',
+      'unpaid_waiting_fee_debited',
     };
-    if (debitTypes.contains(type)) return false;
-    if (type.endsWith('_debit') ||
-        type.endsWith('_fee') ||
-        type.endsWith('_withdrawal') ||
-        type.endsWith('_payout') ||
-        type.endsWith('_hold')) {
+    if (debitTypes.contains(lower)) return false;
+    if (lower.endsWith('_debit') ||
+        lower.endsWith('_fee') ||
+        lower.endsWith('_withdrawal') ||
+        lower.endsWith('_payout') ||
+        lower.endsWith('_hold')) {
       return false;
     }
     return true;
   }
 
   /// Signed, formatted amount for ledger rows (`+₦2,500.00` / `-₦350.00`).
+  /// Guaranteed to never collide or produce double signs like `+-` or `-+`.
   String get signedAmount =>
-      '${isCredit ? '+' : '-'}${PaymentService.formatNaira(amountNaira.abs())}';
+      PaymentService.formatSignedNaira(amountNaira, isCredit: isCredit);
+
+  /// Whether this transaction is customer-facing (e.g. passenger ride payments,
+  /// wallet top-ups, customer refunds, customer escrow holds, customer waiting fees).
+  ///
+  /// Completely hides driver-specific ledger entries such as platform commission fees,
+  /// driver escrows, driver trip settlements, and payout logs.
+  bool get isCustomerFacing {
+    if (role == 'driver') return false;
+    if (role == 'customer') return true;
+
+    final lower = type.toLowerCase();
+    if (lower.startsWith('driver_')) return false;
+
+    const driverOnlyTypes = {
+      'platform_commission',
+      'commission_fee',
+      'commission',
+      'recovered_debt_debit',
+      'trip_wallet_settlement',
+      'waiting_fee_credited',
+      'unpaid_waiting_fee_credited',
+      'streak_level2_cashback',
+      'streak_level3_bonus',
+      'streak_grand_award',
+      'referral_commission_driver',
+      'driver_payout',
+      'payout',
+      'payout_log',
+      'weekly_payout',
+      'monthly_payout',
+      'driver_escrow',
+      'driver_escrow_hold',
+      'driver_escrow_refund',
+    };
+    if (driverOnlyTypes.contains(lower)) return false;
+    if (lower.contains('commission') && !lower.contains('customer')) return false;
+    if (lower.contains('payout')) return false;
+
+    // Driver fare received stored as positive trip_payment without role tag
+    if (lower == 'trip_payment' && amountKobo > 0) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /// Whether this transaction is driver-facing (e.g. platform commission fees,
+  /// trip fare settlements, driver streak bonuses, driver payouts/escrows, top-ups).
+  ///
+  /// Hides customer-specific records like passenger ride payments, customer escrow holds,
+  /// and customer refunds.
+  bool get isDriverFacing {
+    if (role == 'customer') return false;
+    if (role == 'driver') return true;
+
+    final lower = type.toLowerCase();
+    if (lower.startsWith('driver_')) return true;
+
+    // Known customer-only types
+    if (lower.startsWith('customer_') ||
+        lower == 'trip_escrow_hold' ||
+        lower == 'escrow_hold' ||
+        lower == 'trip_escrow_refund' ||
+        lower == 'escrow_refund' ||
+        lower == 'waiting_fee_paid' ||
+        lower == 'unpaid_waiting_fee_debited' ||
+        lower == 'debt_settled_cash') {
+      return false;
+    }
+
+    // Customer ride payment (outgoing debit)
+    if (lower == 'trip_payment' && (amountKobo < 0 || amountNaira < 0)) {
+      return false;
+    }
+
+    return true;
+  }
 
   /// Wallet-ledger incentive types (bonuses, referrals, awards).
   static bool isIncentiveType(String type) {
@@ -173,6 +281,8 @@ class WalletTransaction {
       // Legacy naira-denominated entries.
       kobo = ((map['amount'] as num).toDouble() * 100).round();
     }
+    final rawRole = map['role'] ?? map['userRole'] ?? map['actorRole'];
+    final roleStr = rawRole?.toString().toLowerCase();
     return WalletTransaction(
       id: id,
       type: (map['type'] ?? 'wallet_topup').toString(),
@@ -180,6 +290,7 @@ class WalletTransaction {
       currency: (map['currency'] ?? 'NGN').toString(),
       paymentReference: (map['paymentReference'] ?? '').toString(),
       createdAt: when,
+      role: roleStr,
     );
   }
 }
@@ -369,24 +480,41 @@ class PaymentService {
     );
   }
 
-  /// Wallet history, newest first. Denied/unavailable reads resolve to
-  /// empty and end instead of retrying forever.
-  Stream<List<WalletTransaction>> walletHistoryStream(String uid,
-      {int limit = 20}) {
+  /// Wallet history, newest first. Filterable by [role]:
+  /// - `'customer'`: returns only customer-facing transactions (top-ups, passenger
+  ///   ride payments, escrow holds/refunds, customer bonuses). Hides driver commission
+  ///   fees, driver settlements, driver escrows, and payout logs.
+  /// - `'driver'`: returns driver-facing transactions (fare income, platform commissions,
+  ///   driver bonuses, payouts, top-ups).
+  /// - `null`: returns all transactions without role filtering.
+  Stream<List<WalletTransaction>> walletHistoryStream(
+    String uid, {
+    int limit = 20,
+    String? role,
+  }) {
     final db = _db;
     if (db == null || uid.isEmpty) {
       return Stream.value(const <WalletTransaction>[]);
     }
+    final fetchLimit = role != null ? limit * 3 : limit;
     return db
         .collection('wallets')
         .doc(uid)
         .collection('transactions')
         .orderBy('createdAt', descending: true)
-        .limit(limit)
+        .limit(fetchLimit)
         .snapshots()
-        .map((snap) => snap.docs
-            .map((d) => WalletTransaction.fromMap(d.id, d.data()))
-            .toList())
+        .map((snap) {
+          final all = snap.docs
+              .map((d) => WalletTransaction.fromMap(d.id, d.data()))
+              .toList();
+          if (role == 'customer') {
+            return all.where((t) => t.isCustomerFacing).take(limit).toList();
+          } else if (role == 'driver') {
+            return all.where((t) => t.isDriverFacing).take(limit).toList();
+          }
+          return all.take(limit).toList();
+        })
         .handleError((Object _) => const <WalletTransaction>[]);
   }
 
@@ -547,6 +675,15 @@ class PaymentService {
     }
     final formatted = '₦${out.reversed.join()}.${parts[1]}';
     return amount < 0 ? '-$formatted' : formatted;
+  }
+
+  /// Formats a signed naira amount (`+₦X.XX` or `-₦X.XX`) cleanly.
+  /// Eliminates colliding signs (`+-` or `-+`) by formatting the absolute value
+  /// and prepending a single explicit sign according to [isCredit] or the sign of [amount].
+  static String formatSignedNaira(double amount, {bool? isCredit}) {
+    final credit = isCredit ?? (amount >= 0);
+    final absFormatted = formatNaira(amount.abs());
+    return '${credit ? '+' : '-'}$absFormatted';
   }
 
   static String _mapError(String code, String? message) {

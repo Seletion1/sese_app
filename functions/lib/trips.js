@@ -918,6 +918,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
                 }, { merge: true });
                 tx.set(custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`), {
                     type: "trip_escrow_hold",
+                    role: "customer",
                     amountNaira: -actualCoverage,
                     amountKobo: -actualCoverageKobo,
                     amount: -actualCoverageKobo,
@@ -1967,6 +1968,7 @@ async function releaseTripEscrow(tripId, tripData, passedTx) {
             : { escrowBalance: admin.firestore.FieldValue.increment(-walletCoverage) })), { updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
         tx.set(refundTxRef, {
             type: "trip_escrow_refund",
+            role: "customer",
             amountNaira: walletCoverage,
             amountKobo: coverageKobo,
             amount: coverageKobo,
@@ -3164,6 +3166,7 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
                     }, { merge: true });
                     tx.set(custWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_debited`), {
                         type: "waiting_fee_paid",
+                        role: "customer",
                         amountNaira: -fee,
                         amountKobo: -feeKobo,
                         amount: -feeKobo,
@@ -3184,6 +3187,7 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
                     }, { merge: true });
                     tx.set(driverWalletRef.collection("transactions").doc(`${tripId}_unpaid_waiting_fee_credited`), {
                         type: "waiting_fee_credited",
+                        role: "driver",
                         amountNaira: fee,
                         amountKobo: feeKobo,
                         amount: feeKobo,

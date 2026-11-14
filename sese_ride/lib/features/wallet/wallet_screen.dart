@@ -237,7 +237,8 @@ class WalletScreenState extends State<WalletScreen> {
 
   Widget _buildLedger() {
     return StreamBuilder<List<WalletTransaction>>(
-      stream: _payments.walletHistoryStream(widget.user.uid, limit: 50),
+      stream: _payments.walletHistoryStream(widget.user.uid,
+          role: 'driver', limit: 50),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const SeseListSkeleton(itemCount: 4);

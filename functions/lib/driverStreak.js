@@ -512,6 +512,7 @@ async function handleTripCompletion(tripId, after) {
                 .doc(`${tripId}_commission`);
             tx.set(commTxRef, {
                 type: "platform_commission",
+                role: "driver",
                 amount: -commissionDebitKobo,
                 amountKobo: -commissionDebitKobo,
                 amountNaira: -commissionDebitNaira,
@@ -546,6 +547,7 @@ async function handleTripCompletion(tripId, after) {
                 .doc(`${tripId}_recovered_debt_debit`);
             tx.set(debtDebitTxRef, {
                 type: "recovered_debt_debit",
+                role: "driver",
                 amount: -recoveredDebtKobo,
                 amountKobo: -recoveredDebtKobo,
                 amountNaira: -recoveredDebt,
@@ -577,6 +579,7 @@ async function handleTripCompletion(tripId, after) {
                     .doc(`${tripId}_debt_settled`);
                 tx.set(custDebtCreditTxRef, {
                     type: "debt_settled_cash",
+                    role: "customer",
                     amount: recoveredDebtKobo,
                     amountKobo: recoveredDebtKobo,
                     amountNaira: recoveredDebt,
@@ -606,6 +609,7 @@ async function handleTripCompletion(tripId, after) {
                 : "streak_level2_cashback";
             tx.set(txRef, {
                 type: txType,
+                role: "driver",
                 amount: walletCreditKobo,
                 amountKobo: walletCreditKobo,
                 amountNaira: walletCreditNaira,
@@ -637,6 +641,7 @@ async function handleTripCompletion(tripId, after) {
             const awardTxRef = driverWalletRef.collection("transactions").doc(`${tripId}_grand_award`);
             tx.set(awardTxRef, {
                 type: "streak_grand_award",
+                role: "driver",
                 amount: grandAwardKobo,
                 amountKobo: grandAwardKobo,
                 amountNaira: cfg.completionCashAward,
@@ -677,6 +682,7 @@ async function handleTripCompletion(tripId, after) {
                 }, { merge: true });
                 tx.set(custWalletRef.collection("transactions").doc(`${tripId}_payment`), {
                     type: "trip_payment",
+                    role: "customer",
                     amountNaira: -walletCoverage,
                     amountKobo: -coverageKobo,
                     amount: -coverageKobo,
@@ -705,6 +711,7 @@ async function handleTripCompletion(tripId, after) {
             }, { merge: true });
             tx.set(driverWalletRef.collection("transactions").doc(`${tripId}_wallet_settlement`), {
                 type: "trip_wallet_settlement",
+                role: "driver",
                 amountNaira: walletCoverage,
                 amountKobo: coverageKobo,
                 amount: coverageKobo,
@@ -910,6 +917,7 @@ async function handleTripCancellationSettlement(params) {
                 }, { merge: true });
                 tx.set(custWalletRef.collection("transactions").doc(`${tripId}_waiting_fee_paid`), {
                     type: "waiting_fee_paid",
+                    role: "customer",
                     amountNaira: -waitingFee,
                     amountKobo: -feeKobo,
                     amount: -feeKobo,
@@ -933,12 +941,13 @@ async function handleTripCancellationSettlement(params) {
                     }, { merge: true });
                     tx.set(custWalletRef.collection("transactions").doc(`${tripId}_waiting_fee_paid`), {
                         type: "waiting_fee_paid",
+                        role: "customer",
                         amountNaira: -currentBalance,
                         amountKobo: -nairaToKobo(currentBalance),
                         amount: -nairaToKobo(currentBalance),
                         tripId,
                         currency: "NGN",
-                        note: `Partial waiting fee paid for trip ${tripId} (remainder ₦${shortage} added to debt)`,
+                        note: `Partial waiting fee paid for trip ${tripId}`,
                         createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     });
                 }
@@ -951,6 +960,7 @@ async function handleTripCancellationSettlement(params) {
             }, { merge: true });
             tx.set(driverWalletRef.collection("transactions").doc(`${tripId}_waiting_fee_credited`), {
                 type: "waiting_fee_credited",
+                role: "driver",
                 amountNaira: waitingFee,
                 amountKobo: feeKobo,
                 amount: feeKobo,
@@ -995,6 +1005,7 @@ async function handleTripCancellationSettlement(params) {
             }, { merge: true });
             tx.set(custWalletRef.collection("transactions").doc(`${tripId}_escrow_refund`), {
                 type: "trip_escrow_refund",
+                role: "customer",
                 amountNaira: refundAmount,
                 amountKobo: coverageKobo,
                 amount: coverageKobo,
@@ -1466,6 +1477,7 @@ exports.onTripCancelled = (0, firestore_1.onDocumentUpdated)("trips/{tripId}", a
                     const refundTxRef = custWalletRef.collection("transactions").doc(`${event.params.tripId}_escrow_refund`);
                     tx.set(refundTxRef, {
                         type: "trip_escrow_refund",
+                        role: "customer",
                         amountNaira: walletCoverage,
                         amountKobo: coverageKobo,
                         amount: coverageKobo,
