@@ -550,7 +550,11 @@ export async function handleTripCompletion(
   );
 
   const baseFare: number = Number(
-    after["baseFare"] ??
+    after["base_trip_fare"] ??
+      after["baseTripFare"] ??
+      after["broadcast_fare"] ??
+      after["broadcastFare"] ??
+      after["baseFare"] ??
       after["proposedFare"] ??
       after["fareAmount"] ??
       matchedTier?.fareAmount ??
@@ -558,7 +562,10 @@ export async function handleTripCompletion(
       0
   );
   const recoveredDebt: number = Number(
-    after["recoveredDebt"] ??
+    after["outstanding_debt"] ??
+      after["outstandingDebt"] ??
+      after["recoveredDebt"] ??
+      after["paymentBreakdown"]?.["outstanding_debt"] ??
       after["paymentBreakdown"]?.["recoveredDebt"] ??
       after["outstandingBalanceIncluded"] ??
       0
@@ -704,13 +711,21 @@ export async function handleTripCompletion(
 
     // 2b. Platform Debt Settlement (Driver Wallet Debit for recovered debt collected in cash)
     const liveCashToCollect = Number(liveTrip.cashToCollect ?? after["cashToCollect"] ?? 0);
-    const recoveredDebtKobo = nairaToKobo(recoveredDebt);
+    const liveRecoveredDebt = Number(
+      liveTrip.outstanding_debt ??
+      liveTrip.outstandingDebt ??
+      liveTrip.recoveredDebt ??
+      liveTrip.paymentBreakdown?.outstanding_debt ??
+      liveTrip.paymentBreakdown?.recoveredDebt ??
+      recoveredDebt
+    );
+    const recoveredDebtKobo = nairaToKobo(liveRecoveredDebt);
     if (recoveredDebtKobo > 0 && (paymentMethod === "cash" || liveCashToCollect > 0)) {
       tx.set(
         driverWalletRef,
         {
           balance: admin.firestore.FieldValue.increment(-recoveredDebtKobo),
-          mainWalletBalance: admin.firestore.FieldValue.increment(-recoveredDebt),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-liveRecoveredDebt),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
@@ -724,7 +739,7 @@ export async function handleTripCompletion(
         role: "driver",
         amount: -recoveredDebtKobo,
         amountKobo: -recoveredDebtKobo,
-        amountNaira: -recoveredDebt,
+        amountNaira: -liveRecoveredDebt,
         tripId,
         currency: "NGN",
         note: `Platform debt collected in cash from customer on trip ${tripId}`,
@@ -735,7 +750,7 @@ export async function handleTripCompletion(
         tripId,
         type: "recovered_debt_debit",
         accountId: driverId,
-        amountNaira: -recoveredDebt,
+        amountNaira: -liveRecoveredDebt,
         amountKobo: -recoveredDebtKobo,
         currency: "NGN",
         note: `Driver debited for platform debt collected in cash on trip ${tripId}`,
@@ -749,7 +764,7 @@ export async function handleTripCompletion(
           custWalletRef,
           {
             balance: admin.firestore.FieldValue.increment(recoveredDebtKobo),
-            mainWalletBalance: admin.firestore.FieldValue.increment(recoveredDebt),
+            mainWalletBalance: admin.firestore.FieldValue.increment(liveRecoveredDebt),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -763,7 +778,7 @@ export async function handleTripCompletion(
           role: "customer",
           amount: recoveredDebtKobo,
           amountKobo: recoveredDebtKobo,
-          amountNaira: recoveredDebt,
+          amountNaira: liveRecoveredDebt,
           tripId,
           currency: "NGN",
           note: `Outstanding debt settled via cash payment to driver on trip ${tripId}`,
@@ -986,6 +1001,16 @@ export async function handleTripCompletion(
       tripUpdate["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
     }
     tx.update(tripRef, tripUpdate);
+
+    tx.set(
+      db().collection("driver_status").doc(driverId),
+      {
+        activeTripId: null,
+        activeTripStatus: null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     persistTripChangeLogInTx(tx, {
       tripId,

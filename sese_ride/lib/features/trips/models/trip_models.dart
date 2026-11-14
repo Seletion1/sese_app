@@ -399,9 +399,66 @@ class ActiveTrip {
   /// Driver's stated reason for requesting remote drop-off confirmation.
   final String dropoffApprovalReason;
 
+  /// Clean base trip fare broadcast to nearby drivers (pre-acceptance).
+  /// Strictly prohibited from exposing customer debt.
+  final double broadcastFare;
+
+  /// Formatted broadcast base fare string (e.g. '₦5,000').
+  final String broadcastFareFormatted;
+
+  /// Core base trip fare without any debt recovery added.
+  final double baseTripFare;
+
+  /// Customer outstanding debt recovered through this trip.
+  final double outstandingDebt;
+
+  /// Full debt-inclusive collectible fare (base_trip_fare + outstanding_debt).
+  final double totalCollectibleFare;
+
+  /// Formatted total collectible fare string (e.g. '₦5,765').
+  final String totalCollectibleFareFormatted;
+
+  /// True once the driver acceptance has been validated and authorized server-side,
+  /// releasing the total collectible fare breakdown to the driver session.
+  final bool driverAcceptedFinancialsReleased;
+
   bool get isDropoffApprovalPending => dropoffApprovalStatus == 'PENDING';
   bool get isDropoffApprovalApproved => dropoffApprovalStatus == 'APPROVED';
   bool get isDropoffApprovalRejected => dropoffApprovalStatus == 'REJECTED';
+
+  /// Returns the safe fare visible to drivers before acceptance.
+  /// Strictly prohibited from exposing customer debt.
+  double get driverDisplayFare {
+    if (status == TripStatus.waitingForAcceptance ||
+        status == TripStatus.searchingDriver ||
+        status == TripStatus.marketplaceOpen ||
+        status == TripStatus.marketplaceList) {
+      if (broadcastFare > 0) return broadcastFare;
+      if (baseTripFare > 0) return baseTripFare;
+      return fareAmount;
+    }
+    return totalCollectibleFare > 0 ? totalCollectibleFare : fareAmount;
+  }
+
+  /// Returns the formatted safe fare string visible to drivers.
+  String get driverDisplayFareFormatted {
+    if (status == TripStatus.waitingForAcceptance ||
+        status == TripStatus.searchingDriver ||
+        status == TripStatus.marketplaceOpen ||
+        status == TripStatus.marketplaceList) {
+      if (broadcastFareFormatted.isNotEmpty) return broadcastFareFormatted;
+      final bFare = broadcastFare > 0
+          ? broadcastFare
+          : (baseTripFare > 0 ? baseTripFare : fareAmount);
+      return '₦${bFare.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+    }
+    if (totalCollectibleFareFormatted.isNotEmpty) {
+      return totalCollectibleFareFormatted;
+    }
+    return fareFormatted.isNotEmpty
+        ? fareFormatted
+        : '₦${(totalCollectibleFare > 0 ? totalCollectibleFare : fareAmount).toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}';
+  }
 
   const ActiveTrip({
     required this.tripId,
@@ -481,6 +538,13 @@ class ActiveTrip {
     this.dropoffApprovalRequestedAt,
     this.dropoffApprovalDistanceMeters = 0.0,
     this.dropoffApprovalReason = '',
+    this.broadcastFare = 0.0,
+    this.broadcastFareFormatted = '',
+    this.baseTripFare = 0.0,
+    this.outstandingDebt = 0.0,
+    this.totalCollectibleFare = 0.0,
+    this.totalCollectibleFareFormatted = '',
+    this.driverAcceptedFinancialsReleased = false,
   }) : tierIds = selectedTiers ?? tierIds;
 
   /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
@@ -877,6 +941,42 @@ class ActiveTrip {
       dropoffApprovalDistanceMeters:
           n(map['dropoffApprovalDistanceMeters'])?.toDouble() ?? 0.0,
       dropoffApprovalReason: (map['dropoffApprovalReason'] ?? '').toString(),
+      broadcastFare: n(map['broadcast_fare'])?.toDouble() ??
+          n(map['broadcastFare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['broadcast_fare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['broadcastFare'])?.toDouble() ??
+          n(map['base_trip_fare'])?.toDouble() ??
+          n(map['baseTripFare'])?.toDouble() ??
+          n(map['baseFare'])?.toDouble() ??
+          fareAmount,
+      broadcastFareFormatted: (map['broadcastFareFormatted'] ?? '').toString(),
+      baseTripFare: n(map['base_trip_fare'])?.toDouble() ??
+          n(map['baseTripFare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['base_trip_fare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['baseTripFare'])?.toDouble() ??
+          n(map['baseFare'])?.toDouble() ??
+          fareAmount,
+      outstandingDebt: n(map['outstanding_debt'])?.toDouble() ??
+          n(map['outstandingDebt'])?.toDouble() ??
+          n(map['paymentBreakdown']?['outstanding_debt'])?.toDouble() ??
+          n(map['paymentBreakdown']?['outstandingDebt'])?.toDouble() ??
+          n(map['recoveredDebt'])?.toDouble() ??
+          n(map['paymentBreakdown']?['recoveredDebt'])?.toDouble() ??
+          n(map['outstandingBalanceIncluded'])?.toDouble() ??
+          0.0,
+      totalCollectibleFare: n(map['total_collectible_fare'])?.toDouble() ??
+          n(map['totalCollectibleFare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['total_collectible_fare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['totalCollectibleFare'])?.toDouble() ??
+          n(map['totalFare'])?.toDouble() ??
+          n(map['paymentBreakdown']?['totalFare'])?.toDouble() ??
+          0.0,
+      totalCollectibleFareFormatted:
+          (map['totalCollectibleFareFormatted'] ?? '').toString(),
+      driverAcceptedFinancialsReleased:
+          map['driverAcceptedFinancialsReleased'] == true ||
+              map['paymentBreakdown']?['driverAcceptedFinancialsReleased'] ==
+                  true,
     );
   }
 }

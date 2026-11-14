@@ -182,9 +182,23 @@ class _QueueCardState extends State<_QueueCard> {
     final decline = safeNum(d['declineCount'])?.toInt() ?? 0;
     final reassigns = safeNum(d['reassignmentCount'])?.toInt() ?? 0;
     final pingOne = (d['pingDriverId'] ?? '').toString();
+    final baseFareVal = safeNum(d['base_trip_fare']) ??
+        safeNum(d['baseTripFare']) ??
+        safeNum(d['broadcast_fare']) ??
+        safeNum(d['broadcastFare']) ??
+        safeNum(d['fareAmount']) ??
+        0;
+    final debtVal = safeNum(d['outstanding_debt']) ??
+        safeNum(d['outstandingDebt']) ??
+        safeNum(d['recoveredDebt']) ??
+        0;
+    final totalCollectibleVal = safeNum(d['total_collectible_fare']) ??
+        safeNum(d['totalCollectibleFare']) ??
+        safeNum(d['totalFare']) ??
+        (baseFareVal + debtVal);
     final fare = (d['fareFormatted'] ?? '').toString().isNotEmpty
         ? (d['fareFormatted'] ?? '').toString()
-        : '₦${(safeNum(d['fareAmount']) ?? 0).toStringAsFixed(0)}';
+        : '₦${baseFareVal.toStringAsFixed(0)}';
     final hasBids = d['hasActiveBids'] == true;
     final pickup = ((d['pickup'] as Map?)?['address'] ?? '').toString();
     final expiresAt = safeNum(d['tierExpiresAt'])?.toInt();
@@ -250,6 +264,15 @@ class _QueueCardState extends State<_QueueCard> {
             const SizedBox(height: 6),
             Text('Fare: $fare',
                 style: const TextStyle(fontWeight: FontWeight.w600)),
+            if (debtVal > 0)
+              Text(
+                'Debt Recovery: ₦${debtVal.toStringAsFixed(0)} | Total Collectible: ₦${totalCollectibleVal.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.deepOrange,
+                ),
+              ),
             if (pickup.isNotEmpty)
               Text('Pickup: $pickup',
                   style:

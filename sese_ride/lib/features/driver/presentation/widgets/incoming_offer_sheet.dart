@@ -159,14 +159,14 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
   }
 
   String _fareLabel(ActiveTrip trip) {
-    if (trip.fareFormatted.isNotEmpty) return trip.fareFormatted;
-    return '${widget.currencySymbol}${_withSeparators(trip.fareAmount)}';
+    return trip.driverDisplayFareFormatted;
   }
 
   String _perKmLabel(ActiveTrip trip) {
     final dist = trip.distanceKm;
     if (dist <= 0) return '';
-    final perKm = trip.fareAmount / dist;
+    final baseFare = trip.driverDisplayFare;
+    final perKm = baseFare / dist;
     return '${widget.currencySymbol}${_withSeparators(perKm)}/km ~${dist.toStringAsFixed(1)} km';
   }
 

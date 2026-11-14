@@ -517,6 +517,31 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 ),
               ),
             ],
+            if (trip.outstandingDebt > 0) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E3A8A).withValues(alpha: 0.3)
+                      : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
+                        : Colors.blue.shade200,
+                  ),
+                ),
+                child: Text(
+                  'Includes ₦${trip.outstandingDebt.toStringAsFixed(0)} platform customer debt recovery collected in cash on behalf of the platform.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900,
+                  ),
+                ),
+              ),
+            ],
             if (trip.isSplitTrip && trip.hasCashDueAtDropoff) ...[
               const SizedBox(height: 10),
               Container(
@@ -607,6 +632,31 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF065F46),
+                  ),
+                ),
+              ),
+            ],
+            if (trip.outstandingDebt > 0 && (trip.paymentMode.toLowerCase() == 'receiver_pays' || trip.collectAt == 'dropoff')) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xFF1E3A8A).withValues(alpha: 0.3)
+                      : Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF3B82F6).withValues(alpha: 0.4)
+                        : Colors.blue.shade200,
+                  ),
+                ),
+                child: Text(
+                  'Includes ₦${trip.outstandingDebt.toStringAsFixed(0)} platform customer debt recovery collected in cash on behalf of the platform.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? const Color(0xFFBFDBFE) : Colors.blue.shade900,
                   ),
                 ),
               ),

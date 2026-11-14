@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Server-Authoritative Financial Scoping, Broadcast Payload Delivery & Debt Recovery
+
+- **1. Server-Authoritative Financial Payload Generation (`functions/src/trips.ts`)**:
+  - In `createTrip`: backend extracts clean `base_trip_fare` (e.g. ₦5,000) and customer's `outstanding_debt` (e.g. ₦765), and combines them into `total_collectible_fare` (e.g. ₦5,765).
+  - Serializes two distinct canonical fields on `trips/{tripId}`: `broadcast_fare` (clean base trip fare) and `total_collectible_fare` (full debt-inclusive amount), alongside `broadcastFareFormatted` (`₦5,000`), `fareAmount` (`5000`), and `totalCollectibleFareFormatted` (`₦5,765`).
+
+- **2. Server-Enforced Broadcast Scoping (Pre-Acceptance Driver Scoping)**:
+  - In `advanceSequentialDispatch` (`notifyCustomer` targeted push to driver): notification payload carries strictly `broadcast_fare: "5000"`, `fareFormatted: "₦5,000"`, and `fareAmount: "5000"`. Customer debt (`outstanding_debt`, `recoveredDebt`) and `total_collectible_fare` are strictly omitted from broadcast pings and notifications.
+  - In `sese_ride` (`trip_models.dart`, `incoming_offer_sheet.dart`, `order_card.dart`): added `driverDisplayFare` and `driverDisplayFareFormatted` on `ActiveTrip` strictly locking pre-acceptance offer views to `broadcast_fare`. The driver incoming offer sheet now renders "Accept for ₦5,000" with per-km rate ₦181/km (~27.6 km) instead of prematurely leaking debt (₦5,765).
+
+- **3. Secure Post-Acceptance Transition & State Lock (`functions/src/trips.ts`)**:
+  - In `acceptTrip` inside atomic Firestore transaction: validates driver verification, vehicle approval, online status, and category isolation; locks order to driver (`driver`, `driverId`, `status: "DRIVER_ACCEPTED"`); updates driver active session state (`activeTripId: tripId`, `activeTripStatus: "DRIVER_ACCEPTED"` in `driver_status/{driverId}`).
+  - Only after successful server authorization does backend release `driverAcceptedFinancialsReleased: true`, `total_collectible_fare` (₦5,765), and `cashToCollect` (₦5,765) to driver UI.
+  - In `driver_active_trip_card.dart`: cash collection prompts guide driver to collect ₦5,765 total cash, with breakdown clarifying base fare (₦5,000) and platform debt recovery (₦765).
+
+- **4. Secure Cash Collection & Commission Ledger (`functions/src/driverStreak.ts`)**:
+  - In `handleTripCompletion` atomic settlement transaction: computes platform commission strictly against `txBaseFare` (e.g. 15% of ₦5,000 = ₦750, never against total cash / debt).
+  - Automatically debits driver's wallet for collected `outstanding_debt` (₦765) via `recovered_debt_debit` transaction and credits customer wallet with `debt_settled_cash`.
+  - Clears driver active trip session in `driver_status/{driverId}` (`activeTripId: null`).
+
+- **5. Verification & Tests**:
+  - Backend Unit Tests: 128/128 passed (including `financial_scoping_debt_recovery.test.ts`).
+  - Flutter Tests: 4/4 passed in `test/financial_scoping_debt_recovery_test.dart`; 20/20 passed in `test/wallet_earnings_test.dart`.
+  - Static Analysis: `flutter analyze` clean with 0 issues across `sese_ride` and `sese_hub`.
+
+
 ## 2026-11-14 — Wallet Transaction History Strict Role Segregation & Amount Sign Formatting Fix
 
 - **1. Strict Role-Based Transaction Filtering (`sese_ride`, `payment_service.dart`, `customer_wallet_screen.dart`, `wallet_screen.dart`)**:

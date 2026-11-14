@@ -1074,14 +1074,25 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     vehicleCategory: String(d.vehicleCategory ?? d.category ?? (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(),
     fareToken: d.fareToken,
     fareTiers: updatedFareTiers,
+    base_trip_fare: baseFare,
+    baseTripFare: baseFare,
     baseFare,
+    outstanding_debt: recoveredDebt,
+    outstandingDebt: recoveredDebt,
     recoveredDebt,
+    total_collectible_fare: totalFare,
+    totalCollectibleFare: totalFare,
     totalFare,
+    broadcast_fare: baseFare,
+    broadcastFare: baseFare,
     baselineFare,
     proposedFare: baseFare,
     fareAmount: baseFare,
-    fareFormatted: `₦${totalFare.toLocaleString()}`,
+    broadcastFareFormatted: `₦${baseFare.toLocaleString()}`,
+    fareFormatted: `₦${baseFare.toLocaleString()}`,
+    totalCollectibleFareFormatted: `₦${totalFare.toLocaleString()}`,
     outstandingBalanceIncluded: recoveredDebt,
+    driverAcceptedFinancialsReleased: false,
     fareBoosted: false,
     boostPercent: 0,
     paymentMethod,
@@ -1094,9 +1105,17 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
     senderCashToCollect,
     receiverCashToCollect,
     paymentBreakdown: {
+      base_trip_fare: baseFare,
+      baseTripFare: baseFare,
       baseFare,
+      outstanding_debt: recoveredDebt,
+      outstandingDebt: recoveredDebt,
       recoveredDebt,
+      total_collectible_fare: totalFare,
+      totalCollectibleFare: totalFare,
       totalFare,
+      broadcast_fare: baseFare,
+      broadcastFare: baseFare,
       walletCoverageAmount,
       cashToCollect,
       senderCashToCollect,
@@ -1104,6 +1123,7 @@ export const createTrip = onCall<CreateTripData>(async (request) => {
       collectAt,
       payerRole,
       escrowLocked,
+      driverAcceptedFinancialsReleased: false,
     },
     senderShareAmount: (d as any).senderShareAmount != null
       ? Number((d as any).senderShareAmount)
@@ -1461,7 +1481,16 @@ async function advanceSequentialDispatch(
     }),
   });
 
-  // Push targeted notification exclusively to this 1 driver
+  // Pre-acceptance scoping: push targeted notification carrying exclusively broadcast_fare
+  const broadcastFareAmount = Number(
+    data.broadcast_fare ??
+    data.broadcastFare ??
+    data.base_trip_fare ??
+    data.baseTripFare ??
+    data.baseFare ??
+    data.fareAmount ??
+    0
+  );
   await notifyCustomer(
     targetDriver.id,
     tripRef.id,
@@ -1473,8 +1502,9 @@ async function advanceSequentialDispatch(
       dispatchStep: String(nextStep),
       pickupAddress: String(data.pickupAddress ?? data.pickup?.address ?? ""),
       dropoffAddress: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
-      fareFormatted: String(data.fareFormatted ?? (data.fareAmount ? `₦${data.fareAmount}` : "")),
-      fareAmount: String(data.fareAmount ?? data.baselineFare ?? 0),
+      broadcast_fare: String(broadcastFareAmount),
+      fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
+      fareAmount: String(broadcastFareAmount),
       distanceKm: String(data.distanceKm ?? targetDriver.distanceKm ?? 0),
       pickupLat: String(data.pickupLat ?? data.pickup?.lat ?? 0),
       pickupLng: String(data.pickupLng ?? data.pickup?.lng ?? 0),
@@ -1992,6 +2022,32 @@ export const acceptTrip = onCall(async (request) => {
       data.droppedToPoolAt != null ||
       data.dispatchStep === 4;
 
+    const baseTripFare = Number(
+      data.base_trip_fare ??
+      data.baseTripFare ??
+      data.broadcast_fare ??
+      data.broadcastFare ??
+      data.baseFare ??
+      data.fareAmount ??
+      0
+    );
+    const outstandingDebt = Number(
+      data.outstanding_debt ??
+      data.outstandingDebt ??
+      data.recoveredDebt ??
+      data.outstandingBalanceIncluded ??
+      0
+    );
+    const totalCollectibleFare = Number(
+      data.total_collectible_fare ??
+      data.totalCollectibleFare ??
+      data.totalFare ??
+      (baseTripFare + outstandingDebt)
+    );
+    const finalCashToCollect = data.paymentMethod === "cash"
+      ? totalCollectibleFare
+      : Number(data.cashToCollect ?? totalCollectibleFare);
+
     tx.update(ref, {
       status: "DRIVER_ACCEPTED",
       driver: snapshot,
@@ -2010,6 +2066,28 @@ export const acceptTrip = onCall(async (request) => {
       acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
         ? driverId
         : (data.acceptedBidDriverId ?? null),
+      // Secure Post-Acceptance Financial Release to Driver UI
+      driverAcceptedFinancialsReleased: true,
+      driverAcceptedAt: nowMs(),
+      base_trip_fare: baseTripFare,
+      baseTripFare: baseTripFare,
+      outstanding_debt: outstandingDebt,
+      outstandingDebt: outstandingDebt,
+      total_collectible_fare: totalCollectibleFare,
+      totalCollectibleFare: totalCollectibleFare,
+      cashToCollect: finalCashToCollect,
+      fareFormatted: `₦${totalCollectibleFare.toLocaleString()}`,
+      paymentBreakdown: {
+        ...(typeof data.paymentBreakdown === "object" ? data.paymentBreakdown : {}),
+        base_trip_fare: baseTripFare,
+        baseTripFare: baseTripFare,
+        outstanding_debt: outstandingDebt,
+        outstandingDebt: outstandingDebt,
+        total_collectible_fare: totalCollectibleFare,
+        totalCollectibleFare: totalCollectibleFare,
+        cashToCollect: finalCashToCollect,
+        driverAcceptedFinancialsReleased: true,
+      },
       statusHistory: admin.firestore.FieldValue.arrayUnion({
         from: status,
         to: "DRIVER_ACCEPTED",
@@ -2019,6 +2097,17 @@ export const acceptTrip = onCall(async (request) => {
       }),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Authoritative active session state update for driver in the database
+    tx.set(
+      db().collection("driver_status").doc(driverId),
+      {
+        activeTripId: tripId,
+        activeTripStatus: "DRIVER_ACCEPTED",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     persistTripChangeLogInTx(tx, {
       tripId,
@@ -3424,10 +3513,31 @@ export const increaseTripFare = onCall(async (request) => {
     return t;
   });
 
+  const debt = Number(
+    tripData.outstanding_debt ??
+    tripData.outstandingDebt ??
+    tripData.recoveredDebt ??
+    0
+  );
+  const newTotalCollectible = roundedNewFare + debt;
+
   const updatePayload: Record<string, any> = {
     fareAmount: roundedNewFare,
     proposedFare: roundedNewFare,
+    base_trip_fare: roundedNewFare,
+    baseTripFare: roundedNewFare,
+    baseFare: roundedNewFare,
+    broadcast_fare: roundedNewFare,
+    broadcastFare: roundedNewFare,
+    broadcastFareFormatted: `₦${roundedNewFare.toLocaleString()}`,
     fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
+    total_collectible_fare: newTotalCollectible,
+    totalCollectibleFare: newTotalCollectible,
+    totalFare: newTotalCollectible,
+    totalCollectibleFareFormatted: `₦${newTotalCollectible.toLocaleString()}`,
+    outstanding_debt: debt,
+    outstandingDebt: debt,
+    recoveredDebt: debt,
     fareBoosted: true,
     boostPercent: boostPct,
     boostedAt: admin.firestore.FieldValue.serverTimestamp(),

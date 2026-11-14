@@ -870,10 +870,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             phone: safeCustomerPhone,
         }, serviceType, status: "SEARCHING_DRIVER", isVerifiedCustomer: isVerifiedCust }, maskedPhoneMap), { deliveryPinRequired: isPinRequired, deliveryPinVerified: !isPinRequired, order: {
             requireDeliveryPin: isPinRequired,
-        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_2 = (_1 = d.vehicleCategory) !== null && _1 !== void 0 ? _1 : d.category) !== null && _2 !== void 0 ? _2 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, baseFare,
-        recoveredDebt,
-        totalFare,
-        baselineFare, proposedFare: baseFare, fareAmount: baseFare, fareFormatted: `₦${totalFare.toLocaleString()}`, outstandingBalanceIncluded: recoveredDebt, fareBoosted: false, boostPercent: 0, paymentMethod,
+        } }), (splitPaymentData ? { splitPaymentStatus: "pending_receiver_consent", splitPayment: splitPaymentData } : {})), { selectedTiers: d.selectedTiers, vehicleCategory: String((_2 = (_1 = d.vehicleCategory) !== null && _1 !== void 0 ? _1 : d.category) !== null && _2 !== void 0 ? _2 : (Array.isArray(d.selectedTiers) && d.selectedTiers.length > 0 ? d.selectedTiers[0] : "car")).toLowerCase(), fareToken: d.fareToken, fareTiers: updatedFareTiers, base_trip_fare: baseFare, baseTripFare: baseFare, baseFare, outstanding_debt: recoveredDebt, outstandingDebt: recoveredDebt, recoveredDebt, total_collectible_fare: totalFare, totalCollectibleFare: totalFare, totalFare, broadcast_fare: baseFare, broadcastFare: baseFare, baselineFare, proposedFare: baseFare, fareAmount: baseFare, broadcastFareFormatted: `₦${baseFare.toLocaleString()}`, fareFormatted: `₦${baseFare.toLocaleString()}`, totalCollectibleFareFormatted: `₦${totalFare.toLocaleString()}`, outstandingBalanceIncluded: recoveredDebt, driverAcceptedFinancialsReleased: false, fareBoosted: false, boostPercent: 0, paymentMethod,
         paymentMode,
         walletCoverageAmount,
         cashToCollect,
@@ -882,9 +879,17 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
         escrowLocked,
         senderCashToCollect,
         receiverCashToCollect, paymentBreakdown: {
+            base_trip_fare: baseFare,
+            baseTripFare: baseFare,
             baseFare,
+            outstanding_debt: recoveredDebt,
+            outstandingDebt: recoveredDebt,
             recoveredDebt,
+            total_collectible_fare: totalFare,
+            totalCollectibleFare: totalFare,
             totalFare,
+            broadcast_fare: baseFare,
+            broadcastFare: baseFare,
             walletCoverageAmount,
             cashToCollect,
             senderCashToCollect,
@@ -892,6 +897,7 @@ exports.createTrip = (0, https_1.onCall)(async (request) => {
             collectAt,
             payerRole,
             escrowLocked,
+            driverAcceptedFinancialsReleased: false,
         }, senderShareAmount: d.senderShareAmount != null
             ? Number(d.senderShareAmount)
             : (splitPaymentData ? Number(splitPaymentData.senderShare) : null), receiverShareAmount: d.receiverShareAmount != null
@@ -1097,7 +1103,7 @@ async function dropToPublicPool(tripRef) {
  * - Step 4: Drop to Public Order Pool (MARKETPLACE_OPEN) if all three reject or time out.
  */
 async function advanceSequentialDispatch(tripRef, data, tuning) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7;
     const pickup = pickupOf(data);
     const attempted = attemptedIdsOf(data);
     const currentStep = typeof data.dispatchStep === "number" ? data.dispatchStep : attempted.length;
@@ -1148,19 +1154,21 @@ async function advanceSequentialDispatch(tripRef, data, tuning) {
             timestamp: nowMs(),
         }),
     });
-    // Push targeted notification exclusively to this 1 driver
+    // Pre-acceptance scoping: push targeted notification carrying exclusively broadcast_fare
+    const broadcastFareAmount = Number((_m = (_l = (_k = (_j = (_h = (_g = data.broadcast_fare) !== null && _g !== void 0 ? _g : data.broadcastFare) !== null && _h !== void 0 ? _h : data.base_trip_fare) !== null && _j !== void 0 ? _j : data.baseTripFare) !== null && _k !== void 0 ? _k : data.baseFare) !== null && _l !== void 0 ? _l : data.fareAmount) !== null && _m !== void 0 ? _m : 0);
     await notifyCustomer(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", {
         tripId: tripRef.id,
         dispatchStep: String(nextStep),
-        pickupAddress: String((_j = (_g = data.pickupAddress) !== null && _g !== void 0 ? _g : (_h = data.pickup) === null || _h === void 0 ? void 0 : _h.address) !== null && _j !== void 0 ? _j : ""),
-        dropoffAddress: String((_m = (_k = data.dropoffAddress) !== null && _k !== void 0 ? _k : (_l = data.dropoff) === null || _l === void 0 ? void 0 : _l.address) !== null && _m !== void 0 ? _m : ""),
-        fareFormatted: String((_o = data.fareFormatted) !== null && _o !== void 0 ? _o : (data.fareAmount ? `₦${data.fareAmount}` : "")),
-        fareAmount: String((_q = (_p = data.fareAmount) !== null && _p !== void 0 ? _p : data.baselineFare) !== null && _q !== void 0 ? _q : 0),
-        distanceKm: String((_s = (_r = data.distanceKm) !== null && _r !== void 0 ? _r : targetDriver.distanceKm) !== null && _s !== void 0 ? _s : 0),
-        pickupLat: String((_v = (_t = data.pickupLat) !== null && _t !== void 0 ? _t : (_u = data.pickup) === null || _u === void 0 ? void 0 : _u.lat) !== null && _v !== void 0 ? _v : 0),
-        pickupLng: String((_y = (_w = data.pickupLng) !== null && _w !== void 0 ? _w : (_x = data.pickup) === null || _x === void 0 ? void 0 : _x.lng) !== null && _y !== void 0 ? _y : 0),
-        dropoffLat: String((_1 = (_z = data.dropoffLat) !== null && _z !== void 0 ? _z : (_0 = data.dropoff) === null || _0 === void 0 ? void 0 : _0.lat) !== null && _1 !== void 0 ? _1 : 0),
-        dropoffLng: String((_4 = (_2 = data.dropoffLng) !== null && _2 !== void 0 ? _2 : (_3 = data.dropoff) === null || _3 === void 0 ? void 0 : _3.lng) !== null && _4 !== void 0 ? _4 : 0),
+        pickupAddress: String((_q = (_o = data.pickupAddress) !== null && _o !== void 0 ? _o : (_p = data.pickup) === null || _p === void 0 ? void 0 : _p.address) !== null && _q !== void 0 ? _q : ""),
+        dropoffAddress: String((_t = (_r = data.dropoffAddress) !== null && _r !== void 0 ? _r : (_s = data.dropoff) === null || _s === void 0 ? void 0 : _s.address) !== null && _t !== void 0 ? _t : ""),
+        broadcast_fare: String(broadcastFareAmount),
+        fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
+        fareAmount: String(broadcastFareAmount),
+        distanceKm: String((_v = (_u = data.distanceKm) !== null && _u !== void 0 ? _u : targetDriver.distanceKm) !== null && _v !== void 0 ? _v : 0),
+        pickupLat: String((_y = (_w = data.pickupLat) !== null && _w !== void 0 ? _w : (_x = data.pickup) === null || _x === void 0 ? void 0 : _x.lat) !== null && _y !== void 0 ? _y : 0),
+        pickupLng: String((_1 = (_z = data.pickupLng) !== null && _z !== void 0 ? _z : (_0 = data.pickup) === null || _0 === void 0 ? void 0 : _0.lng) !== null && _1 !== void 0 ? _1 : 0),
+        dropoffLat: String((_4 = (_2 = data.dropoffLat) !== null && _2 !== void 0 ? _2 : (_3 = data.dropoff) === null || _3 === void 0 ? void 0 : _3.lat) !== null && _4 !== void 0 ? _4 : 0),
+        dropoffLng: String((_7 = (_5 = data.dropoffLng) !== null && _5 !== void 0 ? _5 : (_6 = data.dropoff) === null || _6 === void 0 ? void 0 : _6.lng) !== null && _7 !== void 0 ? _7 : 0),
     }, `driver_${targetDriver.id}`);
     return true;
 }
@@ -1437,7 +1445,7 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
     await (0, accountGuard_1.requireAccountActive)(driverId, "driver");
     const snapshot = await driverSnapshot(driverId);
     await db().runTransaction(async (tx) => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11;
         const ref = db().collection("trips").doc(tripId);
         const snap = await tx.get(ref);
         if (!snap.exists) {
@@ -1574,12 +1582,18 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             data.isPoolOrder === true ||
             data.droppedToPoolAt != null ||
             data.dispatchStep === 4;
+        const baseTripFare = Number((_0 = (_z = (_y = (_x = (_w = (_v = data.base_trip_fare) !== null && _v !== void 0 ? _v : data.baseTripFare) !== null && _w !== void 0 ? _w : data.broadcast_fare) !== null && _x !== void 0 ? _x : data.broadcastFare) !== null && _y !== void 0 ? _y : data.baseFare) !== null && _z !== void 0 ? _z : data.fareAmount) !== null && _0 !== void 0 ? _0 : 0);
+        const outstandingDebt = Number((_4 = (_3 = (_2 = (_1 = data.outstanding_debt) !== null && _1 !== void 0 ? _1 : data.outstandingDebt) !== null && _2 !== void 0 ? _2 : data.recoveredDebt) !== null && _3 !== void 0 ? _3 : data.outstandingBalanceIncluded) !== null && _4 !== void 0 ? _4 : 0);
+        const totalCollectibleFare = Number((_7 = (_6 = (_5 = data.total_collectible_fare) !== null && _5 !== void 0 ? _5 : data.totalCollectibleFare) !== null && _6 !== void 0 ? _6 : data.totalFare) !== null && _7 !== void 0 ? _7 : (baseTripFare + outstandingDebt));
+        const finalCashToCollect = data.paymentMethod === "cash"
+            ? totalCollectibleFare
+            : Number((_8 = data.cashToCollect) !== null && _8 !== void 0 ? _8 : totalCollectibleFare);
         tx.update(ref, {
             status: "DRIVER_ACCEPTED",
             driver: snapshot,
             driverId: driverId,
             isPoolOrder: isPoolClaim,
-            dispatchTier: (_v = data.dispatchTier) !== null && _v !== void 0 ? _v : null,
+            dispatchTier: (_9 = data.dispatchTier) !== null && _9 !== void 0 ? _9 : null,
             cancellationSource: null,
             cancellationReason: null,
             rejections: updatedRejections,
@@ -1588,10 +1602,22 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             pingExpiresAt: null,
             tierExpiresAt: null,
             hasActiveBids: false,
-            biddingCompleted: pendingBids.size > 0 ? true : ((_w = data.biddingCompleted) !== null && _w !== void 0 ? _w : false),
+            biddingCompleted: pendingBids.size > 0 ? true : ((_10 = data.biddingCompleted) !== null && _10 !== void 0 ? _10 : false),
             acceptedBidDriverId: pendingBids.docs.some((b) => b.id === driverId)
                 ? driverId
-                : ((_x = data.acceptedBidDriverId) !== null && _x !== void 0 ? _x : null),
+                : ((_11 = data.acceptedBidDriverId) !== null && _11 !== void 0 ? _11 : null),
+            // Secure Post-Acceptance Financial Release to Driver UI
+            driverAcceptedFinancialsReleased: true,
+            driverAcceptedAt: nowMs(),
+            base_trip_fare: baseTripFare,
+            baseTripFare: baseTripFare,
+            outstanding_debt: outstandingDebt,
+            outstandingDebt: outstandingDebt,
+            total_collectible_fare: totalCollectibleFare,
+            totalCollectibleFare: totalCollectibleFare,
+            cashToCollect: finalCashToCollect,
+            fareFormatted: `₦${totalCollectibleFare.toLocaleString()}`,
+            paymentBreakdown: Object.assign(Object.assign({}, (typeof data.paymentBreakdown === "object" ? data.paymentBreakdown : {})), { base_trip_fare: baseTripFare, baseTripFare: baseTripFare, outstanding_debt: outstandingDebt, outstandingDebt: outstandingDebt, total_collectible_fare: totalCollectibleFare, totalCollectibleFare: totalCollectibleFare, cashToCollect: finalCashToCollect, driverAcceptedFinancialsReleased: true }),
             statusHistory: admin.firestore.FieldValue.arrayUnion({
                 from: status,
                 to: "DRIVER_ACCEPTED",
@@ -1601,6 +1627,12 @@ exports.acceptTrip = (0, https_1.onCall)(async (request) => {
             }),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        // Authoritative active session state update for driver in the database
+        tx.set(db().collection("driver_status").doc(driverId), {
+            activeTripId: tripId,
+            activeTripStatus: "DRIVER_ACCEPTED",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
         (0, driverStreak_1.persistTripChangeLogInTx)(tx, {
             tripId,
             from: status,
@@ -2677,7 +2709,7 @@ exports.acceptBid = (0, https_1.onCall)(async (request) => {
 });
 /** Customer raises the offered price / fare to attract drivers faster */
 exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -2721,15 +2753,30 @@ exports.increaseTripFare = (0, https_1.onCall)(async (request) => {
         }
         return t;
     });
+    const debt = Number((_h = (_g = (_f = tripData.outstanding_debt) !== null && _f !== void 0 ? _f : tripData.outstandingDebt) !== null && _g !== void 0 ? _g : tripData.recoveredDebt) !== null && _h !== void 0 ? _h : 0);
+    const newTotalCollectible = roundedNewFare + debt;
     const updatePayload = {
         fareAmount: roundedNewFare,
         proposedFare: roundedNewFare,
+        base_trip_fare: roundedNewFare,
+        baseTripFare: roundedNewFare,
+        baseFare: roundedNewFare,
+        broadcast_fare: roundedNewFare,
+        broadcastFare: roundedNewFare,
+        broadcastFareFormatted: `₦${roundedNewFare.toLocaleString()}`,
         fareFormatted: `₦${roundedNewFare.toLocaleString()}`,
+        total_collectible_fare: newTotalCollectible,
+        totalCollectibleFare: newTotalCollectible,
+        totalFare: newTotalCollectible,
+        totalCollectibleFareFormatted: `₦${newTotalCollectible.toLocaleString()}`,
+        outstanding_debt: debt,
+        outstandingDebt: debt,
+        recoveredDebt: debt,
         fareBoosted: true,
         boostPercent: boostPct,
         boostedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: wasNeedsAction ? "SEARCHING_DRIVER" : tripData.status,
-        reassignmentCount: wasNeedsAction ? 0 : ((_f = tripData.reassignmentCount) !== null && _f !== void 0 ? _f : 0),
+        reassignmentCount: wasNeedsAction ? 0 : ((_j = tripData.reassignmentCount) !== null && _j !== void 0 ? _j : 0),
         statusMessage: "Price increased! Searching for nearby drivers...",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };

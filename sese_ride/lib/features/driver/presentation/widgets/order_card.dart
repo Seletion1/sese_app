@@ -98,8 +98,9 @@ class _OrderCardState extends State<OrderCard> {
   }
 
   String get _perKm {
-    if (widget.trip.distanceKm <= 0 || widget.trip.fareAmount <= 0) return '';
-    final rate = widget.trip.fareAmount / widget.trip.distanceKm;
+    final fare = widget.trip.driverDisplayFare;
+    if (widget.trip.distanceKm <= 0 || fare <= 0) return '';
+    final rate = fare / widget.trip.distanceKm;
     return '${widget.currencySymbol}${_fmt(rate)}/km';
   }
 
@@ -151,7 +152,7 @@ class _OrderCardState extends State<OrderCard> {
             const SizedBox(width: 4),
             Expanded(
               child: Text(
-                'Receiver Pays Cash at Drop-off (Collect ₦${trip.fareAmount.toStringAsFixed(0)})',
+                'Receiver Pays Cash at Drop-off (Collect ₦${trip.driverDisplayFare.toStringAsFixed(0)})',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -306,7 +307,7 @@ class _OrderCardState extends State<OrderCard> {
     }
     if (!mounted) return;
 
-    final baseline = widget.trip.fareAmount;
+    final baseline = widget.trip.driverDisplayFare;
     final controller = TextEditingController(
       text: baseline.toStringAsFixed(0),
     );
@@ -321,7 +322,7 @@ class _OrderCardState extends State<OrderCard> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Listed fare: ${widget.trip.fareFormatted.isNotEmpty ? widget.trip.fareFormatted : '${widget.currencySymbol}${_fmt(baseline)}'}.\n'
+                'Listed fare: ${widget.trip.driverDisplayFareFormatted}.\n'
                 'Your bid must be ≥ the listed fare.',
                 style: const TextStyle(fontSize: 12),
               ),

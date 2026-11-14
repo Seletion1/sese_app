@@ -503,7 +503,23 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
 
   Widget _buildTripCard(BuildContext context, String tripId, Map<String, dynamic> data) {
     final status = (data['status'] ?? 'unknown').toString();
-    final fareAmount = (data['fareAmount'] is num) ? (data['fareAmount'] as num).toDouble() : 0.0;
+    final baseFare = (data['base_trip_fare'] is num)
+        ? (data['base_trip_fare'] as num).toDouble()
+        : (data['baseFare'] is num)
+            ? (data['baseFare'] as num).toDouble()
+            : (data['fareAmount'] is num)
+                ? (data['fareAmount'] as num).toDouble()
+                : 0.0;
+    final debt = (data['outstanding_debt'] is num)
+        ? (data['outstanding_debt'] as num).toDouble()
+        : (data['outstandingDebt'] is num)
+            ? (data['outstandingDebt'] as num).toDouble()
+            : (data['recoveredDebt'] is num)
+                ? (data['recoveredDebt'] as num).toDouble()
+                : 0.0;
+    final totalCollectible = (data['total_collectible_fare'] is num)
+        ? (data['total_collectible_fare'] as num).toDouble()
+        : (baseFare + debt);
     final customerName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
     final driverName = (data['driverName'] ?? data['driver']?['name'] ?? 'Unassigned').toString();
     final isSplit = data['isSplitPayment'] == true || data['paymentSplit'] != null;
@@ -569,9 +585,19 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Text(
-                  '₦${fareAmount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF10B981)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '₦${(debt > 0 ? totalCollectible : baseFare).toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF10B981)),
+                    ),
+                    if (debt > 0)
+                      Text(
+                        'Base ₦${baseFare.toStringAsFixed(0)} + Debt ₦${debt.toStringAsFixed(0)}',
+                        style: const TextStyle(fontSize: 10, color: Colors.deepOrange, fontWeight: FontWeight.w600),
+                      ),
+                  ],
                 ),
               ],
             ),

@@ -2132,9 +2132,13 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
         message = '';
     }
 
-    final fareStr = widget.trip.fareFormatted.isNotEmpty
-        ? widget.trip.fareFormatted
-        : '₦${widget.trip.fareAmount.toStringAsFixed(0)}';
+    final fareStr = widget.trip.totalCollectibleFareFormatted.isNotEmpty
+        ? widget.trip.totalCollectibleFareFormatted
+        : (widget.trip.totalCollectibleFare > 0
+            ? '₦${widget.trip.totalCollectibleFare.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
+            : (widget.trip.fareFormatted.isNotEmpty
+                ? widget.trip.fareFormatted
+                : '₦${widget.trip.fareAmount.toStringAsFixed(0)}'));
 
     return DraggableScrollableSheet(
       controller: _sheetController,
@@ -3967,9 +3971,13 @@ class _ReadOnlyTripSummaryView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fareStr = trip.fareFormatted.isNotEmpty
-        ? trip.fareFormatted
-        : '₦${trip.fareAmount.toStringAsFixed(0)}';
+    final fareStr = trip.totalCollectibleFareFormatted.isNotEmpty
+        ? trip.totalCollectibleFareFormatted
+        : (trip.totalCollectibleFare > 0
+            ? '₦${trip.totalCollectibleFare.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')}'
+            : (trip.fareFormatted.isNotEmpty
+                ? trip.fareFormatted
+                : '₦${trip.fareAmount.toStringAsFixed(0)}'));
 
     return Center(
       child: SingleChildScrollView(
