@@ -1482,7 +1482,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           right: 16,
           bottom: _mapInteractionController.isImmersive
               ? 50
-              : (_isSearching ? 240 : 160),
+              : (_isSearching ? 240 : 220),
           child: MapRecenterButton(
             key: const Key('live_trip_recenter'),
             icon: Icons.fit_screen,

@@ -565,9 +565,23 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   Future<void> _initPickupLocation() async {
     setState(() => _pickupGeocoding = true);
     try {
-      final latLng =
-          widget.initialPickupLatLng ??
-          await LocationService.getCurrentLatLng();
+      // When opening booking without a fixed pre-selected initialPickupAddress,
+      // resolve default pickup location using actual live GPS coordinates.
+      LatLng? latLng;
+      if (widget.initialPickupAddress == null) {
+        latLng = await LocationService.getCurrentLatLng() ??
+            LocationService.lastKnownPosition ??
+            widget.initialPickupLatLng;
+      } else {
+        latLng = widget.initialPickupLatLng ??
+            await LocationService.getCurrentLatLng();
+      }
+
+      if (latLng != null && latLng.latitude == 6.5244 && latLng.longitude == 3.3792) {
+        final live = await LocationService.getCurrentLatLng();
+        if (live != null) latLng = live;
+      }
+
       if (!mounted) return;
 
       if (latLng != null) {
@@ -972,9 +986,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     setState(() {
       _suggestions = [];
       _isLoadingSuggestions = false;
-      if (_pickupLatLng != null) {
-        _isAddressCardCollapsed = true;
-      }
     });
 
     _hideSuggestionsOverlay();
@@ -1061,9 +1072,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     setState(() {
       _suggestions = [];
       _isLoadingSuggestions = false;
-      if (_dropoffLatLng != null) {
-        _isAddressCardCollapsed = true;
-      }
     });
 
     _hideSuggestionsOverlay();
@@ -1133,52 +1141,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// instead of re-inserting a duplicate.
   void _showOrRefreshSuggestionsOverlay() {
     if (!mounted) return;
-    if (_suggestionsOverlay != null) {
-      _suggestionsOverlay!.markNeedsBuild();
-      return;
-    }
-    _suggestionsOverlay = OverlayEntry(
-      builder: (_) {
-        final link = _suggestingForPickup
-            ? _pickupLayerLink
-            : _dropoffLayerLink;
-        final screenWidth = MediaQuery.of(context).size.width;
-        // top: 0 + left: 0 anchor Positioned in the Overlay stack;
-        // CompositedTransformFollower then moves the child to sit directly
-        // below the active text field. Width matches the active text field
-        // target width (link.leaderSize?.width) so the dropdown container
-        // aligns cleanly without horizontal side-shifting.
-        final targetWidth =
-            link.leaderSize?.width ?? (screenWidth - 48);
-
-        return Positioned(
-          top: 0,
-          left: 0,
-          child: CompositedTransformFollower(
-            link: link,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.bottomLeft,
-            followerAnchor: Alignment.topLeft,
-            offset: const Offset(0, 4),
-            child: SizedBox(
-              width: targetWidth,
-              child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(12),
-                clipBehavior: Clip.antiAlias,
-                child: ConstrainedBox(
-                  // Cap height so the panel never pushes off the bottom of the
-                  // screen even for long result sets.
-                  constraints: const BoxConstraints(maxHeight: 320),
-                  child: _buildSuggestionsContent(),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    Overlay.of(context).insert(_suggestionsOverlay!);
+    setState(() {});
   }
 
   /// Removes the suggestions overlay if one is currently displayed.
@@ -1198,7 +1161,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       setState(() {
         _previewPickup = pickup;
         _previewDropoff = dropoff;
-        _isAddressCardCollapsed = true;
       });
     }
     _fetchRoutePreview();
@@ -2228,7 +2190,260 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     );
   }
 
+  /// Swaps pickup and drop-off addresses, coordinates, and resolved queries.
+  void _swapPickupAndDropoff() {
+    _isSelectingSuggestion = true;
+    _isSelectingPickupSuggestion = true;
+
+    final tempText = _pickupController.text;
+    final tempLatLng = _pickupLatLng;
+    final tempQuery = _resolvedPickupQuery;
+    final tempGpsFix = _gpsPickupFix;
+    final tempGpsAddress = _gpsPickupAddress;
+
+    setState(() {
+      _pickupController.text = _dropoffController.text;
+      _pickupLatLng = _dropoffLatLng;
+      _resolvedPickupQuery = _resolvedDropoffQuery;
+      _gpsPickupFix = _gpsDropoffFix;
+      _gpsPickupAddress = _gpsDropoffAddress;
+
+      _dropoffController.text = tempText;
+      _dropoffLatLng = tempLatLng;
+      _resolvedDropoffQuery = tempQuery;
+      _gpsDropoffFix = tempGpsFix;
+      _gpsDropoffAddress = tempGpsAddress;
+
+      _updateMapBoundsAndRoute();
+    });
+
+    _isSelectingSuggestion = false;
+    _isSelectingPickupSuggestion = false;
+  }
+
+  /// Single unified container housing both Pickup and Destination fields
+  /// connected visually with a green dot, connecting line, and red pin.
+  Widget _buildUnifiedRouteInputContainer(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final containerBg = isDark
+        ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
+        : Colors.grey.shade100;
+    final borderColor = theme.dividerColor.withValues(alpha: 0.2);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: containerBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // ── Left Visual Path Indicator ──
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.circle,
+                size: 12,
+                color: Colors.green,
+              ),
+              Container(
+                width: 2,
+                height: 36,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+              ),
+              const Icon(
+                Icons.location_on,
+                size: 16,
+                color: Colors.redAccent,
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+
+          // ── Middle Input Fields ──
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Pickup field
+                CompositedTransformTarget(
+                  link: _pickupLayerLink,
+                  child: TextField(
+                    controller: _pickupController,
+                    focusNode: _pickupFocusNode,
+                    style: const TextStyle(fontSize: 14),
+                    decoration: InputDecoration(
+                      labelText: 'Pickup Location',
+                      hintText: 'Where from?',
+                      alignLabelWithHint: true,
+                      isDense: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+                      suffixIcon: (_pickupGeocoding ||
+                              (_isLoadingSuggestions && _suggestingForPickup))
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : (_pickupLatLng != null
+                              ? const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 16,
+                                )
+                              : null),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 20,
+                        minHeight: 20,
+                      ),
+                    ),
+                  ),
+                ),
+                Divider(
+                  height: 1,
+                  thickness: 0.8,
+                  color: borderColor,
+                ),
+                // Dropoff field
+                CompositedTransformTarget(
+                  link: _dropoffLayerLink,
+                  child: TextField(
+                    controller: _dropoffController,
+                    focusNode: _dropoffFocusNode,
+                    style: const TextStyle(fontSize: 14),
+                    decoration: InputDecoration(
+                      labelText: 'Destination / Drop-off',
+                      hintText: 'Where to?',
+                      alignLabelWithHint: true,
+                      isDense: false,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+                      suffixIcon: ((_isLoadingSuggestions &&
+                                  !_suggestingForPickup) ||
+                              _dropoffGeocoding)
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : (_dropoffLatLng != null
+                              ? const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                  size: 16,
+                                )
+                              : null),
+                      suffixIconConstraints: const BoxConstraints(
+                        minWidth: 20,
+                        minHeight: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // ── Right Quick Actions ──
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.my_location, size: 18),
+                tooltip: 'Re-detect my location',
+                visualDensity: VisualDensity.compact,
+                onPressed: _initPickupLocation,
+              ),
+              IconButton(
+                icon: const Icon(Icons.swap_vert_rounded, size: 20),
+                tooltip: 'Swap pickup & destination',
+                visualDensity: VisualDensity.compact,
+                onPressed: _swapPickupAndDropoff,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Prominent "Pick on Map" action row placed right above recent places / search results.
+  Widget _buildPickOnMapRow(ThemeData theme) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Material(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const Key('pick_on_map_action_row'),
+          onTap: () => _openPickOnMap(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.map_outlined,
+                    size: 18,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Pick on map',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        'Set location by dragging pin on map',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStep1ExpandedCard(ColorScheme scheme) {
+    final theme = Theme.of(context);
+
     return Card(
       elevation: 6,
       margin: EdgeInsets.zero,
@@ -2238,177 +2453,61 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           maxHeight: MediaQuery.of(context).size.height * 0.65,
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  const Text(
-                    'Step 1: Locations',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                  const Spacer(),
-                  _buildHeaderStepBadge(),
-                  if (_addressesReady) ...[
-                    const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_up),
-                      tooltip: 'Collapse sheet',
-                      onPressed: () =>
-                          setState(() => _isAddressCardCollapsed = true),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Step 1: Locations',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const Spacer(),
+                        _buildHeaderStepBadge(),
+                        if (_addressesReady) ...[
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.keyboard_arrow_up),
+                            tooltip: 'Collapse sheet',
+                            onPressed: () =>
+                                setState(() => _isAddressCardCollapsed = true),
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ],
                     ),
+                    const SizedBox(height: 8),
+                    if (_selectedModeIndex == 0)
+                      _buildContextAwareModeSelector(),
+                    const SizedBox(height: 4),
+                    // ── Unified Route Input Container ──
+                    _buildUnifiedRouteInputContainer(theme),
+                    // ── Prominent "Pick on Map" Action Row ──
+                    _buildPickOnMapRow(theme),
                   ],
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (_selectedModeIndex == 0) _buildContextAwareModeSelector(),
-              const SizedBox(height: 6),
-              // ── Pickup field ──
-              CompositedTransformTarget(
-                link: _pickupLayerLink,
-                child: TextField(
-                  controller: _pickupController,
-                  focusNode: _pickupFocusNode,
-                  decoration: InputDecoration(
-                    labelText: 'Pickup Location',
-                    hintText: 'Where from?',
-                    alignLabelWithHint: true,
-                    prefixIcon: const Icon(
-                      Icons.trip_origin,
-                      color: Colors.green,
-                    ),
-                    suffixIcon:
-                        (_pickupGeocoding ||
-                            (_isLoadingSuggestions && _suggestingForPickup))
-                        ? const Padding(
-                            padding: EdgeInsets.all(14),
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (_pickupLatLng != null)
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 20,
-                                ),
-                              IconButton(
-                                key: const Key('pickup_pick_on_map_icon'),
-                                icon: const Icon(Icons.map_outlined),
-                                tooltip: 'Pick pickup on map',
-                                onPressed: () =>
-                                    _openPickOnMap(target: 'pickup'),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.my_location),
-                                tooltip: 'Re-detect my location',
-                                onPressed: _initPickupLocation,
-                              ),
-                            ],
-                          ),
-                    helperText: 'Auto-detected — tap to edit',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
-                    isDense: false,
-                    contentPadding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-                  ),
                 ),
               ),
-              const SizedBox(height: 10),
-              // ── Drop-off field ──
-              CompositedTransformTarget(
-                link: _dropoffLayerLink,
-                child: TextField(
-                  controller: _dropoffController,
-                  focusNode: _dropoffFocusNode,
-                  decoration: InputDecoration(
-                    labelText: 'Destination / Drop-off',
-                    hintText: 'Where to?',
-                    alignLabelWithHint: true,
-                    prefixIcon: const Icon(
-                      Icons.location_on,
-                      color: Colors.red,
-                    ),
-                    suffixIcon:
-                        ((_isLoadingSuggestions && !_suggestingForPickup) ||
-                            _dropoffGeocoding)
-                        ? const Padding(
-                            padding: EdgeInsets.all(14),
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (_dropoffLatLng != null)
-                                const Icon(
-                                  Icons.check_circle,
-                                  color: Colors.green,
-                                  size: 20,
-                                ),
-                              IconButton(
-                                key: const Key('dropoff_pick_on_map_icon'),
-                                icon: const Icon(Icons.map_outlined),
-                                tooltip: 'Pick destination on map',
-                                onPressed: () =>
-                                    _openPickOnMap(target: 'destination'),
-                              ),
-                            ],
-                          ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
-                    isDense: false,
-                    contentPadding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-                  ),
-                ),
-              ),
+              // ── Recent Places / Autocomplete Search Results ──
+              if (_suggestions.isNotEmpty || _isLoadingSuggestions)
+                _buildSuggestionsContent(),
               if (!_addressesReady &&
                   !_pickupGeocoding &&
                   _suggestions.isEmpty &&
                   !_isLoadingSuggestions)
                 Padding(
-                  padding: const EdgeInsets.only(top: 6),
+                  padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
                   child: Row(
                     children: [
                       Icon(
@@ -2429,24 +2528,25 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     ],
                   ),
                 ),
-              if (_addressesReady) ...[
-                const SizedBox(height: 6),
-                Center(
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.map_outlined, size: 14),
-                    label: const Text(
-                      'Collapse to view map',
-                      style: TextStyle(fontSize: 11),
+              if (_addressesReady)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Center(
+                    child: TextButton.icon(
+                      icon: const Icon(Icons.map_outlined, size: 14),
+                      label: const Text(
+                        'Collapse to view map',
+                        style: TextStyle(fontSize: 11),
+                      ),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: scheme.primary,
+                      ),
+                      onPressed: () =>
+                          setState(() => _isAddressCardCollapsed = true),
                     ),
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: scheme.primary,
-                    ),
-                    onPressed: () =>
-                        setState(() => _isAddressCardCollapsed = true),
                   ),
                 ),
-              ],
             ],
           ),
         ),

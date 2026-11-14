@@ -301,8 +301,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     super.initState();
     _streaks.driverId ??= widget.driverId;
     WidgetsBinding.instance.addObserver(this);
+    final fast = LocationService.lastKnownPosition;
     _driverPosition =
-        widget.initialPosition ?? const LatLng(6.5244, 3.3792); // Lagos
+        widget.initialPosition ?? fast ?? const LatLng(6.5244, 3.3792); // Lagos fallback
     _loadFleet();
     _resolvePosition();
     _startLivePositionTracking();
@@ -587,12 +588,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       }
       final pos = await Geolocator.getCurrentPosition();
       if (!mounted) return;
+      final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
-        _driverPosition = LatLng(pos.latitude, pos.longitude);
+        _driverPosition = newPos;
       });
-      // Keep the home map centered as the fix refines.
+      // Immediately move/recenter map camera on acquired live position.
       // ignore: discarded_futures
-      _mapController.move(_driverPosition, 15.0);
+      _mapController.recenterTo(_driverPosition, 16.5);
     } catch (_) {
       // No platform location (e.g. widget tests) or native location stack
       // unavailable — keep seeded default. Plain catch handles both
@@ -1858,7 +1860,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: active != null ? 84 : 130,
+                bottom: active != null ? 240 : 180,
                 child: Center(
                   child: Material(
                     key: const Key('driver_recenter_pill_button'),

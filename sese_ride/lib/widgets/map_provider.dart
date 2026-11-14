@@ -755,7 +755,7 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 // which engine is active.
                 if (widget.showRecenterFab && widget.onRecenterTap != null)
                   Positioned(
-                    bottom: widget.recenterBottom ?? 16,
+                    bottom: widget.recenterBottom ?? 180,
                     right: widget.recenterRight ?? 16,
                     child: MapRecenterButton(
                       key: widget.recenterKey ?? const Key('recenter_button'),

@@ -20,10 +20,14 @@ class GoogleStyleMapOverlay extends StatelessWidget {
   /// When false, only the re-center button renders (no center dot).
   final bool showCenterDot;
 
+  /// Bottom inset for the re-center button.
+  final double? recenterBottom;
+
   const GoogleStyleMapOverlay({
     super.key,
     this.onRecenterPressed,
     this.showCenterDot = true,
+    this.recenterBottom,
   });
 
   @override
@@ -41,7 +45,7 @@ class GoogleStyleMapOverlay extends StatelessWidget {
         // 2. Google Maps-style re-center target button (bottom right).
         if (onRecenterPressed != null)
           Positioned(
-            bottom: 24,
+            bottom: recenterBottom ?? 180,
             right: 16,
             child: FloatingActionButton(
               heroTag: 'map_recenter_btn',

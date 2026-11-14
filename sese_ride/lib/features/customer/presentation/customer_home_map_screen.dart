@@ -10,6 +10,7 @@ import '../../notifications/notification_inbox_screen.dart';
 import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
+import '../services/location_service.dart';
 import 'customer_dispatch_screen.dart';
 
 /// Main customer home view: full-screen Google Maps view with a blue-dot
@@ -68,7 +69,8 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     if (widget.initialPosition != null) {
       _position = widget.initialPosition!;
     } else {
-      _position = const LatLng(6.5244, 3.3792); // Lagos
+      final fast = LocationService.lastKnownPosition;
+      _position = fast ?? const LatLng(6.5244, 3.3792); // Fast cache or Lagos fallback
       _resolvePosition();
     }
   }
@@ -115,12 +117,14 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
         ),
       );
       if (!mounted) return;
+      final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
-        _position = LatLng(pos.latitude, pos.longitude);
+        _position = newPos;
       });
+      // Force initial camera animation to the acquired live GPS position.
       // Zoom 16 shows roughly 200 m per side — tight enough to confirm the
       // pin is on the correct building, not just the correct street block.
-      _mapController.move(_position, 16.0);
+      _mapController.recenterTo(newPos, 16.0);
       // Continuous fixes from here on: the blue dot tracks the ground truth
       // and the camera follows until the user pans (see SeSeMapController).
       // Best-effort — a dead stream simply leaves the one-shot fix in place.
@@ -144,9 +148,14 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
             }
             return;
           }
+          final updatedPos = LatLng(fix.latitude, fix.longitude);
+          final wasDefault = _position.latitude == 6.5244 && _position.longitude == 3.3792;
           setState(() {
-            _position = LatLng(fix.latitude, fix.longitude);
+            _position = updatedPos;
           });
+          if (_mapController.isFollowingUser || wasDefault) {
+            _mapController.recenterTo(updatedPos, 16.0);
+          }
           _mapInteractionController.onLocationUpdate(
             fix.latitude,
             fix.longitude,
@@ -163,9 +172,8 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
       {required int modeIndex, required String title, bool isReceiving = false}) {
     // Every card opens a focused page without the mode toggle:
     // Book Ride -> ride-hailing only; Send/Receive Item -> delivery only.
-    // The Receive Item card passes the delivery direction so the location
-    // picker opens with "Receiving Package" highlighted, GPS in drop-off,
-    // and focus on pickup.
+    // Always supply the user's actual live GPS fix (LocationService cache or live _position).
+    final liveFix = LocationService.lastKnownPosition ?? _position;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CustomerDispatchScreen(
@@ -174,7 +182,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
           showModeSelector: false,
           focusedTitle: title,
           isReceiving: isReceiving,
-          initialPickupLatLng: _position,
+          initialPickupLatLng: liveFix,
         ),
       ),
     );
@@ -211,7 +219,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
               // Use the authoritative live GPS tracking blue dot (showMyLocation)
               // without drawing a duplicate static center blue dot overlay.
               showCenterBlueDot: false,
-              recenterBottom: _mapInteractionController.isImmersive ? 40 : 180,
+              recenterBottom: _mapInteractionController.isImmersive ? 40 : 240,
               recenterRight: 16,
               // Re-engages GPS follow AND snaps back (bare move() would
               // track once without restoring follow state).
