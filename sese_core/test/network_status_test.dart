@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 
 void main() {
@@ -86,6 +88,55 @@ void main() {
       expect(resFail, isNull);
       expect(rolledBack, isTrue);
       expect(localState, equals(20)); // Rolled back to 20
+    });
+
+    test('NetworkStatusService forceResync triggers registered callbacks and emits onReconnected', () async {
+      final service = NetworkStatusService.instance;
+      bool callbackFired = false;
+      final completer = Completer<void>();
+
+      service.registerResyncCallback(() async {
+        callbackFired = true;
+      });
+
+      final sub = service.onReconnected.listen((_) {
+        if (!completer.isCompleted) completer.complete();
+      });
+
+      await service.forceResync();
+      await completer.future.timeout(const Duration(seconds: 1));
+
+      expect(callbackFired, isTrue);
+      expect(completer.isCompleted, isTrue);
+      await sub.cancel();
+    });
+
+    test('CancellationQueueService manages optimistic cancellation and retries on queue drain', () async {
+      SharedPreferences.setMockInitialValues({});
+      final queueService = CancellationQueueService.instance;
+      queueService.clearForTest();
+
+      const tripId = 'test_trip_abc_123';
+      expect(queueService.isTripCancelled(tripId), isFalse);
+
+      queueService.markCancelledLocally(tripId);
+      expect(queueService.isTripCancelled(tripId), isTrue);
+
+      bool executorCalled = false;
+      queueService.cancellationExecutor = (req) async {
+        if (req.tripId == tripId) {
+          executorCalled = true;
+        }
+      };
+
+      await queueService.enqueueCancellation(
+        tripId: tripId,
+        reason: 'customer_cancelled_test',
+      );
+
+      await queueService.processQueue();
+      expect(executorCalled, isTrue);
+      expect(queueService.queuedItems.isEmpty, isTrue);
     });
   });
 }

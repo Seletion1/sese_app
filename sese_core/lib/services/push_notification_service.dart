@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -170,6 +171,10 @@ class PushNotificationService {
     enableVibration: true,
   );
 
+  /// Stream broadcasting data payloads received via foreground FCM messages.
+  static final StreamController<Map<String, String>> onMessageDataStream =
+      StreamController<Map<String, String>>.broadcast();
+
   /// Initializes channels, permissions, foreground rendering, tap routing,
   /// and the background handler. Call once per app start (after Firebase).
   ///
@@ -226,6 +231,11 @@ class PushNotificationService {
               alert: true, badge: true, sound: true);
       FirebaseMessaging.onMessage.listen((message) {
         showFromMessage(message);
+        try {
+          final data = Map<String, String>.from(message.data.map(
+              (k, v) => MapEntry(k.toString(), v.toString())));
+          onMessageDataStream.add(data);
+        } catch (_) {}
       });
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
         _handleTap(_payloadOf(message));

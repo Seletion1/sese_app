@@ -72,6 +72,33 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Network State Restoration, Instant Re-Sync & Optimistic Trip Cancellation Architecture
+
+- **1. Connectivity-Triggered Auto-Refresh & Forced Socket Re-Sync (`network_status_service.dart`, `sese_hub`, `sese_ride`)**:
+  - Enhanced `NetworkStatusService` (`sese_core`) with `connectivity_plus` OS stream integration (`onConnectivityChanged`) and a broadcast stream `onReconnected`.
+  - Implemented `forceResync()`: commands `FirebaseFirestore.instance.enableNetwork()` to immediately force the Firestore socket/gRPC transport to reconnect and flush pending writes, then executes all registered screen re-sync callbacks.
+  - Wired `onReconnected` across `HubDashboardScreen` in `sese_hub` and `DriverDashboardScreen` / `LiveTripScreen` in `sese_ride` to automatically re-verify backend state the moment network is restored.
+
+- **2. Optimistic UI Cancellation & Resilient Background Retry (`cancellation_queue_service.dart`, `trip_service.dart`, `main.dart`)**:
+  - Created `CancellationQueueService` in `sese_core` providing in-memory & persistent (`SharedPreferences`) tracking of cancelled trips.
+  - Filtered `activeTripsStream` in `TripRepository` with `!CancellationQueueService.instance.isTripCancelled(t.tripId)`: customer active cards disappear instantly across home map, shell, and modals without waiting for network round-trips.
+  - Wrapped `TripRepository.cancelTrip` to mark cancelled locally and enqueue for background retry if network drops or times out.
+  - Auto-drains queue upon network recovery via `NetworkStatusService.instance.onReconnected`.
+
+- **3. Instant Cancellation Propagation to Driver Streams & Atomicity (`functions/src/trips.ts`, `functions/src/driverStreak.ts`)**:
+  - In `handleTripCancellationSettlement` (atomic Firestore transaction): automatically clears driver active trip session state (`activeTripId: null, activeTripStatus: null`) in `driver_status/{driverId}` (or sets `CANCELLED_WAITING_CASH_SETTLEMENT` if pending cash collection).
+  - In `cancelTrip` (`functions/src/trips.ts`): when customer cancels, server sends immediate high-priority FCM notifications (`trip_cancelled`) to the assigned driver and `offer_cancelled` to all pinged drivers (Stage 1 / Stage 2).
+
+- **4. Orphaned Order Cleanup & Heartbeat Reconciliation on Driver Side (`driver_dashboard_screen.dart`, `driver_active_trip_card.dart`, `push_notification_service.dart`)**:
+  - In `DriverDashboardScreen`: added `_reconcileActiveTripWithServer()` which executes a direct server fetch (`Source.server`) bypassing local cache on network restoration and on a 25-second periodic heartbeat. If the trip was cancelled, expired, or reassigned while offline, it immediately purges the active trip state, collapses the sheet, and alerts the driver.
+  - Added foreground FCM push listener on `PushNotificationService.onMessageDataStream`: `trip_cancelled` instantly purges the dead order from the driver screen, and `offer_cancelled` dismisses the incoming offer sheet in `_PingListener`.
+  - Added `onOrphanedTripPurge` safeguard to `DriverActiveTripCard`: if driver attempts to slide/advance an already cancelled/closed order, the action is rejected with a clean message and the orphaned screen is purged.
+
+- **5. Verification & Testing**:
+  - Backend Unit Tests: 128/128 passed.
+  - Flutter Unit & Widget Tests: 5/5 passed in `network_status_test.dart`; 3/3 passed in `network_resync_and_optimistic_cancellation_test.dart`; 26/26 passed in regression suite (`driver_active_trip_card_test.dart`, `live_trip_screen_test.dart`, `customer_home_map_test.dart`); 71/71 passed in `sese_hub`.
+  - Static Analysis: `dart analyze` clean with 0 warnings or errors across all packages.
+
 ## 2026-11-14 — Send Item Location Selection Redesign: Unified Single White Sheet, Header Step Indicator Realignment & Clean List Styling
 
 - **1. Unified Single White Sheet (`customer_dispatch_screen.dart`)**:

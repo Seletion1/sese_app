@@ -71,6 +71,10 @@ class DriverActiveTripCard extends StatefulWidget {
   /// Optional callback when driver taps the drag handle to toggle collapse/expand.
   final VoidCallback? onToggleCollapse;
 
+  /// Optional callback invoked when the active trip is discovered to be cancelled,
+  /// expired, or reassigned (purges the stale/orphaned order from driver UI).
+  final VoidCallback? onOrphanedTripPurge;
+
   const DriverActiveTripCard({
     super.key,
     required this.trip,
@@ -86,6 +90,7 @@ class DriverActiveTripCard extends StatefulWidget {
     this.sheetController,
     this.scrollController,
     this.onToggleCollapse,
+    this.onOrphanedTripPurge,
   });
 
   @override
@@ -279,8 +284,17 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       return true;
     } on DriverStreakException catch (e) {
       if (!mounted) return false;
+      final msg = e.userMessage;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+          .showSnackBar(SnackBar(content: Text(msg)));
+      final lower = msg.toLowerCase();
+      if (lower.contains('cancelled') ||
+          lower.contains('closed') ||
+          lower.contains('reassign') ||
+          lower.contains('not found') ||
+          lower.contains('not active')) {
+        widget.onOrphanedTripPurge?.call();
+      }
       return false;
     } catch (_) {
       if (!mounted) return false;

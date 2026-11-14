@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:sese_core/sese_core.dart';
 
 import '../models/bid_models.dart';
 import '../models/trip_models.dart';
@@ -143,13 +144,16 @@ class FirestoreTripRepository implements TripRepository {
     if (customerId.isEmpty) return Stream.value(const []);
     // Single-field query on purpose: no composite index required.
     // Terminal and cancelled states are filtered client-side via [ActiveTrip.isCustomerLive].
+    // Optimistically cancelled trips are purged immediately before server round-trip.
     return _db
         .collection('trips')
         .where('customerId', isEqualTo: customerId)
         .snapshots()
         .map((snap) => snap.docs
             .map((d) => ActiveTrip.fromMap(d.id, d.data()))
-            .where((t) => t.isCustomerLive)
+            .where((t) =>
+                t.isCustomerLive &&
+                !CancellationQueueService.instance.isTripCancelled(t.tripId))
             .toList());
   }
 
@@ -329,11 +333,35 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Future<void> cancelTrip(String tripId, {String? reason, bool useCashSettlement = false}) async {
-    await _callWithAuthRetry(() => _fn.httpsCallable('cancelTrip').call({
-      'tripId': tripId,
-      if (reason != null && reason.isNotEmpty) 'reason': reason,
-      if (useCashSettlement) 'useCashSettlement': true,
-    }));
+    // 1. Instant optimistic local cancellation — immediate UI purge
+    CancellationQueueService.instance.markCancelledLocally(tripId);
+
+    try {
+      await _callWithAuthRetry(() => _fn.httpsCallable('cancelTrip').call({
+        'tripId': tripId,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+        if (useCashSettlement) 'useCashSettlement': true,
+      }));
+    } catch (e) {
+      debugPrint('TripRepository: cancelTrip network call failed, enqueueing for background retry ($e)');
+      // 2. Queue for background retry on network recovery
+      await CancellationQueueService.instance.enqueueCancellation(
+        tripId: tripId,
+        reason: reason,
+        useCashSettlement: useCashSettlement,
+      );
+      // Suppress network transport/timeout errors since request is securely queued
+      final errStr = e.toString().toLowerCase();
+      final isNetworkErr = errStr.contains('network') ||
+          errStr.contains('unavailable') ||
+          errStr.contains('timeout') ||
+          errStr.contains('socket') ||
+          errStr.contains('failed to connect') ||
+          errStr.contains('connection closed');
+      if (!isNetworkErr) {
+        rethrow;
+      }
+    }
   }
 
   @override

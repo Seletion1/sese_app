@@ -216,6 +216,86 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
+  /// Immediately reconciles active trip state against authoritative Firestore server document.
+  ///
+  /// Purges orphaned/stale trips if cancelled, expired, or reassigned while offline.
+  Future<void> _reconcileActiveTripWithServer({bool isManualOrReconnect = false}) async {
+    final trip = _currentActiveTrip;
+    if (trip == null) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('trips')
+          .doc(trip.tripId)
+          .get(const GetOptions(source: Source.server));
+
+      if (!snap.exists) {
+        _purgeStaleActiveTrip('This trip is no longer active.');
+        return;
+      }
+
+      final data = snap.data();
+      if (data == null) {
+        _purgeStaleActiveTrip('This trip is no longer active.');
+        return;
+      }
+
+      final serverStatus = (data['status'] ?? '').toString().toUpperCase();
+      final assignedDriverId =
+          (data['driver']?['driverId'] ?? data['driverId'] ?? '').toString();
+
+      final isDeadOrReassigned =
+          serverStatus == 'CANCELLED' ||
+          serverStatus == 'CANCELLED_BY_CUSTOMER' ||
+          serverStatus == 'CANCELLED_BY_DRIVER' ||
+          serverStatus == 'EXPIRED' ||
+          serverStatus == 'RETURNED_TO_CUSTOMER' ||
+          serverStatus == 'SEARCHING_DRIVER' ||
+          (assignedDriverId.isNotEmpty && assignedDriverId != widget.driverId);
+
+      if (isDeadOrReassigned) {
+        final reason = serverStatus.contains('CANCEL')
+            ? 'Customer has cancelled this order.'
+            : 'This order was reassigned or expired.';
+        _purgeStaleActiveTrip(reason);
+        return;
+      }
+    } catch (e) {
+      debugPrint('Driver active trip server reconciliation skipped: $e');
+    }
+  }
+
+  /// Purges stale or cancelled active trip state immediately from UI and collapses sheet.
+  void _purgeStaleActiveTrip(String userMessage) {
+    if (!mounted) return;
+    setState(() {
+      _currentActiveTrip = null;
+      _trackedTripId = null;
+      _lastTrackedStatus = null;
+      _activeRoutePoints = [];
+      _activeRouteSteps = [];
+      _currentGuidanceStep = null;
+    });
+    _collapseActiveTripSheet();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(userMessage),
+        backgroundColor: Colors.red.shade800,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _handlePushDataMessage(Map<String, String> data) {
+    final type = data['type'] ?? '';
+    final tripId = data['tripId'] ?? '';
+    if (type == 'trip_cancelled') {
+      if (_currentActiveTrip != null &&
+          (_currentActiveTrip!.tripId == tripId || tripId.isEmpty)) {
+        _purgeStaleActiveTrip('Customer has cancelled this order.');
+      }
+    }
+  }
+
   Future<void> _fetchActiveTripRoute(ActiveTrip active) async {
     if (_driverPosition.latitude == 0.0 && _driverPosition.longitude == 0.0) {
       return;
@@ -277,6 +357,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// while a grant is in flight.
   bool _syncing = false;
 
+  /// Connectivity reconnection listener for instant state re-synchronization.
+  StreamSubscription? _networkReconnectSub;
+
+  /// High-priority foreground FCM listener for immediate cancellation propagation.
+  StreamSubscription? _pushMessageSub;
+
+  /// Heartbeat timer periodically verifying active trip health against authoritative server records.
+  Timer? _tripReconciliationHeartbeatTimer;
+
   /// Driver's current coordinates. Defaults to Lagos; refined from the
   /// platform location fix when available. Centers the home map canvas and
   /// feeds the signed online payload plus the incoming-offer route preview.
@@ -326,6 +415,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     });
     // Overlay → app actions (bubble tap, overlay accept/reject/expired).
     DriverOverlayService.instance.listenActions(_handleOverlayAction);
+
+    // Network connectivity listener: instant re-sync the moment internet returns
+    _networkReconnectSub = NetworkStatusService.instance.onReconnected.listen((_) {
+      if (mounted) {
+        debugPrint('DriverDashboardScreen: Network restored, reconciling state with server.');
+        unawaited(_reconcileActiveTripWithServer(isManualOrReconnect: true));
+      }
+    });
+
+    // High-priority push data listener: immediate cancellation handling
+    _pushMessageSub =
+        PushNotificationService.onMessageDataStream.stream.listen(_handlePushDataMessage);
+
+    // Periodic heartbeat: ensures orphaned/stale trips are purged if offline during cancellation
+    _tripReconciliationHeartbeatTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) {
+        if (_currentActiveTrip != null && mounted) {
+          unawaited(_reconcileActiveTripWithServer());
+        }
+      },
+    );
   }
 
   void _initSessionControl() {
@@ -461,6 +572,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           .removeListener(_pushSessionListener!);
     }
     _breakTimer?.cancel();
+    _networkReconnectSub?.cancel();
+    _pushMessageSub?.cancel();
+    _tripReconciliationHeartbeatTimer?.cancel();
     super.dispose();
   }
 
@@ -2570,6 +2684,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           autoArrivalCountdownSeconds: cfg.autoArrivalCountdownSeconds,
           sheetController: _activeTripSheetController,
           onToggleCollapse: _toggleActiveTripSheet,
+          onOrphanedTripPurge: () =>
+              _purgeStaleActiveTrip('Trip was cancelled or is no longer active.'),
         );
       },
     );
@@ -2725,6 +2841,32 @@ class _PingListener extends StatefulWidget {
 class _PingListenerState extends State<_PingListener> {
   String? _sheetForTrip;
   bool _sheetOpen = false;
+  StreamSubscription? _pushOfferSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _pushOfferSub =
+        PushNotificationService.onMessageDataStream.stream.listen((data) {
+      final type = data['type'] ?? '';
+      final tripId = data['tripId'] ?? '';
+      if ((type == 'offer_cancelled' || type == 'trip_cancelled') &&
+          _sheetOpen &&
+          _sheetForTrip == tripId) {
+        _sheetOpen = false;
+        _sheetForTrip = null;
+        if (mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pushOfferSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

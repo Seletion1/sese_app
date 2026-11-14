@@ -102,6 +102,7 @@ export 'widgets/incoming_call_overlay.dart';
 export 'widgets/sese_shimmer.dart';
 export 'services/local_cache_service.dart';
 export 'services/network_status_service.dart';
+export 'services/cancellation_queue_service.dart';
 export 'services/network_timeout_helper.dart';
 export 'widgets/network_status_banner.dart';
 export 'services/security_bootstrap_service.dart';

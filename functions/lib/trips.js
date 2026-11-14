@@ -2047,7 +2047,7 @@ async function releaseTripEscrow(tripId, tripData, passedTx) {
 }
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
 exports.cancelTrip = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -2168,14 +2168,39 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             }
             return { ok: true, cancelledBy: "customer", cashSettlement: true, fee: paidWaitingFee };
         }
+        // Immediate cancellation propagation to assigned driver & broadcast pools
+        const assignedDriverId = String((_u = (_t = (_s = data.driver) === null || _s === void 0 ? void 0 : _s.driverId) !== null && _t !== void 0 ? _t : data.driverId) !== null && _u !== void 0 ? _u : "");
+        if (assignedDriverId) {
+            await notifyDriver(assignedDriverId, tripId, "Trip Cancelled", "Customer has cancelled this order.", "trip_cancelled", {
+                tripId,
+                cancellationSource: "customer",
+                reason,
+                status: "CANCELLED",
+            });
+        }
+        // Instant offer cancellation propagation to all pinged drivers (Stage 1 & Stage 2)
+        const pingDrivers = [];
+        if (data.pingDriverId)
+            pingDrivers.push(String(data.pingDriverId));
+        if (Array.isArray(data.pingDriverIds)) {
+            for (const pId of data.pingDriverIds) {
+                if (pId && !pingDrivers.includes(String(pId)))
+                    pingDrivers.push(String(pId));
+            }
+        }
+        for (const pId of pingDrivers) {
+            if (pId !== assignedDriverId) {
+                await notifyDriver(pId, tripId, "Order Cancelled", "Customer cancelled the trip request.", "offer_cancelled", { tripId, status: "CANCELLED" });
+            }
+        }
         return { ok: true, cancelledBy: "customer", paidWaitingFee: result.paidWaitingFee };
     }
     // Driver cancellation logic
     let cancellationSource = "unknown";
     if (data.status === "DRIVER_ARRIVED") {
-        const arrivedAt = (_u = (_t = (_s = data.arrivedAt) === null || _s === void 0 ? void 0 : _s.toMillis) === null || _t === void 0 ? void 0 : _t.call(_s)) !== null && _u !== void 0 ? _u : 0;
+        const arrivedAt = (_x = (_w = (_v = data.arrivedAt) === null || _v === void 0 ? void 0 : _v.toMillis) === null || _w === void 0 ? void 0 : _w.call(_v)) !== null && _x !== void 0 ? _x : 0;
         const waitedMs = nowMs() - arrivedAt;
-        const noShowWaitMs = ((_v = data["noShowWaitMinutes"]) !== null && _v !== void 0 ? _v : 10) * 60 * 1000;
+        const noShowWaitMs = ((_y = data["noShowWaitMinutes"]) !== null && _y !== void 0 ? _y : 10) * 60 * 1000;
         cancellationSource =
             waitedMs >= noShowWaitMs ? "driver_no_show" : "driver_before_arrival";
     }
@@ -2192,7 +2217,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
         "IN_PROGRESS",
     ].includes(String(data.status));
     if (isDriverActiveStatus) {
-        const currentCount = Number((_w = data.reassignmentCount) !== null && _w !== void 0 ? _w : 0);
+        const currentCount = Number((_z = data.reassignmentCount) !== null && _z !== void 0 ? _z : 0);
         const nextCount = currentCount + 1;
         const history = Array.isArray(data.reassignmentHistory)
             ? [...data.reassignmentHistory, { driverId: callerId, cancelledAt: nowMs(), reason }]
@@ -2212,7 +2237,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationReason: reason,
                 statusMessage: `Driver had to cancel. Finding you another nearby driver (Attempt ${nextCount} of 3)...`,
                 statusHistory: admin.firestore.FieldValue.arrayUnion({
-                    from: String((_x = data.status) !== null && _x !== void 0 ? _x : ""),
+                    from: String((_0 = data.status) !== null && _0 !== void 0 ? _0 : ""),
                     to: "SEARCHING_DRIVER",
                     actor: callerId,
                     role: "driver",
@@ -2224,7 +2249,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             });
             (0, driverStreak_1.logTripTransition)({
                 tripId,
-                from: String((_y = data.status) !== null && _y !== void 0 ? _y : ""),
+                from: String((_1 = data.status) !== null && _1 !== void 0 ? _1 : ""),
                 to: "SEARCHING_DRIVER",
                 actor: callerId,
                 role: "driver",
@@ -2257,7 +2282,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                 cancellationReason: reason,
                 statusMessage: "All drivers are busy right now. Keep searching or wait?",
                 statusHistory: admin.firestore.FieldValue.arrayUnion({
-                    from: String((_z = data.status) !== null && _z !== void 0 ? _z : ""),
+                    from: String((_2 = data.status) !== null && _2 !== void 0 ? _2 : ""),
                     to: "needs_customer_action",
                     actor: callerId,
                     role: "driver",
@@ -2269,7 +2294,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
             });
             (0, driverStreak_1.logTripTransition)({
                 tripId,
-                from: String((_0 = data.status) !== null && _0 !== void 0 ? _0 : ""),
+                from: String((_3 = data.status) !== null && _3 !== void 0 ? _3 : ""),
                 to: "needs_customer_action",
                 actor: callerId,
                 role: "driver",
@@ -2290,7 +2315,7 @@ exports.cancelTrip = (0, https_1.onCall)(async (request) => {
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 });
             }
-            catch (_1) {
+            catch (_4) {
                 /* best-effort */
             }
             return { ok: true, needsCustomerAction: true };

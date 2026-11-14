@@ -2764,7 +2764,47 @@ export const cancelTrip = onCall(async (request) => {
       return { ok: true, cancelledBy: "customer", cashSettlement: true, fee: paidWaitingFee };
     }
 
-    return { ok: true, cancelledBy: "customer", paidWaitingFee: result.paidWaitingFee };  }
+    // Immediate cancellation propagation to assigned driver & broadcast pools
+    const assignedDriverId = String(data.driver?.driverId ?? data.driverId ?? "");
+    if (assignedDriverId) {
+      await notifyDriver(
+        assignedDriverId,
+        tripId,
+        "Trip Cancelled",
+        "Customer has cancelled this order.",
+        "trip_cancelled",
+        {
+          tripId,
+          cancellationSource: "customer",
+          reason,
+          status: "CANCELLED",
+        }
+      );
+    }
+
+    // Instant offer cancellation propagation to all pinged drivers (Stage 1 & Stage 2)
+    const pingDrivers: string[] = [];
+    if (data.pingDriverId) pingDrivers.push(String(data.pingDriverId));
+    if (Array.isArray(data.pingDriverIds)) {
+      for (const pId of data.pingDriverIds) {
+        if (pId && !pingDrivers.includes(String(pId))) pingDrivers.push(String(pId));
+      }
+    }
+    for (const pId of pingDrivers) {
+      if (pId !== assignedDriverId) {
+        await notifyDriver(
+          pId,
+          tripId,
+          "Order Cancelled",
+          "Customer cancelled the trip request.",
+          "offer_cancelled",
+          { tripId, status: "CANCELLED" }
+        );
+      }
+    }
+
+    return { ok: true, cancelledBy: "customer", paidWaitingFee: result.paidWaitingFee };
+  }
 
   // Driver cancellation logic
   let cancellationSource = "unknown";

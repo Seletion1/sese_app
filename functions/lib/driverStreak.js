@@ -1062,6 +1062,16 @@ async function handleTripCancellationSettlement(params) {
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         tx.update(tripRef, tripUpdates);
+        // Atomic driver active trip session cleanup
+        if (driverId) {
+            const driverStatusRef = db().collection("driver_status").doc(driverId);
+            if (isCashWaiting) {
+                tx.set(driverStatusRef, { activeTripStatus: "CANCELLED_WAITING_CASH_SETTLEMENT" }, { merge: true });
+            }
+            else {
+                tx.set(driverStatusRef, { activeTripId: null, activeTripStatus: null }, { merge: true });
+            }
+        }
         persistTripChangeLogInTx(tx, {
             tripId,
             from: currentStatus,

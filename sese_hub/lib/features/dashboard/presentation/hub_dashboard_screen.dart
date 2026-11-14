@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../../config/presentation/global_config_screen.dart';
@@ -78,6 +79,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
   final Map<HubTab, Widget> _screenCache = {};
 
   final _auth = FirebaseAuthRepository(isHubApp: true);
+  StreamSubscription? _networkReconnectSub;
 
   @override
   void initState() {
@@ -94,6 +96,14 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
     }
     _initRecentTabs();
     _restorePersistedState();
+    _networkReconnectSub =
+        NetworkStatusService.instance.onReconnected.listen((_) {
+      if (mounted) {
+        debugPrint(
+            'HubDashboardScreen: Connection restored, forcing state re-sync.');
+        setState(() {});
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && (widget.user?.uid ?? '').isNotEmpty) {
         MandatoryLegalAcceptanceDialog.checkAndShow(
@@ -107,6 +117,7 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
 
   @override
   void dispose() {
+    _networkReconnectSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

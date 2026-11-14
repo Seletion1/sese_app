@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -155,6 +156,21 @@ void main() async {
 
   // Start background network reachability monitoring for instant top warning banner.
   NetworkStatusService.instance.startMonitoring();
+
+  // Initialize optimistic cancellation queue and background retry executor
+  CancellationQueueService.instance.cancellationExecutor = (req) async {
+    try {
+      await FirebaseFunctions.instance.httpsCallable('cancelTrip').call({
+        'tripId': req.tripId,
+        if (req.reason != null && req.reason!.isNotEmpty) 'reason': req.reason,
+        if (req.useCashSettlement) 'useCashSettlement': true,
+      });
+    } catch (e) {
+      debugPrint('Cancellation executor retry failed for ${req.tripId}: $e');
+      rethrow;
+    }
+  };
+  unawaited(CancellationQueueService.instance.init());
 
   // showSplash: true — the Flutter SeSeSplashScreen is the ONLY branded
   // experience. The native Android window is now a plain solid-colour fill
