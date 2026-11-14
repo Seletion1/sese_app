@@ -72,6 +72,29 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-14 — Floating Incoming Trip Request Immediate Dismissal, Freeze Bug Fix & Clean Window Lifecycle
+
+- **1. Immediate Overlay Dismissal on Expiry, Decline & Low Balance (`driver_overlay_entry.dart`, `driver_dashboard_screen.dart`)**:
+  - Re-architected `OverlayOrderCard` countdown timer: properly decrements to 0s and immediately triggers `onDismiss()` and `_close()` without blocking on backend network round-trips.
+  - On "DECLINE": instantly sets `_dismissed = true`, stops all alerts/haptics, dismisses the overlay card UI (0 ms delay), and fires `declineTrip(action: 'rejected')` asynchronously in the background.
+  - On "ACCEPT" with Insufficient Wallet Balance: detects low balance exceptions (`failed-precondition` / "balance is low" / "top up"), immediately dismisses and destroys the floating overlay window, brings the app to the foreground, and triggers `showLowBalanceAcceptancePrompt(context, ...)` presenting the driver with the direct top-up modal.
+  - Unmounted / dismissed cards immediately collapse to `const SizedBox.shrink()`, eliminating lingering expired cards permanently.
+
+- **2. Elimination of Decline UI Freezing & Unresponsive Floating Bubble Bug (`driver_dashboard_screen.dart`, `driver_overlay_service.dart`, `driver_overlay_entry.dart`)**:
+  - In `driver_dashboard_screen.dart` (`_handleOverlayAction`): eliminated the rogue call restoring `showOverlayWidget()` on `'rejected'`, `'skipped'`, and `'expired'`, which previously attempted to spawn a floating logo bubble during full-screen order teardown.
+  - In `_DriverOverlayAppState`: set default mode to `'closed'` (`const SizedBox.shrink()`) and only renders `_OverlayBubble` when mode is explicitly `'bubble'`. When receiving `mode: 'close'`, it renders empty and calls `_closeOverlayNow()`.
+  - Added method channel timeout protection: wrapped every `FlutterOverlayWindow.closeOverlay()` call with `.timeout(const Duration(milliseconds: 300), onTimeout: () => false)`. This eliminates the plugin defect where `FlutterOverlayWindowPlugin.java` fails to complete the MethodChannel `Result` when `OverlayService.isRunning` is false, preventing the Dart event loop / UI thread from freezing.
+
+- **3. Proper State Reset & Clean Lifecycle Disposals (`driver_overlay_service.dart`, `driver_dashboard_screen.dart`)**:
+  - In `DriverOverlayService`: `showBubble()` strictly guards on `isOnline`; `hide()` clears all deferred pending actions and force-closes ghost windows.
+  - In `_PingListener`: when `ping == null` or when `PushNotificationService` receives `offer_cancelled` / `trip_cancelled`, `closeOverlayWidget()` is immediately invoked to purge any background overlay window on screen.
+  - Safely stops all periodic timers, vibration timers, and audio streams upon dismissal.
+
+- **4. Verification & Testing**:
+  - Flutter Unit & Widget Tests: 5/5 passed across `test/driver_overlay_service_test.dart` and `test/driver_overlay_card_widget_test.dart`.
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors, 0 hints.
+
+
 ## 2026-11-14 — Network State Restoration, Instant Re-Sync & Optimistic Trip Cancellation Architecture
 
 - **1. Connectivity-Triggered Auto-Refresh & Forced Socket Re-Sync (`network_status_service.dart`, `sese_hub`, `sese_ride`)**:

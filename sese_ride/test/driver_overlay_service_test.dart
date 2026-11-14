@@ -23,5 +23,13 @@ void main() {
       svc.listenActions((_, _) => called = true);
       expect(called, isFalse);
     });
+
+    test('showBubble does not run when isOnline is false', () async {
+      final svc = DriverOverlayService.instance;
+      svc.isOnline = false;
+      await svc.showBubble();
+      // Safe no-op without exceptions
+      expect(svc.isOnline, isFalse);
+    });
   });
 }

@@ -241,13 +241,14 @@ class DriverOverlayService {
   /// `AppLifecycleState.resumed` event, avoiding the Android 8+
   /// `IllegalStateException: Not allowed to start service` crash.
   Future<void> showBubble() async {
-    if (!supported) return;
+    if (!supported || !isOnline) return;
     await _enqueueOrRun(_showBubbleNow);
   }
 
   /// Internal implementation of [showBubble] that runs only when the Flutter
   /// engine is confirmed to be in the foreground.
   Future<void> _showBubbleNow() async {
+    if (!isOnline) return;
     try {
       final hasPermission = await FlutterOverlayWindow.isPermissionGranted();
       if (!hasPermission) return;
@@ -260,7 +261,10 @@ class DriverOverlayService {
       final active = await FlutterOverlayWindow.isActive();
       if (active) {
         try {
-          await FlutterOverlayWindow.closeOverlay();
+          await FlutterOverlayWindow.closeOverlay().timeout(
+            const Duration(milliseconds: 300),
+            onTimeout: () => false,
+          );
         } catch (_) {}
         // Brief yield so the Android WindowManager removes the old window
         // before we request a new one on the same surface.
@@ -414,7 +418,10 @@ class DriverOverlayService {
     try {
       if (await FlutterOverlayWindow.isActive()) {
         await FlutterOverlayWindow.shareData({'mode': 'close'});
-        await FlutterOverlayWindow.closeOverlay();
+        await FlutterOverlayWindow.closeOverlay().timeout(
+          const Duration(milliseconds: 300),
+          onTimeout: () => false,
+        );
       }
     } catch (e) {
       debugPrint('DriverOverlayService.hide failed: $e');
@@ -423,10 +430,13 @@ class DriverOverlayService {
     // showBubble/closeOverlay pair racing during app-resume), close it again.
     // This prevents a ghost clickThrough-flagged window from persisting and
     // the bubble from appearing frozen centre-screen on foreground return.
-    Future<void>.delayed(const Duration(milliseconds: 500), () async {
+    Future<void>.delayed(const Duration(milliseconds: 350), () async {
       try {
         if (await FlutterOverlayWindow.isActive()) {
-          await FlutterOverlayWindow.closeOverlay();
+          await FlutterOverlayWindow.closeOverlay().timeout(
+            const Duration(milliseconds: 300),
+            onTimeout: () => false,
+          );
         }
       } catch (_) {}
     });

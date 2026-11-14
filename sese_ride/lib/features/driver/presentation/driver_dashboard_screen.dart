@@ -24,6 +24,7 @@ import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
 import 'widgets/driver_active_trip_card.dart';
 import 'widgets/incoming_offer_sheet.dart';
+import 'widgets/low_balance_dialog.dart';
 import 'widgets/order_feed.dart';
 import 'widgets/order_pool_sheet.dart';
 import 'widgets/slide_to_offline.dart';
@@ -649,18 +650,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         await DriverOverlayService.instance.bringToForeground();
         setState(() {});
         break;
+      case 'low_balance':
+        // Driver attempted to accept with insufficient balance in overlay:
+        // Ensure overlay is dismissed, bring app to foreground, and present top-up prompt.
+        await DriverOverlayService.instance.closeOverlayWidget();
+        if (!mounted) return;
+        await DriverOverlayService.instance.bringToForeground();
+        if (!mounted) return;
+        await showLowBalanceAcceptancePrompt(
+          context,
+          driverId: widget.driverId,
+          user: widget.user,
+        );
+        break;
       case 'rejected':
       case 'skipped':
       case 'expired':
-        // Offer declined, skipped, or expired in the background overlay:
-        // restore floating logo bubble if still paused in background.
-        if (_appPaused && _isOnline) {
-          await DriverOverlayService.instance.showOverlayWidget();
-        } else {
-          await DriverOverlayService.instance.closeOverlayWidget();
-        }
+        // Offer declined, skipped, or expired in overlay:
+        // Cleanly close the overlay window — do NOT spawn or restore a floating bubble!
+        await DriverOverlayService.instance.closeOverlayWidget();
         if (!mounted) return;
         setState(() {});
+        break;
+      case 'error':
+        await DriverOverlayService.instance.closeOverlayWidget();
+        if (!mounted) return;
+        await DriverOverlayService.instance.bringToForeground();
         break;
     }
   }
@@ -2850,13 +2865,14 @@ class _PingListenerState extends State<_PingListener> {
         PushNotificationService.onMessageDataStream.stream.listen((data) {
       final type = data['type'] ?? '';
       final tripId = data['tripId'] ?? '';
-      if ((type == 'offer_cancelled' || type == 'trip_cancelled') &&
-          _sheetOpen &&
-          _sheetForTrip == tripId) {
-        _sheetOpen = false;
-        _sheetForTrip = null;
-        if (mounted && Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
+      if (type == 'offer_cancelled' || type == 'trip_cancelled') {
+        DriverOverlayService.instance.closeOverlayWidget();
+        if (_sheetOpen && _sheetForTrip == tripId) {
+          _sheetOpen = false;
+          _sheetForTrip = null;
+          if (mounted && Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
         }
       }
     });
@@ -2880,6 +2896,7 @@ class _PingListenerState extends State<_PingListener> {
           builder: (context, pingSnap) {
             final ping = pingSnap.data;
             if (ping == null) {
+              DriverOverlayService.instance.closeOverlayWidget();
               if (_sheetOpen && mounted) {
                 // Ping resolved elsewhere (accepted/expired/cancelled).
                 _sheetOpen = false;

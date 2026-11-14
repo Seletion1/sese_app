@@ -39,7 +39,7 @@ class _DriverOverlayApp extends StatefulWidget {
 }
 
 class _DriverOverlayAppState extends State<_DriverOverlayApp> {
-  String _mode = 'bubble';
+  String _mode = 'closed';
   Map<String, dynamic> _offer = const {};
   StreamSubscription<dynamic>? _sub;
   bool _firebaseReady = false;
@@ -52,12 +52,27 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
       if (event is! Map) return;
       final map = Map<String, dynamic>.from(event);
       if (!mounted) return;
+      final newMode = (map['mode'] ?? 'closed').toString();
       setState(() {
-        _mode = (map['mode'] ?? 'bubble').toString();
+        _mode = newMode;
         final offer = map['offer'];
         _offer = offer is Map ? Map<String, dynamic>.from(offer) : const {};
       });
+      if (newMode == 'close' || newMode == 'closed') {
+        _closeOverlayNow();
+      }
     });
+  }
+
+  Future<void> _closeOverlayNow() async {
+    try {
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.closeOverlay().timeout(
+          const Duration(milliseconds: 300),
+          onTimeout: () => false,
+        );
+      }
+    } catch (_) {}
   }
 
   Future<void> _initFirebase() async {
@@ -79,14 +94,30 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
 
   @override
   Widget build(BuildContext context) {
+    Widget content;
+    if (_mode == 'order' && _offer.isNotEmpty) {
+      content = _OverlayOrderCard(
+        offer: _offer,
+        firebaseReady: () => _firebaseReady,
+        onDismiss: () {
+          if (mounted) {
+            setState(() {
+              _mode = 'closed';
+              _offer = const {};
+            });
+          }
+          _closeOverlayNow();
+        },
+      );
+    } else if (_mode == 'bubble') {
+      content = const _OverlayBubble();
+    } else {
+      content = const SizedBox.shrink();
+    }
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: _mode == 'order' && _offer.isNotEmpty
-          ? _OverlayOrderCard(
-              offer: _offer,
-              firebaseReady: () => _firebaseReady,
-            )
-          : const _OverlayBubble(),
+      home: content,
     );
   }
 }
@@ -97,8 +128,8 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
 /// elevation/shadow, freely draggable along screen edges (drag handling is
 /// owned by the overlay window). Single tap brings `sese_ride` back to the
 /// foreground and dismisses the bubble.
-class _OverlayBubble extends StatelessWidget {
-  const _OverlayBubble();
+class OverlayBubble extends StatelessWidget {
+  const OverlayBubble({super.key});
 
   Future<void> _requestForeground() async {
     try {
@@ -111,7 +142,12 @@ class _OverlayBubble extends StatelessWidget {
           {'action': 'foreground', 'tripId': ''});
     } catch (_) {}
     try {
-      await FlutterOverlayWindow.closeOverlay();
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.closeOverlay().timeout(
+          const Duration(milliseconds: 300),
+          onTimeout: () => false,
+        );
+      }
     } catch (_) {}
   }
 
@@ -156,26 +192,36 @@ class _OverlayBubble extends StatelessWidget {
   }
 }
 
+typedef _OverlayBubble = OverlayBubble;
+
 /// Full-screen background order popup with 30s countdown, interactive OpenStreetMap route
 /// preview, audio/haptic alerts, and atomic ACCEPT / DECLINE execution.
-class _OverlayOrderCard extends StatefulWidget {
+class OverlayOrderCard extends StatefulWidget {
   final Map<String, dynamic> offer;
   final bool Function() firebaseReady;
+  final VoidCallback? onDismiss;
 
-  const _OverlayOrderCard({required this.offer, required this.firebaseReady});
+  const OverlayOrderCard({
+    super.key,
+    required this.offer,
+    required this.firebaseReady,
+    this.onDismiss,
+  });
 
   @override
-  State<_OverlayOrderCard> createState() => _OverlayOrderCardState();
+  State<OverlayOrderCard> createState() => _OverlayOrderCardState();
 }
 
-class _OverlayOrderCardState extends State<_OverlayOrderCard> {
+typedef _OverlayOrderCard = OverlayOrderCard;
+
+class _OverlayOrderCardState extends State<OverlayOrderCard> {
   final MapController _mapController = MapController();
   static const int _countdownSec = 30;
   int _remaining = _countdownSec;
   Timer? _timer;
   Timer? _vibrateTimer;
   bool _busy = false;
-  String? _result;
+  bool _dismissed = false;
 
   String get _tripId => (widget.offer['tripId'] ?? '').toString();
 
@@ -184,13 +230,17 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
     super.initState();
     _startAlerts();
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
+      if (!mounted || _dismissed) {
+        t.cancel();
+        return;
+      }
       if (_remaining <= 1) {
         t.cancel();
+        if (mounted) setState(() => _remaining = 0);
         _expire();
         return;
       }
-      setState(() => _remaining--);
+      if (mounted) setState(() => _remaining--);
     });
   }
 
@@ -224,65 +274,138 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
   Future<void> _close() async {
     _stopAlerts();
     try {
-      await FlutterOverlayWindow.closeOverlay();
-    } catch (_) {}
-  }
-
-  Future<void> _expire() async {
-    _stopAlerts();
-    await _share({'action': 'expired', 'tripId': _tripId});
-    try {
-      if (widget.firebaseReady()) {
-        await FirebaseFunctions.instance
-            .httpsCallable('declineTrip')
-            .call({'tripId': _tripId, 'action': 'skipped'});
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.closeOverlay().timeout(
+          const Duration(milliseconds: 300),
+          onTimeout: () => false,
+        );
       }
     } catch (_) {}
-    await _close();
   }
 
-  Future<void> _act(String callable, String action) async {
-    if (_busy) return;
+  /// Instantly dismisses overlay on countdown reaching 0s and informs backend in background.
+  Future<void> _expire() async {
+    if (_dismissed) return;
+    if (mounted) {
+      setState(() => _dismissed = true);
+    } else {
+      _dismissed = true;
+    }
+    _stopAlerts();
+
+    // Immediately notify UI and close overlay window so card vanishes without lingering.
+    widget.onDismiss?.call();
+    unawaited(_close());
+
+    unawaited(_share({'action': 'expired', 'tripId': _tripId}));
+    try {
+      if (widget.firebaseReady()) {
+        unawaited(
+          FirebaseFunctions.instance
+              .httpsCallable('declineTrip')
+              .call({'tripId': _tripId, 'action': 'skipped'})
+              .then<void>((_) {})
+              .catchError((e) {
+                debugPrint('Overlay expire declineTrip error: $e');
+              }),
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Instantly dismisses overlay on Decline tap without waiting for network.
+  Future<void> _decline() async {
+    if (_busy || _dismissed) return;
+    if (mounted) {
+      setState(() {
+        _busy = true;
+        _dismissed = true;
+      });
+    } else {
+      _busy = true;
+      _dismissed = true;
+    }
+    _stopAlerts();
+
+    // Immediately notify UI and close overlay window with 0 delay.
+    widget.onDismiss?.call();
+    unawaited(_close());
+
+    unawaited(_share({'action': 'rejected', 'tripId': _tripId}));
+    try {
+      if (widget.firebaseReady()) {
+        unawaited(
+          FirebaseFunctions.instance
+              .httpsCallable('declineTrip')
+              .call({'tripId': _tripId, 'action': 'rejected'})
+              .then<void>((_) {})
+              .catchError((e) {
+                debugPrint('Overlay declineTrip error: $e');
+              }),
+        );
+      }
+    } catch (_) {}
+  }
+
+  /// Handles Accept tap:
+  /// - On low balance: immediately dismisses overlay, brings app to foreground,
+  ///   and triggers the low balance top up prompt.
+  /// - On success: immediately dismisses overlay, brings app to foreground to live trip.
+  /// - On error: immediately dismisses overlay and opens app.
+  Future<void> _accept() async {
+    if (_busy || _dismissed) return;
     setState(() => _busy = true);
     _stopAlerts();
+
     try {
       if (!widget.firebaseReady()) {
         throw StateError('Backend unavailable.');
       }
       await FirebaseFunctions.instance
-          .httpsCallable(callable)
-          .call({'tripId': _tripId, 'action': action});
-      await _share({'action': action, 'tripId': _tripId});
+          .httpsCallable('acceptTrip')
+          .call({'tripId': _tripId, 'action': 'accepted'});
 
-      if (action == 'accepted') {
-        // Bring app to full foreground immediately on Accept so driver sees active ride.
-        await DriverOverlayService.instance.bringToForeground();
-        if (mounted) {
-          setState(() => _result = 'Trip Accepted! Opening app…');
-        }
-        await Future.delayed(const Duration(milliseconds: 300));
+      if (mounted) {
+        setState(() => _dismissed = true);
+      } else {
+        _dismissed = true;
       }
+      widget.onDismiss?.call();
+      await _share({'action': 'accepted', 'tripId': _tripId});
+
+      // Bring app to full foreground immediately on Accept so driver sees active ride.
+      await DriverOverlayService.instance.bringToForeground();
       await _close();
     } catch (e) {
-      debugPrint('overlay $callable failed: $e');
+      debugPrint('overlay acceptTrip failed: $e');
+      final errorStr = e.toString().toLowerCase();
+      final isLowBalance = errorStr.contains('balance is low') ||
+          errorStr.contains('top up') ||
+          errorStr.contains('insufficient');
+
       if (mounted) {
-        String msg = 'Action failed — open the app to retry.';
-        if (e is FirebaseFunctionsException && e.message != null && e.message!.isNotEmpty) {
-          msg = e.message!;
-        } else if (e.toString().toLowerCase().contains('balance is low') ||
-            e.toString().toLowerCase().contains('top up')) {
-          msg = 'Your balance is low. Please top up to accept trips.';
-        }
-        setState(() {
-          _busy = false;
-          _result = msg;
-        });
+        setState(() => _dismissed = true);
+      } else {
+        _dismissed = true;
+      }
+      widget.onDismiss?.call();
+      await _close();
+
+      if (isLowBalance) {
+        // Driver tapped Accept with insufficient wallet balance:
+        // Dismiss overlay immediately, notify app, and bring to foreground for top up prompt.
+        await _share({'action': 'low_balance', 'tripId': _tripId});
+        await DriverOverlayService.instance.bringToForeground();
+      } else {
+        await _share({'action': 'error', 'tripId': _tripId, 'error': e.toString()});
+        await DriverOverlayService.instance.bringToForeground();
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
     final o = widget.offer;
     final fare = (o['fareFormatted'] ?? '').toString().isNotEmpty
         ? o['fareFormatted'].toString()
@@ -505,18 +628,6 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
                   ],
                 ),
 
-                if (_result != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _result!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFFF2A900),
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
 
                 // Action Buttons: DECLINE vs ACCEPT
@@ -524,7 +635,7 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: _busy ? null : () => _act('declineTrip', 'rejected'),
+                        onPressed: (_busy || _dismissed) ? null : _decline,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.redAccent,
                           side: const BorderSide(color: Colors.redAccent, width: 1.5),
@@ -542,7 +653,7 @@ class _OverlayOrderCardState extends State<_OverlayOrderCard> {
                     const SizedBox(width: 14),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: _busy ? null : () => _act('acceptTrip', 'accepted'),
+                        onPressed: (_busy || _dismissed) ? null : _accept,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green.shade600,
                           foregroundColor: Colors.white,
