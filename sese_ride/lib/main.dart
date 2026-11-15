@@ -19,12 +19,9 @@ import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
 import 'core/services/remote_config_service.dart';
 import 'core/services/shorebird_update_service.dart';
-import 'driver_overlay_entry.dart';
-export 'driver_overlay_entry.dart' show overlayMain;
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
-import 'features/driver/services/driver_overlay_service.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
@@ -127,16 +124,11 @@ void main() async {
   final installedVersion = await _resolveInstalledVersion();
 
   // Unified high-priority push (order/chat/system) with custom chime.
-  // Tap routing is handled per-screen; the overlay entry above stays
-  // referenced so tree-shaking keeps `overlayMain`.
   // ignore: discarded_futures
   PushNotificationService.init(
     onTap: _handlePushTap,
     backgroundMessageHandler: driverBackgroundHandler,
   );
-  // Keep a static reference so the overlay entry-point is retained.
-  // ignore: unnecessary_statements
-  overlayMain;
 
   // ── Killed-state offer cold-start handoff ──────────────────────────────
   // When a driver offer FCM arrives while the app is killed, pushBackgroundHandler
@@ -197,58 +189,20 @@ Future<String> _resolveInstalledVersion() async {
 /// Routes notification taps to in-app destinations.
 ///
 /// The unified "SeSe Driver Active" ongoing notification carries
-/// `type=foreground_request`: tapping it already restores `MainActivity` to
-/// the foreground (content intent with
-/// `FLAG_UPDATE_CURRENT | FLAG_IMMUTABLE`), so the handler only logs it —
-/// no extra navigation that could fight the restore.
+/// Routes notification taps to in-app destinations.
 Future<void> _handlePushTap(Map<String, String> data) async {
   debugPrint('sese_ride push tap: $data');
   final type = (data['type'] ?? '').toString();
   if (type == 'foreground_request') {
     debugPrint('sese_ride: online-alert tap — app restored to foreground.');
-    DriverOverlayService.instance.bringToForeground();
     return;
   }
 
-  // Driver unaccepted offer pings → bring app to foreground AND immediately
-  // show the interactive overlay card with the enriched FCM payload so the
-  // driver sees the compact offer card the instant the app wakes, without
-  // waiting for a Firestore stream round-trip.
   if (type == 'trip_offer' ||
       type == 'direct_ping' ||
       type == 'tier_ping' ||
       type == 'marketplace_broadcast') {
-    debugPrint('sese_ride: driver trip offer tap ($type) — waking overlay.');
-    final tripId = data['tripId'] ?? '';
-    final pickup = data['pickupAddress'] ?? '';
-    final dropoff = data['dropoffAddress'] ?? '';
-    final distanceKm = data['distanceKm'] ?? '';
-    final fareFormatted = data['fareFormatted'] ?? '';
-    final fare = fareFormatted.isNotEmpty ? fareFormatted : (data['fareAmount'] ?? '');
-    final pickupLat = double.tryParse(data['pickupLat'] ?? '');
-    final pickupLng = double.tryParse(data['pickupLng'] ?? '');
-    final dropoffLat = double.tryParse(data['dropoffLat'] ?? '');
-    final dropoffLng = double.tryParse(data['dropoffLng'] ?? '');
-
-    // Bring the main app task to the foreground first so the Flutter engine
-    // is live before the overlay shareData message arrives.
-    await DriverOverlayService.instance.bringToForeground();
-
-    // If the enriched payload has enough detail, expand the overlay window
-    // into the full-screen offer card immediately (no Firestore round-trip).
-    if (tripId.isNotEmpty && pickup.isNotEmpty) {
-      await DriverOverlayService.instance.showOrderOffer(
-        tripId: tripId,
-        pickup: pickup,
-        dropoff: dropoff,
-        distanceKm: distanceKm,
-        fare: fare,
-        pickupLat: pickupLat,
-        pickupLng: pickupLng,
-        dropoffLat: dropoffLat,
-        dropoffLng: dropoffLng,
-      );
-    }
+    debugPrint('sese_ride: driver trip offer tap ($type) — main UI takes over.');
     return;
   }
 
@@ -268,43 +222,14 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   }
 }
 
-/// Consumes any driver offer payload that [pushBackgroundHandler] stashed in
-/// SharedPreferences while the app was killed, and immediately expands the
-/// [DriverOverlayService] full-screen order card.
-///
-/// This is the killed-state path: the driver tapped the full-screen-intent
-/// notification → Android cold-started the app → this runs in [main] once
-/// the notification pipeline is live → overlay card appears on the first frame.
+/// Consumes any driver offer payload that [driverBackgroundHandler] stashed in
+/// SharedPreferences while the app was killed.
 Future<void> _consumeKilledStateOffer() async {
   try {
     final payload = await PushNotificationService.consumePendingOfferPayload();
     if (payload == null || payload.isEmpty) return;
     final tripId = payload['tripId'] ?? '';
-    final pickup = payload['pickupAddress'] ?? '';
-    if (tripId.isEmpty || pickup.isEmpty) return;
-
-    final dropoff = payload['dropoffAddress'] ?? '';
-    final distanceKm = payload['distanceKm'] ?? '';
-    final fare = (payload['fareFormatted'] ?? '').isNotEmpty
-        ? payload['fareFormatted']!
-        : (payload['fareAmount'] ?? '');
-    final pickupLat = double.tryParse(payload['pickupLat'] ?? '');
-    final pickupLng = double.tryParse(payload['pickupLng'] ?? '');
-    final dropoffLat = double.tryParse(payload['dropoffLat'] ?? '');
-    final dropoffLng = double.tryParse(payload['dropoffLng'] ?? '');
-
-    debugPrint('sese_ride: cold-start offer pickup — expanding overlay for trip $tripId');
-    await DriverOverlayService.instance.showOrderOffer(
-      tripId: tripId,
-      pickup: pickup,
-      dropoff: dropoff,
-      distanceKm: distanceKm,
-      fare: fare,
-      pickupLat: pickupLat,
-      pickupLng: pickupLng,
-      dropoffLat: dropoffLat,
-      dropoffLng: dropoffLng,
-    );
+    debugPrint('sese_ride: cold-start offer payload consumed for trip $tripId');
   } catch (e) {
     debugPrint('_consumeKilledStateOffer failed (non-fatal): $e');
   }

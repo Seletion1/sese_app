@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/login_page.dart';
 import '../../driver/presentation/driver_fleet_screen.dart';
 import '../../driver/services/driver_fleet_service.dart';
-import '../../driver/services/driver_overlay_service.dart';
 import '../../home/security_pin_screen.dart';
 import '../delete_account_dialog.dart';
 import '../mode_switcher.dart';
@@ -224,10 +223,7 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
-      // 1. Tear down overlay + notification before auth state change.
-      // Both calls are no-ops when offline or on non-Android.
-      // ignore: discarded_futures
-      DriverOverlayService.instance.hide();
+      // 1. Tear down notifications before auth state change.
       // ignore: discarded_futures
       PushNotificationService.cancelOnlineAlert();
       // ignore: discarded_futures

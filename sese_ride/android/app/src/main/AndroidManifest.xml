@@ -25,8 +25,6 @@
          while the app is minimized. Requested best-effort at go-online
          (foreground fixes work without it). -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <!-- Floating driver bubble + background order overlay (flutter_overlay_window). -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- High-priority order/message alerts with full-screen intent & wake-lock. -->
@@ -43,14 +41,6 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="sese_orders" />
-        <service android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Driver order alerts while online" />
-        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

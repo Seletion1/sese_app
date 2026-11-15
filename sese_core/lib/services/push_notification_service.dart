@@ -410,17 +410,13 @@ class PushNotificationService {
   }
 
   /// Renders a [RemoteMessage] as a high-priority local notification with
-  /// the custom chime.
+  /// full-screen intent for order alerts (WhatsApp-style call notification).
   ///
   /// For driver order pings (`trip_offer`, `direct_ping`, `tier_ping`,
-  /// `marketplace_broadcast`) this is the **fallback path only** — the primary
-  /// path in [pushBackgroundHandler] fires the overlay full-screen card
-  /// directly and returns without calling this method. This method is called
-  /// when the overlay permission is missing or the overlay launch fails, so
-  /// the driver still receives a heads-up / full-screen-intent alert.
-  ///
-  /// Non-order message types (chat, system, broadcast) always flow through
-  /// here as the standard notification path.
+  /// `marketplace_broadcast`), this triggers an immediate fullScreenIntent
+  /// notification (`category: AndroidNotificationCategory.call`,
+  /// `importance: Importance.max`, `fullScreenIntent: true`) that wakes the
+  /// device screen and launches the main `IncomingOfferSheet` UI.
   static Future<void> showFromMessage(RemoteMessage message) async {
     try {
       final data = Map<String, dynamic>.from(message.data);

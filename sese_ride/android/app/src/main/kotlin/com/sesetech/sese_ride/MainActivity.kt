@@ -9,15 +9,30 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
+import android.view.WindowManager
+
 class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pinAppCheckDebugToken()
+        configureLockScreenFlags()
+        super.onCreate(savedInstanceState)
+    }
+
+    private fun configureLockScreenFlags() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+            keyguardManager?.requestDismissKeyguard(this, null)
         }
-        super.onCreate(savedInstanceState)
+        @Suppress("DEPRECATION")
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        )
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -40,11 +55,12 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // singleTop delivery: notification/bubble taps that resolve to the
+    // singleTop delivery: notification/fullScreenIntent deliveries that resolve to the
     // existing MainActivity arrive here instead of recreating it.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        configureLockScreenFlags()
     }
 
     // Reports whether Google Play Services is installed and operational on this device.

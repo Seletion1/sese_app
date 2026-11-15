@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -16,7 +15,6 @@ import '../../trips/presentation/trip_rating_dialog.dart';
 import '../../trips/services/trip_rating_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
-import '../services/driver_overlay_service.dart';
 import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import '../services/navigation_launcher_service.dart';
@@ -24,7 +22,6 @@ import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
 import 'widgets/driver_active_trip_card.dart';
 import 'widgets/incoming_offer_sheet.dart';
-import 'widgets/low_balance_dialog.dart';
 import 'widgets/order_feed.dart';
 import 'widgets/order_pool_sheet.dart';
 import 'widgets/slide_to_offline.dart';
@@ -414,8 +411,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _mapController.move(_driverPosition, 15.0);
     });
-    // Overlay → app actions (bubble tap, overlay accept/reject/expired).
-    DriverOverlayService.instance.listenActions(_handleOverlayAction);
 
     // Network connectivity listener: instant re-sync the moment internet returns
     _networkReconnectSub = NetworkStatusService.instance.onReconnected.listen((_) {
@@ -506,18 +501,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = activeSessionId;
       _sessionOverriddenOnOtherDevice = false;
     });
-    DriverOverlayService.instance.isOnline = true;
     // Re-establish the visible online signal after process recreation. The
     // dashboard GPS stream is already started in initState and remains alive
-    // while the Android foreground overlay service keeps the app process up.
+    // while the app process is up.
     unawaited(PushNotificationService.showOngoingOnlineAlert());
     unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
     unawaited(MediaPermissionService.ensureBackgroundLocation());
-    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-      unawaited(DriverOverlayService.instance.closeOverlayWidget());
-    } else {
-      unawaited(DriverOverlayService.instance.showOverlayWidget());
-    }
   }
 
   Future<void> _persistOnlineSession(String? sessionId) async {
@@ -542,13 +531,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = null;
       _sessionOverriddenOnOtherDevice = true;
     });
-    DriverOverlayService.instance.isOnline = false;
 
     // Cleanup background and foreground services on this device
     // ignore: discarded_futures
     AppSoundService.instance.playOfflineSound();
-    // ignore: discarded_futures
-    DriverOverlayService.instance.hide();
     // ignore: discarded_futures
     PushNotificationService.cancelOnlineAlert();
     // ignore: discarded_futures
@@ -599,85 +585,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
     setState(() => _appPaused = nowPaused);
-    if (!mounted) return;
-    if (nowPaused) {
-      // Minimized while ONLINE: the floating SeSe bubble owns the screen
-      // and the single unified "SeSe Driver Active" notification holds the
-      // OS foreground signal. The driver is NOT taken offline — GPS fixes
-      // and dispatch offers keep flowing until an explicit go-offline.
-      if (_isOnline) {
-        // ignore: discarded_futures
-        DriverOverlayService.instance.showOverlayWidget();
-      }
-    } else {
-      // Back in foreground: overlay yields to the in-app UI.
-      // ignore: discarded_futures
-      DriverOverlayService.instance.closeOverlayWidget();
-      // Deferred safety net: if the overlay window survived the closeOverlay()
-      // call (e.g. a showBubble/close race during foreground transition), force
-      // another close after the engine has fully resumed.  This prevents the
-      // frozen-bubble / UI-freeze symptom where the overlay intercepts all
-      // touches after the app returns to foreground.
-      Future<void>.delayed(const Duration(milliseconds: 600), () {
-        if (!mounted) return;
-        // Only force-close if we are still in foreground (not re-minimized).
-        if (!_appPaused) {
-          // ignore: discarded_futures
-          DriverOverlayService.instance.closeOverlayWidget();
-        }
-      });
-    }
-  }
-
-  /// Overlay isolate actions: bubble tap (foreground request) and overlay
-  /// accept/reject/expired outcomes for background order popups.
-  Future<void> _handleOverlayAction(String action, String tripId) async {
-    switch (action) {
-      case 'open_app':
-      case 'foreground':
-        // Bubble tapped while minimized: dismiss the bubble and bring
-        // sese_ride directly to the foreground via
-        // Intent.FLAG_ACTIVITY_REORDER_TO_FRONT without data loss.
-        await DriverOverlayService.instance.closeOverlayWidget();
-        if (!mounted) return;
-        await DriverOverlayService.instance.bringToForeground();
-        break;
-      case 'accepted':
-        // Overlay order was accepted: dismiss the overlay popup and
-        // immediately open the full app to the foreground.
-        await DriverOverlayService.instance.closeOverlayWidget();
-        if (!mounted) return;
-        await DriverOverlayService.instance.bringToForeground();
-        setState(() {});
-        break;
-      case 'low_balance':
-        // Driver attempted to accept with insufficient balance in overlay:
-        // Ensure overlay is dismissed, bring app to foreground, and present top-up prompt.
-        await DriverOverlayService.instance.closeOverlayWidget();
-        if (!mounted) return;
-        await DriverOverlayService.instance.bringToForeground();
-        if (!mounted) return;
-        await showLowBalanceAcceptancePrompt(
-          context,
-          driverId: widget.driverId,
-          user: widget.user,
-        );
-        break;
-      case 'rejected':
-      case 'skipped':
-      case 'expired':
-        // Offer declined, skipped, or expired in overlay:
-        // Cleanly close the overlay window — do NOT spawn or restore a floating bubble!
-        await DriverOverlayService.instance.closeOverlayWidget();
-        if (!mounted) return;
-        setState(() {});
-        break;
-      case 'error':
-        await DriverOverlayService.instance.closeOverlayWidget();
-        if (!mounted) return;
-        await DriverOverlayService.instance.bringToForeground();
-        break;
-    }
   }
 
   /// Best-effort platform fix for the signed online payload and the
@@ -1073,14 +980,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _streaks.activeSessionId = null;
           _sessionOverriddenOnOtherDevice = false;
         });
-        DriverOverlayService.instance.isOnline = false;
         // Audio feedback: offline double-tone.
         // ignore: discarded_futures
         AppSoundService.instance.playOfflineSound();
-        // Bubble/overlay teardown + sticky-signal cancel + driver-topic
-        // unsubscribe.
-        // ignore: discarded_futures
-        DriverOverlayService.instance.hide();
         // ignore: discarded_futures
         PushNotificationService.cancelOnlineAlert();
         // ignore: discarded_futures
@@ -1305,55 +1207,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _goOnlineWithVerifiedProfile() async {
-    // ── Overlay permission gate (Android only) ────────────────────────────
-    // The floating SeSe bubble and background order popup both require
-    // SYSTEM_ALERT_WINDOW. Without it the driver can go ONLINE but will never
-    // see incoming offers in the background — a silent failure that looks like
-    // a dispatch problem. Gate here (before the server handshake) so the user
-    // can act on the prompt before any state changes.
-    //
-    // Non-Android (iOS, web, tests) always passes — overlay is Android-only.
-    if (Platform.isAndroid) {
-      final hasOverlay = await DriverOverlayService.instance
-          .ensurePermission(context: context);
-      if (!mounted) return;
-      if (!hasOverlay) {
-        // Permission was explicitly declined or the OS prompt was dismissed.
-        // Show a targeted dialog explaining the feature impact and send the
-        // driver to Android Settings — the go-online flow is halted here.
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            icon: const Icon(Icons.layers_outlined,
-                size: 36, color: AppColors.seseGold),
-            title: const Text('"Display over other apps" Required'),
-            content: const Text(
-              'To receive incoming trip offers when the app is in the '
-              'background, SeSe needs the \'Display over other apps\' '
-              'permission.\n\nTap "Open Settings", enable it for SeSe, then '
-              'return here and tap GO ONLINE again.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Later'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  // FlutterOverlayWindow uses its own settings launcher;
-                  // fall back to a SnackBar hint if unsupported.
-                  DriverOverlayService.instance
-                      .ensurePermission(context: context);
-                },
-                child: const Text('Open Settings'),
-              ),
-            ],
-          ),
-        );
-        return; // halt — driver must re-tap GO ONLINE after granting
-      }
-    }
 
     // Refresh the fleet right before the guard: the cached list is from
     // screen load, but hub approval may have landed after that — a stale
@@ -1489,17 +1342,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _currentSessionId = decision.sessionId;
           _streaks.activeSessionId = decision.sessionId;
         });
-        DriverOverlayService.instance.isOnline = true;
         unawaited(_persistOnlineSession(decision.sessionId));
         // Audio feedback: online chime.
         // ignore: discarded_futures
         AppSoundService.instance.playOnlineSound();
-        // Overlay bubble readiness + sticky foreground signal + driver-topic
-        // push subscription. Background location is best-effort: foreground
-        // fixes work without it, but the OS only keeps delivering fixes
-        // while minimized when it is granted.
-        // ignore: discarded_futures
-        DriverOverlayService.instance.ensurePermission(context: context);
+        // Sticky foreground signal + driver-topic push subscription.
         // ignore: discarded_futures
         MediaPermissionService.ensureBackgroundLocation();
         // ignore: discarded_futures
@@ -2866,7 +2713,6 @@ class _PingListenerState extends State<_PingListener> {
       final type = data['type'] ?? '';
       final tripId = data['tripId'] ?? '';
       if (type == 'offer_cancelled' || type == 'trip_cancelled') {
-        DriverOverlayService.instance.closeOverlayWidget();
         if (_sheetOpen && _sheetForTrip == tripId) {
           _sheetOpen = false;
           _sheetForTrip = null;
@@ -2896,7 +2742,6 @@ class _PingListenerState extends State<_PingListener> {
           builder: (context, pingSnap) {
             final ping = pingSnap.data;
             if (ping == null) {
-              DriverOverlayService.instance.closeOverlayWidget();
               if (_sheetOpen && mounted) {
                 // Ping resolved elsewhere (accepted/expired/cancelled).
                 _sheetOpen = false;
@@ -2931,37 +2776,6 @@ class _PingListenerState extends State<_PingListener> {
     if (_sheetOpen || !mounted) return;
     _sheetForTrip = ping.tripId;
     _sheetOpen = true;
-    final fareLabel = ping.fareFormatted.isNotEmpty
-        ? ping.fareFormatted
-        : '₦${ping.fareAmount.toStringAsFixed(0)}';
-    if (widget.isAppPaused()) {
-      // Do NOT force app to full screen upon arrival: let driver interact with or view
-      // the prompt via the active floating overlay system per Rule 3.
-      setState(() => _sheetOpen = true);
-      // ignore: discarded_futures
-      AppSoundService.instance.playIncomingOrderAlert(
-        minDuration: Duration(
-          seconds: RemoteConfigService.stage1OfferCountdownSeconds > 0
-              ? RemoteConfigService.stage1OfferCountdownSeconds
-              : 20,
-        ),
-      );
-      await DriverOverlayService.instance.showOrderOffer(
-        tripId: ping.tripId,
-        pickup: ping.pickupAddress,
-        dropoff: ping.dropoffAddress,
-        distanceKm: ping.distanceKm.toStringAsFixed(1),
-        fare: fareLabel,
-        pickupLat: ping.pickupLat,
-        pickupLng: ping.pickupLng,
-        dropoffLat: ping.dropoffLat,
-        dropoffLng: ping.dropoffLng,
-      );
-      if (mounted) setState(() => _sheetOpen = false);
-      // ignore: discarded_futures
-      AppSoundService.instance.stopIncomingOrderAlert();
-      return;
-    }
     setState(() => _sheetOpen = true);
     // Urgent order alert loop — enforces full configured countdown window.
     // ignore: discarded_futures
@@ -2998,9 +2812,7 @@ class _PingListenerState extends State<_PingListener> {
     // Sheet dismissed (accepted / skipped / timed out) — stop alert.
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
-    if (mounted) {
-      setState(() => _sheetOpen = false);
-    }
+    if (mounted) setState(() => _sheetOpen = false);
   }
 }
 

@@ -11,7 +11,6 @@ import '../../auth/login_page.dart';
 import '../../home/customer_home_shell.dart';
 import '../../home/driver_home_shell.dart';
 import '../../settings/role_controller.dart';
-import '../services/driver_overlay_service.dart';
 import '../../../widgets/location_picker_map.dart';
 
 /// Step 2 of driver registration: Driver Personal Information Form.
@@ -500,8 +499,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       }
     } else if (choice == 'sign_out') {
       try {
-        // Clean up active session listeners, ongoing alerts, and overlay services
-        DriverOverlayService.instance.hide();
+        // Clean up active session listeners and ongoing alerts
         PushNotificationService.cancelOnlineAlert();
         CallServiceManager.instance.clearUserSession();
         AwarenessTooltipService.instance.resetSession();

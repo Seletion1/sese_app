@@ -280,7 +280,7 @@ async function notifyDriver(driverId, tripId, title, body, type, extra = {}) {
             },
             apns: { payload: { aps: { sound: "default" } } },
             data: Object.assign({ type,
-                tripId, click_action: "FLUTTER_NOTIFICATION_CLICK" }, extra),
+                tripId, click_action: "FLUTTER_NOTIFICATION_CLICK", fullScreen: "true" }, extra),
         });
     }
     catch (e) {

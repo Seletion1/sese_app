@@ -337,6 +337,7 @@ async function notifyDriver(
         type,
         tripId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
+        fullScreen: "true",
         ...extra,
       },
     });
