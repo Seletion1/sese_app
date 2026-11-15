@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Native Full-Screen Intent WhatsApp-Style Incoming Orders & Complete Floating Overlay Purge
+
+- **1. Complete Floating Window Overlay Purge (`sese_ride`, `AndroidManifest.xml`, `MainActivity.kt`)**:
+  - Removed `SYSTEM_ALERT_WINDOW` permission and the foreground `OverlayService` definition from `sese_ride/android/app/src/main/AndroidManifest.xml`.
+  - Removed `flutter_overlay_window` from `pubspec.yaml` and purged `lib/driver_overlay_entry.dart` and `lib/features/driver/services/driver_overlay_service.dart`.
+  - Cleaned all floating window initialization, bubble management, and background window methods from `driver_dashboard_screen.dart`, `driver_home_shell.dart`, `driver_onboarding_screen.dart`, `settings_screen.dart`, and `main.dart`.
+
+- **2. WhatsApp-Style Full-Screen Intent Navigation**:
+  - Configured high-priority FCM notifications on `sese_orders` channel (`priority: 'high'`, `importance: Importance.max`, `category: AndroidNotificationCategory.call`, `fullScreenIntent: true`, `audioAttributesUsage: AudioAttributesUsage.notificationRingtone`, `fullScreen: 'true'`) in `functions/src/trips.ts` and `sese_core/lib/services/push_notification_service.dart`.
+  - In `MainActivity.kt`: enabled `setShowWhenLocked(true)`, `setTurnScreenOn(true)`, `FLAG_SHOW_WHEN_LOCKED`, `FLAG_TURN_SCREEN_ON`, `FLAG_DISMISS_KEYGUARD`, and `FLAG_KEEP_SCREEN_ON` across both `onCreate` and `onNewIntent`, ensuring the device screen turns on and bypasses keyguard instantly when an incoming order ping arrives.
+  - In `driverBackgroundHandler` (`sese_ride/lib/background_handler.dart`): directly dispatches the high-priority `fullScreenIntent` notification waking the device and launching the unified in-app `IncomingOfferSheet` (`driver_dashboard_screen.dart`), matching `Screenshot_20261115_012554.jpg` identically whether the app is open or backgrounded/locked.
+
+- **3. Offline / Test Graceful Degradation & Stability (`trip_service.dart`)**:
+  - Added `_safeDb` to `FirestoreTripRepository` guarding `tripStream`, `activeTripsStream`, `bidsStream`, `activeDriverBidStream`, and `driverBidForTripStream` against uninitialized Firebase exceptions during widget tests.
+
+- **4. Verification & Testing**:
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+  - Flutter Unit & Widget Tests: 44/44 passed in `sese_ride`, 71/71 passed in `sese_hub`, 153/153 passed in `sese_core`.
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors across `sese_ride`, `sese_hub`, and `sese_core`.
+  - Firebase Deployment: functions and rules successfully deployed.
+
 ## 2026-11-15 — Out-of-Range Drop-Off Confirmation & False Trip Cancellation Elimination Architecture
 
 - **1. Resilient Out-of-Range Customer Approval State Machine (`functions/src/trips.ts`, `functions/src/driverStatus.ts`, `trip_models.dart`)**:

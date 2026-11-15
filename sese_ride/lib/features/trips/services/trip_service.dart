@@ -113,6 +113,14 @@ class FirestoreTripRepository implements TripRepository {
   FirebaseFirestore get _db => FirebaseFirestore.instance;
   FirebaseFunctions get _fn => FirebaseFunctions.instance;
 
+  FirebaseFirestore? get _safeDb {
+    try {
+      return FirebaseFirestore.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<String> createTrip(TripDraft draft) async {
     return _callWithAuthRetry(() async {
@@ -133,7 +141,9 @@ class FirestoreTripRepository implements TripRepository {
 
   @override
   Stream<ActiveTrip?> tripStream(String tripId) {
-    return _db.collection('trips').doc(tripId).snapshots().map((doc) {
+    final db = _safeDb;
+    if (db == null || tripId.isEmpty) return Stream.value(null);
+    return db.collection('trips').doc(tripId).snapshots().map((doc) {
       if (!doc.exists) return null;
       return ActiveTrip.fromMap(doc.id, doc.data() ?? {});
     });
@@ -142,10 +152,12 @@ class FirestoreTripRepository implements TripRepository {
   @override
   Stream<List<ActiveTrip>> activeTripsStream(String customerId) {
     if (customerId.isEmpty) return Stream.value(const []);
+    final db = _safeDb;
+    if (db == null) return Stream.value(const []);
     // Single-field query on purpose: no composite index required.
     // Terminal and cancelled states are filtered client-side via [ActiveTrip.isCustomerLive].
     // Optimistically cancelled trips are purged immediately before server round-trip.
-    return _db
+    return db
         .collection('trips')
         .where('customerId', isEqualTo: customerId)
         .snapshots()
@@ -481,7 +493,9 @@ class FirestoreTripRepository implements TripRepository {
   @override
   Stream<List<BidModel>> bidsStream(String tripId) {
     if (tripId.isEmpty) return Stream.value(const <BidModel>[]);
-    return _db
+    final db = _safeDb;
+    if (db == null) return Stream.value(const <BidModel>[]);
+    return db
         .collection('trips')
         .doc(tripId)
         .collection('bids')
@@ -506,7 +520,9 @@ class FirestoreTripRepository implements TripRepository {
   @override
   Stream<BidModel?> activeDriverBidStream(String driverId) {
     if (driverId.isEmpty) return Stream.value(null);
-    return _db
+    final db = _safeDb;
+    if (db == null) return Stream.value(null);
+    return db
         .collectionGroup('bids')
         .where('driverId', isEqualTo: driverId)
         .snapshots()
@@ -527,7 +543,9 @@ class FirestoreTripRepository implements TripRepository {
   @override
   Stream<BidModel?> driverBidForTripStream(String tripId, String driverId) {
     if (tripId.isEmpty || driverId.isEmpty) return Stream.value(null);
-    return _db
+    final db = _safeDb;
+    if (db == null) return Stream.value(null);
+    return db
         .collection('trips')
         .doc(tripId)
         .collection('bids')
