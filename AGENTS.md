@@ -72,6 +72,24 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Send Item Location Sheet Refinement: Contextual "Pick on Map", Auto-Hide on Collapse & Removal of Collapse Toggle
+
+- **1. Contextual Visibility of "Pick on Map" (`customer_dispatch_screen.dart`)**:
+  - Housed "Pick on map" directly within the expanded address selection/search view alongside the "Recent Places" list (`_buildStep1ExpandedCard`).
+  - Completely removed persistent standalone cards or floating "Pick on map" items outside of the expanded address sheet.
+
+- **2. Automatic Hide of "Pick on Map" & "Recent Places" on Sheet Collapse (`customer_dispatch_screen.dart`)**:
+  - The instant both pickup and drop-off addresses are set (`_addressesReady`), `_updateMapBoundsAndRoute()` automatically sets `_isAddressCardCollapsed = true`, transitioning the sheet into the compact route summary view (`_buildStep1CollapsedSummary`) matching `Screenshot_20261115_204545.jpg`.
+  - When collapsed, both "Pick on map" and "Recent Places" are completely hidden from the viewport, exposing the clean map route geometry beneath.
+  - Tapping the collapsed card or its edit pen icon expands the sheet back to the full address editor.
+
+- **3. Complete Removal of Manual Collapse Toggle (`customer_dispatch_screen.dart`)**:
+  - Purged the manual `"Collapse to view map"` button and its state handlers entirely. Sheet collapse relies exclusively on automatic collapse once valid locations are resolved.
+
+- **4. Verification & Testing**:
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors ("No issues found!").
+  - Unit & Widget Tests: 11/11 passed in `sese_ride/test/dispatch_and_fleet_test.dart` and 5/5 passed in `sese_ride/test/customer_home_map_test.dart`.
+
 ## 2026-11-15 — Unified Role-Based Permission Dashboard & Zero Cold-Launch Standalone Request Flow
 
 - **1. Standalone Permission Request Suppression on Cold Launch (`main.dart`, `location_service.dart`, `push_notification_service.dart`)**:

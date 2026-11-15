@@ -1161,6 +1161,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       setState(() {
         _previewPickup = pickup;
         _previewDropoff = dropoff;
+        _isAddressCardCollapsed = true;
       });
     }
     _fetchRoutePreview();
@@ -2165,6 +2166,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (_pickupLatLng != null) ...[
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 16,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 5),
@@ -2189,6 +2198,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (_dropoffLatLng != null) ...[
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.check_circle,
+                      color: Colors.green,
+                      size: 16,
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -2499,25 +2516,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              if (_addressesReady)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Center(
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.map_outlined, size: 14),
-                      label: const Text(
-                        'Collapse to view map',
-                        style: TextStyle(fontSize: 11),
-                      ),
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        foregroundColor: scheme.primary,
-                      ),
-                      onPressed: () =>
-                          setState(() => _isAddressCardCollapsed = true),
-                    ),
                   ),
                 ),
             ],
