@@ -622,40 +622,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// Best-effort platform fix for the signed online payload and the
   /// incoming-offer route preview. Never throws: falls back to the seeded
   /// default when location is unavailable (denied, disabled, test env).
+  /// All location permissions are governed exclusively by the Permission Dashboard;
+  /// standalone prompts are completely suppressed.
   Future<void> _resolvePosition() async {
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (!enabled) return;
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        // Step 1 — foreground disclosure (ACCESS_FINE_LOCATION).
-        if (mounted) {
-          final agreedFg =
-              await ProminentLocationDisclosureDialog.showForeground(
-            context,
-            userId: widget.driverId,
-          );
-          if (!agreedFg) return;
-        }
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return;
-      }
-      // Step 2 — background disclosure (ACCESS_BACKGROUND_LOCATION) only
-      // when foreground was just granted and background is not yet granted.
-      // Drivers need background GPS for dispatch even when the app is closed.
-      if (permission == LocationPermission.whileInUse && mounted) {
-        final agreedBg = await ProminentLocationDisclosureDialog.show(
-          context,
-          userId: widget.driverId,
-        );
-        if (agreedBg) {
-          // Re-request so the OS can escalate to Always-Allow.
-          permission = await Geolocator.requestPermission();
-        }
-      }
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return;

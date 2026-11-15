@@ -7,6 +7,7 @@ import '../driver/services/driver_fleet_service.dart';
 import '../home/customer_home_shell.dart';
 import '../home/driver_home_shell.dart';
 import '../permissions/permission_onboarding_gate.dart';
+import '../permissions/permission_onboarding_service.dart';
 import 'role_controller.dart';
 
 /// Dual-role mode switching, launched from Settings ("App Mode").
@@ -130,6 +131,13 @@ abstract final class ModeSwitcher {
     switch (scenario) {
       case DriverOnboardingScenario.scenarioA:
         await RoleController.instance.activateMode(user.uid, UserRole.driver);
+        // Reset cached flag so PermissionOnboardingGate dynamically validates
+        // that all driver-specific permissions (Background Location, Storage)
+        // are granted at the OS level. If missing, the permission board displays.
+        await PermissionOnboardingService.resetCompletionFlag(
+          userId: user.uid,
+          role: UserRole.driver,
+        );
         rootNavigator.pushAndRemoveUntil(
           MaterialPageRoute(
             builder: (_) => PermissionOnboardingGate.wrap(

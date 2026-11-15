@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Unified Role-Based Permission Dashboard & Zero Cold-Launch Standalone Request Flow
+
+- **1. Standalone Permission Request Suppression on Cold Launch (`main.dart`, `location_service.dart`, `push_notification_service.dart`)**:
+  - Suppressed all automatic standalone permission prompts (notifications, location) on cold app launch and startup. `PushNotificationService.init` runs with `requestPermissionImmediately: false`. Location status checks (`Geolocator.checkPermission()`) run passively without popping OS location prompts on boot.
+  - No permissions are requested until the user explicitly selects or transitions into a user role.
+
+- **2. Unified Role-Based Permission Board (`permission_onboarding_screen.dart`, `permission_item_model.dart`, `permission_onboarding_service.dart`)**:
+  - Implemented the full-screen Permission Dashboard displaying required permissions grouped by user role:
+    - **Customer Mode**: Location Access (`location`), Notifications (`notifications`).
+    - **Driver Mode**: Precise Location (`precise_location`), Background Location (`background_location`), Notifications (`notifications`), Photos & Storage (`photos_storage`).
+  - Card status indicators dynamically reflect current OS state (`Granted` with green check badge vs `Required` with gold info badge).
+  - Individual card taps or bottom "Grant Permissions" button tap execute sequential, batch OS permission requests (requesting foreground location before background location, notifications, and storage/photos).
+
+- **3. Role-Switching Re-Evaluation (`mode_switcher.dart`, `permission_onboarding_gate.dart`)**:
+  - Switching modes (e.g., Customer $\rightarrow$ Driver in Settings) resets the completion flag and evaluates permission state via `PermissionOnboardingGate`. If any driver-specific permission (Background Location, Storage) is missing, the Permission Dashboard automatically presents displaying remaining ungranted permissions.
+
+- **4. Verification & Testing**:
+  - Flutter Unit & Widget Tests: 9/9 passed in `sese_ride/test/permission_onboarding_test.dart` (100%).
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors across `sese_ride`, `sese_core`, and `sese_hub`.
+
 ## 2026-11-15 — Full-Screen Incoming Order Instant Pop-up Over Home Screen & Multi-Channel Dispatch
 
 - **1. Instant Full-Screen Overlay Order Card on Home Screen / External Apps (`background_handler.dart`, `driver_overlay_entry.dart`)**:

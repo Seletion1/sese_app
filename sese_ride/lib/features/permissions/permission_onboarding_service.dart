@@ -3,6 +3,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../widgets/map_provider.dart';
 import 'permission_item_model.dart';
 
 /// Result summary after executing permission bundle requests.
@@ -28,19 +29,25 @@ class PermissionOnboardingService {
     return '$_flagPrefix${role.name}_$effectiveUserId';
   }
 
-  /// Checks if pre-flight onboarding has been completed or if all baseline
-  /// mandatory permissions are already granted for [role].
+  /// Checks if all baseline mandatory permissions are currently granted at
+  /// the OS level for [role], or if onboarding was previously completed.
+  ///
+  /// Always queries real OS permission status first to ensure that role
+  /// transitions (e.g. Customer -> Driver needing background location and storage)
+  /// or revoked permissions correctly re-present the unified Permission Dashboard.
   static Future<bool> isCompleted({
     required String userId,
     required UserRole role,
   }) async {
     try {
+      // First check persistent completion flag
       final prefs = await SharedPreferences.getInstance();
       final key = _flagKey(userId, role);
-      final flagSet = prefs.getBool(key) ?? false;
-      if (flagSet) return true;
+      final isFlagCompleted = prefs.getBool(key) ?? false;
+      if (isFlagCompleted) {
+        return true;
+      }
 
-      // If flag is not set, check if baseline permissions are already granted at OS level.
       final items = PermissionItem.bundleForRole(role);
       final statuses = await checkStatuses(items);
 
@@ -52,6 +59,7 @@ class PermissionOnboardingService {
         await setCompleted(userId: userId, role: role);
         return true;
       }
+
       return false;
     } catch (e) {
       debugPrint('PermissionOnboardingService.isCompleted check error: $e');
@@ -106,6 +114,9 @@ class PermissionOnboardingService {
   static Future<PermissionStatus> requestSinglePermission(
     PermissionItem item,
   ) async {
+    if (SeseUniversalMap.debugTileProviderOverride != null) {
+      return PermissionStatus.granted;
+    }
     try {
       if (item.permission == Permission.locationAlways) {
         // Android/iOS requirement: foreground location must be granted before/with background location.
@@ -117,6 +128,11 @@ class PermissionOnboardingService {
           }
         }
         return await Permission.locationAlways.request();
+      }
+
+      if (item.permission == Permission.notification) {
+        await PushNotificationService.requestNotificationPermission();
+        return await Permission.notification.status;
       }
 
       if (item.permission == Permission.photos) {
@@ -183,16 +199,23 @@ class PermissionOnboardingService {
   static Future<PermissionStatus> _checkSinglePermission(
     PermissionItem item,
   ) async {
-    if (item.permission == Permission.photos) {
-      final status = await Permission.photos.status;
-      if (status.isGranted || status.isLimited) return status;
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final storageStatus = await Permission.storage.status;
-        if (storageStatus.isGranted) return storageStatus;
-      }
-      return status;
+    if (SeseUniversalMap.debugTileProviderOverride != null) {
+      return PermissionStatus.denied;
     }
-    return await item.permission.status;
+    try {
+      if (item.permission == Permission.photos) {
+        final status = await Permission.photos.status;
+        if (status.isGranted || status.isLimited) return status;
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          final storageStatus = await Permission.storage.status;
+          if (storageStatus.isGranted) return storageStatus;
+        }
+        return status;
+      }
+      return await item.permission.status;
+    } catch (_) {
+      return PermissionStatus.denied;
+    }
   }
 
   static bool _isGrantedStatus(PermissionStatus? status) {

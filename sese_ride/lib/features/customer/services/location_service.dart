@@ -139,10 +139,7 @@ class LocationService {
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (!enabled) return _cachedLastKnown;
 
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return _cachedLastKnown;

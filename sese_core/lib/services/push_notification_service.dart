@@ -190,21 +190,26 @@ class PushNotificationService {
   /// the app needs richer background behaviour — for example, `sese_ride`
   /// passes its overlay-capable handler so order pings fire the full-screen
   /// order card directly instead of a banner notification.
+  ///
+  /// Set [requestPermissionImmediately] to true ONLY when immediate cold-start
+  /// system prompt is desired. For role-based onboarding dashboards (e.g. `sese_ride`),
+  /// leave false (the default) so no permissions are requested until after role selection.
   static Future<void> init({
     void Function(Map<String, String> data)? onTap,
     BackgroundMessageHandler? backgroundMessageHandler,
+    bool requestPermissionImmediately = false,
   }) async {
     _onTap = onTap;
     try {
       const androidSettings =
           AndroidInitializationSettings('@mipmap/ic_launcher');
-      const iosSettings = DarwinInitializationSettings(
-        requestAlertPermission: true,
-        requestBadgePermission: true,
-        requestSoundPermission: true,
+      final iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: requestPermissionImmediately,
+        requestBadgePermission: requestPermissionImmediately,
+        requestSoundPermission: requestPermissionImmediately,
       );
       await _local.initialize(
-        settings: const InitializationSettings(
+        settings: InitializationSettings(
             android: androidSettings, iOS: iosSettings),
         onDidReceiveNotificationResponse: (response) {
           _handleTap(response.payload);
@@ -229,7 +234,9 @@ class PushNotificationService {
 
     try {
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      if (requestPermissionImmediately) {
+        await messaging.requestPermission(alert: true, badge: true, sound: true);
+      }
       await messaging
           .setForegroundNotificationPresentationOptions(
               alert: true, badge: true, sound: true);
@@ -259,6 +266,22 @@ class PushNotificationService {
       }
     } catch (e) {
       debugPrint('PushNotificationService FCM wiring failed: $e');
+    }
+  }
+
+  /// Explicitly requests notification permissions on-demand (e.g., from the
+  /// unified role-based Permission Dashboard after user selects role).
+  static Future<NotificationSettings?> requestNotificationPermission() async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+      return await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } catch (e) {
+      debugPrint('PushNotificationService requestNotificationPermission error: $e');
+      return null;
     }
   }
 

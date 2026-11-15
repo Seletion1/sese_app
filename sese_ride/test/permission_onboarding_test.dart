@@ -7,11 +7,15 @@ import 'package:sese_ride/features/permissions/permission_onboarding_screen.dart
 import 'package:sese_ride/features/permissions/permission_onboarding_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:sese_ride/widgets/map_provider.dart';
+import 'package:sese_ride/widgets/osm_map_view.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    SeseUniversalMap.debugTileProviderOverride = BlankTileProvider();
   });
 
   group('PermissionItem Bundles', () {

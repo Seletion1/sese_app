@@ -84,21 +84,13 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
   /// Best-effort platform fix for map centering. Never throws: falls back
   /// to the seeded default when location is unavailable.
+  /// All location permissions are governed exclusively by the Permission Dashboard;
+  /// standalone prompts are completely suppressed.
   Future<void> _resolvePosition() async {
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
       if (!enabled) return;
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        if (mounted) {
-          final agreed = await ProminentLocationDisclosureDialog.showForeground(
-            context,
-            userId: widget.user?.uid,
-          );
-          if (!agreed) return;
-        }
-        permission = await Geolocator.requestPermission();
-      }
+      final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return;

@@ -127,10 +127,13 @@ void main() async {
   final installedVersion = await _resolveInstalledVersion();
 
   // Unified high-priority push (order/chat/system) with custom chime.
+  // Suppress immediate notification permission prompt on cold launch:
+  // All permissions are handled exclusively via the role-based Permission Dashboard.
   // ignore: discarded_futures
   PushNotificationService.init(
     onTap: _handlePushTap,
     backgroundMessageHandler: driverBackgroundHandler,
+    requestPermissionImmediately: false,
   );
   // Keep a static reference so the overlay entry-point is retained.
   // ignore: unnecessary_statements

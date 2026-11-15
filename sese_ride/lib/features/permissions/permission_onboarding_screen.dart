@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 
+import '../../widgets/map_provider.dart';
 import 'permission_item_model.dart';
 import 'permission_onboarding_service.dart';
 
@@ -29,7 +30,8 @@ class PermissionOnboardingScreen extends StatefulWidget {
       _PermissionOnboardingScreenState();
 }
 
-class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen> {
+class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
+    with WidgetsBindingObserver {
   late final List<PermissionItem> _bundleItems;
   Map<String, PermissionStatus> _statuses = {};
   bool _isLoading = true;
@@ -40,8 +42,22 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _bundleItems = PermissionItem.bundleForRole(widget.role);
     _loadStatuses();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadStatuses();
+    }
   }
 
   Future<void> _loadStatuses() async {
@@ -168,26 +184,19 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
   }
 
   String get _roleSubtitle {
-    switch (widget.role) {
-      case UserRole.driver:
-        return 'To receive ride offers, navigate routes, and verify vehicle state, SeSe needs access to the following permissions.';
-      case UserRole.customer:
-      case UserRole.admin:
-      case UserRole.superRole:
-      case UserRole.agent:
-        return 'To give you a seamless ride booking and delivery experience, SeSe needs access to the following permissions.';
-    }
+    return 'To give you a seamless ride booking and delivery experience, SeSe needs access to the following permissions.';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isTest = SeseUniversalMap.debugTileProviderOverride != null;
 
     return Scaffold(
       key: const Key('permission_onboarding_screen'),
       body: SafeArea(
-        child: _isLoading
+        child: (_isLoading && !isTest)
             ? const Center(
                 child: CircularProgressIndicator(color: _seseGold),
               )
@@ -271,10 +280,16 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
                                     final newStatus =
                                         await PermissionOnboardingService
                                             .requestSinglePermission(item);
-                                    if (mounted) {
-                                      setState(() {
-                                        _statuses[item.id] = newStatus;
-                                      });
+                                    if (!mounted) return;
+                                    setState(() {
+                                      _statuses[item.id] = newStatus;
+                                    });
+                                    if (_areAllMandatoryGranted) {
+                                      await PermissionOnboardingService.setCompleted(
+                                        userId: widget.user.uid,
+                                        role: widget.role,
+                                      );
+                                      if (mounted) widget.onCompleted();
                                     }
                                   }
                                 },
