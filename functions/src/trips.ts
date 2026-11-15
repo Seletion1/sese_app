@@ -164,6 +164,7 @@ type TripStatusWire =
   | "DRIVER_ARRIVING"
   | "DRIVER_ARRIVED"
   | "IN_PROGRESS"
+  | "pending_customer_approval"
   | "COMPLETED"
   | "CANCELLED"
   | "returned_to_customer"
@@ -179,6 +180,7 @@ const LIVE_STATUSES: TripStatusWire[] = [
   "DRIVER_ARRIVING",
   "DRIVER_ARRIVED",
   "IN_PROGRESS",
+  "pending_customer_approval",
 ];
 
 /**
@@ -2284,7 +2286,8 @@ const DRIVER_TRANSITIONS: Record<string, string[]> = {
   DRIVER_ACCEPTED: ["DRIVER_ARRIVING", "DRIVER_ARRIVED"],
   DRIVER_ARRIVING: ["DRIVER_ARRIVED"],
   DRIVER_ARRIVED: ["IN_PROGRESS"],
-  IN_PROGRESS: ["COMPLETED"],
+  IN_PROGRESS: ["COMPLETED", "pending_customer_approval"],
+  pending_customer_approval: ["COMPLETED", "IN_PROGRESS"],
 };
 
 /** Driver advances arrival/progress/completion along the allowed chain. */
@@ -2393,6 +2396,33 @@ export const advanceTripStatus = onCall(async (request) => {
       update["arrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
     } else if (status === "IN_PROGRESS" && !data.startedAt) {
       update["startedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    } else if (status === "pending_customer_approval") {
+      const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
+      const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
+      const dLat = Number(
+        request.data?.driverLat ??
+        request.data?.lat ??
+        request.data?.latitude ??
+        data.driverLocation?.lat ??
+        0
+      );
+      const dLng = Number(
+        request.data?.driverLng ??
+        request.data?.lng ??
+        request.data?.longitude ??
+        data.driverLocation?.lng ??
+        0
+      );
+      let distanceM = 0;
+      if (dropoffLat !== 0 && dropoffLng !== 0 && dLat !== 0 && dLng !== 0) {
+        distanceM = Math.round(haversineKm(dLat, dLng, dropoffLat, dropoffLng) * 1000);
+      }
+      const reason = String(request.data?.reason ?? "Driver dropped off at customer's new location").trim();
+      update["dropoffApprovalStatus"] = "PENDING";
+      update["dropoffApprovalRequestedAt"] = admin.firestore.FieldValue.serverTimestamp();
+      update["dropoffApprovalDriverLocation"] = { lat: dLat, lng: dLng };
+      update["dropoffApprovalDistanceMeters"] = distanceM;
+      update["dropoffApprovalReason"] = reason;
     } else if (status === "COMPLETED") {
       update["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
       update["cancellationSource"] = null;
@@ -2525,6 +2555,39 @@ export const advanceTripStatus = onCall(async (request) => {
           "card_payment_failed"
         );
       }
+    }
+  } else if (status === "pending_customer_approval" && snapAfterData) {
+    const tripObj = snapAfterData as Record<string, any>;
+    const customerId = String(tripObj.customerId ?? tripObj.userId ?? "");
+    const distanceM = Number(tripObj.dropoffApprovalDistanceMeters ?? 0);
+    const distStr = distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)}km` : `${distanceM}m`;
+    if (customerId) {
+      await notifyCustomer(
+        customerId,
+        String(tripId),
+        "Drop-off Confirmation Required",
+        "Confirm driver has dropped off your item at your new location?",
+        "dropoff_approval_request",
+        {
+          tripId: String(tripId),
+          type: "dropoff_approval_request",
+          distanceMeters: String(distanceM),
+          distanceText: distStr,
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+        }
+      );
+    }
+    try {
+      await db().collection("driver_status").doc(request.auth!.uid).set(
+        {
+          activeTripId: String(tripId),
+          activeTripStatus: "pending_customer_approval",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn(`advanceTripStatus: driver_status update failed: ${err}`);
     }
   }
   return { ok: true };
@@ -4638,10 +4701,10 @@ export const requestDropoffApproval = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
 
-  if (data.status !== "IN_PROGRESS") {
+  if (data.status !== "IN_PROGRESS" && data.status !== "pending_customer_approval") {
     throw new HttpsError(
       "failed-precondition",
-      `Trip must be IN_PROGRESS (currently ${data.status}).`
+      `Trip must be IN_PROGRESS or pending_customer_approval (currently ${data.status}).`
     );
   }
 
@@ -4659,6 +4722,7 @@ export const requestDropoffApproval = onCall(async (request) => {
   const radiusM = await getDropoffRadiusMeters();
 
   await ref.update({
+    status: "pending_customer_approval",
     dropoffApprovalStatus: "PENDING",
     dropoffApprovalRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
     dropoffApprovalDriverLocation: { lat: driverLat, lng: driverLng },
@@ -4667,7 +4731,7 @@ export const requestDropoffApproval = onCall(async (request) => {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     statusHistory: admin.firestore.FieldValue.arrayUnion({
       from: String(data.status),
-      to: String(data.status),
+      to: "pending_customer_approval",
       actor: driverId,
       role: "driver",
       action: "request_dropoff_approval",
@@ -4675,6 +4739,19 @@ export const requestDropoffApproval = onCall(async (request) => {
       timestamp: nowMs(),
     }),
   });
+
+  try {
+    await db().collection("driver_status").doc(driverId).set(
+      {
+        activeTripId: tripId,
+        activeTripStatus: "pending_customer_approval",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn(`requestDropoffApproval: driver_status update failed: ${err}`);
+  }
 
   const customerId = String(data.customerId ?? data.userId ?? "");
   if (customerId) {
@@ -4737,7 +4814,7 @@ export const respondDropoffApproval = onCall(async (request) => {
       );
     }
 
-    if (data.dropoffApprovalStatus !== "PENDING") {
+    if (data.dropoffApprovalStatus !== "PENDING" && data.status !== "pending_customer_approval") {
       if (data.status === "COMPLETED") {
         return; // Idempotent
       }
@@ -4777,13 +4854,15 @@ export const respondDropoffApproval = onCall(async (request) => {
         timestamp: nowMs(),
       });
     } else {
+      const currentStatus = String(data.status);
       const update: Record<string, unknown> = {
+        status: "IN_PROGRESS",
         dropoffApprovalStatus: "REJECTED",
         dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         statusHistory: admin.firestore.FieldValue.arrayUnion({
-          from: String(data.status),
-          to: String(data.status),
+          from: currentStatus,
+          to: "IN_PROGRESS",
           actor: customerId,
           role: "customer",
           reason: "remote_customer_dropoff_rejected",
@@ -4796,9 +4875,10 @@ export const respondDropoffApproval = onCall(async (request) => {
   });
 
   if (approved && snapAfterData) {
+    const fromStatus = String((snapAfterData as any)?.statusHistory?.slice(-2)?.[0]?.from ?? "IN_PROGRESS");
     logTripTransition({
       tripId,
-      from: "IN_PROGRESS",
+      from: fromStatus,
       to: "COMPLETED",
       actor: customerId,
       role: "customer",
@@ -4826,6 +4906,18 @@ export const respondDropoffApproval = onCall(async (request) => {
     return { ok: true, approved: true, completed: true };
   } else {
     if (driverId) {
+      try {
+        await db().collection("driver_status").doc(driverId).set(
+          {
+            activeTripId: tripId,
+            activeTripStatus: "IN_PROGRESS",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn(`respondDropoffApproval: driver_status update failed: ${err}`);
+      }
       await notifyCustomer(
         driverId,
         tripId,
@@ -4860,11 +4952,24 @@ export const cancelDropoffApprovalRequest = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
 
-  if (data.dropoffApprovalStatus === "PENDING") {
+  if (data.dropoffApprovalStatus === "PENDING" || data.status === "pending_customer_approval") {
     await ref.update({
+      status: "IN_PROGRESS",
       dropoffApprovalStatus: null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    try {
+      await db().collection("driver_status").doc(driverId).set(
+        {
+          activeTripId: tripId,
+          activeTripStatus: "IN_PROGRESS",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn(`cancelDropoffApprovalRequest: driver_status update failed: ${err}`);
+    }
   }
   return { ok: true };
 });

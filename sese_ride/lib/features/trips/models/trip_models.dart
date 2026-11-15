@@ -73,6 +73,10 @@ enum TripStatus {
   /// Drivers submit custom fares; customer accepts the best bid.
   bidding('bidding'),
 
+  /// Driver requested out-of-range drop-off confirmation from the customer.
+  /// Customer must approve or reject before completion is allowed.
+  pendingCustomerApproval('pending_customer_approval'),
+
   /// Unknown / future-proof fallback (never thrown — renders as searching).
   unknown('UNKNOWN');
 
@@ -131,6 +135,9 @@ TripStatus tripStatusFromString(String? raw) {
       return TripStatus.expired;
     case 'BIDDING':
       return TripStatus.bidding;
+    case 'PENDING_CUSTOMER_APPROVAL':
+    case 'PENDINGCUSTOMERAPPROVAL':
+      return TripStatus.pendingCustomerApproval;
     case 'REJECTED':
       return TripStatus.rejected;
     case 'IGNORED':
@@ -422,7 +429,9 @@ class ActiveTrip {
   /// releasing the total collectible fare breakdown to the driver session.
   final bool driverAcceptedFinancialsReleased;
 
-  bool get isDropoffApprovalPending => dropoffApprovalStatus == 'PENDING';
+  bool get isDropoffApprovalPending =>
+      dropoffApprovalStatus == 'PENDING' ||
+      status == TripStatus.pendingCustomerApproval;
   bool get isDropoffApprovalApproved => dropoffApprovalStatus == 'APPROVED';
   bool get isDropoffApprovalRejected => dropoffApprovalStatus == 'REJECTED';
 

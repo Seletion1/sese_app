@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Out-of-Range Drop-Off Confirmation & False Trip Cancellation Elimination Architecture
+
+- **1. Resilient Out-of-Range Customer Approval State Machine (`functions/src/trips.ts`, `functions/src/driverStatus.ts`, `trip_models.dart`)**:
+  - Integrated `TripStatus.pendingCustomerApproval ('pending_customer_approval' / 'PENDING_CUSTOMER_APPROVAL')` as a first-class live trip status across the backend state machine, `LIVE_STATUSES`, and client models.
+  - In `requestDropoffApproval`: on out-of-range driver confirmation ("Yes" tap), backend updates trip document to `status: "pending_customer_approval"`, `dropoffApprovalStatus: "PENDING"`, records GPS telemetry + distance offset, updates `driver_status/{driverId}` with `{ activeTripId: tripId, activeTripStatus: "pending_customer_approval" }`, and dispatches real-time socket events + high-priority FCM notification (`dropoff_approval_request`) to the customer app.
+  - In `advanceTripStatus`: added `pending_customer_approval` as a valid transition target from `IN_PROGRESS` and enabled advancing to `COMPLETED` once approved (or if driver enters within completion radius), providing full dual-dispatch fallback resilience.
+  - In `respondDropoffApproval`: customer approval cleanly finalizes trip to `COMPLETED`, triggers synchronous commission/wallet settlement, and alerts the driver. Rejection cleanly reverts trip to `IN_PROGRESS` with `dropoffApprovalStatus: "REJECTED"` and notifies the driver.
+  - In `cancelDropoffApprovalRequest`: reverts `status` to `IN_PROGRESS` and clears pending verification state.
+
+- **2. Elimination of False "Trip Cancelled" Red Error Banners & Premature Purging (`driver_active_trip_card.dart`)**:
+  - Root Cause Diagnosed: `_checkDropoffGeofence` was previously routed through `_run()`, which checked `msg.toLowerCase().contains('not found')`. Any network error, missing callable, or 404 response immediately triggered `widget.onOrphanedTripPurge?.call()`, which invoked `_purgeStaleActiveTrip('Trip was cancelled or is no longer active.')`, falsely destroying the driver's active trip screen and throwing the red banner.
+  - Dedicated Handler Isolation: Isolated `_checkDropoffGeofence` into a dedicated try/catch execution block that presents standard in-app feedback snackbars without ever calling `onOrphanedTripPurge` or purging the live trip.
+  - Removed `'not found'` substring checks from `_run()` purge trigger so network 404s can never falsely wipe an active order.
+
+- **3. Dual-Dispatch Resilience in Driver Streak Backend (`driver_streak_service.dart`)**:
+  - Re-architected `callRequestDropoffApproval`: if the standalone callable encounters any transport or routing barrier, it automatically falls back to `advanceTripStatus(status: 'pending_customer_approval', ...)` seamlessly without bubbling errors to the UI.
+
+- **4. Hub & Customer Console Awareness (`active_rides_console_screen.dart`, `live_trip_screen.dart`, `customer_home_map_screen.dart`, `customer_trips_screen.dart`)**:
+  - Added `'pending_customer_approval'` and `'PENDING_CUSTOMER_APPROVAL'` to `_activeStatuses` in `active_rides_console_screen.dart`, properly categorizing pending confirmations under `IN_TRANSIT` with amber badge indicator `PENDING APPROVAL`.
+  - Added exhaustive pattern matching and status messaging across customer live trip screen, home map active card, and trip history.
+
+- **5. Verification & Testing**:
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+  - Flutter Unit & Widget Tests: 8/8 passed in `sese_ride/test/dropoff_geofence_test.dart` (including customer approval prompts, driver pending state, model getters, and cancellation); 71/71 passed in `sese_hub`.
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors, 0 hints across `sese_ride` and `sese_hub`.
+
 ## 2026-11-14 — Floating Incoming Trip Request Immediate Dismissal, Freeze Bug Fix & Clean Window Lifecycle
 
 - **1. Immediate Overlay Dismissal on Expiry, Decline & Low Balance (`driver_overlay_entry.dart`, `driver_dashboard_screen.dart`)**:

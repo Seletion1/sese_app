@@ -65,13 +65,14 @@ const trips_1 = require("../trips");
         }
         const distKm = (0, trips_1.haversineKm)(driverLocation.lat, driverLocation.lng, trip.dropoff.lat, trip.dropoff.lng);
         const distanceM = Math.round(distKm * 1000);
+        trip.status = "pending_customer_approval";
         trip.dropoffApprovalStatus = "PENDING";
         trip.dropoffApprovalRequestedAt = Date.now();
         trip.dropoffApprovalDriverLocation = driverLocation;
         trip.dropoffApprovalDistanceMeters = distanceM;
         trip.statusHistory.push({
-            from: trip.status,
-            to: trip.status,
+            from: "IN_PROGRESS",
+            to: "pending_customer_approval",
             actor: callerId,
             role: "driver",
             action: "request_dropoff_approval",
@@ -154,6 +155,7 @@ const trips_1 = require("../trips");
         node_assert_1.default.strictEqual(response.ok, true);
         node_assert_1.default.strictEqual(response.pending, true);
         node_assert_1.default.ok(response.distanceMeters > 500);
+        node_assert_1.default.strictEqual(trip.status, "pending_customer_approval");
         node_assert_1.default.strictEqual(trip.dropoffApprovalStatus, "PENDING");
         node_assert_1.default.ok(trip.dropoffApprovalRequestedAt > 0);
         node_assert_1.default.deepStrictEqual(trip.dropoffApprovalDriverLocation, farLocation);

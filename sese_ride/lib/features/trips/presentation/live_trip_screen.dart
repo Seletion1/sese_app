@@ -2121,6 +2121,8 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
         message = 'Your driver has arrived at the pickup point';
       case TripStatus.inProgress:
         message = 'Trip in progress — sit back and relax';
+      case TripStatus.pendingCustomerApproval:
+        message = 'Drop-off location confirmation requested — please review below';
       case TripStatus.needsCustomerAction:
       case TripStatus.returnedToCustomer:
       case TripStatus.expired:
@@ -2658,6 +2660,8 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
         return '$firstName arrived at pickup • Waiting...';
       case TripStatus.inProgress:
         return 'Trip in progress • En route to drop-off';
+      case TripStatus.pendingCustomerApproval:
+        return 'Confirmation requested • Review drop-off below';
       default:
         return 'Driver assigned to your trip';
     }

@@ -166,6 +166,8 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     'DRIVER_ARRIVING',
     'DRIVER_ARRIVED',
     'IN_PROGRESS',
+    'pending_customer_approval',
+    'PENDING_CUSTOMER_APPROVAL',
     'WAITING_FOR_SCHEDULED',
   ];
 
@@ -246,7 +248,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     return false;
                   }
                   if (_selectedStageFilter == 'IN_TRANSIT' &&
-                      !(status == 'in_transit' || status == 'in_progress')) {
+                      !(status == 'in_transit' || status == 'in_progress' || status == 'pending_customer_approval')) {
                     return false;
                   }
 
@@ -533,6 +535,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final isClosedOrActive = status.toLowerCase().contains('completed') ||
         status.toLowerCase().contains('transit') ||
         status.toLowerCase().contains('progress') ||
+        status.toLowerCase().contains('approval') ||
         status.toLowerCase().contains('accepted') ||
         status.toLowerCase().contains('arrived');
     final cancelSource = (data['cancellationSource'] ?? '').toString();
@@ -542,6 +545,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     Color statusColor = Colors.orange;
     if (status.toLowerCase().contains('completed')) statusColor = Colors.green;
     if (status.toLowerCase().contains('transit') || status.toLowerCase().contains('progress')) statusColor = Colors.blue;
+    if (status.toLowerCase().contains('approval')) statusColor = const Color(0xFFD97706);
     if (isSkippedByDriver || isRejectedByDriver) {
       statusColor = Colors.amber.shade900;
     } else if (status.toLowerCase().contains('cancel')) {

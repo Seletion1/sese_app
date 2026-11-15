@@ -126,13 +126,14 @@ describe("Drop-off Geofencing, Distance Validation & Remote Approval Engine", ()
     );
     const distanceM = Math.round(distKm * 1000);
 
+    trip.status = "pending_customer_approval";
     trip.dropoffApprovalStatus = "PENDING";
     trip.dropoffApprovalRequestedAt = Date.now();
     trip.dropoffApprovalDriverLocation = driverLocation;
     trip.dropoffApprovalDistanceMeters = distanceM;
     trip.statusHistory.push({
-      from: trip.status,
-      to: trip.status,
+      from: "IN_PROGRESS",
+      to: "pending_customer_approval",
       actor: callerId,
       role: "driver",
       action: "request_dropoff_approval",
@@ -236,6 +237,7 @@ describe("Drop-off Geofencing, Distance Validation & Remote Approval Engine", ()
     assert.strictEqual(response.ok, true);
     assert.strictEqual(response.pending, true);
     assert.ok(response.distanceMeters > 500);
+    assert.strictEqual(trip.status, "pending_customer_approval");
     assert.strictEqual(trip.dropoffApprovalStatus, "PENDING");
     assert.ok(trip.dropoffApprovalRequestedAt! > 0);
     assert.deepStrictEqual(trip.dropoffApprovalDriverLocation, farLocation);

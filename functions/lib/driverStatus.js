@@ -44,6 +44,7 @@ const LIVE_STATUSES = [
     "DRIVER_ACCEPTED",
     "DRIVER_ARRIVING",
     "IN_PROGRESS",
+    "pending_customer_approval",
 ];
 exports.goOnline = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;

@@ -284,7 +284,8 @@ const driverStreak_1 = require("../driverStreak");
             DRIVER_ACCEPTED: ["DRIVER_ARRIVING", "DRIVER_ARRIVED"],
             DRIVER_ARRIVING: ["DRIVER_ARRIVED"],
             DRIVER_ARRIVED: ["IN_PROGRESS"],
-            IN_PROGRESS: ["COMPLETED"],
+            IN_PROGRESS: ["COMPLETED", "pending_customer_approval"],
+            pending_customer_approval: ["COMPLETED", "IN_PROGRESS"],
         };
         const validateTransition = (current, target, expectedStatus) => {
             var _a;

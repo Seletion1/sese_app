@@ -188,6 +188,14 @@ void main() {
       expect(tripRejected.isDropoffApprovalPending, isFalse);
       expect(tripRejected.isDropoffApprovalApproved, isFalse);
       expect(tripRejected.isDropoffApprovalRejected, isTrue);
+
+      final tripPendingStatus = ActiveTrip.fromMap('t3', {
+        'status': 'pending_customer_approval',
+      });
+      expect(tripPendingStatus.status, equals(TripStatus.pendingCustomerApproval));
+      expect(tripPendingStatus.isLive, isTrue);
+      expect(tripPendingStatus.isCustomerLive, isTrue);
+      expect(tripPendingStatus.isDropoffApprovalPending, isTrue);
     });
   });
 

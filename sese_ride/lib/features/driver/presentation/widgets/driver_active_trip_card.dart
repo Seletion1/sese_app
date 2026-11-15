@@ -291,8 +291,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       if (lower.contains('cancelled') ||
           lower.contains('closed') ||
           lower.contains('reassign') ||
-          lower.contains('not found') ||
-          lower.contains('not active')) {
+          lower.contains('no longer active')) {
         widget.onOrphanedTripPurge?.call();
       }
       return false;
@@ -767,22 +766,37 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
     );
 
     if (shouldSendRequest == true && mounted) {
-      final success = await _run(
-        () => widget.streakService.requestDropoffApproval(
+      setState(() => _busy = true);
+      try {
+        await widget.streakService.requestDropoffApproval(
           tripId: trip.tripId,
           driverLat: driverLat,
           driverLng: driverLng,
-        ),
-        'Could not send drop-off confirmation request.',
-      );
-
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Drop-off confirmation request sent to customer.'),
-            backgroundColor: Color(0xFFD97706),
-          ),
         );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Drop-off confirmation request sent to customer.'),
+              backgroundColor: Color(0xFFD97706),
+            ),
+          );
+        }
+      } on DriverStreakException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.userMessage)),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not send drop-off confirmation request. Please try again.'),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _busy = false);
       }
     }
 
@@ -1130,6 +1144,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       case TripStatus.driverArrived:
         return 'IN_PROGRESS';
       case TripStatus.inProgress:
+      case TripStatus.pendingCustomerApproval:
         return 'COMPLETED';
       case TripStatus.cancelledWaitingCashSettlement:
         return 'CONFIRM_CASH_SETTLEMENT';
@@ -1582,6 +1597,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       case TripStatus.driverArrived:
         return 'Arrived at pickup';
       case TripStatus.inProgress:
+      case TripStatus.pendingCustomerApproval:
+        if (trip.isDropoffApprovalPending) {
+          return 'Customer verification pending';
+        }
         if (_currentArrivalTimestamp != null) {
           return 'Arrived at drop-off';
         }

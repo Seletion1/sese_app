@@ -145,13 +145,26 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
     required double driverLat,
     required double driverLng,
     String? reason,
-  }) =>
-      _call('requestDropoffApproval', {
+  }) async {
+    try {
+      return await _call('requestDropoffApproval', {
         'tripId': tripId,
         'driverLat': driverLat,
         'driverLng': driverLng,
         if (reason != null && reason.isNotEmpty) 'reason': reason,
       });
+    } catch (e) {
+      debugPrint('callRequestDropoffApproval: falling back to advanceTripStatus ($e)');
+      // Resilient fallback: advanceTripStatus with status: 'pending_customer_approval'
+      return await _call('advanceTripStatus', {
+        'tripId': tripId,
+        'status': 'pending_customer_approval',
+        'driverLat': driverLat,
+        'driverLng': driverLng,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      });
+    }
+  }
 
   @override
   Future<Map<String, dynamic>> callCancelDropoffApprovalRequest(String tripId) =>

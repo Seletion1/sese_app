@@ -686,6 +686,7 @@ class _StatusChip extends StatelessWidget {
 
         // ── Active / live states ───────────────────────────────────────────
         case TripStatus.inProgress:
+        case TripStatus.pendingCustomerApproval:
           label = 'In Progress';
           color = const Color(0xFF2563EB);
           bgColor = const Color(0xFFDBEAFE);
