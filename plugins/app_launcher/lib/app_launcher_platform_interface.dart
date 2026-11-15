@@ -27,8 +27,16 @@ abstract class AppLauncherPlatform extends PlatformInterface {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
 
-  Future<bool> bringToForeground() {
+  Future<bool> bringToForeground({Map<String, dynamic>? extras}) {
     throw UnimplementedError('bringToForeground() has not been implemented.');
+  }
+
+  Future<bool> canDrawOverlays() {
+    throw UnimplementedError('canDrawOverlays() has not been implemented.');
+  }
+
+  Future<bool> requestOverlayPermission() {
+    throw UnimplementedError('requestOverlayPermission() has not been implemented.');
   }
 
   Future<bool> moveTaskToBack() {

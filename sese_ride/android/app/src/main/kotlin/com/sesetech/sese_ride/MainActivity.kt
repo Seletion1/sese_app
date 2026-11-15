@@ -16,6 +16,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         pinAppCheckDebugToken()
         configureLockScreenFlags()
+        wakeScreen()
         super.onCreate(savedInstanceState)
     }
 
@@ -33,6 +34,19 @@ class MainActivity : FlutterActivity() {
             WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
+    }
+
+    private fun wakeScreen() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            @Suppress("DEPRECATION")
+            val wakeLock = powerManager?.newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "sese:OrderWakeLock"
+            )
+            wakeLock?.acquire(3000)
+        } catch (_: Exception) {}
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -61,6 +75,7 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         configureLockScreenFlags()
+        wakeScreen()
     }
 
     // Reports whether Google Play Services is installed and operational on this device.

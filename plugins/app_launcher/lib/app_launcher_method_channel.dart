@@ -18,9 +18,32 @@ class MethodChannelAppLauncher extends AppLauncherPlatform {
   }
 
   @override
-  Future<bool> bringToForeground() async {
+  Future<bool> bringToForeground({Map<String, dynamic>? extras}) async {
     try {
-      final res = await methodChannel.invokeMethod<bool>('bringToForeground');
+      final res = await methodChannel.invokeMethod<bool>(
+        'bringToForeground',
+        extras != null ? {'extras': extras} : null,
+      );
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> canDrawOverlays() async {
+    try {
+      final res = await methodChannel.invokeMethod<bool>('canDrawOverlays');
+      return res ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> requestOverlayPermission() async {
+    try {
+      final res = await methodChannel.invokeMethod<bool>('requestOverlayPermission');
       return res ?? false;
     } catch (_) {
       return false;

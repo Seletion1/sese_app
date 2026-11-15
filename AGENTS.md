@@ -72,6 +72,28 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Full-Screen Incoming Order Direct Background Pop-up & Display Over Other Apps Architecture
+
+- **1. Background Activity Launch & Immediate Full-Screen Order Pop-up (`driverBackgroundHandler`, `app_launcher`)**:
+  - Root Cause Diagnosed: When an incoming trip offer arrived while the device was unlocked and the driver was outside the app (e.g., on the launcher home screen or using third-party navigation), Android's Notification Manager systematically downgraded the `fullScreenIntent` to a Heads-Up Notification (HUN) banner at the top of the screen. Because the background handler only posted a notification and never directly launched the activity, the full-screen order sheet (`IncomingOfferSheet`) never popped up automatically.
+  - Native Background `bringToForeground`: In `driverBackgroundHandler` (`sese_ride/lib/background_handler.dart`), incoming offer pings (`trip_offer`, `direct_ping`, `tier_ping`, `marketplace_broadcast`) now immediately invoke `AppLauncher().bringToForeground(extras: {'tripId': tripId, 'type': type})` alongside the audible alert.
+  - Refined Intent Flags in `AppLauncherPlugin.kt`: Configured `Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP` (purged `FLAG_ACTIVITY_RESET_TASK_IF_NEEDED` to preserve Flutter view state), acquired a temporary bright screen wake-lock (`SCREEN_BRIGHT_WAKE_LOCK or ACQUIRE_CAUSES_WAKEUP`), and started the activity directly.
+
+- **2. Android OS Display Over Other Apps Permission (`AndroidManifest.xml`, `AppLauncherPlugin`, `driver_dashboard_screen.dart`)**:
+  - Added `<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />` to `sese_ride/android/app/src/main/AndroidManifest.xml`. Under Android 10+ (API 29+) Background Activity Launch restrictions, granting `SYSTEM_ALERT_WINDOW` is the designated OS mechanism that permits ride-hailing and calling apps to start activities directly from the background.
+  - Implemented `canDrawOverlays` and `requestOverlayPermission` in `AppLauncherPlugin.kt`, `app_launcher_platform_interface.dart`, `app_launcher_method_channel.dart`, and `app_launcher.dart`.
+  - Added non-blocking permission check and dialog prompt in `DriverDashboardScreenState`: when going online (`_finalizeGoOnline`) or restoring an online session (`_restoreOnlineSession`), the driver is guided to enable "Display over other apps" so incoming orders pop up in full screen immediately over navigation or launcher surfaces.
+
+- **3. Instant Lifecycle Re-Sync on Activity Resumption (`main.dart`, `driver_dashboard_screen.dart`)**:
+  - Added `WidgetsBindingObserver` to `_MyAppState` in `sese_ride/lib/main.dart` and `_PingListenerState` in `driver_dashboard_screen.dart`.
+  - On `AppLifecycleState.resumed`: immediately consumes any pending offer payload stashed in `SharedPreferences` by `driverBackgroundHandler` and invokes `_fetchAndShowOffer(tripId)`, popping `IncomingOfferSheet` instantly without waiting for sleeping Firestore sockets or notification clicks.
+
+- **4. Verification & Testing**:
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+  - App Launcher Unit Tests: 3/3 passed in `app_launcher_test.dart`, 2/2 passed in `app_launcher_method_channel_test.dart`.
+  - Static Analysis: `flutter analyze sese_ride` clean with 0 warnings, 0 errors; `dart analyze plugins/app_launcher` clean with 0 warnings, 0 errors.
+  - Suite Regression: 8/8 passed in `dropoff_geofence_test.dart`; 8/8 passed in `hub_rbac_test.dart`.
+
 ## 2026-11-15 — Full-Screen Intent Background Wake & High-Priority Data FCM Dispatch
 
 - **1. Background FCM Delivery Architecture Fix (`functions/src/trips.ts`)**:

@@ -1,3 +1,4 @@
+import 'package:app_launcher/app_launcher.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/services/push_notification_service.dart';
@@ -6,25 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Driver-side background FCM handler for `sese_ride`.
 ///
 /// For incoming order pings (`trip_offer`, `direct_ping`, `tier_ping`,
-/// `marketplace_broadcast`), this triggers a WhatsApp-style native full-screen
-/// intent notification via [PushNotificationService.showFromMessage].
-///
-/// **Full-Screen Intent Behavior**
-/// When a high-priority FCM data message arrives while the device is locked
-/// or the app is in the background:
-/// 1. Android launches `MainActivity` over keyguard / lock-screen via
-///    `useFullScreenIntent` + `showWhenLocked` + `turnScreenOn`.
-/// 2. `MainActivity` brings the main Flutter engine into focus.
-/// 3. The driver dashboard immediately mounts and presents the unified
-///    in-app `IncomingOfferSheet` (`Screenshot_20261115_012554.jpg`).
-///
-/// **Payload persistence for cold-start**
-/// The offer data is written to SharedPreferences so that if the app process
-/// was killed, the main isolate can consume it on cold-start via
-/// [PushNotificationService.consumePendingOfferPayload].
-///
-/// Must remain a top-level function; registered via
-/// [PushNotificationService.init] `backgroundMessageHandler` parameter.
+/// `marketplace_broadcast`), this:
+/// 1. Persists the payload to [SharedPreferences] for instant handoff.
+/// 2. Fires the high-priority full-screen intent notification via
+///    [PushNotificationService.showFromMessage] (for audio alert & lockscreen banner).
+/// 3. Directly brings `MainActivity` to the foreground via [AppLauncher.bringToForeground],
+///    popping up the full-screen order sheet (`IncomingOfferSheet`) instantly over the
+///    home screen or whatever app the driver is using.
 @pragma('vm:entry-point')
 Future<void> driverBackgroundHandler(RemoteMessage message) async {
   final type = (message.data['type'] ?? '').toString();
@@ -53,8 +42,8 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: payload persist failed (non-fatal): $e');
     }
 
-    // 2. Fire the native high-priority full-screen intent notification.
-    //    Wakes device screen and launches MainActivity directly into focus.
+    // 2. Fire the native high-priority full-screen intent notification as audible
+    //    alert & lock-screen banner.
     try {
       await PushNotificationService.showFromMessage(message);
       debugPrint(
@@ -62,6 +51,21 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
     } catch (e) {
       debugPrint(
           'driverBackgroundHandler: showFromMessage fullScreenIntent failed: $e');
+    }
+
+    // 3. Immediately launch MainActivity to the foreground over any active app or home screen!
+    try {
+      final brought = await AppLauncher().bringToForeground(
+        extras: {
+          'tripId': (message.data['tripId'] ?? '').toString(),
+          'type': type,
+        },
+      );
+      debugPrint(
+          'driverBackgroundHandler: brought MainActivity to foreground ($brought) for trip ${message.data['tripId']}');
+    } catch (e) {
+      debugPrint(
+          'driverBackgroundHandler: bringToForeground error: $e');
     }
     return;
   }

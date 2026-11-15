@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:app_launcher/app_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -507,6 +509,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     unawaited(PushNotificationService.showOngoingOnlineAlert());
     unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
     unawaited(MediaPermissionService.ensureBackgroundLocation());
+    unawaited(_checkAndPromptOverlayPermission());
   }
 
   Future<void> _persistOnlineSession(String? sessionId) async {
@@ -1353,6 +1356,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         PushNotificationService.showOngoingOnlineAlert();
         // ignore: discarded_futures
         PushNotificationService.subscribe('driver_${widget.driverId}');
+        unawaited(_checkAndPromptOverlayPermission());
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1372,6 +1376,98 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
+  }
+
+  Future<void> _checkAndPromptOverlayPermission() async {
+    if (kIsWeb || !mounted) return;
+    try {
+      final canDraw = await AppLauncher().canDrawOverlays();
+      if (!canDraw && mounted) {
+        _showOverlayPermissionPrompt();
+      }
+    } catch (e) {
+      debugPrint('DriverDashboard: canDrawOverlays check failed: $e');
+    }
+  }
+
+  void _showOverlayPermissionPrompt() {
+    if (!mounted) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isDismissible: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.layers_rounded,
+                  color: AppColors.primary,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Display Over Other Apps',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Allow SeSe to pop up incoming orders in full screen immediately while you are on your home screen or using navigation.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.black87,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    Navigator.of(ctx).pop();
+                    await AppLauncher().requestOverlayPermission();
+                  },
+                  child: const Text(
+                    'Enable in Settings',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Not Now'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _openFleetManagement() async {
@@ -2700,7 +2796,8 @@ class _PingListener extends StatefulWidget {
   State<_PingListener> createState() => _PingListenerState();
 }
 
-class _PingListenerState extends State<_PingListener> {
+class _PingListenerState extends State<_PingListener>
+    with WidgetsBindingObserver {
   String? _sheetForTrip;
   bool _sheetOpen = false;
   StreamSubscription? _pushOfferSub;
@@ -2709,6 +2806,7 @@ class _PingListenerState extends State<_PingListener> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pushOfferSub =
         PushNotificationService.onMessageDataStream.stream.listen((data) {
       final type = data['type'] ?? '';
@@ -2769,11 +2867,40 @@ class _PingListenerState extends State<_PingListener> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pushOfferSub?.cancel();
     if (_offerNotifierListener != null) {
       PushNotificationService.incomingOfferNotifier.removeListener(_offerNotifierListener!);
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // ignore: discarded_futures
+      _checkAndShowStashedOffer();
+    }
+  }
+
+  Future<void> _checkAndShowStashedOffer() async {
+    try {
+      final initialData = PushNotificationService.incomingOfferNotifier.value;
+      if (initialData != null) {
+        final tripId = initialData['tripId'] ?? '';
+        if (tripId.isNotEmpty && !_sheetOpen && tripId != _sheetForTrip) {
+          await _fetchAndShowOffer(tripId);
+          return;
+        }
+      }
+      final stashed = await PushNotificationService.consumePendingOfferPayload();
+      if (stashed != null && stashed.isNotEmpty) {
+        final tripId = stashed['tripId'] ?? '';
+        if (tripId.isNotEmpty && !_sheetOpen && tripId != _sheetForTrip) {
+          await _fetchAndShowOffer(tripId);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _fetchAndShowOffer(String tripId) async {

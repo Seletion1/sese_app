@@ -25,6 +25,8 @@
          while the app is minimized. Requested best-effort at go-online
          (foreground fixes work without it). -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- System Alert Window: allows full-screen incoming order popups over other apps & home screen. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- High-priority order/message alerts with full-screen intent & wake-lock. -->

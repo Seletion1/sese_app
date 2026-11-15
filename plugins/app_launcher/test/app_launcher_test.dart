@@ -11,10 +11,16 @@ class MockAppLauncherPlatform
   Future<String?> getPlatformVersion() => Future.value('42');
 
   @override
-  Future<bool> bringToForeground() => Future.value(true);
+  Future<bool> bringToForeground({Map<String, dynamic>? extras}) => Future.value(true);
 
   @override
   Future<bool> moveTaskToBack() => Future.value(true);
+
+  @override
+  Future<bool> canDrawOverlays() => Future.value(true);
+
+  @override
+  Future<bool> requestOverlayPermission() => Future.value(true);
 }
 
 void main() {
@@ -37,7 +43,9 @@ void main() {
     final fakePlatform = MockAppLauncherPlatform();
     AppLauncherPlatform.instance = fakePlatform;
 
-    expect(await appLauncherPlugin.bringToForeground(), true);
+    expect(await appLauncherPlugin.bringToForeground(extras: {'tripId': 'trip1'}), true);
     expect(await appLauncherPlugin.moveTaskToBack(), true);
+    expect(await appLauncherPlugin.canDrawOverlays(), true);
+    expect(await appLauncherPlugin.requestOverlayPermission(), true);
   });
 }

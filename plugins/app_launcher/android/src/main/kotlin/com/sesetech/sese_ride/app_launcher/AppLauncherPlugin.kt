@@ -48,12 +48,27 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 val ctx = activity ?: context
                 if (ctx != null) {
                     try {
+                        // Wake device screen if sleeping so full screen is visible immediately
+                        try {
+                            val powerManager = ctx.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+                            @Suppress("DEPRECATION")
+                            val wakeLock = powerManager?.newWakeLock(
+                                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                                "sese:OrderWakeLock"
+                            )
+                            wakeLock?.acquire(3000)
+                        } catch (_: Exception) {}
+
                         val launchIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.apply {
                             addCategory(Intent.CATEGORY_LAUNCHER)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            val extras = call.argument<Map<String, Any>>("extras")
+                            extras?.forEach { (k, v) ->
+                                putExtra(k, v.toString())
+                            }
                         }
                         if (launchIntent != null) {
                             ctx.startActivity(launchIntent)
@@ -66,6 +81,33 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                     }
                 } else {
                     result.error("NO_CONTEXT", "Application context is null", null)
+                }
+            }
+            "canDrawOverlays" -> {
+                val ctx = activity ?: context
+                if (ctx != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    result.success(android.provider.Settings.canDrawOverlays(ctx))
+                } else {
+                    result.success(true)
+                }
+            }
+            "requestOverlayPermission" -> {
+                val ctx = activity ?: context
+                if (ctx != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    try {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:${ctx.packageName}")
+                        ).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        ctx.startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("PERMISSION_ERROR", e.message, null)
+                    }
+                } else {
+                    result.success(true)
                 }
             }
             "moveTaskToBack" -> {

@@ -17,6 +17,10 @@ void main() {
             return true;
           } else if (methodCall.method == 'moveTaskToBack') {
             return true;
+          } else if (methodCall.method == 'canDrawOverlays') {
+            return true;
+          } else if (methodCall.method == 'requestOverlayPermission') {
+            return true;
           }
           return null;
         });
@@ -32,7 +36,9 @@ void main() {
   });
 
   test('bringToForeground and moveTaskToBack', () async {
-    expect(await platform.bringToForeground(), true);
+    expect(await platform.bringToForeground(extras: {'tripId': 'trip1'}), true);
     expect(await platform.moveTaskToBack(), true);
+    expect(await platform.canDrawOverlays(), true);
+    expect(await platform.requestOverlayPermission(), true);
   });
 }
