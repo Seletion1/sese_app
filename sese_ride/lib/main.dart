@@ -203,6 +203,10 @@ Future<void> _handlePushTap(Map<String, String> data) async {
       type == 'tier_ping' ||
       type == 'marketplace_broadcast') {
     debugPrint('sese_ride: driver trip offer tap ($type) — main UI takes over.');
+    PushNotificationService.incomingOfferNotifier.value = data;
+    try {
+      PushNotificationService.onMessageDataStream.add(data);
+    } catch (_) {}
     return;
   }
 
@@ -230,6 +234,10 @@ Future<void> _consumeKilledStateOffer() async {
     if (payload == null || payload.isEmpty) return;
     final tripId = payload['tripId'] ?? '';
     debugPrint('sese_ride: cold-start offer payload consumed for trip $tripId');
+    PushNotificationService.incomingOfferNotifier.value = payload;
+    try {
+      PushNotificationService.onMessageDataStream.add(payload);
+    } catch (_) {}
   } catch (e) {
     debugPrint('_consumeKilledStateOffer failed (non-fatal): $e');
   }

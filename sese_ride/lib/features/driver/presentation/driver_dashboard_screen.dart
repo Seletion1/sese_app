@@ -2704,6 +2704,7 @@ class _PingListenerState extends State<_PingListener> {
   String? _sheetForTrip;
   bool _sheetOpen = false;
   StreamSubscription? _pushOfferSub;
+  VoidCallback? _offerNotifierListener;
 
   @override
   void initState() {
@@ -2720,14 +2721,86 @@ class _PingListenerState extends State<_PingListener> {
             Navigator.of(context).pop();
           }
         }
+      } else if (const {
+        'trip_offer',
+        'direct_ping',
+        'tier_ping',
+        'marketplace_broadcast',
+      }.contains(type)) {
+        if (!_sheetOpen && tripId.isNotEmpty && tripId != _sheetForTrip) {
+          // ignore: discarded_futures
+          _fetchAndShowOffer(tripId);
+        }
       }
+    });
+
+    _offerNotifierListener = () {
+      final data = PushNotificationService.incomingOfferNotifier.value;
+      if (data != null) {
+        final tripId = data['tripId'] ?? '';
+        if (tripId.isNotEmpty && !_sheetOpen && tripId != _sheetForTrip) {
+          // ignore: discarded_futures
+          _fetchAndShowOffer(tripId);
+        }
+      }
+    };
+    PushNotificationService.incomingOfferNotifier.addListener(_offerNotifierListener!);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final initialData = PushNotificationService.incomingOfferNotifier.value;
+      if (initialData != null) {
+        final tripId = initialData['tripId'] ?? '';
+        if (tripId.isNotEmpty) {
+          await _fetchAndShowOffer(tripId);
+          return;
+        }
+      }
+      try {
+        final stashed = await PushNotificationService.consumePendingOfferPayload();
+        if (stashed != null && stashed.isNotEmpty) {
+          final tripId = stashed['tripId'] ?? '';
+          if (tripId.isNotEmpty) {
+            await _fetchAndShowOffer(tripId);
+          }
+        }
+      } catch (_) {}
     });
   }
 
   @override
   void dispose() {
     _pushOfferSub?.cancel();
+    if (_offerNotifierListener != null) {
+      PushNotificationService.incomingOfferNotifier.removeListener(_offerNotifierListener!);
+    }
     super.dispose();
+  }
+
+  Future<void> _fetchAndShowOffer(String tripId) async {
+    if (tripId.isEmpty || _sheetOpen || !mounted || widget.isOnBreak()) return;
+    if (_sheetForTrip == tripId) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance.collection('trips').doc(tripId).get();
+      if (!doc.exists) return;
+      final data = doc.data() ?? {};
+      final trip = ActiveTrip.fromMap(doc.id, data);
+      final isOfferActive = trip.status == TripStatus.waitingForAcceptance ||
+          trip.status == TripStatus.marketplaceOpen ||
+          trip.status == TripStatus.marketplaceList;
+      if (!isOfferActive) return;
+
+      final streak = await widget.service
+          .streakStream(widget.driverId)
+          .first
+          .catchError((_) => DriverStreakState(driverId: widget.driverId));
+
+      if (mounted && !_sheetOpen) {
+        await _showPing(trip, streak);
+      }
+    } catch (e) {
+      debugPrint('_fetchAndShowOffer failed for trip $tripId: $e');
+    }
   }
 
   @override

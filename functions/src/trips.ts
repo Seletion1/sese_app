@@ -258,39 +258,62 @@ async function notifyCustomer(
     }
   }
   try {
-    const channelId =
+    const isOrderPing =
       type.startsWith("order") ||
       type === "trip_offer" ||
       type === "direct_ping" ||
       type === "tier_ping" ||
-      type === "marketplace_broadcast"
-        ? "sese_orders"
-        : type === "broadcast"
-        ? "sese_high_priority_alerts"
-        : type.includes("chat") || type.includes("reply") || type.includes("escalated")
-        ? "sese_chat"
-        : "sese_system";
+      type === "marketplace_broadcast";
 
-    await admin.messaging().send({
+    const channelId = isOrderPing
+      ? "sese_orders"
+      : type === "broadcast"
+      ? "sese_high_priority_alerts"
+      : type.includes("chat") || type.includes("reply") || type.includes("escalated")
+      ? "sese_chat"
+      : "sese_system";
+
+    const fcmMessage: admin.messaging.Message = {
       topic: topicOverride ?? `user_${customerId}`,
-      notification: { title, body },
-      android: {
-        priority: "high",
-        notification: {
-          sound: "sese_alert_chime",
-          channelId,
-          clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        },
-      },
-      apns: { payload: { aps: { sound: "default" } } },
       data: {
+        title,
+        body,
         type,
         tripId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
-        fullScreen: channelId === "sese_orders" ? "true" : (extra.fullScreen ?? "false"),
+        fullScreen: isOrderPing ? "true" : (extra.fullScreen ?? "false"),
         ...extra,
       },
-    });
+      android: {
+        priority: "high",
+        // For order pings on Android, omit top-level notification.
+        // Google Play Services intercepts messages with `notification` and bypasses
+        // `FirebaseMessaging.onBackgroundMessage` (driverBackgroundHandler) in the background.
+        // A high-priority data message wakes the app background handler directly,
+        // which triggers the native fullScreenIntent incoming call notification.
+        ...(isOrderPing
+          ? {}
+          : {
+              notification: {
+                sound: "sese_alert_chime",
+                channelId,
+                clickAction: "FLUTTER_NOTIFICATION_CLICK",
+              },
+            }),
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: isOrderPing ? "sese_alert_chime.caf" : "default",
+            contentAvailable: true,
+          },
+        },
+      },
+      ...(isOrderPing ? {} : { notification: { title, body } }),
+    };
+
+    await admin.messaging().send(fcmMessage);
   } catch (e) {
     console.warn(`notifyCustomer: FCM send failed for ${customerId}: ${e}`);
   }
@@ -321,26 +344,49 @@ async function notifyDriver(
   } catch (_) {}
 
   try {
-    await admin.messaging().send({
+    const isOrderPing =
+      type.startsWith("order") ||
+      type === "trip_offer" ||
+      type === "direct_ping" ||
+      type === "tier_ping" ||
+      type === "marketplace_broadcast";
+
+    const fcmMessage: admin.messaging.Message = {
       topic: `driver_${driverId}`,
-      notification: { title, body },
-      android: {
-        priority: "high",
-        notification: {
-          sound: "sese_alert_chime",
-          channelId: "sese_orders",
-          clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        },
-      },
-      apns: { payload: { aps: { sound: "default" } } },
       data: {
-        type,
+        title,
+        body,
         tripId,
+        type,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
-        fullScreen: "true",
+        fullScreen: isOrderPing ? "true" : "false",
         ...extra,
       },
-    });
+      android: {
+        priority: "high",
+        ...(isOrderPing
+          ? {}
+          : {
+              notification: {
+                sound: "sese_alert_chime",
+                channelId: "sese_orders",
+                clickAction: "FLUTTER_NOTIFICATION_CLICK",
+              },
+            }),
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: { title, body },
+            sound: isOrderPing ? "sese_alert_chime.caf" : "default",
+            contentAvailable: true,
+          },
+        },
+      },
+      ...(isOrderPing ? {} : { notification: { title, body } }),
+    };
+
+    await admin.messaging().send(fcmMessage);
   } catch (e) {
     console.warn(`notifyDriver: FCM send failed for ${driverId}: ${e}`);
   }

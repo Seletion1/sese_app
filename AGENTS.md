@@ -72,6 +72,26 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Full-Screen Intent Background Wake & High-Priority Data FCM Dispatch
+
+- **1. Background FCM Delivery Architecture Fix (`functions/src/trips.ts`)**:
+  - Root Cause Diagnosed: Previously, `notifyCustomer` and `notifyDriver` sent notification payloads with top-level `notification: { title, body }`. On Android, Google Play Services intercepts messages containing a `notification` block and swallows them into the notification shade, completely suppressing `FirebaseMessaging.onBackgroundMessage` (`driverBackgroundHandler`) when the app is in the background or device is locked. Consequently, `PushNotificationService.showFromMessage` never ran, and no `fullScreenIntent` was ever registered with Android OS.
+  - Pure High-Priority Data Dispatch: For incoming order offers (`trip_offer`, `direct_ping`, `tier_ping`, `marketplace_broadcast`), the server now strips top-level and Android `notification` blocks, routing title, body, addresses, fares, and metadata exclusively via `data` with `android: { priority: "high" }`. APNs maintains `aps: { alert: { title, body }, contentAvailable: true }`. This guarantees Android OS wakes up the background Dart isolate to execute `driverBackgroundHandler`.
+
+- **2. Heads-Up Notification Actions & Intent Routing (`push_notification_service.dart`, `AndroidManifest.xml`)**:
+  - In `PushNotificationService.showFromMessage`: added interactive `ACCEPT` (`showsUserInterface: true`) and `DECLINE` notification actions on `sese_orders` channel. When device is locked/off, Android OS executes the `fullScreenIntent` waking the screen and launching `MainActivity` over the keyguard. When unlocked/in-use, Android presents an audible Heads-Up call banner.
+  - In `PushNotificationService.init`: added `getNotificationAppLaunchDetails()` handling to guarantee cold-start launches from background notifications invoke `_handleTap`.
+  - In `AndroidManifest.xml`: removed `android:taskAffinity=""` from `MainActivity`, ensuring clean task stack reordering and immediate activity foregrounding.
+
+- **3. Instant Offer Presentation & Bypass of Firestore gRPC Socket Lags (`main.dart`, `driver_dashboard_screen.dart`)**:
+  - Added `PushNotificationService.incomingOfferNotifier` and wired `_handlePushTap` and `_consumeKilledStateOffer` to notify active screens immediately upon resumption.
+  - In `_PingListener`: added direct push listener and Firestore fallback fetch (`_fetchAndShowOffer(tripId)`) so `IncomingOfferSheet` presents immediately without waiting for backgrounded Firestore sockets to reconnect.
+
+- **4. Verification & Testing**:
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+  - Flutter Unit & Widget Tests: 44/44 passed in `sese_ride`, 71/71 passed in `sese_hub`, 153/153 passed in `sese_core`.
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors across `sese_ride`, `sese_hub`, and `sese_core`.
+
 ## 2026-11-15 — Native Full-Screen Intent WhatsApp-Style Incoming Orders & Complete Floating Overlay Purge
 
 - **1. Complete Floating Window Overlay Purge (`sese_ride`, `AndroidManifest.xml`, `MainActivity.kt`)**:

@@ -114,6 +114,10 @@ class PushNotificationService {
   static final ValueNotifier<Map<String, dynamic>?> driverSessionTerminatedEvents =
       ValueNotifier(null);
 
+  /// Latest incoming order offer event payload received via FCM / fullScreenIntent / notification tap.
+  static final ValueNotifier<Map<String, String>?> incomingOfferNotifier =
+      ValueNotifier(null);
+
   /// Whether local channels were created (false in tests / on failure).
   static bool get channelsReady => _channelsReady;
 
@@ -247,6 +251,11 @@ class PushNotificationService {
       final initialMessage = await messaging.getInitialMessage();
       if (initialMessage != null) {
         _handleTap(_payloadOf(initialMessage));
+      }
+      final launchDetails = await _local.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true &&
+          launchDetails?.notificationResponse?.payload != null) {
+        _handleTap(launchDetails!.notificationResponse!.payload);
       }
     } catch (e) {
       debugPrint('PushNotificationService FCM wiring failed: $e');
@@ -383,6 +392,19 @@ class PushNotificationService {
     } catch (e) {
       debugPrint('PushNotificationService onTap failed: $e');
     }
+    final type = data['type'] ?? '';
+    const offerTypes = {
+      'trip_offer',
+      'direct_ping',
+      'tier_ping',
+      'marketplace_broadcast',
+    };
+    if (offerTypes.contains(type)) {
+      incomingOfferNotifier.value = data;
+    }
+    try {
+      onMessageDataStream.add(data);
+    } catch (_) {}
   }
 
   static String _channelFor(Map<String, dynamic> data) {
@@ -471,6 +493,20 @@ class PushNotificationService {
             audioAttributesUsage: channel == PushChannels.orders
                 ? AudioAttributesUsage.notificationRingtone
                 : AudioAttributesUsage.notification,
+            actions: channel == PushChannels.orders
+                ? const <AndroidNotificationAction>[
+                    AndroidNotificationAction(
+                      'accept',
+                      'ACCEPT',
+                      showsUserInterface: true,
+                    ),
+                    AndroidNotificationAction(
+                      'decline',
+                      'DECLINE',
+                      cancelNotification: true,
+                    ),
+                  ]
+                : null,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
