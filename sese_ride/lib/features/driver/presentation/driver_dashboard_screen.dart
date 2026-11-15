@@ -17,6 +17,7 @@ import '../../trips/presentation/trip_rating_dialog.dart';
 import '../../trips/services/trip_rating_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
+import '../services/driver_overlay_service.dart';
 import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import '../services/navigation_launcher_service.dart';
@@ -414,6 +415,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (mounted) _mapController.move(_driverPosition, 15.0);
     });
 
+    // Overlay → app actions (bubble tap, overlay accept/reject/expired).
+    DriverOverlayService.instance.listenActions(_handleOverlayAction);
+
     // Network connectivity listener: instant re-sync the moment internet returns
     _networkReconnectSub = NetworkStatusService.instance.onReconnected.listen((_) {
       if (mounted) {
@@ -435,6 +439,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         }
       },
     );
+  }
+
+  void _handleOverlayAction(String action, String tripId) {
+    if (!mounted) return;
+    if (action == 'foreground') {
+      unawaited(DriverOverlayService.instance.bringToForeground());
+      unawaited(DriverOverlayService.instance.closeOverlayWidget());
+    }
   }
 
   void _initSessionControl() {
@@ -503,6 +515,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = activeSessionId;
       _sessionOverriddenOnOtherDevice = false;
     });
+    DriverOverlayService.instance.isOnline = true;
+    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      unawaited(DriverOverlayService.instance.closeOverlayWidget());
+    } else {
+      unawaited(DriverOverlayService.instance.showOverlayWidget());
+    }
     // Re-establish the visible online signal after process recreation. The
     // dashboard GPS stream is already started in initState and remains alive
     // while the app process is up.
@@ -534,10 +552,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = null;
       _sessionOverriddenOnOtherDevice = true;
     });
+    DriverOverlayService.instance.isOnline = false;
 
     // Cleanup background and foreground services on this device
     // ignore: discarded_futures
     AppSoundService.instance.playOfflineSound();
+    // ignore: discarded_futures
+    DriverOverlayService.instance.hide();
     // ignore: discarded_futures
     PushNotificationService.cancelOnlineAlert();
     // ignore: discarded_futures
@@ -588,6 +609,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
     setState(() => _appPaused = nowPaused);
+    if (!mounted) return;
+    if (nowPaused) {
+      if (_isOnline) {
+        unawaited(DriverOverlayService.instance.showOverlayWidget());
+      }
+    } else {
+      unawaited(DriverOverlayService.instance.closeOverlayWidget());
+    }
   }
 
   /// Best-effort platform fix for the signed online payload and the
@@ -983,6 +1012,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _streaks.activeSessionId = null;
           _sessionOverriddenOnOtherDevice = false;
         });
+        DriverOverlayService.instance.isOnline = false;
+        unawaited(DriverOverlayService.instance.hide());
         // Audio feedback: offline double-tone.
         // ignore: discarded_futures
         AppSoundService.instance.playOfflineSound();
@@ -1345,6 +1376,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _currentSessionId = decision.sessionId;
           _streaks.activeSessionId = decision.sessionId;
         });
+        DriverOverlayService.instance.isOnline = true;
+        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+          unawaited(DriverOverlayService.instance.closeOverlayWidget());
+        } else {
+          unawaited(DriverOverlayService.instance.showOverlayWidget());
+        }
         unawaited(_persistOnlineSession(decision.sessionId));
         // Audio feedback: online chime.
         // ignore: discarded_futures
@@ -2977,6 +3014,8 @@ class _PingListenerState extends State<_PingListener>
     _sheetForTrip = ping.tripId;
     _sheetOpen = true;
     setState(() => _sheetOpen = true);
+    // Hide any floating bubble so it does not collide with the full-screen order sheet
+    unawaited(DriverOverlayService.instance.closeOverlayWidget());
     // Urgent order alert loop — enforces full configured countdown window.
     // ignore: discarded_futures
     AppSoundService.instance.playIncomingOrderAlert(
@@ -3013,6 +3052,9 @@ class _PingListenerState extends State<_PingListener>
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
     if (mounted) setState(() => _sheetOpen = false);
+    if (widget.isAppPaused() && DriverOverlayService.instance.isOnline) {
+      unawaited(DriverOverlayService.instance.showOverlayWidget());
+    }
   }
 }
 

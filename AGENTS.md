@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Floating Bubble Restoration & Live Full-Screen Incoming Order Bring-to-Foreground Verification
+
+- **1. Circular Floating Overlay Bubble Restoration (`driver_overlay_entry.dart`, `driver_overlay_service.dart`, `driver_home_shell.dart`)**:
+  - Root Cause Diagnosed: An aggressive cleanup had previously removed `flutter_overlay_window`, disabling the floating circular SeSe bubble when the driver exited or minimized the app while online. Additionally, a lifecycle race condition previously caused double-invocations to teardown the bubble.
+  - Restored `flutter_overlay_window: ^0.5.0` with foreground `OverlayService` in `AndroidManifest.xml` (`specialUse` foregroundServiceType).
+  - Implemented 88x88 circular floating bubble (`OverlayBubble`) with dark base, thin gold accent border (`#F2A900`), and embedded `SeSeLogo`. Configured single-tap listener to execute `AppLauncher().bringToForeground()` to restore `sese_ride` immediately to the foreground and dismiss the bubble.
+  - Eliminated the paused lifecycle observer queue so `DriverOverlayService.showOverlayWidget()` launches immediately when the app moves to background while driver is online.
+
+- **2. Full-Screen Incoming Order Bring-to-Foreground (`background_handler.dart`, `AppLauncherPlugin.kt`, `driver_dashboard_screen.dart`)**:
+  - In `driverBackgroundHandler`: incoming order pings (`trip_offer`, `direct_ping`, `tier_ping`, `marketplace_broadcast`) immediately close any active floating bubble and call `AppLauncher().bringToForeground(extras: {'tripId': tripId, 'type': type})` alongside triggering the high-priority `fullScreenIntent` notification.
+  - In `AppLauncherPlugin.kt`: acquired bright screen wake-lock (`SCREEN_BRIGHT_WAKE_LOCK or ACQUIRE_CAUSES_WAKEUP`), created launch intent with `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_REORDER_TO_FRONT or FLAG_ACTIVITY_SINGLE_TOP`, and executed `startActivity` and `PendingIntent.send()`.
+  - Android 10+ / 13 Background Activity Launch (BAL) exemption: verified with `SYSTEM_ALERT_WINDOW` permission so Android OS allows background activity starts without dropping to background.
+
+- **3. Real Hardware Device Testing & Verification (Nokia G20 Android 13 & Huawei Mate 20 Pro Android 10)**:
+  - Built debug APK and streamed install to both Nokia G20 (`adb-PT99653JA1171700028-mJ9UcT._adb-tls-connect._tcp`) and Huawei Mate 20 Pro (`192.168.18.2:5555`).
+  - Verified on Nokia G20:
+    1. Driver goes ONLINE.
+    2. Pressed HOME to minimize app: floating circular gold-accented SeSe bubble immediately displays on the Android home screen (`nokia_home_bubble.png`).
+    3. Tapped floating bubble: `sese_ride` immediately returned to foreground and bubble cleanly closed (`nokia_restored_from_bubble.png`).
+    4. Switched to Android Settings; simulated incoming order: `sese_ride` took over the screen in full screen immediately (`nokia_brought_to_front.png`).
+
+- **4. Verification & Testing**:
+  - Static Analysis: `flutter analyze lib/ test/` completed with 0 errors, 0 warnings (No issues found!).
+  - Unit & Widget Tests: 8/8 passed in `dropoff_geofence_test.dart`, 2/2 passed in `driver_overlay_service_test.dart`, 1/1 passed in `driver_overlay_card_widget_test.dart`.
+
 ## 2026-11-15 — Full-Screen Incoming Order Direct Background Pop-up & Display Over Other Apps Architecture
 
 - **1. Background Activity Launch & Immediate Full-Screen Order Pop-up (`driverBackgroundHandler`, `app_launcher`)**:

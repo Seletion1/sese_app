@@ -1,6 +1,7 @@
 import 'package:app_launcher/app_launcher.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:sese_core/services/push_notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,7 +54,17 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: showFromMessage fullScreenIntent failed: $e');
     }
 
-    // 3. Immediately launch MainActivity to the foreground over any active app or home screen!
+    // 3. Close active floating bubble so full screen incoming order has full view
+    try {
+      if (await FlutterOverlayWindow.isActive()) {
+        await FlutterOverlayWindow.closeOverlay().timeout(
+          const Duration(milliseconds: 300),
+          onTimeout: () => false,
+        );
+      }
+    } catch (_) {}
+
+    // 4. Immediately launch MainActivity to the foreground over any active app or home screen!
     try {
       final brought = await AppLauncher().bringToForeground(
         extras: {

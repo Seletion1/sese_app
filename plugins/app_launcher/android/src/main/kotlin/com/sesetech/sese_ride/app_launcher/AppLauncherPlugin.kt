@@ -60,7 +60,9 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                             wakeLock?.acquire(3000)
                         } catch (_: Exception) {}
 
-                        val launchIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.apply {
+                        val launchIntent = (ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+                            ?: Intent(ctx, Class.forName("${ctx.packageName}.MainActivity"))).apply {
+                            action = Intent.ACTION_MAIN
                             addCategory(Intent.CATEGORY_LAUNCHER)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
@@ -70,12 +72,18 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                                 putExtra(k, v.toString())
                             }
                         }
-                        if (launchIntent != null) {
+                        try {
                             ctx.startActivity(launchIntent)
-                            result.success(true)
-                        } else {
-                            result.error("NO_LAUNCH_INTENT", "Could not resolve launch intent for ${ctx.packageName}", null)
+                        } catch (_: Exception) {
+                            val pendingIntent = android.app.PendingIntent.getActivity(
+                                ctx,
+                                0,
+                                launchIntent,
+                                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                            )
+                            pendingIntent.send()
                         }
+                        result.success(true)
                     } catch (e: Exception) {
                         result.error("LAUNCH_ERROR", e.message, null)
                     }
