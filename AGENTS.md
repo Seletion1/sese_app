@@ -72,6 +72,23 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-15 — Full-Screen Incoming Order Instant Pop-up Over Home Screen & Multi-Channel Dispatch
+
+- **1. Instant Full-Screen Overlay Order Card on Home Screen / External Apps (`background_handler.dart`, `driver_overlay_entry.dart`)**:
+  - Root Cause Diagnosed: When an incoming order arrived while the device was unlocked with the driver on the home screen or using third-party navigation, Android OS systematically downgraded the notification's `fullScreenIntent` to a Heads-Up Notification (HUN) banner at the top of the screen. In addition, the background handler previously tore down the floating overlay window and attempted a background `startActivity()`, which OEM launchers (such as Huawei EMUI and Android 10+ Background Activity Launch restrictions) silently ignored without an active user tap.
+  - Full-Screen Overlay Window Expansion: In `driverBackgroundHandler` (`sese_ride/lib/background_handler.dart`), incoming offer pings (`trip_offer`, `direct_ping`, `tier_ping`, `marketplace_broadcast`) now immediately expand `FlutterOverlayWindow` to `WindowSize.fullCover` (`OverlayFlag.focusPointer`) or launch a new full-cover overlay, instantly presenting `_OverlayOrderCard` over the home screen or whatever app the driver is using.
+  - Resilient State Restoration: In `driver_overlay_entry.dart`, `_DriverOverlayAppState` restores the stashed offer payload from `SharedPreferences` upon initialization, ensuring zero loss of offer data during isolate cold-starts. On dismissal, decline, or timeout, the overlay seamlessly shrinks back to the 140x140 floating SeSe bubble (`OverlayFlag.defaultFlag`).
+  - Native Activity Bring-To-Foreground: In `AppLauncherPlugin.kt`, combined `activityManager.appTasks.firstOrNull()?.moveToFront()`, `startActivity()` with `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or FLAG_ACTIVITY_REORDER_TO_FRONT`, and `PendingIntent` with `MODE_BACKGROUND_ACTIVITY_START_ALLOWED` (Android 14+), ensuring robust activity foregrounding across all Android versions.
+
+- **2. Multi-Topic FCM Dispatch & Enriched Order Extras (`functions/src/trips.ts`)**:
+  - In `advanceSequentialDispatch`: now dispatches sequential order offers across all relevant driver topics (`driver_${driverId}` and `user_${driverId}`) and persists the notification to the driver collection.
+  - Included enriched order metadata in FCM `data` payload: `pickupAddress`, `dropoffAddress`, `pickup`, `dropoff`, `category`, and `serviceType`, enabling both `IncomingOfferSheet` (main app) and `_OverlayOrderCard` (overlay) to parse complete trip information immediately.
+
+- **3. Verification & Deployment**:
+  - Static Analysis: `dart analyze lib test` in `sese_ride` clean with 0 warnings, 0 errors ("No issues found!").
+  - Unit & Widget Tests: 11/11 passed in `sese_ride` (`driver_overlay_service_test.dart`, `driver_overlay_card_widget_test.dart`, `dropoff_geofence_test.dart`).
+  - Backend Deployment: Cloud Functions 2nd Gen (`createTrip`, `onTripCreated`, `acceptTrip`, `declineTrip`, `advanceTripStatus`, `sweepTripPings`) and Firestore security rules deployed to Firebase (`sese-ride`).
+
 ## 2026-11-15 — Floating Bubble Restoration & Live Full-Screen Incoming Order Bring-to-Foreground Verification
 
 - **1. Circular Floating Overlay Bubble Restoration (`driver_overlay_entry.dart`, `driver_overlay_service.dart`, `driver_home_shell.dart`)**:

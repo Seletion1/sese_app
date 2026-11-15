@@ -1540,28 +1540,53 @@ async function advanceSequentialDispatch(
     data.fareAmount ??
     0
   );
-  await notifyCustomer(
-    targetDriver.id,
-    tripRef.id,
-    "New Order Request",
-    "You have an exclusive order request! Tap to review and accept.",
-    "trip_offer",
-    {
-      tripId: tripRef.id,
-      dispatchStep: String(nextStep),
-      pickupAddress: String(data.pickupAddress ?? data.pickup?.address ?? ""),
-      dropoffAddress: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
-      broadcast_fare: String(broadcastFareAmount),
-      fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
-      fareAmount: String(broadcastFareAmount),
-      distanceKm: String(data.distanceKm ?? targetDriver.distanceKm ?? 0),
-      pickupLat: String(data.pickupLat ?? data.pickup?.lat ?? 0),
-      pickupLng: String(data.pickupLng ?? data.pickup?.lng ?? 0),
-      dropoffLat: String(data.dropoffLat ?? data.dropoff?.lat ?? 0),
-      dropoffLng: String(data.dropoffLng ?? data.dropoff?.lng ?? 0),
-    },
-    `driver_${targetDriver.id}`
-  );
+  const offerExtras: Record<string, string> = {
+    tripId: tripRef.id,
+    dispatchStep: String(nextStep),
+    pickupAddress: String(data.pickupAddress ?? data.pickup?.address ?? ""),
+    dropoffAddress: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
+    pickup: String(data.pickupAddress ?? data.pickup?.address ?? ""),
+    dropoff: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
+    broadcast_fare: String(broadcastFareAmount),
+    fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
+    fareAmount: String(broadcastFareAmount),
+    distanceKm: String(data.distanceKm ?? targetDriver.distanceKm ?? 0),
+    pickupLat: String(data.pickupLat ?? data.pickup?.lat ?? 0),
+    pickupLng: String(data.pickupLng ?? data.pickup?.lng ?? 0),
+    dropoffLat: String(data.dropoffLat ?? data.dropoff?.lat ?? 0),
+    dropoffLng: String(data.dropoffLng ?? data.dropoff?.lng ?? 0),
+    category: String(data.category ?? data.serviceType ?? "ride"),
+    serviceType: String(data.serviceType ?? data.category ?? "ride"),
+  };
+
+  await Promise.allSettled([
+    notifyCustomer(
+      targetDriver.id,
+      tripRef.id,
+      "New Order Request",
+      "You have an exclusive order request! Tap to review and accept.",
+      "trip_offer",
+      offerExtras,
+      `driver_${targetDriver.id}`
+    ),
+    notifyCustomer(
+      targetDriver.id,
+      tripRef.id,
+      "New Order Request",
+      "You have an exclusive order request! Tap to review and accept.",
+      "trip_offer",
+      offerExtras,
+      `user_${targetDriver.id}`
+    ),
+    notifyDriver(
+      targetDriver.id,
+      tripRef.id,
+      "New Order Request",
+      "You have an exclusive order request! Tap to review and accept.",
+      "trip_offer",
+      offerExtras
+    ),
+  ]);
 
   return true;
 }

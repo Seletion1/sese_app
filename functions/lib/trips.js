@@ -1122,7 +1122,7 @@ async function dropToPublicPool(tripRef) {
  * - Step 4: Drop to Public Order Pool (MARKETPLACE_OPEN) if all three reject or time out.
  */
 async function advanceSequentialDispatch(tripRef, data, tuning) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17;
     const pickup = pickupOf(data);
     const attempted = attemptedIdsOf(data);
     const currentStep = typeof data.dispatchStep === "number" ? data.dispatchStep : attempted.length;
@@ -1175,20 +1175,29 @@ async function advanceSequentialDispatch(tripRef, data, tuning) {
     });
     // Pre-acceptance scoping: push targeted notification carrying exclusively broadcast_fare
     const broadcastFareAmount = Number((_m = (_l = (_k = (_j = (_h = (_g = data.broadcast_fare) !== null && _g !== void 0 ? _g : data.broadcastFare) !== null && _h !== void 0 ? _h : data.base_trip_fare) !== null && _j !== void 0 ? _j : data.baseTripFare) !== null && _k !== void 0 ? _k : data.baseFare) !== null && _l !== void 0 ? _l : data.fareAmount) !== null && _m !== void 0 ? _m : 0);
-    await notifyCustomer(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", {
+    const offerExtras = {
         tripId: tripRef.id,
         dispatchStep: String(nextStep),
         pickupAddress: String((_q = (_o = data.pickupAddress) !== null && _o !== void 0 ? _o : (_p = data.pickup) === null || _p === void 0 ? void 0 : _p.address) !== null && _q !== void 0 ? _q : ""),
         dropoffAddress: String((_t = (_r = data.dropoffAddress) !== null && _r !== void 0 ? _r : (_s = data.dropoff) === null || _s === void 0 ? void 0 : _s.address) !== null && _t !== void 0 ? _t : ""),
+        pickup: String((_w = (_u = data.pickupAddress) !== null && _u !== void 0 ? _u : (_v = data.pickup) === null || _v === void 0 ? void 0 : _v.address) !== null && _w !== void 0 ? _w : ""),
+        dropoff: String((_z = (_x = data.dropoffAddress) !== null && _x !== void 0 ? _x : (_y = data.dropoff) === null || _y === void 0 ? void 0 : _y.address) !== null && _z !== void 0 ? _z : ""),
         broadcast_fare: String(broadcastFareAmount),
         fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
         fareAmount: String(broadcastFareAmount),
-        distanceKm: String((_v = (_u = data.distanceKm) !== null && _u !== void 0 ? _u : targetDriver.distanceKm) !== null && _v !== void 0 ? _v : 0),
-        pickupLat: String((_y = (_w = data.pickupLat) !== null && _w !== void 0 ? _w : (_x = data.pickup) === null || _x === void 0 ? void 0 : _x.lat) !== null && _y !== void 0 ? _y : 0),
-        pickupLng: String((_1 = (_z = data.pickupLng) !== null && _z !== void 0 ? _z : (_0 = data.pickup) === null || _0 === void 0 ? void 0 : _0.lng) !== null && _1 !== void 0 ? _1 : 0),
-        dropoffLat: String((_4 = (_2 = data.dropoffLat) !== null && _2 !== void 0 ? _2 : (_3 = data.dropoff) === null || _3 === void 0 ? void 0 : _3.lat) !== null && _4 !== void 0 ? _4 : 0),
-        dropoffLng: String((_7 = (_5 = data.dropoffLng) !== null && _5 !== void 0 ? _5 : (_6 = data.dropoff) === null || _6 === void 0 ? void 0 : _6.lng) !== null && _7 !== void 0 ? _7 : 0),
-    }, `driver_${targetDriver.id}`);
+        distanceKm: String((_1 = (_0 = data.distanceKm) !== null && _0 !== void 0 ? _0 : targetDriver.distanceKm) !== null && _1 !== void 0 ? _1 : 0),
+        pickupLat: String((_4 = (_2 = data.pickupLat) !== null && _2 !== void 0 ? _2 : (_3 = data.pickup) === null || _3 === void 0 ? void 0 : _3.lat) !== null && _4 !== void 0 ? _4 : 0),
+        pickupLng: String((_7 = (_5 = data.pickupLng) !== null && _5 !== void 0 ? _5 : (_6 = data.pickup) === null || _6 === void 0 ? void 0 : _6.lng) !== null && _7 !== void 0 ? _7 : 0),
+        dropoffLat: String((_10 = (_8 = data.dropoffLat) !== null && _8 !== void 0 ? _8 : (_9 = data.dropoff) === null || _9 === void 0 ? void 0 : _9.lat) !== null && _10 !== void 0 ? _10 : 0),
+        dropoffLng: String((_13 = (_11 = data.dropoffLng) !== null && _11 !== void 0 ? _11 : (_12 = data.dropoff) === null || _12 === void 0 ? void 0 : _12.lng) !== null && _13 !== void 0 ? _13 : 0),
+        category: String((_15 = (_14 = data.category) !== null && _14 !== void 0 ? _14 : data.serviceType) !== null && _15 !== void 0 ? _15 : "ride"),
+        serviceType: String((_17 = (_16 = data.serviceType) !== null && _16 !== void 0 ? _16 : data.category) !== null && _17 !== void 0 ? _17 : "ride"),
+    };
+    await Promise.allSettled([
+        notifyCustomer(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", offerExtras, `driver_${targetDriver.id}`),
+        notifyCustomer(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", offerExtras, `user_${targetDriver.id}`),
+        notifyDriver(targetDriver.id, tripRef.id, "New Order Request", "You have an exclusive order request! Tap to review and accept.", "trip_offer", offerExtras),
+    ]);
     return true;
 }
 /** Sequential Dispatch entry point on order creation. */

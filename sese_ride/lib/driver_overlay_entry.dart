@@ -9,6 +9,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'features/driver/services/driver_overlay_service.dart';
 import 'firebase_options.dart';
@@ -49,6 +50,7 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
   void initState() {
     super.initState();
     _initFirebase();
+    _restorePendingOffer();
     _sub = FlutterOverlayWindow.overlayListener.listen((dynamic event) {
       if (event is! Map) return;
       final map = Map<String, dynamic>.from(event);
@@ -63,6 +65,29 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
         _closeOverlayNow();
       }
     });
+  }
+
+  Future<void> _restorePendingOffer() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('pending_offer_payload');
+      if (raw != null && raw.isNotEmpty) {
+        final out = <String, String>{};
+        for (final part in raw.split('&')) {
+          final i = part.indexOf('=');
+          if (i < 0) continue;
+          out[Uri.decodeComponent(part.substring(0, i))] =
+              Uri.decodeComponent(part.substring(i + 1));
+        }
+        final tripId = out['tripId'] ?? '';
+        if (tripId.isNotEmpty && mounted) {
+          setState(() {
+            _mode = 'order';
+            _offer = out;
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _closeOverlayNow() async {
@@ -103,11 +128,12 @@ class _DriverOverlayAppState extends State<_DriverOverlayApp> {
         onDismiss: () {
           if (mounted) {
             setState(() {
-              _mode = 'closed';
+              _mode = 'bubble';
               _offer = const {};
             });
           }
-          _closeOverlayNow();
+          unawaited(FlutterOverlayWindow.resizeOverlay(140, 140, true));
+          unawaited(FlutterOverlayWindow.updateFlag(OverlayFlag.defaultFlag));
         },
       );
     } else if (_mode == 'bubble') {
@@ -616,8 +642,8 @@ class _OverlayOrderCardState extends State<OverlayOrderCard> {
                 const SizedBox(height: 14),
 
                 // Trip Details
-                _detailRow(Icons.my_location, 'Pickup', (o['pickup'] ?? '').toString(), Colors.greenAccent),
-                _detailRow(Icons.location_on, 'Drop-off', (o['dropoff'] ?? '').toString(), Colors.redAccent),
+                _detailRow(Icons.my_location, 'Pickup', (o['pickupAddress'] ?? o['pickup'] ?? '').toString(), Colors.greenAccent),
+                _detailRow(Icons.location_on, 'Drop-off', (o['dropoffAddress'] ?? o['dropoff'] ?? '').toString(), Colors.redAccent),
                 Row(
                   children: [
                     Expanded(
@@ -656,8 +682,8 @@ class _OverlayOrderCardState extends State<OverlayOrderCard> {
                       child: ElevatedButton(
                         onPressed: (_busy || _dismissed) ? null : _accept,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green.shade600,
-                          foregroundColor: Colors.white,
+                          backgroundColor: const Color(0xFFF2A900),
+                          foregroundColor: Colors.black,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           elevation: 4,
                           shape: RoundedRectangleBorder(
@@ -665,8 +691,8 @@ class _OverlayOrderCardState extends State<OverlayOrderCard> {
                           ),
                         ),
                         child: Text(
-                          _busy ? 'Working…' : 'ACCEPT',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                          _busy ? 'Working…' : 'Accept for $fare',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
                     ),

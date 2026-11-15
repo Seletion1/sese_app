@@ -54,15 +54,42 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: showFromMessage fullScreenIntent failed: $e');
     }
 
-    // 3. Close active floating bubble so full screen incoming order has full view
+    // 3. Trigger full-screen incoming order overlay immediately over home screen & external apps
     try {
-      if (await FlutterOverlayWindow.isActive()) {
-        await FlutterOverlayWindow.closeOverlay().timeout(
-          const Duration(milliseconds: 300),
-          onTimeout: () => false,
-        );
+      final hasOverlayPerm = await FlutterOverlayWindow.isPermissionGranted();
+      if (hasOverlayPerm) {
+        final isActive = await FlutterOverlayWindow.isActive();
+        if (isActive) {
+          await FlutterOverlayWindow.resizeOverlay(
+            WindowSize.fullCover,
+            WindowSize.fullCover,
+            false,
+          );
+          await FlutterOverlayWindow.updateFlag(OverlayFlag.focusPointer);
+          await FlutterOverlayWindow.shareData({
+            'mode': 'order',
+            'offer': message.data,
+          });
+          debugPrint(
+              'driverBackgroundHandler: expanded overlay to full-screen order card for trip ${message.data['tripId']}');
+        } else {
+          await FlutterOverlayWindow.showOverlay(
+            height: WindowSize.fullCover,
+            width: WindowSize.matchParent,
+            flag: OverlayFlag.focusPointer,
+            visibility: NotificationVisibility.visibilitySecret,
+          );
+          await FlutterOverlayWindow.shareData({
+            'mode': 'order',
+            'offer': message.data,
+          });
+          debugPrint(
+              'driverBackgroundHandler: launched new full-screen overlay for trip ${message.data['tripId']}');
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('driverBackgroundHandler: overlay trigger error: $e');
+    }
 
     // 4. Immediately launch MainActivity to the foreground over any active app or home screen!
     try {

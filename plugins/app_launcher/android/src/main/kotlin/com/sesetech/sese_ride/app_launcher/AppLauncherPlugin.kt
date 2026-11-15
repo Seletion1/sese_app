@@ -60,13 +60,23 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                             wakeLock?.acquire(3000)
                         } catch (_: Exception) {}
 
+                        // 1. Move existing app task to front via ActivityManager
+                        try {
+                            val activityManager = ctx.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                            val appTasks = activityManager?.appTasks
+                            if (!appTasks.isNullOrEmpty()) {
+                                appTasks[0].moveToFront()
+                            }
+                        } catch (_: Exception) {}
+
+                        // 2. Launch Intent with NEW_TASK + RESET_TASK_IF_NEEDED + REORDER_TO_FRONT
                         val launchIntent = (ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
                             ?: Intent(ctx, Class.forName("${ctx.packageName}.MainActivity"))).apply {
                             action = Intent.ACTION_MAIN
                             addCategory(Intent.CATEGORY_LAUNCHER)
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                             val extras = call.argument<Map<String, Any>>("extras")
                             extras?.forEach { (k, v) ->
                                 putExtra(k, v.toString())
@@ -74,15 +84,27 @@ class AppLauncherPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                         }
                         try {
                             ctx.startActivity(launchIntent)
-                        } catch (_: Exception) {
+                        } catch (_: Exception) {}
+
+                        // 3. PendingIntent with background activity start mode
+                        try {
                             val pendingIntent = android.app.PendingIntent.getActivity(
                                 ctx,
                                 0,
                                 launchIntent,
                                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
                             )
-                            pendingIntent.send()
-                        }
+                            if (android.os.Build.VERSION.SDK_INT >= 34) {
+                                val options = android.app.ActivityOptions.makeBasic()
+                                options.setPendingIntentBackgroundActivityStartMode(
+                                    android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                                )
+                                pendingIntent.send(ctx, 0, null, null, null, null, options.toBundle())
+                            } else {
+                                pendingIntent.send()
+                            }
+                        } catch (_: Exception) {}
+
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("LAUNCH_ERROR", e.message, null)
