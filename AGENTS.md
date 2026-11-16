@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-16 — Fleet & Security Badge Count & Data Query Synchronization Fix
+
+- **1. Synchronized Driver KYC Verification Predicates (`driver_verification.dart`)**:
+  - Refined `DriverVerification.isPendingDriverKycDoc` in `sese_core` to strictly exclude driver accounts where `isProfileVerified == true` or `verificationStatus` / `profileStatus` is `'approved'`, `'verified'`, or `'rejected'`.
+  - Fixes false-positive pending matches for already verified driver profiles, ensuring `pendingDriverKycCountStream` and the Driver KYC queue stay 100% in sync.
+
+- **2. Smart Auto-Focus for Active Pending Work (`hub_module_shell.dart`)**:
+  - Added `_autoFocusPendingSection` to `HubModuleShell`: when opening a module desk (such as "Fleet & Security"), if the first sub-section ("Pending Vehicles") has 0 items but another sub-section ("Driver KYC Approvals") contains pending work, the shell automatically focuses the sub-section with active work.
+  - Guarantees zero ghost badges: when all pending queues are cleared, the bottom navigation badge stream immediately emits `0`, hiding the badge (`SizedBox.shrink()`).
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors across `sese_hub`, `sese_core`, and `sese_ride`.
+  - Unit & Widget Tests: 34/34 passed in `sese_hub` (`fleet_repository_test`, `hub_pending_counts_test`, `vehicle_approvals_test`, `hub_rbac_test`).
+
 ## 2026-11-16 — Admin Onboarding OTP Dispatch & 5-Minute Descending Countdown Timer
 
 - **1. Backend Resend Email Dispatch (`adminOnboarding.ts`)**:

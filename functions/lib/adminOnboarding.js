@@ -38,6 +38,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const uniqueIdentifiers_1 = require("./uniqueIdentifiers");
 const hubBootstrap_1 = require("./hubBootstrap");
+const email_1 = require("./email");
 function db() {
     return admin.firestore();
 }
@@ -242,6 +243,37 @@ exports.sendOnboardingOtp = (0, https_1.onCall)(async (request) => {
         createdByAdminId: request.auth.uid,
     });
     console.log(`[sendOnboardingOtp] OTP generated for ${normalizedIdentifier}: ${otp}`);
+    if (isEmail) {
+        try {
+            const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 24px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #FFB800; margin: 0;">Seletion Tech</h2>
+            <p style="color: #666666; font-size: 14px; margin-top: 4px;">Admin Onboarding Verification Code</p>
+          </div>
+          <p style="font-size: 15px; color: #333333;">Your 6-digit onboarding verification code is:</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #111111; background: #f8f9fa; padding: 12px 24px; border-radius: 8px; border: 1px dashed #FFB800; display: inline-block;">${otp}</span>
+          </div>
+          <p style="font-size: 13px; color: #777777;">This code is valid for <strong>10 minutes</strong>. Do not share this code with anyone.</p>
+          <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #aaaaaa; text-align: center;">Sent by Seletion Tech &bull; noreply@sesetech.com</p>
+        </div>
+      `;
+            await (0, email_1.sendEmailViaResend)({
+                to: rawIdentifier,
+                subject: `${otp} is your Sese Admin Onboarding verification code`,
+                html: htmlBody,
+                text: `Your Sese Admin Onboarding verification code is: ${otp}. Valid for 10 minutes.`,
+            });
+        }
+        catch (emailErr) {
+            console.error(`[sendOnboardingOtp] Resend email dispatch failed for ${rawIdentifier}:`, emailErr);
+            if (process.env.NODE_ENV === "production" && !process.env.FUNCTIONS_EMULATOR) {
+                throw new https_1.HttpsError("internal", `Email dispatch failed: ${emailErr.message || emailErr}`);
+            }
+        }
+    }
     const isDev = process.env.FUNCTIONS_EMULATOR === "true" ||
         process.env.NODE_ENV !== "production";
     return {

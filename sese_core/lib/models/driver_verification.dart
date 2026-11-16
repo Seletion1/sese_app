@@ -25,18 +25,30 @@ abstract final class DriverVerification {
   /// Returns true if a driver document represents an active pending profile
   /// awaiting hub manual document audit (not already approved or rejected).
   static bool isPendingDriverKycDoc(Map<String, dynamic> data) {
+    if (data[fieldProfileVerified] == true || data['isVerified'] == true) {
+      return false;
+    }
     final status =
         (data[fieldStatus] ?? '').toString().toLowerCase();
     final profileStatus =
         (data['profileStatus'] ?? '').toString().toLowerCase();
-    if ((status == 'approved' || status == 'verified') &&
-        profileStatus != 'pending_verification') {
+    if (status == 'approved' ||
+        status == 'verified' ||
+        profileStatus == 'approved' ||
+        profileStatus == 'verified') {
       return false;
     }
-    if (status == 'rejected' && profileStatus != 'pending_verification') {
+    if (status == 'rejected' || profileStatus == 'rejected') {
       return false;
     }
-    return true;
+    if (status == 'pending' ||
+        status == 'pending_onboarding' ||
+        status == 'submitted' ||
+        profileStatus == 'pending_verification' ||
+        data['isPendingReview'] == true) {
+      return true;
+    }
+    return false;
   }
 }
 

@@ -76,7 +76,37 @@ class _HubModuleShellState extends State<HubModuleShell> {
   void initState() {
     super.initState();
     _index = widget.initialIndex;
-    _restoreSavedSection();
+    _restoreSavedSection().then((_) {
+      if (mounted) _autoFocusPendingSection();
+    });
+  }
+
+  void _autoFocusPendingSection() {
+    final visible = _visible;
+    if (visible.isEmpty) return;
+
+    for (int i = 0; i < visible.length; i++) {
+      final section = visible[i];
+      final stream = section.badgeStream;
+      if (stream != null) {
+        stream.first.then((count) {
+          if (!mounted) return;
+          if (count > 0) {
+            final currentSection = visible[_index.clamp(0, visible.length - 1)];
+            final currentStream = currentSection.badgeStream;
+            if (currentStream != null) {
+              currentStream.first.then((currentCount) {
+                if (mounted && currentCount <= 0) {
+                  setState(() => _index = i);
+                }
+              }).catchError((_) {});
+            } else {
+              setState(() => _index = i);
+            }
+          }
+        }).catchError((_) {});
+      }
+    }
   }
 
   Future<void> _restoreSavedSection() async {
