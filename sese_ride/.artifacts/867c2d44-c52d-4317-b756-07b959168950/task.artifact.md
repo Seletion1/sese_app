@@ -1,6 +1,7 @@
-# Implementation Task Checklist - Cancellation Feedback Security Fix
+# Implementation Task Checklist - Identifier Availability Security Fix
 
-- [x] Add auth check and enforce caller's `auth.uid` as `userId` in `submitCancellationFeedback` (`functions/src/trips.ts`)
-- [x] Add unit tests in `functions/src/test/hub_security.test.ts`
-- [x] Run `npm test` in `functions/`
-- [x] Update `walkthrough.artifact.md`
+- [/] Add authentication check, UID rate limiting, and sensitive credential format validation to `checkIdentifierAvailability` (`functions/src/uniqueIdentifiers.ts`)
+- [ ] Add unit tests in `functions/src/test/unique_identifiers.test.ts`
+- [ ] Run `npm test` in `functions/`
+- [ ] Run mandatory build, test & Firebase deployment pipeline
+- [ ] Create `walkthrough.artifact.md`

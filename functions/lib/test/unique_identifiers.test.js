@@ -134,5 +134,28 @@ const uniqueIdentifiers_1 = require("../uniqueIdentifiers");
         node_assert_1.default.strictEqual(prepared[2].type, "plate_number");
         node_assert_1.default.strictEqual(prepared[2].entityId, "v_123");
     });
+    (0, node_test_1.test)("10. checkIdentifierAvailability Security & Rate Limiting", async () => {
+        // Unauthenticated call rejection
+        await node_assert_1.default.rejects(async () => {
+            await uniqueIdentifiers_1.checkIdentifierAvailability.run({ data: { type: "email", value: "test@example.com" } });
+        }, (err) => err.code === "unauthenticated");
+        // Malformed NIN validation rejection
+        const authReq = {
+            auth: { uid: "user_test_rate_1" },
+            data: { type: "nin", value: "123" }, // Invalid < 11 digits
+        };
+        await node_assert_1.default.rejects(async () => {
+            await uniqueIdentifiers_1.checkIdentifierAvailability.run(authReq);
+        }, (err) => err.code === "invalid-argument");
+    });
+    (0, node_test_1.test)("11. checkIdentifierRateLimit Sliding Window Enforcement", () => {
+        const rateLimitUid = `rate_limit_user_${Date.now()}`;
+        // Up to 30 requests allowed
+        for (let i = 0; i < 30; i++) {
+            node_assert_1.default.doesNotThrow(() => (0, uniqueIdentifiers_1.checkIdentifierRateLimit)(rateLimitUid));
+        }
+        // 31st request throws resource-exhausted
+        node_assert_1.default.throws(() => (0, uniqueIdentifiers_1.checkIdentifierRateLimit)(rateLimitUid), (err) => err.code === "resource-exhausted");
+    });
 });
 //# sourceMappingURL=unique_identifiers.test.js.map

@@ -318,11 +318,58 @@ interface CheckAvailabilityData {
 }
 
 /**
+ * Sliding-window rate limiter per UID for identifier availability lookups.
+ */
+interface IdentifierRateLimitBucket {
+  timestamps: number[];
+}
+const identifierRateLimits = new Map<string, IdentifierRateLimitBucket>();
+const IDENTIFIER_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const IDENTIFIER_MAX_REQUESTS_PER_WINDOW = 30; // Max 30 requests/minute per UID
+
+export function checkIdentifierRateLimit(uid: string): void {
+  const now = Date.now();
+  const bucket = identifierRateLimits.get(uid) ?? { timestamps: [] };
+  const validTimestamps = bucket.timestamps.filter(
+    (t) => now - t < IDENTIFIER_RATE_LIMIT_WINDOW_MS
+  );
+  if (validTimestamps.length >= IDENTIFIER_MAX_REQUESTS_PER_WINDOW) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many identifier availability checks. Please wait a moment."
+    );
+  }
+  validTimestamps.push(now);
+  identifierRateLimits.set(uid, { timestamps: validTimestamps });
+
+  if (identifierRateLimits.size > 10000) {
+    for (const [key, val] of identifierRateLimits.entries()) {
+      if (
+        val.timestamps.length === 0 ||
+        now - val.timestamps[val.timestamps.length - 1] > IDENTIFIER_RATE_LIMIT_WINDOW_MS
+      ) {
+        identifierRateLimits.delete(key);
+      }
+    }
+  }
+}
+
+/**
  * Callable: checkIdentifierAvailability
  * Fast O(1) pre-flight check for mobile and hub registration/editing forms.
  */
 export const checkIdentifierAvailability = onCall<CheckAvailabilityData>(
   async (request) => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication required to check identifier availability."
+      );
+    }
+
+    const callerUid = request.auth.uid;
+    checkIdentifierRateLimit(callerUid);
+
     const { type, value } = request.data ?? {};
     if (!type || !value) {
       throw new HttpsError("invalid-argument", "type and value are required.");
@@ -331,6 +378,30 @@ export const checkIdentifierAvailability = onCall<CheckAvailabilityData>(
     const normalized = normalizeIdentifier(type, value);
     if (!normalized) {
       return { available: true, maskedValue: "••••" };
+    }
+
+    const isSensitiveType =
+      type === "nin" ||
+      type === "bvn" ||
+      type === "passport" ||
+      type === "drivers_license";
+
+    if (isSensitiveType) {
+      if (type === "nin" || type === "bvn") {
+        if (!/^\d{11}$/.test(normalized)) {
+          throw new HttpsError(
+            "invalid-argument",
+            `${type.toUpperCase()} must be exactly 11 digits.`
+          );
+        }
+      } else if (type === "passport" || type === "drivers_license") {
+        if (normalized.length < 6 || normalized.length > 20) {
+          throw new HttpsError(
+            "invalid-argument",
+            `Invalid ${type} format.`
+          );
+        }
+      }
     }
 
     const hash = hashIdentifier(type, normalized);
@@ -343,9 +414,8 @@ export const checkIdentifierAvailability = onCall<CheckAvailabilityData>(
 
     const data = snap.data() ?? {};
     const ownerUid = String(data.ownerUid ?? "");
-    const callerUid = request.auth?.uid;
 
-    if (callerUid && ownerUid === callerUid) {
+    if (ownerUid === callerUid) {
       return { available: true, selfOwned: true, maskedValue: masked };
     }
 

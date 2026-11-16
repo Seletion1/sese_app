@@ -1,36 +1,38 @@
-# Secure Cancellation Feedback User Attribution & Authentication
+# Fix Unauthenticated Identifier Enumeration & Oracle Vulnerability in checkIdentifierAvailability
 
-Fix the unauthenticated arbitrary user attribution vulnerability in `submitCancellationFeedback` located in `functions/src/trips.ts`.
+Fix the unauthenticated identifier enumeration and oracle vulnerability in `checkIdentifierAvailability` located in `functions/src/uniqueIdentifiers.ts`.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - Previously, `submitCancellationFeedback` did not check `request.auth` and trusted `request.data.userId`. Any unauthenticated caller could submit feedback under arbitrary user IDs.
+> - `checkIdentifierAvailability` previously allowed unauthenticated, rate-unlimited lookups for sensitive identity fields.
 > - With this change:
->   - Requests without valid `request.auth` will throw `HttpsError('unauthenticated')`.
->   - `userId` will be derived directly from `request.auth.uid`. Any client-supplied `userId` parameter in `request.data` is ignored.
+>   - Unauthenticated requests will be rejected immediately with `HttpsError('unauthenticated')`.
+>   - Per-UID sliding window rate limiting (30 requests/min) will be enforced to prevent scraping/credential stuffing.
+>   - Sensitive identity lookups (`nin`, `bvn`, `passport`, `drivers_license`) will be strictly validated for format and length before lookup.
 
 ## Proposed Changes
 
 ### Firebase Cloud Functions (`functions/src`)
 
-#### [MODIFY] [trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L4415-L4455)
-- Add explicit authentication guard: `if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication is required to submit cancellation feedback.');`.
-- Derive `userId` strictly from `request.auth.uid`.
-- Retain input sanitization and length validation on `tripId`, `role`, `reason`, and `detail`.
-- Maintain compound document ID `${tripId}_${userId}` for idempotent first-write submission.
+#### [MODIFY] [uniqueIdentifiers.ts](file:///Users/micheal/sese_app/functions/src/uniqueIdentifiers.ts)
+- Add caller authentication check at the start of `checkIdentifierAvailability`:
+  `if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication required to check identifier availability.');`.
+- Implement `checkIdentifierRateLimit(uid: string)` to enforce sliding window rate limiting per UID.
+- Enforce strict format/length validation for sensitive types (`nin`, `bvn`, `passport`, `drivers_license`).
 
-#### [MODIFY] [hub_security.test.ts](file:///Users/micheal/sese_app/functions/src/test/hub_security.test.ts)
-- Add unit test cases for `submitCancellationFeedback`:
-  - Rejecting unauthenticated calls.
-  - Forcing `userId` to be caller's `auth.uid` even if a spoofed `userId` is supplied in `request.data`.
+#### [MODIFY] [unique_identifiers.test.ts](file:///Users/micheal/sese_app/functions/src/test/unique_identifiers.test.ts)
+- Add unit tests for `checkIdentifierAvailability`:
+  - Verify rejection of unauthenticated calls.
+  - Verify per-UID rate limiting enforcement.
+  - Verify sensitive credential format validation.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit tests.
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
 
 ### Manual Verification
 - Verify TypeScript compilation using `npm run build` in `/Users/micheal/sese_app/functions`.

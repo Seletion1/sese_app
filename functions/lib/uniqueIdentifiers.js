@@ -66,6 +66,7 @@ exports.maskIdentifier = maskIdentifier;
 exports.getConflictErrorMessage = getConflictErrorMessage;
 exports.prepareIdentifiers = prepareIdentifiers;
 exports.assertAndReserveIdentifiersTx = assertAndReserveIdentifiersTx;
+exports.checkIdentifierRateLimit = checkIdentifierRateLimit;
 const crypto = __importStar(require("crypto"));
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
@@ -272,12 +273,39 @@ async function assertAndReserveIdentifiersTx(params) {
         }
     }
 }
+const identifierRateLimits = new Map();
+const IDENTIFIER_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const IDENTIFIER_MAX_REQUESTS_PER_WINDOW = 30; // Max 30 requests/minute per UID
+function checkIdentifierRateLimit(uid) {
+    var _a;
+    const now = Date.now();
+    const bucket = (_a = identifierRateLimits.get(uid)) !== null && _a !== void 0 ? _a : { timestamps: [] };
+    const validTimestamps = bucket.timestamps.filter((t) => now - t < IDENTIFIER_RATE_LIMIT_WINDOW_MS);
+    if (validTimestamps.length >= IDENTIFIER_MAX_REQUESTS_PER_WINDOW) {
+        throw new https_1.HttpsError("resource-exhausted", "Too many identifier availability checks. Please wait a moment.");
+    }
+    validTimestamps.push(now);
+    identifierRateLimits.set(uid, { timestamps: validTimestamps });
+    if (identifierRateLimits.size > 10000) {
+        for (const [key, val] of identifierRateLimits.entries()) {
+            if (val.timestamps.length === 0 ||
+                now - val.timestamps[val.timestamps.length - 1] > IDENTIFIER_RATE_LIMIT_WINDOW_MS) {
+                identifierRateLimits.delete(key);
+            }
+        }
+    }
+}
 /**
  * Callable: checkIdentifierAvailability
  * Fast O(1) pre-flight check for mobile and hub registration/editing forms.
  */
 exports.checkIdentifierAvailability = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required to check identifier availability.");
+    }
+    const callerUid = request.auth.uid;
+    checkIdentifierRateLimit(callerUid);
     const { type, value } = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     if (!type || !value) {
         throw new https_1.HttpsError("invalid-argument", "type and value are required.");
@@ -285,6 +313,22 @@ exports.checkIdentifierAvailability = (0, https_1.onCall)(async (request) => {
     const normalized = normalizeIdentifier(type, value);
     if (!normalized) {
         return { available: true, maskedValue: "••••" };
+    }
+    const isSensitiveType = type === "nin" ||
+        type === "bvn" ||
+        type === "passport" ||
+        type === "drivers_license";
+    if (isSensitiveType) {
+        if (type === "nin" || type === "bvn") {
+            if (!/^\d{11}$/.test(normalized)) {
+                throw new https_1.HttpsError("invalid-argument", `${type.toUpperCase()} must be exactly 11 digits.`);
+            }
+        }
+        else if (type === "passport" || type === "drivers_license") {
+            if (normalized.length < 6 || normalized.length > 20) {
+                throw new https_1.HttpsError("invalid-argument", `Invalid ${type} format.`);
+            }
+        }
     }
     const hash = hashIdentifier(type, normalized);
     const snap = await db().collection("unique_identifiers").doc(hash).get();
@@ -294,8 +338,7 @@ exports.checkIdentifierAvailability = (0, https_1.onCall)(async (request) => {
     }
     const data = (_b = snap.data()) !== null && _b !== void 0 ? _b : {};
     const ownerUid = String((_c = data.ownerUid) !== null && _c !== void 0 ? _c : "");
-    const callerUid = (_d = request.auth) === null || _d === void 0 ? void 0 : _d.uid;
-    if (callerUid && ownerUid === callerUid) {
+    if (ownerUid === callerUid) {
         return { available: true, selfOwned: true, maskedValue: masked };
     }
     return {
