@@ -685,6 +685,14 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (uid != null && uid.isNotEmpty) {
       await _recents.syncFromCloud(uid);
     }
+    if (mounted && _suggestions.isEmpty) {
+      final recents = await _loadLocalFrequentAndRecent();
+      if (mounted && _suggestions.isEmpty) {
+        setState(() {
+          _suggestions = recents;
+        });
+      }
+    }
   }
 
   // ── Smart Hybrid Search & Zero-Cost Recents System ───────────────────────

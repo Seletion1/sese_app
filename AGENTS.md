@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-16 — Location Sheet Layout Refinement: "Pick on Map" Top Integration & Auto-Preloaded Recents
+
+- **1. "Pick on Map" Integrated Inside Recent Places Container (`customer_dispatch_screen.dart`)**:
+  - Positioned "Pick on map" as the very first item at the top of the expandable sheet container directly below the route input fields.
+  - Followed immediately by a clean divider and the "Recent Places" list directly underneath it.
+
+- **2. Pre-Loaded Recent Places & Unified Sheet Collapse (`customer_dispatch_screen.dart`)**:
+  - Updated `_loadRecents()` to pre-load local frequent and recent addresses into `_suggestions` on sheet initialization so recent places display directly underneath "Pick on map".
+  - When both pickup and drop-off locations are set (`_addressesReady`), the sheet automatically collapses into the compact route summary view (`_buildStep1CollapsedSummary`), completely hiding "Pick on map" and "Recent Places" to leave the route map unobstructed.
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors ("No issues found!").
+  - Unit & Widget Tests: 11/11 passed in `dispatch_and_fleet_test.dart` and 5/5 passed in `customer_home_map_test.dart`.
+
 ## 2026-11-16 — Global Error Sanitization & Unified Top Network Warning Banner
 
 - **1. Elimination of Red Bottom Banners (`customer_dispatch_screen.dart`, `fare_service.dart`)**:
