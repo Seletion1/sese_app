@@ -72,6 +72,21 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-16 — Admin Onboarding OTP Dispatch & 5-Minute Descending Countdown Timer
+
+- **1. Backend Resend Email Dispatch (`adminOnboarding.ts`)**:
+  - Updated `sendOnboardingOtp` Cloud Function to call `sendEmailViaResend` whenever the input identifier is an email address (`rawIdentifier.includes("@")`), delivering the 6-digit code directly to the recipient's inbox (`sesehubadmin@gmail.com`).
+
+- **2. Dynamic 5-Minute Descending Countdown Timer & Button State (`onboarding_wizard_dialog.dart`)**:
+  - Implemented initial button label **"Send OTP Code"**.
+  - Upon successful API dispatch: Disables the button, starts a 300-second (5-minute) descending timer, and dynamically formats the button label as **"Resend OTP in MM:SS"** (e.g. "Resend OTP in 04:59").
+  - Upon 300-second timer expiry: Re-enables the button with label **"Resend OTP Code"**.
+  - Wrapped `_onSendOtp` in `try/catch` with user-facing SnackBar alerts for network/dispatch failures.
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors across `sese_hub` and `sese_ride`.
+  - Backend Unit Tests: 128/128 passed in `functions/` (100%).
+
 ## 2026-11-16 — Location Sheet Layout Refinement: "Pick on Map" Top Integration & Auto-Preloaded Recents
 
 - **1. "Pick on Map" Integrated Inside Recent Places Container (`customer_dispatch_screen.dart`)**:

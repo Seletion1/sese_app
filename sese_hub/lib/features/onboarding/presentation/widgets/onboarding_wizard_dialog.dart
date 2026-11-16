@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -49,13 +50,15 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Step 1 Controllers & State
+  // Step 1 Controllers, Timer & State
   late final TextEditingController _identifierCtrl;
   final _otpCtrl = TextEditingController();
   bool _otpSent = false;
   bool _otpVerified = false;
   String? _devOtpHint;
   OnboardingLookupResult? _lookupResult;
+  Timer? _otpTimer;
+  int _otpTimerSeconds = 0;
 
   // Step 2 Role & Profile
   String _selectedRole = 'driver'; // 'customer' | 'driver'
@@ -104,6 +107,7 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
 
   @override
   void dispose() {
+    _otpTimer?.cancel();
     _identifierCtrl.dispose();
     _otpCtrl.dispose();
     _fullNameCtrl.dispose();
@@ -125,9 +129,40 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
     super.dispose();
   }
 
-  // ── Step 1 Handlers ──────────────────────────────────────────────────────
+  // ── Step 1 Handlers & Countdown Timer ────────────────────────────────────
+
+  void _startOtpCountdown([int seconds = 300]) {
+    _otpTimer?.cancel();
+    setState(() {
+      _otpTimerSeconds = seconds;
+    });
+    _otpTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_otpTimerSeconds <= 1) {
+        timer.cancel();
+        setState(() {
+          _otpTimerSeconds = 0;
+        });
+      } else {
+        setState(() {
+          _otpTimerSeconds--;
+        });
+      }
+    });
+  }
+
+  String _formatTimerString(int totalSeconds) {
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
 
   Future<void> _onSendOtp() async {
+    if (_otpTimerSeconds > 0) return; // Disallow tap during active countdown
+
     final identifier = _identifierCtrl.text.trim();
     if (identifier.isEmpty) {
       setState(() => _errorMessage = 'Please enter an email or phone number.');
@@ -142,6 +177,8 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
     try {
       final lookup = await _service.lookupAccount(identifier);
       final otpRes = await _service.sendOtp(identifier);
+
+      _startOtpCountdown(300); // 5-minute descending timer
 
       setState(() {
         _lookupResult = lookup;
@@ -162,6 +199,15 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
           }
         }
       });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('OTP code dispatched to $identifier.'),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('OnboardingWizard sendOtp error: $e');
       String msg = 'Unable to send verification code. Please check connection and try again.';
@@ -169,8 +215,16 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
         msg = e.message!;
       }
       setState(() => _errorMessage = msg);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -481,7 +535,7 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
             border: const OutlineInputBorder(),
             suffixIcon: IconButton(
               icon: const Icon(Icons.search),
-              onPressed: _isLoading ? null : _onSendOtp,
+              onPressed: (_isLoading || _otpTimerSeconds > 0) ? null : _onSendOtp,
             ),
           ),
         ),
@@ -489,9 +543,17 @@ class _OnboardingWizardDialogState extends State<OnboardingWizardDialog> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _onSendOtp,
-            icon: const Icon(Icons.send),
-            label: Text(_otpSent ? 'Resend OTP Code' : 'Lookup Account & Send OTP'),
+            onPressed: (_isLoading || _otpTimerSeconds > 0) ? null : _onSendOtp,
+            icon: Icon(
+              _otpTimerSeconds > 0
+                  ? Icons.timer_outlined
+                  : (_otpSent ? Icons.refresh_rounded : Icons.send_rounded),
+            ),
+            label: Text(
+              _otpTimerSeconds > 0
+                  ? 'Resend OTP in ${_formatTimerString(_otpTimerSeconds)}'
+                  : (_otpSent ? 'Resend OTP Code' : 'Send OTP Code'),
+            ),
           ),
         ),
 
