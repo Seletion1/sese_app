@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -5,6 +7,13 @@ plugins {
     // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val localProps = Properties().also { props ->
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { props.load(it) }
+    }
 }
 
 android {
@@ -19,25 +28,57 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.sesetech.sese_hub"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            val keyPropertiesFile = rootProject.file("key.properties")
+            val releaseProps = Properties()
+            if (keyPropertiesFile.exists()) {
+                keyPropertiesFile.inputStream().use { releaseProps.load(it) }
+            }
+            val storeFilePath = releaseProps.getProperty("storeFile")
+                ?: localProps.getProperty("RELEASE_STORE_FILE")
+                ?: System.getenv("RELEASE_STORE_FILE")
+            val storePass = releaseProps.getProperty("storePassword")
+                ?: localProps.getProperty("RELEASE_STORE_PASSWORD")
+                ?: System.getenv("RELEASE_STORE_PASSWORD")
+            val aliasName = releaseProps.getProperty("keyAlias")
+                ?: localProps.getProperty("RELEASE_KEY_ALIAS")
+                ?: System.getenv("RELEASE_KEY_ALIAS")
+            val keyPass = releaseProps.getProperty("keyPassword")
+                ?: localProps.getProperty("RELEASE_KEY_PASSWORD")
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
+
+            if (!storeFilePath.isNullOrBlank() && !storePass.isNullOrBlank() &&
+                !aliasName.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = file(storeFilePath)
+                storePassword = storePass
+                keyAlias = aliasName
+                keyPassword = keyPass
+            } else {
+                throw GradleException(
+                    "MISSING RELEASE SIGNING CONFIGURATION:\n" +
+                    "Release build requested for sese_hub, but release signing properties were not found.\n" +
+                    "Provide a valid key.properties file in android/ or configure local.properties / environment variables:\n" +
+                    "  - storeFile (or RELEASE_STORE_FILE)\n" +
+                    "  - storePassword (or RELEASE_STORE_PASSWORD)\n" +
+                    "  - keyAlias (or RELEASE_KEY_ALIAS)\n" +
+                    "  - keyPassword (or RELEASE_KEY_PASSWORD)\n" +
+                    "Production release builds must never fall back to debug signing keys."
+                )
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
 
             // R8 full-mode code shrinking + resource shrinking.
             isMinifyEnabled = true

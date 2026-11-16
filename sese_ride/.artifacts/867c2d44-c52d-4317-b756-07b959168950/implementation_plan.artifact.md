@@ -1,38 +1,45 @@
-# Fix Unauthenticated Identifier Enumeration & Oracle Vulnerability in checkIdentifierAvailability
+# Remove Debug-Signing Fallbacks & Secure Release Build Configurations
 
-Fix the unauthenticated identifier enumeration and oracle vulnerability in `checkIdentifierAvailability` located in `functions/src/uniqueIdentifiers.ts`.
+Fix insecure debug-signing fallbacks and hardcoded debug release configurations across `sese_ride` and `sese_hub` Android build scripts to prevent accidental generation or distribution of debug-signed release artifacts.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - `checkIdentifierAvailability` previously allowed unauthenticated, rate-unlimited lookups for sensitive identity fields.
-> - With this change:
->   - Unauthenticated requests will be rejected immediately with `HttpsError('unauthenticated')`.
->   - Per-UID sliding window rate limiting (30 requests/min) will be enforced to prevent scraping/credential stuffing.
->   - Sensitive identity lookups (`nin`, `bvn`, `passport`, `drivers_license`) will be strictly validated for format and length before lookup.
+> - **`sese_ride`**: The release build variant will no longer silently fall back to `signingConfigs.getByName("debug")` if `key.properties`, `local.properties`, or environment variables are missing. It will throw an explicit Gradle build error (`GradleException`) detailing the missing release keystore properties.
+> - **`sese_hub`**: The hardcoded debug signing configuration (`signingConfigs.getByName("debug")`) in the release build block will be replaced with a secure release signing loader that throws a `GradleException` if release keystore properties are absent.
+> - **Version Control Protection**: Keystores (`*.jks`, `*.keystore`) and `key.properties` will be explicitly ignored in `.gitignore` across root, `sese_ride`, and `sese_hub`.
+> - **CI / Local Setup Guidance**: A setup guide (`KEYSTORE_SETUP.md`) will document environment variables (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) and `key.properties` configuration for CI/CD pipelines (e.g. GitHub Actions).
 
 ## Proposed Changes
 
-### Firebase Cloud Functions (`functions/src`)
+### Android Build Configuration (`sese_ride`)
 
-#### [MODIFY] [uniqueIdentifiers.ts](file:///Users/micheal/sese_app/functions/src/uniqueIdentifiers.ts)
-- Add caller authentication check at the start of `checkIdentifierAvailability`:
-  `if (!request.auth) throw new HttpsError('unauthenticated', 'Authentication required to check identifier availability.');`.
-- Implement `checkIdentifierRateLimit(uid: string)` to enforce sliding window rate limiting per UID.
-- Enforce strict format/length validation for sensitive types (`nin`, `bvn`, `passport`, `drivers_license`).
+#### [MODIFY] [build.gradle.kts](file:///Users/micheal/sese_app/sese_ride/android/app/build.gradle.kts)
+- Replace the debug-fallback else block in `signingConfigs.create("release")` with an explicit `throw GradleException(...)` message when release keystore properties are missing.
 
-#### [MODIFY] [unique_identifiers.test.ts](file:///Users/micheal/sese_app/functions/src/test/unique_identifiers.test.ts)
-- Add unit tests for `checkIdentifierAvailability`:
-  - Verify rejection of unauthenticated calls.
-  - Verify per-UID rate limiting enforcement.
-  - Verify sensitive credential format validation.
+### Android Build Configuration (`sese_hub`)
+
+#### [MODIFY] [build.gradle.kts](file:///Users/micheal/sese_app/sese_hub/android/app/build.gradle.kts)
+- Add `localProps` loader at top of file.
+- Add `signingConfigs { create("release") { ... } }` block that loads `key.properties` / `local.properties` / environment variables and throws `GradleException` if missing.
+- In `buildTypes { release { ... } }`, set `signingConfig = signingConfigs.getByName("release")` instead of `signingConfigs.getByName("debug")`.
+
+### Version Control & Documentation
+
+#### [MODIFY] [sese_hub/.gitignore](file:///Users/micheal/sese_app/sese_hub/.gitignore) & [sese_app/.gitignore](file:///Users/micheal/sese_app/.gitignore)
+- Ensure `key.properties`, `**/key.properties`, `*.jks`, and `*.keystore` are ignored.
+
+#### [NEW] [KEYSTORE_SETUP.md](file:///Users/micheal/sese_app/KEYSTORE_SETUP.md)
+- Document how to set up `key.properties` locally and how to inject release keystore environment variables in CI/CD pipelines (e.g., GitHub Actions secrets).
 
 ---
 
 ## Verification Plan
 
-### Automated Tests
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
+### Automated Verification
+- Run `flutter analyze` in `sese_ride` and `sese_hub`.
+- Run `npm run build` in `functions/`.
 
-### Manual Verification
-- Verify TypeScript compilation using `npm run build` in `/Users/micheal/sese_app/functions`.
+### Gradle Build Verification
+- Execute `gradlew tasks` or dry-run Gradle configuration in `sese_ride/android` and `sese_hub/android` to confirm build scripts parse cleanly.
+- Verify that attempting a release build without release keys throws the expected descriptive Gradle build error rather than generating a debug-signed release APK.
