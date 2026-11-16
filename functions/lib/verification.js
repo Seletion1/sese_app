@@ -233,15 +233,38 @@ const hubBootstrap_1 = require("./hubBootstrap");
  * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
  * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
  * or an active record in `hub_staff/{email}` collection.
+ *
+ * Accepts either:
+ *  - `auth` object (`request.auth`)
+ *  - `(callerUid, callerEmail, token)` tuple
  */
-async function assertHubStaffOrAdmin(callerUid, callerEmail, token) {
-    var _a, _b, _c;
-    if ((0, hubBootstrap_1.isPlatformOwnerEmail)(callerEmail)) {
+async function assertHubStaffOrAdmin(callerUidOrAuth, callerEmail, token) {
+    var _a, _b, _c, _d, _e, _f, _g;
+    if (!callerUidOrAuth) {
+        throw new https_1.HttpsError("permission-denied", "Only Hub staff or administrators can perform this action.");
+    }
+    let uid = "";
+    let email = "";
+    let tok = {};
+    if (typeof callerUidOrAuth === "object") {
+        uid = (_a = callerUidOrAuth.uid) !== null && _a !== void 0 ? _a : "";
+        email = String((_c = (_b = callerUidOrAuth.token) === null || _b === void 0 ? void 0 : _b.email) !== null && _c !== void 0 ? _c : "").trim().toLowerCase();
+        tok = ((_d = callerUidOrAuth.token) !== null && _d !== void 0 ? _d : {});
+    }
+    else {
+        uid = callerUidOrAuth;
+        email = String(callerEmail !== null && callerEmail !== void 0 ? callerEmail : "").trim().toLowerCase();
+        tok = token !== null && token !== void 0 ? token : {};
+    }
+    if (!uid) {
+        throw new https_1.HttpsError("permission-denied", "Only Hub staff or administrators can perform this action.");
+    }
+    if ((0, hubBootstrap_1.isPlatformOwnerEmail)(email) || (process.env.OWNER_EMAIL && email === process.env.OWNER_EMAIL.trim().toLowerCase())) {
         return;
     }
-    const role = String((_b = (_a = token.role) !== null && _a !== void 0 ? _a : token.adminRole) !== null && _b !== void 0 ? _b : "").toUpperCase();
-    const isSuperOrAdmin = token.admin === true ||
-        token.adminAuth === true ||
+    const role = String((_f = (_e = tok.role) !== null && _e !== void 0 ? _e : tok.adminRole) !== null && _f !== void 0 ? _f : "").toUpperCase();
+    const isSuperOrAdmin = tok.admin === true ||
+        tok.adminAuth === true ||
         role === "SUPER_ADMIN" ||
         role === "ROLE_SUPER_ADMIN" ||
         role === "SUPER" ||
@@ -249,18 +272,18 @@ async function assertHubStaffOrAdmin(callerUid, callerEmail, token) {
     if (isSuperOrAdmin) {
         return;
     }
-    if (callerEmail) {
+    if (email) {
         try {
-            const snap = await db().collection("hub_staff").doc(callerEmail).get();
-            if (snap.exists && ((_c = snap.data()) === null || _c === void 0 ? void 0 : _c.active) !== false) {
+            const snap = await db().collection("hub_staff").doc(email).get();
+            if (snap.exists && ((_g = snap.data()) === null || _g === void 0 ? void 0 : _g.active) !== false) {
                 return;
             }
         }
         catch (e) {
-            console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${callerEmail}:`, e);
+            console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${email}:`, e);
         }
     }
-    throw new https_1.HttpsError("permission-denied", "Only Hub staff or administrators can review verification.");
+    throw new https_1.HttpsError("permission-denied", "Only Hub staff or administrators can perform this action.");
 }
 /**
  * Callable: reviewCustomerVerification

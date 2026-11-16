@@ -269,19 +269,51 @@ import { isPlatformOwnerEmail } from "./hubBootstrap";
  * Helper to enforce that the caller is authorized as a Hub Staff member or Administrator.
  * Checks custom claims (`admin`, `adminAuth`, `role` in SUPER_ADMIN/ADMIN)
  * or an active record in `hub_staff/{email}` collection.
+ *
+ * Accepts either:
+ *  - `auth` object (`request.auth`)
+ *  - `(callerUid, callerEmail, token)` tuple
  */
 export async function assertHubStaffOrAdmin(
-  callerUid: string,
-  callerEmail: string,
-  token: Record<string, unknown>
+  callerUidOrAuth: string | { uid: string; token?: Record<string, any> } | undefined | null,
+  callerEmail?: string,
+  token?: Record<string, unknown>
 ): Promise<void> {
-  if (isPlatformOwnerEmail(callerEmail)) {
+  if (!callerUidOrAuth) {
+    throw new HttpsError(
+      "permission-denied",
+      "Only Hub staff or administrators can perform this action."
+    );
+  }
+
+  let uid = "";
+  let email = "";
+  let tok: Record<string, unknown> = {};
+
+  if (typeof callerUidOrAuth === "object") {
+    uid = callerUidOrAuth.uid ?? "";
+    email = String(callerUidOrAuth.token?.email ?? "").trim().toLowerCase();
+    tok = (callerUidOrAuth.token ?? {}) as Record<string, unknown>;
+  } else {
+    uid = callerUidOrAuth;
+    email = String(callerEmail ?? "").trim().toLowerCase();
+    tok = token ?? {};
+  }
+
+  if (!uid) {
+    throw new HttpsError(
+      "permission-denied",
+      "Only Hub staff or administrators can perform this action."
+    );
+  }
+
+  if (isPlatformOwnerEmail(email) || (process.env.OWNER_EMAIL && email === process.env.OWNER_EMAIL.trim().toLowerCase())) {
     return;
   }
-  const role = String(token.role ?? token.adminRole ?? "").toUpperCase();
+  const role = String(tok.role ?? tok.adminRole ?? "").toUpperCase();
   const isSuperOrAdmin =
-    token.admin === true ||
-    token.adminAuth === true ||
+    tok.admin === true ||
+    tok.adminAuth === true ||
     role === "SUPER_ADMIN" ||
     role === "ROLE_SUPER_ADMIN" ||
     role === "SUPER" ||
@@ -291,20 +323,20 @@ export async function assertHubStaffOrAdmin(
     return;
   }
 
-  if (callerEmail) {
+  if (email) {
     try {
-      const snap = await db().collection("hub_staff").doc(callerEmail).get();
+      const snap = await db().collection("hub_staff").doc(email).get();
       if (snap.exists && snap.data()?.active !== false) {
         return;
       }
     } catch (e) {
-      console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${callerEmail}:`, e);
+      console.error(`assertHubStaffOrAdmin: hub_staff lookup failed for ${email}:`, e);
     }
   }
 
   throw new HttpsError(
     "permission-denied",
-    "Only Hub staff or administrators can review verification."
+    "Only Hub staff or administrators can perform this action."
   );
 }
 

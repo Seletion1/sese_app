@@ -20,6 +20,7 @@ import {
 import { roundToNearest100 } from "./pricing";
 import { enforceAppCheck, requireAccountActive } from "./accountGuard";
 import { chargePaystackCardAuthorization } from "./payments";
+import { assertHubStaffOrAdmin } from "./verification";
 
 /**
  * Live dispatch state machine (server-authoritative).
@@ -4054,10 +4055,8 @@ export const verifyDeliveryPin = onCall(async (request) => {
 
 /** Hub Admin: Force Complete a trip during live support/dispute resolution */
 export const hubForceCompleteTrip = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Hub authentication required.");
-  }
-  const adminUid = request.auth.uid;
+  await assertHubStaffOrAdmin(request.auth);
+  const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
   if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
 
@@ -4367,10 +4366,8 @@ export const confirmCashCancellation = onCall(async (request) => {
 
 /** Hub Admin: Cancel trip & refund any held escrow */
 export const hubCancelRefundTrip = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Hub authentication required.");
-  }
-  const adminUid = request.auth.uid;
+  await assertHubStaffOrAdmin(request.auth);
+  const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
   const reason = String(request.data?.reason ?? "Cancelled by Hub admin");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
@@ -4388,10 +4385,8 @@ export const hubCancelRefundTrip = onCall(async (request) => {
 
 /** Hub Admin: Manual PIN Bypass during call verification */
 export const hubManualPinBypass = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Hub authentication required.");
-  }
-  const adminUid = request.auth.uid;
+  await assertHubStaffOrAdmin(request.auth);
+  const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
   if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
 
@@ -4418,14 +4413,19 @@ export const hubManualPinBypass = onCall(async (request) => {
  * duplicate submissions.
  */
 export const submitCancellationFeedback = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError(
+      "unauthenticated",
+      "Authentication is required to submit cancellation feedback."
+    );
+  }
+  const userId = request.auth.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
-  const userId = String(request.data?.userId ?? "").trim();
   const role = String(request.data?.role ?? "").trim() as "customer" | "driver";
   const reason = String(request.data?.reason ?? "").trim();
   const detail = String(request.data?.detail ?? "").trim();
 
   if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
-  if (!userId) throw new HttpsError("invalid-argument", "userId is required.");
   if (role !== "customer" && role !== "driver") {
     throw new HttpsError("invalid-argument", "role must be 'customer' or 'driver'.");
   }

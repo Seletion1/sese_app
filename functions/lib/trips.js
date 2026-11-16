@@ -48,6 +48,7 @@ const driverStreak_1 = require("./driverStreak");
 const pricing_1 = require("./pricing");
 const accountGuard_1 = require("./accountGuard");
 const payments_1 = require("./payments");
+const verification_1 = require("./verification");
 /**
  * Live dispatch state machine (server-authoritative).
  *
@@ -3105,9 +3106,7 @@ exports.verifyDeliveryPin = (0, https_1.onCall)(async (request) => {
 /** Hub Admin: Force Complete a trip during live support/dispute resolution */
 exports.hubForceCompleteTrip = (0, https_1.onCall)(async (request) => {
     var _a, _b;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Hub authentication required.");
-    }
+    await (0, verification_1.assertHubStaffOrAdmin)(request.auth);
     const adminUid = request.auth.uid;
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
     if (!tripId)
@@ -3377,9 +3376,7 @@ exports.confirmCashCancellation = (0, https_1.onCall)(async (request) => {
 /** Hub Admin: Cancel trip & refund any held escrow */
 exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Hub authentication required.");
-    }
+    await (0, verification_1.assertHubStaffOrAdmin)(request.auth);
     const adminUid = request.auth.uid;
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
     const reason = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.reason) !== null && _d !== void 0 ? _d : "Cancelled by Hub admin");
@@ -3397,9 +3394,7 @@ exports.hubCancelRefundTrip = (0, https_1.onCall)(async (request) => {
 /** Hub Admin: Manual PIN Bypass during call verification */
 exports.hubManualPinBypass = (0, https_1.onCall)(async (request) => {
     var _a, _b;
-    if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "Hub authentication required.");
-    }
+    await (0, verification_1.assertHubStaffOrAdmin)(request.auth);
     const adminUid = request.auth.uid;
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
     if (!tripId)
@@ -3425,16 +3420,17 @@ exports.hubManualPinBypass = (0, https_1.onCall)(async (request) => {
  * duplicate submissions.
  */
 exports.submitCancellationFeedback = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication is required to submit cancellation feedback.");
+    }
+    const userId = request.auth.uid;
     const tripId = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.tripId) !== null && _b !== void 0 ? _b : "").trim();
-    const userId = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.userId) !== null && _d !== void 0 ? _d : "").trim();
-    const role = String((_f = (_e = request.data) === null || _e === void 0 ? void 0 : _e.role) !== null && _f !== void 0 ? _f : "").trim();
-    const reason = String((_h = (_g = request.data) === null || _g === void 0 ? void 0 : _g.reason) !== null && _h !== void 0 ? _h : "").trim();
-    const detail = String((_k = (_j = request.data) === null || _j === void 0 ? void 0 : _j.detail) !== null && _k !== void 0 ? _k : "").trim();
+    const role = String((_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.role) !== null && _d !== void 0 ? _d : "").trim();
+    const reason = String((_f = (_e = request.data) === null || _e === void 0 ? void 0 : _e.reason) !== null && _f !== void 0 ? _f : "").trim();
+    const detail = String((_h = (_g = request.data) === null || _g === void 0 ? void 0 : _g.detail) !== null && _h !== void 0 ? _h : "").trim();
     if (!tripId)
         throw new https_1.HttpsError("invalid-argument", "tripId is required.");
-    if (!userId)
-        throw new https_1.HttpsError("invalid-argument", "userId is required.");
     if (role !== "customer" && role !== "driver") {
         throw new https_1.HttpsError("invalid-argument", "role must be 'customer' or 'driver'.");
     }
