@@ -1,7 +1,9 @@
-# Implementation Task Checklist - Email OTP Security Fix
+# Implementation Task Checklist - Manifest Reconciliation & Automation
 
-- [/] Add email pinning to `request.auth.token.email`, App Check, UID rate limiting, and UID-namespaced OTP storage in `sendEmailOtp` (`functions/src/email.ts`)
-- [ ] Add unit tests in `functions/src/test/email_otp_security.test.ts`
-- [ ] Run `npm test` in `functions/`
+- [/] Create `functions/scripts/generate-manifest.js` and `functions/scripts/validate-manifest.js`
+- [ ] Update `functions/package.json` build scripts
+- [ ] Run `npm run build` to generate `functions.yaml` and validate manifest
+- [ ] Run `npm test` unit test suite
 - [ ] Run mandatory build, test & Firebase deployment pipeline
+- [ ] Verify active functions with `firebase functions:list`
 - [ ] Create `walkthrough.artifact.md`

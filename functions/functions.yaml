@@ -217,6 +217,34 @@
       "callableTrigger": {},
       "entryPoint": "keepSearchingTrip"
     },
+    "reassignTrip": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "reassignTrip"
+    },
+    "retryTripDispatch": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "retryTripDispatch"
+    },
     "verifyDeliveryPin": {
       "availableMemoryMb": null,
       "timeoutSeconds": null,
@@ -244,6 +272,62 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "skipDeliveryPin"
+    },
+    "recordDropoffArrival": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "recordDropoffArrival"
+    },
+    "requestDropoffApproval": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "requestDropoffApproval"
+    },
+    "respondDropoffApproval": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "respondDropoffApproval"
+    },
+    "cancelDropoffApprovalRequest": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "cancelDropoffApprovalRequest"
     },
     "hubForceCompleteTrip": {
       "availableMemoryMb": null,
@@ -381,6 +465,48 @@
       "callableTrigger": {},
       "entryPoint": "hubSetDriverOnlineStatus"
     },
+    "getZegoToken": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "getZegoToken"
+    },
+    "getAgoraToken": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "getAgoraToken"
+    },
+    "recordCallDuration": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "recordCallDuration"
+    },
     "onTripCompleted": {
       "availableMemoryMb": null,
       "timeoutSeconds": null,
@@ -446,6 +572,44 @@
         "timeZone": "UTC"
       },
       "entryPoint": "scheduledResetStreaks"
+    },
+    "onTripWrittenForDriverHistory": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "eventTrigger": {
+        "eventType": "google.cloud.firestore.document.v1.written",
+        "eventFilters": {
+          "database": "(default)",
+          "namespace": "(default)"
+        },
+        "eventFilterPathPatterns": {
+          "document": "trips/{tripId}"
+        },
+        "retry": false
+      },
+      "entryPoint": "onTripWrittenForDriverHistory"
+    },
+    "backfillDriverTripHistory": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "backfillDriverTripHistory"
     },
     "initializePayment": {
       "availableMemoryMb": null,
@@ -558,6 +722,34 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "processWalletWithdrawal"
+    },
+    "approveWeeklyPayout": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "approveWeeklyPayout"
+    },
+    "approveAllWeeklyPayouts": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "approveAllWeeklyPayouts"
     },
     "onSupportMessageCreated": {
       "availableMemoryMb": null,
@@ -676,6 +868,20 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyTransactionPin"
+    },
+    "resetTransactionPin": {
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "platform": "gcfv2",
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "resetTransactionPin"
     },
     "reviewCustomerVerification": {
       "availableMemoryMb": null,
@@ -992,79 +1198,6 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "calculateFare"
-    },
-    "onTripWrittenForDriverHistory": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "eventTrigger": {
-        "eventType": "google.cloud.firestore.document.v1.written",
-        "eventFilters": {
-          "database": "(default)",
-          "namespace": "(default)"
-        },
-        "eventFilterPathPatterns": {
-          "document": "trips/{tripId}"
-        },
-        "retry": false
-      },
-      "entryPoint": "onTripWrittenForDriverHistory"
-    },
-    "backfillDriverTripHistory": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "backfillDriverTripHistory"
-    },
-    "reassignTrip": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "reassignTrip"
-    },
-    "retryTripDispatch": {
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "platform": "gcfv2",
-      "labels": {},
-      "callableTrigger": {},
-      "entryPoint": "retryTripDispatch"
     }
-  },
-  "requiredAPIs": [
-    {
-      "api": "cloudscheduler.googleapis.com",
-      "reason": "Needed for scheduled functions."
-    }
-  ],
-  "extensions": {}
+  }
 }

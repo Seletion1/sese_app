@@ -1,42 +1,42 @@
-# Fix Open Mail Relay & OTP Takeover Vulnerability in sendEmailOtp
+# Reconcile Cloud Functions Manifest (`functions.yaml`) & Automate Manifest Generation
 
-Fix the open mail relay and OTP takeover vulnerability in `sendEmailOtp` located in `functions/src/email.ts`.
+Reconcile `functions/functions.yaml` with all active Cloud Function exports in `functions/src/index.ts`, automate manifest generation, and add CI/CD validation guards.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Recipient Email Pinning**: Previously, `sendEmailOtp` allowed callers to supply arbitrary email addresses in `request.data.email`, allowing open mail relay and OTP overwriting.
-> - With this change:
->   - Recipient email is strictly pinned to `request.auth.token.email`.
->   - If `request.data.email` is provided and does not match `request.auth.token.email`, an immediate `HttpsError('invalid-argument', 'Email address must match your authenticated profile.')` is thrown.
-> - **UID-Namespaced Storage**: OTP documents in `email_otps` will be stored under `email_otps/{uid}` rather than raw email (`email_otps/{email}`), preventing cross-account OTP overwriting.
-> - **App Check & Throttling**: App Check (`enforceAppCheck(request)`) and per-UID rate limiting (`checkEmailOtpRateLimit(uid)`, max 3 requests/min) will be enforced.
+> - **Manifest Drift Reconciled**: 10 active Cloud Functions were exported in `functions/src/index.ts` but missing from `functions/functions.yaml`:
+>   - `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`
+>   - `getZegoToken`, `getAgoraToken`, `recordCallDuration`
+>   - `approveWeeklyPayout`, `approveAllWeeklyPayouts`, `resetTransactionPin`
+> - **Automated Generation**: A node script (`scripts/generate-manifest.js`) will mechanically generate `functions.yaml` directly from `lib/index.js` exports during `npm run build`.
+> - **CI/CD Guard**: A validation script (`scripts/validate-manifest.js`) will fail the build if any exported function is missing from `functions.yaml`.
 
 ## Proposed Changes
 
-### Firebase Cloud Functions (`functions/src`)
+### Firebase Cloud Functions (`functions/`)
 
-#### [MODIFY] [email.ts](file:///Users/micheal/sese_app/functions/src/email.ts)
-- Implement `checkEmailOtpRateLimit(uid: string)` sliding window rate limiter.
-- Update `sendEmailOtp`:
-  - Enforce App Check (`enforceAppCheck(request)`) and active account check (`requireAccountActive(uid, "any")`).
-  - Pin recipient email to `request.auth.token.email` and validate any `request.data.email` input against it.
-  - Store OTP document in `email_otps/{uid}` instead of `email_otps/{email}`.
-- Update `verifyEmailOtp`:
-  - Delete `email_otps/{uid}` upon successful verification.
+#### [NEW] [generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js)
+- Script that imports `lib/index.js`, extracts all exported endpoints with `__endpoint` properties, and writes a complete, normalized `functions.yaml`.
 
-#### [NEW] [email_otp_security.test.ts](file:///Users/micheal/sese_app/functions/src/test/email_otp_security.test.ts)
-- Add unit tests verifying:
-  - Rejection when `request.data.email` mismatches `request.auth.token.email`.
-  - Rate limiting enforcement after repeated OTP requests.
-  - Verification and deletion of UID-namespaced `email_otps/{uid}` documents.
+#### [NEW] [validate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/validate-manifest.js)
+- Script that validates `functions.yaml` against `lib/index.js` exports, exiting with code 1 if any endpoint is missing.
+
+#### [MODIFY] [package.json](file:///Users/micheal/sese_app/functions/package.json)
+- Update `build` script to: `"tsc && node scripts/generate-manifest.js && node scripts/validate-manifest.js"`.
+- Add `"generate-manifest"` and `"validate-manifest"` scripts.
+
+#### [MODIFY] [functions.yaml](file:///Users/micheal/sese_app/functions/functions.yaml)
+- Regenerated manifest containing all 76 Cloud Function endpoints.
 
 ---
 
 ## Verification Plan
 
-### Automated Tests
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
+### Automated Build & Manifest Generation
+- Run `npm run build` inside `/Users/micheal/sese_app/functions` to compile TypeScript, generate `functions.yaml`, and validate all 76 endpoints.
 
-### Manual Verification
-- Verify TypeScript compilation using `npm run build` in `/Users/micheal/sese_app/functions`.
+### Deployment & Active Function Listing
+- Deploy functions using `firebase deploy --only functions`.
+- Execute `firebase functions:list` to confirm all 76 endpoints are active and running on Cloud Functions.
+- Run full mandatory build/test/git sync pipeline.

@@ -1,33 +1,35 @@
-# Walkthrough - Securing Android Release Build Configurations
+# Walkthrough - Securing `sendEmailOtp` against Open Relay & Takeover
 
 ## Summary of Changes
 
-Fixed insecure debug-signing fallbacks and hardcoded debug release configurations across `sese_ride` and `sese_hub`.
+Fixed open mail relay and OTP takeover vulnerabilities in `sendEmailOtp` located in `functions/src/email.ts`.
 
-### 1. `sese_ride` Build Script Hardening
-**[sese_ride/android/app/build.gradle.kts](file:///Users/micheal/sese_app/sese_ride/android/app/build.gradle.kts#L90-L115)**
-- Removed the silent fallback to debug signing keys in `signingConfigs.create("release")`.
-- Configured Gradle to throw an explicit `GradleException` if `key.properties`, `local.properties`, or release environment variables are missing during a release build.
+### 1. Recipient Email Pinning to Authenticated Token
+**[email.ts](file:///Users/micheal/sese_app/functions/src/email.ts#L180-L230)**
+- Pinned recipient email to `request.auth.token.email`.
+- Added strict verification: if `request.data.email` is supplied and does not match `request.auth.token.email`, an immediate `HttpsError('invalid-argument', 'Email address must match your authenticated profile.')` is thrown.
 
-### 2. `sese_hub` Release Signing Implementation
-**[sese_hub/android/app/build.gradle.kts](file:///Users/micheal/sese_app/sese_hub/android/app/build.gradle.kts#L30-L75)**
-- Removed the hardcoded `signingConfigs.getByName("debug")` stub in the release build block.
-- Implemented a secure release signing loader that checks `key.properties`, `local.properties`, or system environment variables and throws an explicit `GradleException` if absent.
+### 2. UID-Namespaced OTP Storage
+**[email.ts](file:///Users/micheal/sese_app/functions/src/email.ts#L230-L250)**
+- Changed `email_otps` storage document key from `email_otps/{email}` to `email_otps/{uid}`.
+- Updated `verifyEmailOtp` cleanup to delete `email_otps/{uid}` upon successful OTP verification.
 
-### 3. Version Control Security Rules & Documentation
-**[sese_hub/.gitignore](file:///Users/micheal/sese_app/sese_hub/.gitignore) & [.gitignore](file:///Users/micheal/sese_app/.gitignore)**
-- Added exclusion patterns for `key.properties`, `**/key.properties`, `*.jks`, and `*.keystore` across `sese_hub` and root project.
+### 3. App Check Enforcement & Per-UID Throttling
+- Added explicit App Check validation (`enforceAppCheck(request)`).
+- Implemented `checkEmailOtpRateLimit(uid)` enforcing a sliding window rate limit of 3 requests per minute per UID to block automated spamming and relay abuse.
 
-**[KEYSTORE_SETUP.md](file:///Users/micheal/sese_app/KEYSTORE_SETUP.md)**
-- Created complete documentation detailing local setup of `key.properties` and secure injection of release keystores via Base64 secrets in CI/CD pipelines (e.g., GitHub Actions).
+### 4. Unit Testing & Deployment Pipeline
+**[email_otp_security.test.ts](file:///Users/micheal/sese_app/functions/src/test/email_otp_security.test.ts)**
+- Added unit tests for email mismatch rejection, unauthenticated call rejection, and UID sliding window rate limiting.
+- Ran backend test suite (137 tests passed cleanly).
+- Ran Flutter analysis (`flutter analyze`), built TypeScript functions (`npm run build`), deployed Cloud Functions (`firebase deploy`), and synced git repository to main branch.
 
 ---
 
 ## Verification Results
 
-### Automated Analysis & Deployment
-- **`sese_ride` Analysis (`flutter analyze`)**: Passed with zero issues.
-- **`sese_hub` Analysis (`flutter analyze`)**: Passed with zero issues.
-- **Functions Build (`npm run build`)**: Compiled successfully.
-- **Firebase Deployment**: Released rules and functions successfully.
-- **GitHub Sync**: Pushed commit `0d95aa3` to `https://github.com/Seletion1/sese_app.git` on `main`.
+### Test Suite & Deployment Summary
+- **Backend Tests**: 137 unit tests passed across 46 test suites with 0 failures.
+- **Flutter Code Analysis**: `flutter analyze` passed with 0 issues.
+- **Firebase Deployment**: Updated Cloud Functions successfully on project `sese-ride`.
+- **Git Push**: Pushed commit `f408c32` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
