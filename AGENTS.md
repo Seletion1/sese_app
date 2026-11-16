@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-16 — Global Error Sanitization & Unified Top Network Warning Banner
+
+- **1. Elimination of Red Bottom Banners (`customer_dispatch_screen.dart`, `fare_service.dart`)**:
+  - Removed bottom red error `SnackBar` cards (such as `"Fare server is temporarily unavailable. Please try again. Retry"`).
+  - In `_loadFares()`, catching `FareException` sets loading to false and triggers `NetworkStatusService.instance.checkConnectivity()`, causing the top dark/amber network warning banner (`NetworkStatusBanner`) to display at the top of the viewport matching `Screenshot_20261116_005352.jpg` Image 2.
+
+- **2. Complete Purge of Technical Jargon (`fare_service.dart`, `driver_status_service.dart`, `trip_service.dart`, `login_page.dart`)**:
+  - Audited and purged internal technical jargon ("server", "Firebase", "Fare server", "Status server", "database", "ApiException") across `sese_ride` and `sese_hub`.
+  - Replaced technical strings with clean, professional user-friendly language (*"Network connection unstable. Please check your connection and try again."*, *"Unable to calculate fare right now. Please check your connection."*).
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors across `sese_ride`, `sese_core`, and `sese_hub`.
+  - Unit Tests: 11/11 passed in `dispatch_and_fleet_test.dart` and 2/2 passed in `fare_service_test.dart`.
+
 ## 2026-11-15 — Send Item Location Sheet Refinement: Contextual "Pick on Map", Auto-Hide on Collapse & Removal of Collapse Toggle
 
 - **1. Contextual Visibility of "Pick on Map" (`customer_dispatch_screen.dart`)**:

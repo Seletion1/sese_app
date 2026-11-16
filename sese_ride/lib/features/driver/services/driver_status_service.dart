@@ -142,7 +142,7 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
     if (fn == null) {
       throw const DriverStatusException(
         'backend-unavailable',
-        'Status server is unreachable. Staying offline.',
+        'Network connection unstable. Please check your connection and try again.',
       );
     }
     try {
@@ -170,7 +170,7 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
     if (fn == null) {
       throw const DriverStatusException(
         'backend-unavailable',
-        'Status server is unreachable. Staying online.',
+        'Network connection unstable. Please check your connection and try again.',
       );
     }
     try {

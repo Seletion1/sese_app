@@ -1311,21 +1311,12 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       }
       return true;
     } on FareException catch (e) {
+      debugPrint('CustomerDispatchScreen: FareException caught — $e');
       if (mounted) {
         setState(() {
           _fareLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.userMessage),
-            backgroundColor: Colors.red.shade700,
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: _loadFares,
-            ),
-          ),
-        );
+        unawaited(NetworkStatusService.instance.checkConnectivity());
       }
       return false;
     }

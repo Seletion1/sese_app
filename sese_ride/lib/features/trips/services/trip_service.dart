@@ -131,7 +131,7 @@ class FirestoreTripRepository implements TripRepository {
       if (tripId.isEmpty) {
         throw const TripException(
           'invalid-response',
-          'The server did not return a trip. Please try again.',
+          'Unable to create trip right now. Please try again.',
         );
       }
       if (kDebugMode) debugPrint('TripRepository: created trip $tripId');

@@ -83,7 +83,7 @@ class FareService {
       debugPrint('FareService: unexpected error: $e');
       throw const FareException(
         'network-error',
-        'Could not reach the fare server. Check your connection and try again.',
+        'Network connection unstable. Please check your connection and try again.',
       );
     }
   }
@@ -97,11 +97,11 @@ class FareService {
       case 'not-found':
         return 'No route found between these locations.';
       case 'unavailable':
-        return 'Fare server is temporarily unavailable. Please try again.';
+        return 'Unable to calculate fare right now. Please check your connection and try again.';
       case 'resource-exhausted':
         return 'Too many requests. Please wait a moment and try again.';
       default:
-        return message ?? 'Fare calculation failed. Please try again.';
+        return message ?? 'Unable to calculate fare right now. Please try again.';
     }
   }
 }

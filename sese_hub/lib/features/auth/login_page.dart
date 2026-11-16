@@ -153,9 +153,9 @@ class _LoginPageState extends State<LoginPage> {
   String _mapGoogleSignInError(Object e) {
     final text = e.toString();
     if (text.contains('ApiException: 10')) {
-      return 'Google sign-in blocked (Error 10): this app build is not '
-          'registered with Google. Reinstall the app from a fresh build and '
-          'ensure its signing certificate is added in Firebase console.';
+      return 'Google sign-in blocked: this app build is not '
+          'registered. Reinstall the app from a fresh build and '
+          'ensure its signing certificate is added in your account configuration.';
     }
     if (text.contains('ApiException: 7') ||
         text.contains('network_error')) {
