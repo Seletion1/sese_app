@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-16 — Hub Module Shell Reactive Badge Subscriptions & Reactive Auto-Focus
+
+- **1. Reactive Badge Subscriptions (`hub_module_shell.dart`)**:
+  - Replaced Dart broadcast stream `.first` calls in `_HubModuleShellState` with active reactive `StreamSubscription<int>` listeners (`_badgeSubscriptions`).
+  - Broadcast stream `.first` calls were hanging while waiting for new Firestore events, preventing the module shell from auto-focusing active pending sections. Persistent listeners deliver real-time section counts on frame 1.
+
+- **2. Dynamic Auto-Focus for Pending Queues**:
+  - Maintained `_sectionCounts` map in `_HubModuleShellState`. When opening a module desk (such as "Fleet & Security"), if Section 0 ("Pending Vehicles") has 0 items, the shell immediately auto-focuses the first sub-section with pending work (e.g. Section 3 "Driver KYC Approvals").
+  - Guarantees zero-state badge reset: approving/rejecting items updates section streams and module badge streams simultaneously in real time, resetting counts to `0` and hiding badges (`SizedBox.shrink()`).
+
+- **3. Verification & Testing**:
+  - Static Analysis: `flutter analyze` completed clean with 0 warnings, 0 errors across `sese_hub`, `sese_core`, and `sese_ride`.
+  - Unit & Widget Tests: 34/34 passed in `sese_hub` (`fleet_repository_test`, `hub_pending_counts_test`, `vehicle_approvals_test`, `hub_rbac_test`).
+
 ## 2026-11-16 — Fleet & Security Badge Count & Data Query Synchronization Fix
 
 - **1. Synchronized Driver KYC Verification Predicates (`driver_verification.dart`)**:

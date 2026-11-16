@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../widgets/hub_badge.dart';
@@ -69,6 +71,10 @@ class HubModuleShell extends StatefulWidget {
 
 class _HubModuleShellState extends State<HubModuleShell> {
   late int _index;
+  bool _userHasSelectedSection = false;
+  final Map<int, int> _sectionCounts = {};
+  final List<StreamSubscription<int>> _badgeSubscriptions = [];
+
   String get _prefKey =>
       'hub_module_section_${widget.title.replaceAll(RegExp(r'\s+'), '_').toLowerCase()}';
 
@@ -76,37 +82,56 @@ class _HubModuleShellState extends State<HubModuleShell> {
   void initState() {
     super.initState();
     _index = widget.initialIndex;
-    _restoreSavedSection().then((_) {
-      if (mounted) _autoFocusPendingSection();
-    });
+    _restoreSavedSection();
+    _listenToSectionBadges();
   }
 
-  void _autoFocusPendingSection() {
-    final visible = _visible;
-    if (visible.isEmpty) return;
+  @override
+  void dispose() {
+    _cancelBadgeSubscriptions();
+    super.dispose();
+  }
 
+  void _listenToSectionBadges() {
+    _cancelBadgeSubscriptions();
+    final visible = _visible;
     for (int i = 0; i < visible.length; i++) {
-      final section = visible[i];
-      final stream = section.badgeStream;
+      final sectionIndex = i;
+      final stream = visible[i].badgeStream;
       if (stream != null) {
-        stream.first.then((count) {
+        final sub = stream.listen((count) {
           if (!mounted) return;
-          if (count > 0) {
-            final currentSection = visible[_index.clamp(0, visible.length - 1)];
-            final currentStream = currentSection.badgeStream;
-            if (currentStream != null) {
-              currentStream.first.then((currentCount) {
-                if (mounted && currentCount <= 0) {
-                  setState(() => _index = i);
-                }
-              }).catchError((_) {});
-            } else {
-              setState(() => _index = i);
+          _sectionCounts[sectionIndex] = count;
+          if (!_userHasSelectedSection) {
+            final currentIndex = _index.clamp(0, visible.length - 1);
+            final currentCount = _sectionCounts[currentIndex] ?? 0;
+            if (currentCount <= 0) {
+              final pendingIndex = _firstSectionWithPendingWork(visible);
+              if (pendingIndex != -1 && pendingIndex != _index) {
+                setState(() => _index = pendingIndex);
+              }
             }
           }
-        }).catchError((_) {});
+        }, onError: (_) {});
+        _badgeSubscriptions.add(sub);
       }
     }
+  }
+
+  int _firstSectionWithPendingWork(List<HubModuleSection> visible) {
+    for (int i = 0; i < visible.length; i++) {
+      if ((_sectionCounts[i] ?? 0) > 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  void _cancelBadgeSubscriptions() {
+    for (final sub in _badgeSubscriptions) {
+      sub.cancel();
+    }
+    _badgeSubscriptions.clear();
   }
 
   Future<void> _restoreSavedSection() async {
@@ -124,6 +149,7 @@ class _HubModuleShellState extends State<HubModuleShell> {
   }
 
   void _selectSection(int i, String sectionId) {
+    _userHasSelectedSection = true;
     setState(() => _index = i);
     SharedPreferences.getInstance().then((prefs) {
       prefs.setString(_prefKey, sectionId);
@@ -136,6 +162,9 @@ class _HubModuleShellState extends State<HubModuleShell> {
     final visible = _visible;
     if (visible.isNotEmpty && _index >= visible.length) {
       _index = visible.length - 1;
+    }
+    if (oldWidget.sections != widget.sections) {
+      _listenToSectionBadges();
     }
   }
 
