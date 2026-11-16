@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyEmailOtp = exports.sendEmailOtp = exports.sendTransactionalEmail = void 0;
 exports.getResendApiKey = getResendApiKey;
 exports.sendEmailViaResend = sendEmailViaResend;
+exports.checkEmailOtpRateLimit = checkEmailOtpRateLimit;
 const admin = __importStar(require("firebase-admin"));
 const crypto = __importStar(require("crypto"));
 const https_1 = require("firebase-functions/v2/https");
@@ -160,29 +161,63 @@ exports.sendTransactionalEmail = (0, https_1.onCall)(async (request) => {
     });
     return { ok: true, id: result === null || result === void 0 ? void 0 : result.id };
 });
+const emailOtpRateLimits = new Map();
+const EMAIL_OTP_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const EMAIL_OTP_MAX_REQUESTS_PER_WINDOW = 3; // Max 3 OTP requests per minute per UID
+function checkEmailOtpRateLimit(uid) {
+    var _a;
+    const now = Date.now();
+    const bucket = (_a = emailOtpRateLimits.get(uid)) !== null && _a !== void 0 ? _a : { timestamps: [] };
+    const validTimestamps = bucket.timestamps.filter((t) => now - t < EMAIL_OTP_RATE_LIMIT_WINDOW_MS);
+    if (validTimestamps.length >= EMAIL_OTP_MAX_REQUESTS_PER_WINDOW) {
+        throw new https_1.HttpsError("resource-exhausted", "Too many OTP requests. Please wait a minute before requesting another code.");
+    }
+    validTimestamps.push(now);
+    emailOtpRateLimits.set(uid, { timestamps: validTimestamps });
+    if (emailOtpRateLimits.size > 10000) {
+        for (const [key, val] of emailOtpRateLimits.entries()) {
+            if (val.timestamps.length === 0 ||
+                now - val.timestamps[val.timestamps.length - 1] > EMAIL_OTP_RATE_LIMIT_WINDOW_MS) {
+                emailOtpRateLimits.delete(key);
+            }
+        }
+    }
+}
 /**
  * Callable: Mints a 6-digit OTP code, saves a salted SHA-256 hash in Firestore,
- * and delivers the code via Resend to the user's email address.
+ * and delivers the code via Resend to the user's authenticated email address.
  */
 exports.sendEmailOtp = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to request OTP.");
     }
-    const uid = request.auth.uid;
-    const email = ((_c = (_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.email) !== null && _b !== void 0 ? _b : request.auth.token.email) !== null && _c !== void 0 ? _c : "").trim().toLowerCase();
-    if (!email || !email.includes("@")) {
-        throw new https_1.HttpsError("invalid-argument", "Valid email address is required.");
+    const authEmail = ((_a = request.auth.token.email) !== null && _a !== void 0 ? _a : "").trim().toLowerCase();
+    if (!authEmail || !authEmail.includes("@")) {
+        throw new https_1.HttpsError("failed-precondition", "No verified email address associated with your authenticated account.");
     }
-    const purpose = (_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.purpose) !== null && _e !== void 0 ? _e : "verification";
+    const inputEmail = ((_b = request.data) === null || _b === void 0 ? void 0 : _b.email)
+        ? String(request.data.email).trim().toLowerCase()
+        : "";
+    if (inputEmail && inputEmail !== authEmail) {
+        throw new https_1.HttpsError("invalid-argument", "Email address must match your authenticated profile.");
+    }
+    // ── Security gates ────────────────────────────────────────────────────────
+    (0, accountGuard_1.enforceAppCheck)(request);
+    const uid = request.auth.uid;
+    checkEmailOtpRateLimit(uid);
+    await (0, accountGuard_1.requireAccountActive)(uid, "any");
+    const email = authEmail;
+    const purpose = (_d = (_c = request.data) === null || _c === void 0 ? void 0 : _c.purpose) !== null && _d !== void 0 ? _d : "verification";
     // Generate crypto-secure 6-digit OTP
     const otpCode = Math.floor(100000 + crypto.randomInt(900000)).toString();
     const salt = randomSaltHex();
     const hash = hashOtp(otpCode, salt);
     const now = Date.now();
     const expiresAtMs = now + OTP_TTL_MS;
-    // Store salted OTP record under `users/{uid}/private/auth` and `email_otps/{email}`
+    // Store salted OTP record under `users/{uid}/private/auth` and `email_otps/{uid}`
     const otpDoc = {
+        uid,
         email,
         purpose,
         otpHash: hash,
@@ -195,7 +230,7 @@ exports.sendEmailOtp = (0, https_1.onCall)(async (request) => {
     };
     await Promise.all([
         db().collection("users").doc(uid).collection("private").doc("email_otp").set(otpDoc, { merge: true }),
-        db().collection("email_otps").doc(email).set(otpDoc, { merge: true }),
+        db().collection("email_otps").doc(uid).set(otpDoc, { merge: true }),
     ]);
     // Render responsive HTML email template
     const htmlBody = `
@@ -225,13 +260,12 @@ exports.sendEmailOtp = (0, https_1.onCall)(async (request) => {
  * Callable: Verifies a 6-digit email OTP against the stored salted hash with lockout.
  */
 exports.verifyEmailOtp = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
     }
     const uid = request.auth.uid;
-    const email = ((_c = (_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.email) !== null && _b !== void 0 ? _b : request.auth.token.email) !== null && _c !== void 0 ? _c : "").trim().toLowerCase();
-    const otp = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.otp) !== null && _e !== void 0 ? _e : "").trim();
+    const otp = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.otp) !== null && _b !== void 0 ? _b : "").trim();
     if (!/^\d{6}$/.test(otp)) {
         throw new https_1.HttpsError("invalid-argument", "OTP must be exactly 6 digits.");
     }
@@ -240,7 +274,7 @@ exports.verifyEmailOtp = (0, https_1.onCall)(async (request) => {
     if (!snap.exists) {
         throw new https_1.HttpsError("not-found", "No OTP request found. Please request a new code.");
     }
-    const data = (_f = snap.data()) !== null && _f !== void 0 ? _f : {};
+    const data = (_c = snap.data()) !== null && _c !== void 0 ? _c : {};
     const now = Date.now();
     if (data.lockedUntilMs && data.lockedUntilMs > now) {
         throw new https_1.HttpsError("resource-exhausted", "Too many wrong attempts. Please wait 15 minutes.");
@@ -248,24 +282,22 @@ exports.verifyEmailOtp = (0, https_1.onCall)(async (request) => {
     if (data.expiresAtMs && data.expiresAtMs < now) {
         throw new https_1.HttpsError("deadline-exceeded", "OTP has expired. Please request a new code.");
     }
-    const candidate = hashOtp(otp, (_g = data.otpSalt) !== null && _g !== void 0 ? _g : "");
-    const expected = String((_h = data.otpHash) !== null && _h !== void 0 ? _h : "");
+    const candidate = hashOtp(otp, (_d = data.otpSalt) !== null && _d !== void 0 ? _d : "");
+    const expected = String((_e = data.otpHash) !== null && _e !== void 0 ? _e : "");
     const ok = candidate.length === expected.length &&
         crypto.timingSafeEqual(Buffer.from(candidate, "utf8"), Buffer.from(expected, "utf8"));
     if (!ok) {
-        const fails = ((_j = data.failCount) !== null && _j !== void 0 ? _j : 0) + 1;
+        const fails = ((_f = data.failCount) !== null && _f !== void 0 ? _f : 0) + 1;
         const lockedUntilMs = fails >= OTP_MAX_FAILS ? now + OTP_LOCK_MS : 0;
         await otpRef.set({ failCount: fails, lockedUntilMs }, { merge: true });
         throw new https_1.HttpsError("unauthenticated", "Incorrect OTP code. Please check and try again.");
     }
     // Clear OTP record after successful verification
     await otpRef.delete();
-    if (email) {
-        try {
-            await db().collection("email_otps").doc(email).delete();
-        }
-        catch (_) { }
+    try {
+        await db().collection("email_otps").doc(uid).delete();
     }
+    catch (_) { }
     return { ok: true, verified: true };
 });
 //# sourceMappingURL=email.js.map

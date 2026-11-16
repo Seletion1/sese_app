@@ -1,8 +1,7 @@
-# Implementation Task Checklist - Secure Release Build Configurations
+# Implementation Task Checklist - Email OTP Security Fix
 
-- [/] Remove debug keystore fallback in `sese_ride/android/app/build.gradle.kts` and throw explicit Gradle build error when release properties are missing
-- [ ] Implement secure release signing configuration loader in `sese_hub/android/app/build.gradle.kts` and remove hardcoded debug signing
-- [ ] Add keystore and `key.properties` exclusion rules to `sese_hub/.gitignore` and root `.gitignore`
-- [ ] Create `KEYSTORE_SETUP.md` documenting keystore setup and CI/CD secret injection
-- [ ] Execute build, test & Firebase deployment pipeline
+- [/] Add email pinning to `request.auth.token.email`, App Check, UID rate limiting, and UID-namespaced OTP storage in `sendEmailOtp` (`functions/src/email.ts`)
+- [ ] Add unit tests in `functions/src/test/email_otp_security.test.ts`
+- [ ] Run `npm test` in `functions/`
+- [ ] Run mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

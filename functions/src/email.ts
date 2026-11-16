@@ -170,20 +170,78 @@ interface SendEmailOtpData {
 }
 
 /**
+ * Sliding-window rate limiter per UID to protect against spamming and abuse of the email dispatch service.
+ */
+interface EmailOtpRateLimitBucket {
+  timestamps: number[];
+}
+const emailOtpRateLimits = new Map<string, EmailOtpRateLimitBucket>();
+const EMAIL_OTP_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const EMAIL_OTP_MAX_REQUESTS_PER_WINDOW = 3; // Max 3 OTP requests per minute per UID
+
+export function checkEmailOtpRateLimit(uid: string): void {
+  const now = Date.now();
+  const bucket = emailOtpRateLimits.get(uid) ?? { timestamps: [] };
+  const validTimestamps = bucket.timestamps.filter(
+    (t) => now - t < EMAIL_OTP_RATE_LIMIT_WINDOW_MS
+  );
+  if (validTimestamps.length >= EMAIL_OTP_MAX_REQUESTS_PER_WINDOW) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many OTP requests. Please wait a minute before requesting another code."
+    );
+  }
+  validTimestamps.push(now);
+  emailOtpRateLimits.set(uid, { timestamps: validTimestamps });
+
+  if (emailOtpRateLimits.size > 10000) {
+    for (const [key, val] of emailOtpRateLimits.entries()) {
+      if (
+        val.timestamps.length === 0 ||
+        now - val.timestamps[val.timestamps.length - 1] > EMAIL_OTP_RATE_LIMIT_WINDOW_MS
+      ) {
+        emailOtpRateLimits.delete(key);
+      }
+    }
+  }
+}
+
+/**
  * Callable: Mints a 6-digit OTP code, saves a salted SHA-256 hash in Firestore,
- * and delivers the code via Resend to the user's email address.
+ * and delivers the code via Resend to the user's authenticated email address.
  */
 export const sendEmailOtp = onCall<SendEmailOtpData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to request OTP.");
   }
-  const uid = request.auth.uid;
-  const email = (request.data?.email ?? request.auth.token.email ?? "").trim().toLowerCase();
 
-  if (!email || !email.includes("@")) {
-    throw new HttpsError("invalid-argument", "Valid email address is required.");
+  const authEmail = (request.auth.token.email ?? "").trim().toLowerCase();
+
+  if (!authEmail || !authEmail.includes("@")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "No verified email address associated with your authenticated account."
+    );
   }
 
+  const inputEmail = request.data?.email
+    ? String(request.data.email).trim().toLowerCase()
+    : "";
+
+  if (inputEmail && inputEmail !== authEmail) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Email address must match your authenticated profile."
+    );
+  }
+
+  // ── Security gates ────────────────────────────────────────────────────────
+  enforceAppCheck(request);
+  const uid = request.auth.uid;
+  checkEmailOtpRateLimit(uid);
+  await requireAccountActive(uid, "any");
+
+  const email = authEmail;
   const purpose = request.data?.purpose ?? "verification";
 
   // Generate crypto-secure 6-digit OTP
@@ -193,8 +251,9 @@ export const sendEmailOtp = onCall<SendEmailOtpData>(async (request) => {
   const now = Date.now();
   const expiresAtMs = now + OTP_TTL_MS;
 
-  // Store salted OTP record under `users/{uid}/private/auth` and `email_otps/{email}`
+  // Store salted OTP record under `users/{uid}/private/auth` and `email_otps/{uid}`
   const otpDoc = {
+    uid,
     email,
     purpose,
     otpHash: hash,
@@ -208,7 +267,7 @@ export const sendEmailOtp = onCall<SendEmailOtpData>(async (request) => {
 
   await Promise.all([
     db().collection("users").doc(uid).collection("private").doc("email_otp").set(otpDoc, { merge: true }),
-    db().collection("email_otps").doc(email).set(otpDoc, { merge: true }),
+    db().collection("email_otps").doc(uid).set(otpDoc, { merge: true }),
   ]);
 
   // Render responsive HTML email template
@@ -251,7 +310,6 @@ export const verifyEmailOtp = onCall<VerifyEmailOtpData>(async (request) => {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
   const uid = request.auth.uid;
-  const email = (request.data?.email ?? request.auth.token.email ?? "").trim().toLowerCase();
   const otp = String(request.data?.otp ?? "").trim();
 
   if (!/^\d{6}$/.test(otp)) {
@@ -292,11 +350,9 @@ export const verifyEmailOtp = onCall<VerifyEmailOtpData>(async (request) => {
 
   // Clear OTP record after successful verification
   await otpRef.delete();
-  if (email) {
-    try {
-      await db().collection("email_otps").doc(email).delete();
-    } catch (_) {}
-  }
+  try {
+    await db().collection("email_otps").doc(uid).delete();
+  } catch (_) {}
 
   return { ok: true, verified: true };
 });

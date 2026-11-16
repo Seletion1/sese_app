@@ -1,45 +1,42 @@
-# Remove Debug-Signing Fallbacks & Secure Release Build Configurations
+# Fix Open Mail Relay & OTP Takeover Vulnerability in sendEmailOtp
 
-Fix insecure debug-signing fallbacks and hardcoded debug release configurations across `sese_ride` and `sese_hub` Android build scripts to prevent accidental generation or distribution of debug-signed release artifacts.
+Fix the open mail relay and OTP takeover vulnerability in `sendEmailOtp` located in `functions/src/email.ts`.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **`sese_ride`**: The release build variant will no longer silently fall back to `signingConfigs.getByName("debug")` if `key.properties`, `local.properties`, or environment variables are missing. It will throw an explicit Gradle build error (`GradleException`) detailing the missing release keystore properties.
-> - **`sese_hub`**: The hardcoded debug signing configuration (`signingConfigs.getByName("debug")`) in the release build block will be replaced with a secure release signing loader that throws a `GradleException` if release keystore properties are absent.
-> - **Version Control Protection**: Keystores (`*.jks`, `*.keystore`) and `key.properties` will be explicitly ignored in `.gitignore` across root, `sese_ride`, and `sese_hub`.
-> - **CI / Local Setup Guidance**: A setup guide (`KEYSTORE_SETUP.md`) will document environment variables (`RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`) and `key.properties` configuration for CI/CD pipelines (e.g. GitHub Actions).
+> - **Recipient Email Pinning**: Previously, `sendEmailOtp` allowed callers to supply arbitrary email addresses in `request.data.email`, allowing open mail relay and OTP overwriting.
+> - With this change:
+>   - Recipient email is strictly pinned to `request.auth.token.email`.
+>   - If `request.data.email` is provided and does not match `request.auth.token.email`, an immediate `HttpsError('invalid-argument', 'Email address must match your authenticated profile.')` is thrown.
+> - **UID-Namespaced Storage**: OTP documents in `email_otps` will be stored under `email_otps/{uid}` rather than raw email (`email_otps/{email}`), preventing cross-account OTP overwriting.
+> - **App Check & Throttling**: App Check (`enforceAppCheck(request)`) and per-UID rate limiting (`checkEmailOtpRateLimit(uid)`, max 3 requests/min) will be enforced.
 
 ## Proposed Changes
 
-### Android Build Configuration (`sese_ride`)
+### Firebase Cloud Functions (`functions/src`)
 
-#### [MODIFY] [build.gradle.kts](file:///Users/micheal/sese_app/sese_ride/android/app/build.gradle.kts)
-- Replace the debug-fallback else block in `signingConfigs.create("release")` with an explicit `throw GradleException(...)` message when release keystore properties are missing.
+#### [MODIFY] [email.ts](file:///Users/micheal/sese_app/functions/src/email.ts)
+- Implement `checkEmailOtpRateLimit(uid: string)` sliding window rate limiter.
+- Update `sendEmailOtp`:
+  - Enforce App Check (`enforceAppCheck(request)`) and active account check (`requireAccountActive(uid, "any")`).
+  - Pin recipient email to `request.auth.token.email` and validate any `request.data.email` input against it.
+  - Store OTP document in `email_otps/{uid}` instead of `email_otps/{email}`.
+- Update `verifyEmailOtp`:
+  - Delete `email_otps/{uid}` upon successful verification.
 
-### Android Build Configuration (`sese_hub`)
-
-#### [MODIFY] [build.gradle.kts](file:///Users/micheal/sese_app/sese_hub/android/app/build.gradle.kts)
-- Add `localProps` loader at top of file.
-- Add `signingConfigs { create("release") { ... } }` block that loads `key.properties` / `local.properties` / environment variables and throws `GradleException` if missing.
-- In `buildTypes { release { ... } }`, set `signingConfig = signingConfigs.getByName("release")` instead of `signingConfigs.getByName("debug")`.
-
-### Version Control & Documentation
-
-#### [MODIFY] [sese_hub/.gitignore](file:///Users/micheal/sese_app/sese_hub/.gitignore) & [sese_app/.gitignore](file:///Users/micheal/sese_app/.gitignore)
-- Ensure `key.properties`, `**/key.properties`, `*.jks`, and `*.keystore` are ignored.
-
-#### [NEW] [KEYSTORE_SETUP.md](file:///Users/micheal/sese_app/KEYSTORE_SETUP.md)
-- Document how to set up `key.properties` locally and how to inject release keystore environment variables in CI/CD pipelines (e.g., GitHub Actions secrets).
+#### [NEW] [email_otp_security.test.ts](file:///Users/micheal/sese_app/functions/src/test/email_otp_security.test.ts)
+- Add unit tests verifying:
+  - Rejection when `request.data.email` mismatches `request.auth.token.email`.
+  - Rate limiting enforcement after repeated OTP requests.
+  - Verification and deletion of UID-namespaced `email_otps/{uid}` documents.
 
 ---
 
 ## Verification Plan
 
-### Automated Verification
-- Run `flutter analyze` in `sese_ride` and `sese_hub`.
-- Run `npm run build` in `functions/`.
+### Automated Tests
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
 
-### Gradle Build Verification
-- Execute `gradlew tasks` or dry-run Gradle configuration in `sese_ride/android` and `sese_hub/android` to confirm build scripts parse cleanly.
-- Verify that attempting a release build without release keys throws the expected descriptive Gradle build error rather than generating a debug-signed release APK.
+### Manual Verification
+- Verify TypeScript compilation using `npm run build` in `/Users/micheal/sese_app/functions`.
