@@ -1,7 +1,22 @@
 {
   "specVersion": "v1alpha1",
+  "requiredAPIs": [
+    {
+      "api": "cloudfunctions.googleapis.com",
+      "reason": "Needed for Cloud Functions"
+    },
+    {
+      "api": "run.googleapis.com",
+      "reason": "Needed for 2nd Gen Cloud Functions"
+    },
+    {
+      "api": "eventarc.googleapis.com",
+      "reason": "Needed for Eventarc triggers"
+    }
+  ],
   "endpoints": {
     "createTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -10,12 +25,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "createTrip"
     },
     "onTripCreated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -24,7 +39,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -40,6 +54,7 @@
       "entryPoint": "onTripCreated"
     },
     "sweepTripPings": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -48,7 +63,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "scheduleTrigger": {
         "schedule": "* * * * *",
@@ -64,6 +78,7 @@
       "entryPoint": "sweepTripPings"
     },
     "acceptTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -72,12 +87,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "acceptTrip"
     },
     "declineTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -86,12 +101,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "declineTrip"
     },
     "updateDriverLocation": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -100,12 +115,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "updateDriverLocation"
     },
     "advanceTripStatus": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -114,12 +129,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "advanceTripStatus"
     },
     "cancelTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -128,12 +143,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "cancelTrip"
     },
     "confirmCashCancellation": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -142,12 +157,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "confirmCashCancellation"
     },
     "submitBid": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -156,12 +171,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "submitBid"
     },
     "rejectBid": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -170,12 +185,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "rejectBid"
     },
     "acceptBid": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -184,12 +199,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "acceptBid"
     },
     "increaseTripFare": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -198,12 +213,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "increaseTripFare"
     },
     "keepSearchingTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -212,12 +227,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "keepSearchingTrip"
     },
     "reassignTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -226,12 +241,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "reassignTrip"
     },
     "retryTripDispatch": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -240,12 +255,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "retryTripDispatch"
     },
     "verifyDeliveryPin": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -254,12 +269,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyDeliveryPin"
     },
     "skipDeliveryPin": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -268,12 +283,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "skipDeliveryPin"
     },
     "recordDropoffArrival": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -282,12 +297,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "recordDropoffArrival"
     },
     "requestDropoffApproval": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -296,12 +311,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "requestDropoffApproval"
     },
     "respondDropoffApproval": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -310,12 +325,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "respondDropoffApproval"
     },
     "cancelDropoffApprovalRequest": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -324,12 +339,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "cancelDropoffApprovalRequest"
     },
     "hubForceCompleteTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -338,12 +353,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "hubForceCompleteTrip"
     },
     "hubCancelRefundTrip": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -352,12 +367,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "hubCancelRefundTrip"
     },
     "hubManualPinBypass": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -366,12 +381,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "hubManualPinBypass"
     },
     "onTripChatMessage": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -380,7 +395,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -396,6 +410,7 @@
       "entryPoint": "onTripChatMessage"
     },
     "submitTripRating": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -404,12 +419,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "submitTripRating"
     },
     "submitCancellationFeedback": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -418,12 +433,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "submitCancellationFeedback"
     },
     "goOnline": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -432,12 +447,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "goOnline"
     },
     "goOffline": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -446,12 +461,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "goOffline"
     },
     "hubSetDriverOnlineStatus": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -460,12 +475,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "hubSetDriverOnlineStatus"
     },
     "getZegoToken": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -474,12 +489,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "getZegoToken"
     },
     "getAgoraToken": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -488,12 +503,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "getAgoraToken"
     },
     "recordCallDuration": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -502,12 +517,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "recordCallDuration"
     },
     "onTripCompleted": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -516,7 +531,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.updated",
@@ -532,6 +546,7 @@
       "entryPoint": "onTripCompleted"
     },
     "onTripCancelled": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -540,7 +555,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.updated",
@@ -556,6 +570,7 @@
       "entryPoint": "onTripCancelled"
     },
     "scheduledResetStreaks": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -564,7 +579,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "scheduleTrigger": {
         "schedule": "0 * * * *",
@@ -574,6 +588,7 @@
       "entryPoint": "scheduledResetStreaks"
     },
     "onTripWrittenForDriverHistory": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -582,7 +597,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.written",
@@ -598,6 +612,7 @@
       "entryPoint": "onTripWrittenForDriverHistory"
     },
     "backfillDriverTripHistory": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -606,12 +621,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "backfillDriverTripHistory"
     },
     "initializePayment": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -620,12 +635,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "initializePayment"
     },
     "initializePaystackTopUp": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -634,12 +649,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "initializePaystackTopUp"
     },
     "verifyPayment": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -648,12 +663,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyPayment"
     },
     "paystackWebhook": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -662,12 +677,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "httpsTrigger": {},
       "entryPoint": "paystackWebhook"
     },
     "paystackBanks": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -676,12 +691,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "paystackBanks"
     },
     "resolveBankAccount": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -690,12 +705,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "resolveBankAccount"
     },
     "verifyBankAccount": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -704,12 +719,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyBankAccount"
     },
     "processWalletWithdrawal": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -718,12 +733,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "processWalletWithdrawal"
     },
     "approveWeeklyPayout": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -732,12 +747,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "approveWeeklyPayout"
     },
     "approveAllWeeklyPayouts": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -746,12 +761,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "approveAllWeeklyPayouts"
     },
     "onSupportMessageCreated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -760,7 +775,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -776,6 +790,7 @@
       "entryPoint": "onSupportMessageCreated"
     },
     "onAgentReplied": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -784,7 +799,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -800,6 +814,7 @@
       "entryPoint": "onAgentReplied"
     },
     "deleteAccount": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -808,12 +823,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "deleteAccount"
     },
     "sendTargetedBroadcast": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -822,12 +837,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "sendTargetedBroadcast"
     },
     "googleMapsProxy": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -836,12 +851,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "googleMapsProxy"
     },
     "handleBillingBudgetAlert": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -850,7 +865,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.pubsub.topic.v1.messagePublished",
@@ -862,6 +876,7 @@
       "entryPoint": "handleBillingBudgetAlert"
     },
     "setTransactionPin": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -870,12 +885,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "setTransactionPin"
     },
     "verifyTransactionPin": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -884,12 +899,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyTransactionPin"
     },
     "resetTransactionPin": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -898,12 +913,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "resetTransactionPin"
     },
     "reviewCustomerVerification": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -912,12 +927,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "reviewCustomerVerification"
     },
     "reviewDriverVerification": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -926,12 +941,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "reviewDriverVerification"
     },
     "onUserVerificationUpdated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -940,7 +955,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.updated",
@@ -956,6 +970,7 @@
       "entryPoint": "onUserVerificationUpdated"
     },
     "onDriverVerificationUpdated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -964,7 +979,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.updated",
@@ -980,6 +994,7 @@
       "entryPoint": "onDriverVerificationUpdated"
     },
     "onDriverVehicleVerified": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -988,7 +1003,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.updated",
@@ -1004,6 +1018,7 @@
       "entryPoint": "onDriverVehicleVerified"
     },
     "onUserCreated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1012,7 +1027,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -1028,6 +1042,7 @@
       "entryPoint": "onUserCreated"
     },
     "onDriverCreated": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1036,7 +1051,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "eventTrigger": {
         "eventType": "google.cloud.firestore.document.v1.created",
@@ -1052,6 +1066,7 @@
       "entryPoint": "onDriverCreated"
     },
     "lookupAccountForOnboarding": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1060,12 +1075,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "lookupAccountForOnboarding"
     },
     "sendOnboardingOtp": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1074,12 +1089,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "sendOnboardingOtp"
     },
     "verifyOnboardingOtp": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1088,12 +1103,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyOnboardingOtp"
     },
     "adminRegisterUser": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1102,12 +1117,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "adminRegisterUser"
     },
     "bootstrapHubOwner": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1116,12 +1131,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "bootstrapHubOwner"
     },
     "sendTransactionalEmail": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1130,12 +1145,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "sendTransactionalEmail"
     },
     "sendEmailOtp": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1144,12 +1159,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "sendEmailOtp"
     },
     "verifyEmailOtp": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1158,12 +1173,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "verifyEmailOtp"
     },
     "checkIdentifierAvailability": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1172,12 +1187,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "checkIdentifierAvailability"
     },
     "registerUser": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1186,12 +1201,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "registerUser"
     },
     "updateProfile": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1200,12 +1215,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "updateProfile"
     },
     "registerVehicle": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1214,12 +1229,12 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "registerVehicle"
     },
     "calculateFare": {
+      "platform": "gcfv2",
       "availableMemoryMb": null,
       "timeoutSeconds": null,
       "minInstances": null,
@@ -1228,7 +1243,6 @@
       "concurrency": null,
       "serviceAccountEmail": null,
       "vpc": null,
-      "platform": "gcfv2",
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "calculateFare"

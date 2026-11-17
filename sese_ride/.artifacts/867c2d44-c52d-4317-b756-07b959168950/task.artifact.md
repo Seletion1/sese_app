@@ -1,8 +1,7 @@
-# Implementation Task Checklist - Secrets Hygiene Overhaul & Key Rotation
+# Implementation Task Checklist - `functions.yaml` Gen-2 Manifest Alignment
 
-- [x] Rotate `FARE_SIGNING_SECRET` in `functions/.env` with fresh 256-bit random hex string
-- [x] Create `SECURITY.md` with formal 90-day secret rotation policy and Secret Manager guidelines
-- [x] Update `AGENTS.md` with secrets hygiene and key rotation decision log
-- [x] Run backend build & unit tests (`npm test`)
-- [x] Execute mandatory build, test & Firebase deployment pipeline
-- [x] Create `walkthrough.artifact.md`
+- [/] Update `functions/scripts/generate-manifest.js` for Gen-2 manifest standards
+- [ ] Regenerate `functions/functions.yaml` and validate 78 endpoints via `npm run build`
+- [ ] Run backend unit test suite (`npm test`)
+- [ ] Execute mandatory build, test & Firebase deployment pipeline
+- [ ] Create `walkthrough.artifact.md`

@@ -11,14 +11,13 @@ const funcs = require(indexPath);
 const endpoints = {};
 
 for (const [name, fn] of Object.entries(funcs)) {
-  if (fn && typeof fn === 'object' && fn.__endpoint) {
+  const ep =
+    (fn && typeof fn === 'object' && fn.__endpoint) ||
+    (fn && typeof fn === 'function' && fn.__endpoint);
+  if (ep) {
     endpoints[name] = {
-      ...fn.__endpoint,
-      entryPoint: name,
-    };
-  } else if (fn && typeof fn === 'function' && fn.__endpoint) {
-    endpoints[name] = {
-      ...fn.__endpoint,
+      platform: ep.platform || 'gcfv2',
+      ...ep,
       entryPoint: name,
     };
   }
@@ -26,6 +25,11 @@ for (const [name, fn] of Object.entries(funcs)) {
 
 const manifest = {
   specVersion: 'v1alpha1',
+  requiredAPIs: [
+    { api: 'cloudfunctions.googleapis.com', reason: 'Needed for Cloud Functions' },
+    { api: 'run.googleapis.com', reason: 'Needed for 2nd Gen Cloud Functions' },
+    { api: 'eventarc.googleapis.com', reason: 'Needed for Eventarc triggers' },
+  ],
   endpoints,
 };
 
@@ -34,5 +38,5 @@ fs.writeFileSync(outputPath, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 console.log(
   `[generate-manifest] Successfully generated functions.yaml with ${
     Object.keys(endpoints).length
-  } endpoints.`
+  } Gen-2 endpoints.`
 );
