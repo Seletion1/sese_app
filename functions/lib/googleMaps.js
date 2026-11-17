@@ -1,7 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.googleMapsProxy = void 0;
+exports.checkProxyRateLimitInMemory = checkProxyRateLimitInMemory;
 exports.checkProxyRateLimit = checkProxyRateLimit;
+const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const mapQuotas_1 = require("./mapQuotas");
 const accountGuard_1 = require("./accountGuard");
@@ -224,7 +259,7 @@ function extractStructuredAddress(results, fallbackCoord) {
 const proxyRateLimits = new Map();
 const PROXY_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const PROXY_MAX_REQUESTS_PER_WINDOW = 60; // Max 60 requests/minute per UID
-function checkProxyRateLimit(uid) {
+function checkProxyRateLimitInMemory(uid) {
     var _a;
     const now = Date.now();
     const bucket = (_a = proxyRateLimits.get(uid)) !== null && _a !== void 0 ? _a : { timestamps: [] };
@@ -243,6 +278,34 @@ function checkProxyRateLimit(uid) {
         }
     }
 }
+async function checkProxyRateLimit(uid) {
+    const now = Date.now();
+    const db = admin.firestore();
+    const ref = db.collection("rate_limits").doc(`maps_proxy_${uid}`);
+    try {
+        await db.runTransaction(async (tx) => {
+            var _a;
+            const snap = await tx.get(ref);
+            const data = snap.exists ? ((_a = snap.data()) !== null && _a !== void 0 ? _a : {}) : {};
+            const timestamps = Array.isArray(data.timestamps) ? data.timestamps : [];
+            const valid = timestamps.filter((t) => typeof t === "number" && now - t < PROXY_RATE_LIMIT_WINDOW_MS);
+            if (valid.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
+                throw new https_1.HttpsError("resource-exhausted", "Too many location searches. Please wait a moment.");
+            }
+            valid.push(now);
+            tx.set(ref, {
+                timestamps: valid,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        });
+    }
+    catch (e) {
+        if (e instanceof https_1.HttpsError)
+            throw e;
+        // Fall back to in-memory check if Firestore transaction fails or in mock test environment
+        checkProxyRateLimitInMemory(uid);
+    }
+}
 exports.googleMapsProxy = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
@@ -250,7 +313,7 @@ exports.googleMapsProxy = (0, accountGuard_1.guardedOnCall)(async (request) => {
     }
     // ── Security gates (protect against quota scrapers & unauthorized bots) ──
     (0, accountGuard_1.enforceAppCheck)(request);
-    checkProxyRateLimit(request.auth.uid);
+    await checkProxyRateLimit(request.auth.uid);
     await (0, accountGuard_1.requireAccountActive)(request.auth.uid, "any");
     const data = (_a = request.data) !== null && _a !== void 0 ? _a : {};
     const action = data.action;

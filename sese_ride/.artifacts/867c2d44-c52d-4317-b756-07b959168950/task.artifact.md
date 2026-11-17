@@ -1,8 +1,9 @@
-# Implementation Task Checklist - Audit & Reconcile Repository Documentation
+# Implementation Task Checklist - Distributed Rate Limiting & Billing Budget Control
 
-- [/] Update JSDoc comments in `functions/src/trips.ts` for `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass`
-- [/] Append decision log entry in `AGENTS.md` for test metrics, ABI splits, support audio policy, and Hub RBAC
-- [ ] Run static code analysis (`flutter analyze`)
-- [ ] Run backend unit test suite (`npm test`)
+- [/] Implement distributed Firestore sliding window rate limiter in `functions/src/googleMaps.ts`
+- [/] Create `functions/src/billingAlert.ts` for Pub/Sub billing notifications and emergency circuit-breaking
+- [/] Export `handleBillingBudgetAlert` in `functions/src/index.ts`
+- [/] Update rate-limiting unit test in `functions/src/test/security_fixes.test.ts`
+- [ ] Run backend build & unit tests (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

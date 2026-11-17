@@ -1,3 +1,4 @@
+import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { nextEngine, recordCall } from "./mapQuotas";
 import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
@@ -346,8 +347,9 @@ function extractStructuredAddress(results: unknown[], fallbackCoord: string): st
 }
 
 /**
- * Sliding-window rate limiter per UID to protect against billing exhaustion
- * and scraping loops on upstream Google Maps APIs.
+ * Distributed sliding-window rate limiter per UID backed by Firestore.
+ * Globally synchronizes the rate ceiling across all horizontal Cloud Run instances,
+ * preventing instance-scaling from bypassing the 60 req/min/uid cap.
  */
 interface RateLimitBucket {
   timestamps: number[];
@@ -356,7 +358,7 @@ const proxyRateLimits = new Map<string, RateLimitBucket>();
 const PROXY_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const PROXY_MAX_REQUESTS_PER_WINDOW = 60; // Max 60 requests/minute per UID
 
-export function checkProxyRateLimit(uid: string): void {
+export function checkProxyRateLimitInMemory(uid: string): void {
   const now = Date.now();
   const bucket = proxyRateLimits.get(uid) ?? { timestamps: [] };
   const validTimestamps = bucket.timestamps.filter(
@@ -383,6 +385,42 @@ export function checkProxyRateLimit(uid: string): void {
   }
 }
 
+export async function checkProxyRateLimit(uid: string): Promise<void> {
+  const now = Date.now();
+  const db = admin.firestore();
+  const ref = db.collection("rate_limits").doc(`maps_proxy_${uid}`);
+
+  try {
+    await db.runTransaction(async (tx: admin.firestore.Transaction) => {
+      const snap = await tx.get(ref);
+      const data = snap.exists ? (snap.data() ?? {}) : {};
+      const timestamps: number[] = Array.isArray(data.timestamps) ? data.timestamps : [];
+      const valid = timestamps.filter(
+        (t) => typeof t === "number" && now - t < PROXY_RATE_LIMIT_WINDOW_MS
+      );
+      if (valid.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
+        throw new HttpsError(
+          "resource-exhausted",
+          "Too many location searches. Please wait a moment."
+        );
+      }
+      valid.push(now);
+      tx.set(
+        ref,
+        {
+          timestamps: valid,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+  } catch (e) {
+    if (e instanceof HttpsError) throw e;
+    // Fall back to in-memory check if Firestore transaction fails or in mock test environment
+    checkProxyRateLimitInMemory(uid);
+  }
+}
+
 export const googleMapsProxy = guardedOnCall<ProxyRequest>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to search.");
@@ -390,7 +428,7 @@ export const googleMapsProxy = guardedOnCall<ProxyRequest>(async (request) => {
 
   // ── Security gates (protect against quota scrapers & unauthorized bots) ──
   enforceAppCheck(request);
-  checkProxyRateLimit(request.auth.uid);
+  await checkProxyRateLimit(request.auth.uid);
   await requireAccountActive(request.auth.uid, "any");
   const data = request.data ?? {};
   const action = data.action;

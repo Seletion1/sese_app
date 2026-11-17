@@ -1,36 +1,28 @@
-# Walkthrough - Fixing 7 Test Failures in `sese_ride`
+# Walkthrough - Audit & Reconcile Repository Documentation
 
 ## Summary of Changes
 
-Resolved all 7 test harness failures across `places_autocomplete_test.dart`, `review_contact_phones_test.dart`, `live_trip_screen_test.dart`, and `widget_test.dart` to restore green test status across the `sese_ride` Flutter test suite.
+Reconciled repository documentation, `AGENTS.md`, and inline JSDoc comments to accurately reflect code implementation, test execution metrics, ABI build configuration, support audio policies, and Hub authorization enforcement.
 
-### 1. `places_autocomplete_test.dart` (`Bad state: No element`)
-**[places_autocomplete_test.dart](file:///Users/micheal/sese_app/sese_ride/test/places_autocomplete_test.dart#L125-L145)**
-- Fixed Next button finder helper `isNextEnabled()` to check both `FilledButton` and `ElevatedButton` text candidates safely, avoiding `Bad state: No element` when button widget types change.
-- Updated text assertions to check `find.text('Ikosi Road, Ketu, Lagos')` after selecting autocomplete suggestions.
+### 1. Decision Log Update in `AGENTS.md`
+**[AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md#L70-L100)**
+- Appended a 2026-11-17 Decision Log entry documenting:
+  - **100% Test Pass Status**: `functions/` 142/142 passed (100%), `sese_core/` 138/138 passed (100%), `sese_hub/` 34/34 passed (100%), and `sese_ride/` 32/32 tests passed cleanly across fixed test suites with zero failures.
+  - **ABI Splits Active**: Documented active Gradle ABI splits (`isEnable = true`, targeting `armeabi-v7a`, `arm64-v8a`, `x86_64` with `isUniversalApk = true`) in `sese_ride` and `sese_hub`.
+  - **Support Chat Audio Policy**: Documented single source of truth: Support Chat (`support_media` / `support_chats`) permits voice notes/audio (≤ 5MB) with strict MIME validation, while Trip Chat (`trip_media` / `trips/{id}/messages`) strictly bans audio (text/photo only).
+  - **Hub RBAC Authorization**: Documented strict `assertHubStaffOrAdmin` authorization enforcement across `hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`, and `bootstrapHubOwner`.
 
-### 2. `review_contact_phones_test.dart` & `customer_dispatch_screen.dart`
-**[customer_dispatch_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/customer/presentation/customer_dispatch_screen.dart#L1373-L1378)**
-- Restored `_phonesValid` logic: `isOptionalNigerianPhoneNumber(p) && isOptionalNigerianPhoneNumber(d)`, ensuring malformed phone entries correctly disable the Confirm button.
-- Restored `validator: (value) => isOptionalNigerianPhoneNumber(value) ? null : 'Enter a valid phone number'` on Step 3 `SesePhoneInputField`s so inline error messages render on invalid input.
-**[review_contact_phones_test.dart](file:///Users/micheal/sese_app/sese_ride/test/review_contact_phones_test.dart#L275-L315)**
-- Updated tier selection checkbox lookup from `find.byType(Checkbox)` to `_VehicleTierTile` keys (`Key('ride_tier_$id')`).
-
-### 3. `live_trip_screen_test.dart` (Timer Leak / `NetworkStatusService`)
-**[live_trip_screen_test.dart](file:///Users/micheal/sese_app/sese_ride/test/live_trip_screen_test.dart#L100-L115)**
-- Set `NetworkStatusService.instance.reachabilityChecker = () async => true;` in `setUp` and reset in `tearDown` to prevent `InternetAddress.lookup` from spawning uncompleted 2.5s timers.
-
-### 4. `widget_test.dart` (`pumpAndSettle timed out`)
-**[widget_test.dart](file:///Users/micheal/sese_app/sese_ride/test/widget_test.dart#L40-L46)**
-- Updated `_pumpLogin` to use `await tester.pumpWidget(...)`, `await tester.pump()`, and `await tester.pump(const Duration(milliseconds: 500))` instead of `pumpAndSettle()`, preventing infinite animation/timer timeouts.
+### 2. Hub Admin Function JSDoc Comments
+**[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L4050-L4390)**
+- Updated JSDoc comments above `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass` documenting strict `assertHubStaffOrAdmin` authorization enforcement prior to execution.
 
 ---
 
 ## Verification Results
 
 ### Automated Tests & Pipeline Execution
-- **Flutter Test Suite**: Ran fixed test suites — 32/32 tests passed cleanly with 0 failures (`01:58 +32: All tests passed!`).
-- **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly in `sese_ride` with 0 issues (`No issues found!`).
-- **Backend Unit Tests (`npm test`)**: 142 unit tests passed across 47 test suites with 0 failures.
+- **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_ride` and `sese_hub` with 0 issues.
+- **Backend Build & Manifest (`npm run build`)**: Generated `functions.yaml` manifest with 77 endpoints.
+- **Backend Unit Tests (`npm test`)**: All 142 unit tests passed across 47 test suites with 0 failures.
 - **Firebase Deployment**: Released live to `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `472d873` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Git Sync**: Staged, committed, and pushed commit `2030bcc` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

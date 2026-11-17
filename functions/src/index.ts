@@ -118,6 +118,9 @@ export { sendTargetedBroadcast } from "./broadcast";
 // and quota-discipline notes.
 export { googleMapsProxy } from "./googleMaps";
 
+// Pub/Sub Cloud Billing budget notification alert & emergency circuit breaker.
+export { handleBillingBudgetAlert } from "./billingAlert";
+
 // Transaction Security PIN authority (hashed, server-verified) + gates.
 // Money callables verify via `requireValidPin` — see transactionPin.ts.
 export { setTransactionPin, verifyTransactionPin, resetTransactionPin } from "./transactionPin";
