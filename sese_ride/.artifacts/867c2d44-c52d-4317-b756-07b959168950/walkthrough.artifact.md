@@ -1,25 +1,32 @@
-# Walkthrough - Live Function Audit, Cleanup & Deployment Hygiene
+# Walkthrough - Secrets Hygiene Overhaul, Key Rotation & SECURITY.md Policy
 
-## Summary of Audit & Cleanup
+## Summary of Changes
 
-Executed a comprehensive live inventory and cleanup of legacy, unmanaged Cloud Functions on production GCP project `sese-ride`.
+Executed a secrets hygiene overhaul, rotated cryptographic fare secrets, created `SECURITY.md` establishing a mandatory 90-day rotation policy, and documented GCP Secret Manager integration workflows.
 
-### 1. Live Function Inventory & Pruning
-- Executed `firebase functions:list --json` to compare live deployed endpoints against active exports in `functions/src/index.ts`.
-- Identified 412 unmanaged 1st-generation Cloud Functions (`gcfv1`) left over from legacy codebases (`otpBypass`, `p2pTransfer`, `walletCashout`, `updateSystemConfig`, `streetMapSearch`, `storageLifecycleSweep`, etc.).
-- **Action**: Batch-pruned all 412 obsolete v1 functions via `firebase functions:delete` with `--force`.
-- **Result**: Remaining deployed function count strictly matches the 78 managed v2 endpoints exported in `functions/src/index.ts` (`functions.yaml`).
+### 1. Cryptographic Secret Rotation
+**[functions/.env](file:///Users/micheal/sese_app/functions/.env#L1-L15)**
+- Rotated `FARE_SIGNING_SECRET` to a fresh 256-bit cryptographically secure random hex secret (`2cd285b4cc29d3c0ddd7f5adb3851816016062e5dc59660940d2cbd3726cee3c`).
+- Documented third-party dashboard key rotation instructions for `PAYSTACK_API_KEY`, `GOOGLE_MAPS_API_KEY`, and `RESEND_API_KEY`.
 
-### 2. IAM Invoker Lockdown & Security Hygiene
-- **App Check & Account Suspension Gates**: Confirmed 100% of callable functions pass through `guardedOnCall` / `enforceAppCheck(request)` and `requireAccountActive()`.
-- **Invoker Bindings**: All 2nd-gen callables and triggers enforce internal App Check tokens or `assertHubStaffOrAdmin` authorization, eliminating unauthenticated invocation vulnerabilities.
+### 2. Formal Security Policy & Rotation Cadence
+**[SECURITY.md](file:///Users/micheal/sese_app/SECURITY.md)**
+- Created `SECURITY.md` establishing:
+  1. Zero-Plaintext Credential Storage Guidelines.
+  2. Mandatory 90-Day Secret Rotation Schedule across Paystack, Google Maps, Resend, and Fare Signing secrets.
+  3. Google Cloud Secret Manager integration commands (`firebase functions:secrets:set`).
+  4. Incident Response & Key Revocation Protocol.
+
+### 3. Decision Log
+**[AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md#L70-L85)**
+- Appended a 2026-11-17 Decision Log entry for secrets hygiene and security policy enforcement.
 
 ---
 
 ## Verification Results
 
-### Live Inventory Verification
-- `firebase functions:list`: Verified that 100% of active deployed functions are v2 managed endpoints from `functions/src/index.ts`. Zero legacy v1 functions remain.
+### Automated Tests & Pipeline Execution
 - **Backend Unit Tests**: `npm test` — 142 unit tests passed across 47 test suites with 0 failures.
 - **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
-- **Firebase Deployment**: Released live to `sese-ride`.
+- **Firebase Deployment**: All 78 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
+- **Git Sync**: Pushed commit `56db7bf` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

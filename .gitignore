@@ -37,6 +37,8 @@ local.properties
 # IDE & OS
 .DS_Store
 *.hprof
+java_pid*.hprof
+hs_err_pid*.log
 .gradle/
 build/
 .idea/
