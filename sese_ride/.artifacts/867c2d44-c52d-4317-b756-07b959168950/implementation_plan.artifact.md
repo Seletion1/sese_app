@@ -1,37 +1,35 @@
-# Token Freshness (`auth_time`) Validation in `resetTransactionPin`
+# Export & Secure `bootstrapHubOwner` Production Setup Function
 
-Enforce zero-trust re-authentication token freshness validation inside `resetTransactionPin` in `functions/src/transactionPin.ts`.
+Export `bootstrapHubOwner` in `functions/src/index.ts` and wrap it with strict, one-time security guards in `functions/src/hubBootstrap.ts` to prevent unauthorized re-triggering or privilege escalation after initial setup.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Re-Authentication Freshness Gate**: Replicate the exact pattern from `deleteAccount.ts` inside `resetTransactionPin`.
-> - **Validation Rule**:
->   - Extract `authTimeSec = Number(request.auth.token.auth_time ?? 0)`.
->   - Calculate `ageSec = Date.now() / 1000 - authTimeSec`.
->   - If `!Number.isFinite(ageSec) || ageSec < 0 || ageSec > 10 * 60` (older than 10 minutes / 600 seconds), throw `HttpsError('unauthenticated', 'Recent re-authentication is required to reset your transaction PIN.')`.
-> - **Unit Tests**: Update `transactionPin.test.ts` to include fresh `auth_time` on test requests and add a dedicated test verifying rejection of stale session tokens.
+> - **Option B Implementation**: `bootstrapHubOwner` is intended for production platform owner setup (`bamiduromichael2@gmail.com` or `bamiduromichael1@gmail.com` or `process.env.OWNER_EMAIL`).
+> - **Security Guards Added**:
+>   1. **Primary Owner Authorization**: Requires caller's email to match primary platform owner list (`isPlatformOwnerEmail`).
+>   2. **One-Time / Secret Lock**: If the owner's `hub_staff` record already exists and is active with `role === "Super"` AND Firebase Auth claims already have `admin === true` and `role === "SUPER_ADMIN"`, re-triggering is blocked unless `process.env.ALLOW_REBOOTSTRAP === "true"` or a valid `bootstrapSecret` parameter is provided matching `process.env.BOOTSTRAP_SECRET`.
+>   3. **Export Registration**: Export `bootstrapHubOwner` in `functions/src/index.ts` so it is registered in `functions.yaml` and deployed as an active Cloud Function endpoint.
 
 ## Proposed Changes
 
 ### Firebase Cloud Functions (`functions/src`)
 
-#### [MODIFY] [transactionPin.ts](file:///Users/micheal/sese_app/functions/src/transactionPin.ts#L290-L330)
-- Add `auth_time` freshness check to `resetTransactionPin`.
+#### [MODIFY] [hubBootstrap.ts](file:///Users/micheal/sese_app/functions/src/hubBootstrap.ts#L25-L65)
+- Enhance `bootstrapHubOwner` with one-time setup protection and optional secret token validation (`BOOTSTRAP_SECRET` / `ALLOW_REBOOTSTRAP`).
 
-#### [MODIFY] [transactionPin.test.ts](file:///Users/micheal/sese_app/functions/src/test/transactionPin.test.ts#L180-L200)
-- Update mock request in `resetTransactionPin` unit test to include `auth.token.auth_time = Math.floor(Date.now() / 1000)`.
-- Add test verifying stale `auth_time` rejection.
+#### [MODIFY] [index.ts](file:///Users/micheal/sese_app/functions/src/index.ts)
+- Export `bootstrapHubOwner` from `./hubBootstrap`.
 
 ---
 
 ## Verification Plan
 
-### Automated Test Execution
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to verify that all unit tests pass.
+### Automated Build & Test Execution
+- Run `npm run build` in `functions/` to compile TypeScript and generate `functions.yaml` with 77 endpoints.
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to verify unit test suite.
 
-### Mandatory Pipeline Execution
-- Run `flutter test` (if applicable) and `flutter analyze` in `sese_ride`.
-- Run `npm run build` in `functions/`.
+### Mandatory Deployment Pipeline
+- Run `flutter analyze` in `sese_ride`.
 - Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Stage, commit with message `perf: eliminate blocking loaders, implement local-first caching, optimistic UI, and background pre-fetching`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- Stage, commit with message `feat: export bootstrapHubOwner with one-time security guard`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.

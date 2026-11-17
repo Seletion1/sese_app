@@ -139,6 +139,8 @@ export {
   adminRegisterUser,
 } from "./adminOnboarding";
 
+export { bootstrapHubOwner } from "./hubBootstrap";
+
 export {
   sendTransactionalEmail,
   sendEmailOtp,

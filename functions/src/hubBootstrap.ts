@@ -42,6 +42,32 @@ export const bootstrapHubOwner = guardedOnCall(async (request) => {
   const uid = request.auth.uid;
   const db = admin.firestore();
 
+  // One-time setup guard: if hub_staff/{email} record is already active with role 'Super'
+  // AND user claims are already SUPER_ADMIN, reject re-triggering unless
+  // ALLOW_REBOOTSTRAP===true or valid BOOTSTRAP_SECRET is provided.
+  try {
+    const existingStaff = await db.collection("hub_staff").doc(email).get();
+    if (existingStaff.exists && existingStaff.data()?.active === true && existingStaff.data()?.role === "Super") {
+      const userRecord = await admin.auth().getUser(uid).catch(() => null);
+      const claims = userRecord?.customClaims || {};
+      if (claims.role === "SUPER_ADMIN" && claims.admin === true) {
+        const providedSecret = String(request.data?.bootstrapSecret ?? "").trim();
+        const expectedSecret = String(process.env.BOOTSTRAP_SECRET ?? "").trim();
+        const allowRebootstrap = process.env.ALLOW_REBOOTSTRAP === "true";
+
+        if (!allowRebootstrap && (!expectedSecret || providedSecret !== expectedSecret)) {
+          throw new HttpsError(
+            "already-exists",
+            "Platform Owner account is already bootstrapped and active. Re-triggering is locked."
+          );
+        }
+      }
+    }
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    console.warn(`bootstrapHubOwner: setup guard check warning: ${err}`);
+  }
+
   // 1. Set custom claims on Firebase Auth token
   try {
     const userRecord = await admin.auth().getUser(uid);

@@ -1,7 +1,8 @@
-# Implementation Task Checklist - Re-Authentication Freshness Check in `resetTransactionPin`
+# Implementation Task Checklist - Export & Secure `bootstrapHubOwner`
 
-- [/] Implement `auth_time` token freshness check in `resetTransactionPin` (`functions/src/transactionPin.ts`)
-- [ ] Update `functions/src/test/transactionPin.test.ts` for fresh `auth_time` and add stale token test
-- [ ] Run backend unit test suite (`npm test`)
+- [/] Add strict one-time setup security guard in `functions/src/hubBootstrap.ts`
+- [ ] Export `bootstrapHubOwner` in `functions/src/index.ts`
+- [ ] Add unit test suite in `functions/src/test/hubBootstrap.test.ts`
+- [ ] Run backend build & unit tests (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

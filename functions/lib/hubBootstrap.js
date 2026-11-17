@@ -62,7 +62,7 @@ function isPlatformOwnerEmail(email) {
  * Restricted strictly to the primary owner email.
  */
 exports.bootstrapHubOwner = (0, accountGuard_1.guardedOnCall)(async (request) => {
-    var _a;
+    var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
     }
@@ -72,6 +72,29 @@ exports.bootstrapHubOwner = (0, accountGuard_1.guardedOnCall)(async (request) =>
     }
     const uid = request.auth.uid;
     const db = admin.firestore();
+    // One-time setup guard: if hub_staff/{email} record is already active with role 'Super'
+    // AND user claims are already SUPER_ADMIN, reject re-triggering unless
+    // ALLOW_REBOOTSTRAP===true or valid BOOTSTRAP_SECRET is provided.
+    try {
+        const existingStaff = await db.collection("hub_staff").doc(email).get();
+        if (existingStaff.exists && ((_b = existingStaff.data()) === null || _b === void 0 ? void 0 : _b.active) === true && ((_c = existingStaff.data()) === null || _c === void 0 ? void 0 : _c.role) === "Super") {
+            const userRecord = await admin.auth().getUser(uid).catch(() => null);
+            const claims = (userRecord === null || userRecord === void 0 ? void 0 : userRecord.customClaims) || {};
+            if (claims.role === "SUPER_ADMIN" && claims.admin === true) {
+                const providedSecret = String((_e = (_d = request.data) === null || _d === void 0 ? void 0 : _d.bootstrapSecret) !== null && _e !== void 0 ? _e : "").trim();
+                const expectedSecret = String((_f = process.env.BOOTSTRAP_SECRET) !== null && _f !== void 0 ? _f : "").trim();
+                const allowRebootstrap = process.env.ALLOW_REBOOTSTRAP === "true";
+                if (!allowRebootstrap && (!expectedSecret || providedSecret !== expectedSecret)) {
+                    throw new https_1.HttpsError("already-exists", "Platform Owner account is already bootstrapped and active. Re-triggering is locked.");
+                }
+            }
+        }
+    }
+    catch (err) {
+        if (err instanceof https_1.HttpsError)
+            throw err;
+        console.warn(`bootstrapHubOwner: setup guard check warning: ${err}`);
+    }
     // 1. Set custom claims on Firebase Auth token
     try {
         const userRecord = await admin.auth().getUser(uid);
