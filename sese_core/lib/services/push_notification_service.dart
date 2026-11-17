@@ -448,7 +448,11 @@ class PushNotificationService {
         type == 'trip_offer' ||
         type == 'direct_ping' ||
         type == 'tier_ping' ||
-        type == 'marketplace_broadcast') {
+        type == 'marketplace_broadcast' ||
+        type == 'dropoff_approval_request' ||
+        type == 'drop_off_confirmation' ||
+        type == 'dropoff_approval' ||
+        type == 'dropoff_approval_response') {
       return PushChannels.orders;
     }
     return PushChannels.system;

@@ -1,23 +1,27 @@
-# Walkthrough - `functions.yaml` Gen-2 Deployment Manifest Alignment
+# Walkthrough - Architectural Security Regression Checks & Coding Standards
 
-## Summary of Changes
+## Summary of Implementation
 
-Aligned `functions/scripts/generate-manifest.js` and regenerated `functions/functions.yaml` to enforce Gen-2 platform metadata and deployment standards across all Cloud Functions endpoints.
+Established permanent architectural security regression checks and coding standards across `SECURITY.md` and `AGENTS.md` to preserve verified secure baselines for Android manifests, webhooks, build-time secret injection, and Firestore security boundaries.
 
-### 1. Gen-2 Manifest Generator Update
-**[generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js#L15-L35)**
-- Updated `generate-manifest.js` to structure the deployment manifest matching Firebase CLI Gen-2 standards.
-- Explicitly injects `platform: "gcfv2"` on every exported function endpoint and adds `requiredAPIs` (`cloudfunctions.googleapis.com`, `run.googleapis.com`, `eventarc.googleapis.com`).
+### 1. Section 5 in `SECURITY.md`
+**[SECURITY.md](file:///Users/micheal/sese_app/SECURITY.md#L45-L80)**
+- Added Section 5 detailing **Architectural Security Regression Checks & Coding Standards**:
+  - **Android Manifest Security**: `android:allowBackup="false"` required on `<application>` in all manifests (`sese_ride` & `sese_hub`); `android:exported="false"` required on background services (`OverlayService`).
+  - **Webhook Cryptographic Integrity**: All incoming HTTP webhook handlers (e.g. `paystackWebhook` in `payments.ts`) MUST require HMAC verification using `crypto.timingSafeEqual` and record idempotency ledgers (`wallet_ledger/{reference}`).
+  - **Build-Time Secret Injection**: Prohibits plaintext hardcoding in client Dart code or native manifests; forces web-services keys through server proxies (`googleMapsProxy`).
+  - **Security Boundaries**: Mandates preservation of strict Firestore security rules (`trips`, `users`, `wallets`, `delivery_pins`, `hub_staff`, `system_config/*`) and Cloud Functions auth gates (`guardedOnCall`, `requireAccountActive`, `assertHubStaffOrAdmin`).
 
-### 2. Manifest Regeneration & Validation
-- Executed `npm run build` to generate and validate `functions/functions.yaml` containing all 78 Gen-2 endpoints.
+### 2. Decision Log Entry in `AGENTS.md`
+**[AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md#L70-L85)**
+- Appended a 2026-11-18 Decision Log entry documenting the establishment of permanent architectural security regression checks and coding standards.
 
 ---
 
 ## Verification Results
 
-### Automated Tests & Pipeline Execution
-- **Backend Unit Tests**: `npm test` — 142 unit tests passed across 47 test suites with 0 failures.
-- **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
+### Pipeline & Test Execution
+- **Flutter Code Analysis (`flutter analyze`)**: Passed in `sese_ride` with 0 issues.
+- **Backend Unit Tests (`npm test`)**: All 142 backend unit tests passed across 47 test suites with 0 failures.
 - **Firebase Deployment**: All 78 Gen-2 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
-- **Git Sync**: Pushed commit `41a7fdb` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Git Sync**: Staged, committed, and pushed commit `950fb46` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

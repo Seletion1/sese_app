@@ -264,7 +264,10 @@ async function notifyCustomer(
       type === "trip_offer" ||
       type === "direct_ping" ||
       type === "tier_ping" ||
-      type === "marketplace_broadcast";
+      type === "marketplace_broadcast" ||
+      type.includes("dropoff") ||
+      type.includes("drop_off") ||
+      extra.fullScreen === "true";
 
     const channelId = isOrderPing
       ? "sese_orders"
@@ -4861,8 +4864,12 @@ export const requestDropoffApproval = guardedOnCall(async (request) => {
       {
         tripId,
         type: "dropoff_approval_request",
+        drop_off_confirmation: "true",
         distanceMeters: String(distanceM),
         distanceText: distStr,
+        fullScreen: "true",
+        priority: "high",
+        content_available: "true",
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       }
     );
