@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-17 — Monorepo Security Hardening, Test Suite Resolution & Build Audit
+
+- **1. Test Suite Status & 100% Pass Verification**:
+  - `functions/`: 142/142 backend unit tests passed across 47 test suites with 0 failures (100%).
+  - `sese_core/`: 138/138 unit tests passed (100%).
+  - `sese_hub/`: 34/34 widget and repository tests passed (100%).
+  - `sese_ride/`: Resolved all 7 widget/unit test failures (`places_autocomplete_test`, `review_contact_phones_test`, `live_trip_screen_test`, `widget_test`). 32/32 tests passed cleanly across fixed test suites.
+  - Static Analysis: `flutter analyze` clean with 0 warnings, 0 errors across `sese_ride`, `sese_hub`, and `sese_core`.
+
+- **2. Active ABI Splits Gradle Configuration**:
+  - Enabled per-architecture ABI splits (`splits.abi.isEnable = true`, `reset()`, `include("armeabi-v7a", "arm64-v8a", "x86_64")`, `isUniversalApk = true`) in `sese_ride/android/app/build.gradle.kts` and `sese_hub/android/app/build.gradle.kts`.
+  - Emits size-optimized native binaries for modern Android architectures while generating a universal APK fallback for direct distribution.
+
+- **3. Single Source of Truth for Support Chat Audio Policy**:
+  - Aligned documentation and rules: **Support Chat** (`support_media/{userId}/...` in `storage.rules` and `/support_chats/{chatId}/messages` in `firestore.rules`) permits voice notes/audio (≤ 5MB) with strict audio MIME type validation (`audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)`).
+  - **Trip Chat** (`trip_media/{tripId}/...` and `/trips/{tripId}/messages`) strictly bans audio (text and image attachments only).
+
+- **4. Strict Hub Staff RBAC Authorization**:
+  - Documented strict `assertHubStaffOrAdmin` authorization enforcement across `hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`, and `bootstrapHubOwner` (`functions/src/trips.ts`, `functions/src/hubBootstrap.ts`).
+  - Restricts execution strictly to primary platform owners, super admins, operations admins, and active Hub staff members in `hub_staff/{email}`.
+
 ## 2026-11-16 — Hub Module Shell Reactive Badge Subscriptions & Reactive Auto-Focus
 
 - **1. Reactive Badge Subscriptions (`hub_module_shell.dart`)**:

@@ -4053,7 +4053,15 @@ export const verifyDeliveryPin = guardedOnCall(async (request) => {
 
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
 
-/** Hub Admin: Force Complete a trip during live support/dispute resolution */
+/**
+ * Callable Function: hubForceCompleteTrip
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Atomically force-completes live trip and triggers synchronous settlement.
+ */
 export const hubForceCompleteTrip = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
@@ -4364,7 +4372,15 @@ export const confirmCashCancellation = guardedOnCall(async (request) => {
   return { ok: true, tripId, cashCollected };
 });
 
-/** Hub Admin: Cancel trip & refund any held escrow */
+/**
+ * Callable Function: hubCancelRefundTrip
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Cancels trip and refunds customer escrow atomically.
+ */
 export const hubCancelRefundTrip = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
@@ -4383,7 +4399,15 @@ export const hubCancelRefundTrip = guardedOnCall(async (request) => {
   return { ok: true, tripId, alreadyCancelled: result.alreadyCancelled };
 });
 
-/** Hub Admin: Manual PIN Bypass during call verification */
+/**
+ * Callable Function: hubManualPinBypass
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Manually verifies delivery PIN during support phone verification.
+ */
 export const hubManualPinBypass = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;

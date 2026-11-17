@@ -3103,7 +3103,15 @@ exports.verifyDeliveryPin = (0, accountGuard_1.guardedOnCall)(async (request) =>
     return { ok: true };
 });
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
-/** Hub Admin: Force Complete a trip during live support/dispute resolution */
+/**
+ * Callable Function: hubForceCompleteTrip
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Atomically force-completes live trip and triggers synchronous settlement.
+ */
 exports.hubForceCompleteTrip = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b;
     await (0, verification_1.assertHubStaffOrAdmin)(request.auth);
@@ -3373,7 +3381,15 @@ exports.confirmCashCancellation = (0, accountGuard_1.guardedOnCall)(async (reque
     });
     return { ok: true, tripId, cashCollected };
 });
-/** Hub Admin: Cancel trip & refund any held escrow */
+/**
+ * Callable Function: hubCancelRefundTrip
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Cancels trip and refunds customer escrow atomically.
+ */
 exports.hubCancelRefundTrip = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     await (0, verification_1.assertHubStaffOrAdmin)(request.auth);
@@ -3391,7 +3407,15 @@ exports.hubCancelRefundTrip = (0, accountGuard_1.guardedOnCall)(async (request) 
     });
     return { ok: true, tripId, alreadyCancelled: result.alreadyCancelled };
 });
-/** Hub Admin: Manual PIN Bypass during call verification */
+/**
+ * Callable Function: hubManualPinBypass
+ *
+ * Enforces Hub Staff / Admin RBAC Authorization:
+ * - Executes `assertHubStaffOrAdmin(request.auth)` at top of function.
+ * - Restricts execution to primary platform owners, super admins, operations admins,
+ *   or active Hub staff members in `hub_staff/{email}`.
+ * - Manually verifies delivery PIN during support phone verification.
+ */
 exports.hubManualPinBypass = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b;
     await (0, verification_1.assertHubStaffOrAdmin)(request.auth);

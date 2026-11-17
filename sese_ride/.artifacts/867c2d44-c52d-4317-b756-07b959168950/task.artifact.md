@@ -1,10 +1,7 @@
-# Implementation Task Checklist - Fix 7 Test Failures in `sese_ride`
+# Implementation Task Checklist - Audit & Reconcile Repository Documentation
 
-- [/] Fix `places_autocomplete_test.dart` button finder
-- [/] Restore `_phonesValid` in `customer_dispatch_screen.dart` and update `review_contact_phones_test.dart`
-- [/] Mock `NetworkStatusService.reachabilityChecker` in `live_trip_screen_test.dart`
-- [/] Fix `widget_test.dart` `_pumpLogin` pump duration
-- [ ] Run `flutter test` in `sese_ride`
+- [/] Update JSDoc comments in `functions/src/trips.ts` for `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass`
+- [/] Append decision log entry in `AGENTS.md` for test metrics, ABI splits, support audio policy, and Hub RBAC
 - [ ] Run static code analysis (`flutter analyze`)
 - [ ] Run backend unit test suite (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline

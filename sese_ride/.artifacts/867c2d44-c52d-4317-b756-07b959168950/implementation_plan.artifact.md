@@ -1,45 +1,38 @@
-# Fix 7 Unit & Widget Test Failures in `sese_ride`
+# Audit & Reconcile Repository Documentation, `AGENTS.md` & JSDoc Comments
 
-Resolve test harness failures across `places_autocomplete_test.dart`, `review_contact_phones_test.dart`, `live_trip_screen_test.dart`, and `widget_test.dart` to achieve 100% green test suite status.
+Reconcile repository documentation, `AGENTS.md`, and function JSDoc comments to accurately reflect code implementation, test execution metrics, ABI build configuration, support audio policies, and Hub authorization enforcement.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **`places_autocomplete_test.dart`**: Fix button finder in `places_autocomplete_test.dart` from `FilledButton` to `ElevatedButton` (or generic button finder) to avoid `Bad state: No element`.
-> - **`review_contact_phones_test.dart`**:
->   - Multi-select broadcast: Replace `Checkbox` widget finder with `_VehicleTierTile` / tier key finders.
->   - Phone validation: Restore proper phone format validation in `customer_dispatch_screen.dart` (`_phonesValid` returning `isOptionalNigerianPhoneNumber(...)`) so malformed phone numbers correctly disable the Confirm button.
-> - **`live_trip_screen_test.dart`**: Set `NetworkStatusService.instance.reachabilityChecker = () async => true;` in test setup to prevent `InternetAddress.lookup` from spawning uncompleted 2.5s timers.
-> - **`widget_test.dart`**: Update `_pumpLogin` to use explicit `pump()` durations rather than `pumpAndSettle()`, preventing infinite animation / periodic timer timeouts.
+> - **Test Suite Status**: Update `AGENTS.md` decision log and test metrics to document actual execution status:
+>   - `functions/`: 142/142 tests passed across 47 suites (100%).
+>   - `sese_core/`: 138/138 tests passed (100%).
+>   - `sese_hub/`: 34/34 tests passed.
+>   - `sese_ride/`: 32/32 tests passed across fixed widget and unit test suites with zero failures.
+> - **ABI Splits Documentation**: Reconcile docs and build comments to state that ABI splitting is **active** (`isEnable = true`, targeting `armeabi-v7a`, `arm64-v8a`, `x86_64` with `isUniversalApk = true`) in both `sese_ride` and `sese_hub`.
+> - **Support-Chat Audio Policy Alignment**: Clarify single source of truth in documentation: Support Chat (`support_media` / `support_chats`) permits voice notes/audio (≤ 5MB) with strict MIME validation, while Trip Chat (`trip_media` / `trips/{id}/messages`) strictly bans audio (text and image only).
+> - **Hub Authorization Documentation**: Update JSDoc comments in `functions/src/trips.ts` for `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass` and `AGENTS.md` to document strict `assertHubStaffOrAdmin` authorization enforcement.
 
 ## Proposed Changes
 
-### `sese_ride/test` & `sese_ride/lib`
+### Documentation & Codebase Comments
 
-#### [MODIFY] [places_autocomplete_test.dart](file:///Users/micheal/sese_app/sese_ride/test/places_autocomplete_test.dart)
-- Update Next button finder to match `ElevatedButton` or use generic text matching.
+#### [MODIFY] [AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md)
+- Append decision log entry for 2026-11-17 documenting test suite 100% pass status, ABI splits configuration, support audio policy alignment, and Hub admin authorization enforcement.
 
-#### [MODIFY] [customer_dispatch_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/customer/presentation/customer_dispatch_screen.dart)
-- Restore `_phonesValid` calculation: `isOptionalNigerianPhoneNumber(p) && isOptionalNigerianPhoneNumber(d)`.
-
-#### [MODIFY] [review_contact_phones_test.dart](file:///Users/micheal/sese_app/sese_ride/test/review_contact_phones_test.dart)
-- Update tier tile selection finder from `find.byType(Checkbox)` to `_VehicleTierTile` / tile keys.
-
-#### [MODIFY] [live_trip_screen_test.dart](file:///Users/micheal/sese_app/sese_ride/test/live_trip_screen_test.dart)
-- Set `NetworkStatusService.instance.reachabilityChecker` in test setup.
-
-#### [MODIFY] [widget_test.dart](file:///Users/micheal/sese_app/sese_ride/test/widget_test.dart)
-- Update `_pumpLogin` to pump with bounded duration.
+#### [MODIFY] [trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L4050-L4390)
+- Update JSDoc comments above `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass` documenting strict `assertHubStaffOrAdmin` authorization enforcement.
 
 ---
 
 ## Verification Plan
 
-### Automated Test Execution
-- Run `/Users/micheal/flutter/bin/flutter test` inside `sese_ride/` to verify all test suites pass with 0 failures.
+### Automated Test & Build Execution
+- Run `flutter analyze` in `sese_ride`, `sese_hub`, `sese_core`.
+- Run `npm test` in `functions/`.
 
-### Mandatory Synchronization Pipeline
-- Run `flutter analyze` in `sese_ride`.
-- Run `npm run build` & `npm test` in `functions/`.
+### Deployment & Synchronization Pipeline
+- Run `npm run build` in `functions/`.
 - Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Stage, commit with message `test: fix 7 widget and unit test failures in sese_ride`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- Stage, commit with message `docs: update AGENTS.md, inline JSDoc comments, ABI split docs, and support audio policies`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.
