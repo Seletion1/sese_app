@@ -1,29 +1,36 @@
-# Deployment Manifest (`functions.yaml`) Specification & Regeneration
+# Architectural Security Regression Checks & Coding Standards
 
-Update `functions/scripts/generate-manifest.js` and regenerate `functions/functions.yaml` to ensure 100% Gen-2 deployment spec alignment and manifest validation across all 78 endpoints.
+Establish permanent architectural regression checks, linting rules, and security coding standards in `AGENTS.md` and `SECURITY.md` to preserve verified secure baselines across the repository.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Gen-2 Manifest Generator Alignment**: Ensure `functions/scripts/generate-manifest.js` structures `functions.yaml` with the canonical `specVersion: "v1alpha1"` required by Firebase CLI v15.30+ for Gen-2 (`gcfv2`) Cloud Functions.
-> - **Manifest Regeneration & Validation**: Run `npm run build` to execute `tsc`, `generate-manifest.js`, and `validate-manifest.js`, confirming all 78 exported Cloud Functions endpoints are present with Gen-2 metadata.
+> - **1. Android Manifest Security Linters (`allowBackup="false"`, `exported="false"`)**:
+>   - Add automated regression check rules to prevent `allowBackup` from being flipped to `true` and ensure sensitive services (`OverlayService`) maintain `exported="false"`.
+> - **2. Webhook Cryptographic Verification Standard**:
+>   - Mandate that all incoming HTTP webhooks (Paystack, etc.) require HMAC signature validation with `crypto.timingSafeEqual` comparison to prevent timing attacks.
+> - **3. Build-Time Secret Injection Policy**:
+>   - Enforce zero-hardcoding policy for API keys, Maps tokens, or service credentials in client Dart files or Android/iOS manifests. Credentials must ship via server proxies or build-time injection.
+> - **4. Sound Security Boundaries**:
+>   - Document strict preservation rules for Firestore security boundaries (`trips`, `users`, `wallets`, `delivery_pins`, `hub_staff`, `system_config/*`) and Cloud Functions auth gates (`guardedOnCall`, `requireAccountActive`, `assertHubStaffOrAdmin`).
 
 ## Proposed Changes
 
-### Firebase Cloud Functions Build Scripts
+### Repository Guidelines & Security Standards
 
-#### [MODIFY] [generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js)
-- Ensure manifest generator formats `specVersion` and `endpoints` metadata matching Firebase CLI Gen-2 deployment standards.
+#### [MODIFY] [SECURITY.md](file:///Users/micheal/sese_app/SECURITY.md)
+- Add Section 5: "Architectural Security Regression Checks & Coding Standards" specifying manifest security rules, webhook HMAC timing-safe validation, secret injection standards, and security boundary preservation.
+
+#### [MODIFY] [AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md)
+- Append 2026-11-18 Decision Log entry documenting the establishment of permanent architectural security regression checks and coding standards.
 
 ---
 
 ## Verification Plan
 
-### Automated Manifest Validation
-- Run `npm run build` in `functions/` to generate and validate `functions.yaml`.
-- Run `npm test` in `functions/` to verify backend unit test suite.
+### Automated Verification
+- Run `flutter analyze` across `sese_ride`, `sese_hub`, and `sese_core` to confirm zero lint or analysis warnings.
+- Run `npm test` in `functions/` to verify all 142 backend unit tests pass.
 
-### Mandatory Pipeline Execution
-- Run `flutter analyze` in `sese_ride`.
-- Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Stage, commit with message `build: align functions.yaml manifest generator with Gen-2 deployment standards`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+### Deployment Pipeline
+- Execute mandatory build, test, and Firebase deployment pipeline.

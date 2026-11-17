@@ -50,3 +50,24 @@ In the event of a suspected or confirmed credential leak:
 2. **Key Generation**: Generate a fresh production key pair with strict scope restrictions.
 3. **Environment & Function Update**: Update `functions/.env` or Secret Manager and deploy backend functions immediately (`firebase deploy --only functions`).
 4. **Git Scrubbing**: If a secret was accidentally committed to git history, use `git-filter-repo` to scrub the historical commit or force-push a sanitized history.
+
+---
+
+## 5. Architectural Security Regression Checks & Coding Standards
+
+To preserve verified secure baselines across refactoring and future feature development:
+
+### A. Android Manifest Security Standards
+- **`allowBackup="false"`**: Must remain explicitly set on `<application>` in `sese_ride/android/app/src/main/AndroidManifest.xml` and `sese_hub/android/app/src/main/AndroidManifest.xml` to prevent unauthorized ADB data extraction.
+- **Service Export Lock (`exported="false"`)**: Sensitive background services (e.g., `OverlayService`) must maintain `android:exported="false"` so external malicious apps cannot invoke internal components.
+
+### B. Webhook Cryptographic Verification Standard
+- **Constant-Time HMAC Comparison**: All incoming HTTP webhook handlers (e.g. `paystackWebhook` in `payments.ts`) must require and verify cryptographic HMAC signatures using `crypto.timingSafeEqual` to prevent signature spoofing and timing side-channel attacks.
+
+### C. Build-Time Secret Injection Standards
+- **Zero Hardcoding**: Server-side API keys, web-services Maps credentials, Resend tokens, and fare signing secrets must NEVER be written into Dart code or native Android/iOS manifests as string literals.
+- **Proxy Architecture**: All third-party web-service requests must route through authorized Cloud Functions (`googleMapsProxy`, `sendTransactionalEmail`, etc.), preserving client key isolation.
+
+### D. Security Boundaries Preservation
+- **Firestore Security Rules**: Core rules (`trips`, `users`, `wallets`, `delivery_pins`, `hub_staff`, `system_config/*`) must enforce strict owner/staff/participant authorization and prevent direct client-side balance, debt, or verification status mutations.
+- **Cloud Functions Middleware**: All money-moving or sensitive callable functions must execute `guardedOnCall` (`enforceAppCheck`), `requireAccountActive()`, and `assertHubStaffOrAdmin()` at the top of the function.

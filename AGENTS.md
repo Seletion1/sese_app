@@ -72,6 +72,18 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-18 — Architectural Security Regression Checks & Coding Standards
+
+- **1. Android Manifest Security Linters (`allowBackup="false"`, `exported="false"`)**:
+  - Documented mandatory manifest security rules in `SECURITY.md` Section 5. Enforced `android:allowBackup="false"` across `sese_ride` and `sese_hub` manifests and `android:exported="false"` on internal services (`OverlayService`).
+
+- **2. Webhook Cryptographic Verification Standard**:
+  - Enforced constant-time HMAC signature verification (`crypto.timingSafeEqual`) on `paystackWebhook` (`functions/src/payments.ts`) and required transaction idempotency ledgers (`wallet_ledger/{reference}`) to prevent spoofing and timing attacks.
+
+- **3. Build-Time Secret Injection & Security Boundaries**:
+  - Enforced zero-plaintext hardcoding policy in client Dart code and native manifests.
+  - Documented strict preservation guidelines for Firestore security rules (`trips`, `users`, `wallets`, `delivery_pins`, `hub_staff`, `system_config/*`) and backend callable guards (`guardedOnCall`, `requireAccountActive`, `assertHubStaffOrAdmin`).
+
 ## 2026-11-17 — Secrets Hygiene Overhaul, Cryptographic Secret Rotation & SECURITY.md Policy
 
 - **1. Cryptographic Fare Secret Rotation (`functions/.env`)**:
