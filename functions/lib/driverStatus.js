@@ -82,7 +82,8 @@ exports.goOnline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
-        // Non-fatal — continue
+        console.error(`[goOnline] Suspension check read failed for driver ${uid}:`, e);
+        throw new https_1.HttpsError("unavailable", "Unable to verify account status. Please try again.");
     }
     // Hub profile verification gate: drivers CANNOT go online until BOTH
     // `isProfileVerified == true` AND `isVehicleVerified == true`
@@ -102,7 +103,8 @@ exports.goOnline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
-        // Non-fatal — fall through to the fleet guard below
+        console.error(`[goOnline] Profile verification read failed for driver ${uid}:`, e);
+        throw new https_1.HttpsError("unavailable", "Unable to verify profile verification status. Please try again.");
     }
     // Fleet verification guard: strictly enforce single active approved vehicle.
     let activeVehicleId = null;
@@ -197,6 +199,8 @@ exports.goOnline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
+        console.error(`[goOnline] Active trip check failed for driver ${uid}:`, e);
+        throw new https_1.HttpsError("unavailable", "Unable to verify active trip status. Please try again.");
     }
     const now = admin.firestore.FieldValue.serverTimestamp();
     const newSessionId = String((_k = data.sessionId) !== null && _k !== void 0 ? _k : db().collection("_").doc().id);
@@ -307,6 +311,8 @@ exports.goOffline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     catch (e) {
         if (e instanceof https_1.HttpsError)
             throw e;
+        console.error(`[goOffline] Active trip verification read failed for driver ${uid}:`, e);
+        throw new https_1.HttpsError("unavailable", "Unable to verify active trip status. Please try again.");
     }
     const now = admin.firestore.FieldValue.serverTimestamp();
     await db().collection("driver_status").doc(uid).set({

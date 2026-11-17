@@ -161,7 +161,14 @@ async function requireAccountActive(uid, role = "any") {
             throw e;
         // Genuine Firestore infrastructure read failure: fail OPEN toward the user
         // (degraded mode) so a transient outage does not block all payments. Log loudly for ops.
-        console.error(`[accountGuard] CRITICAL INFRA ERROR: users/${uid} read failed — failing open: ${e}`);
+        console.error(JSON.stringify({
+            severity: "CRITICAL",
+            message: `[accountGuard] CRITICAL INFRA ERROR: users/${uid} read failed — failing open: ${e}`,
+            component: "accountGuard",
+            collection: "users",
+            uid,
+            error: String(e),
+        }));
     }
     // ── 2. Additionally check driver record when role === 'driver' ────────────
     if (role === "driver") {
@@ -174,7 +181,14 @@ async function requireAccountActive(uid, role = "any") {
         catch (e) {
             if (e instanceof https_1.HttpsError)
                 throw e;
-            console.error(`[accountGuard] CRITICAL INFRA ERROR: drivers/${uid} read failed — failing open: ${e}`);
+            console.error(JSON.stringify({
+                severity: "CRITICAL",
+                message: `[accountGuard] CRITICAL INFRA ERROR: drivers/${uid} read failed — failing open: ${e}`,
+                component: "accountGuard",
+                collection: "drivers",
+                uid,
+                error: String(e),
+            }));
         }
     }
 }

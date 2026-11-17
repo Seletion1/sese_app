@@ -1,7 +1,8 @@
-# Implementation Task Checklist - Storage Security Rules Hardening
+# Implementation Task Checklist - Error Handling & Observability Refactoring
 
-- [/] Update `storage.rules` for `isAudio()`, `profile_photos`, and `support_media`
-- [ ] Run dry-run rules compilation check (`firebase deploy --only storage:rules --dry-run`)
+- [/] Structured Cloud Logging (`severity: "CRITICAL"`) in `requireAccountActive` (`functions/src/accountGuard.ts`)
+- [ ] Refactor `goOffline` in `driverStatus.ts` to fail closed on active trip read failure
+- [ ] Refactor `goOnline` in `driverStatus.ts` to log and wrap non-HttpsError read failures into `HttpsError('unavailable')`
 - [ ] Run backend unit test suite (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

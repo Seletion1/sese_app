@@ -1,40 +1,33 @@
-# Firebase Storage Security Rules Hardening (`storage.rules`)
+# Refactor Error Handling, Observability & Fail-Safe Logic in `accountGuard.ts` & `driverStatus.ts`
 
-Update `storage.rules` to resolve policy contradictions, narrow profile photo visibility, and enforce strict per-user write boundaries.
+Refactor the error handling, logging severity, and fail-safe behavior in `accountGuard.ts` and `driverStatus.ts` to ensure structured Cloud Logging observability during infrastructure outages and enforce fail-closed status transitions for driver operations.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Audio MIME Type & Size Validation (`support_media`)**: Clarified documentation and sharpened `isAudio()` validation to strictly match permitted audio MIME types (`audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)`) capped at 5 MB for support voice notes.
-> - **Narrow `profile_photos` Read Access**: Restricted read access on `profile_photos/{userId}` from universal authenticated access (`allow read: if request.auth != null;`) to the account owner or authorized hub staff (`allow read: if request.auth != null && (request.auth.uid == userId || isHubStaffClaim());`).
-> - **Enforce Per-User Write Boundaries**: Removed staff write permission on `support_media/{userId}` folders. All user storage writes are now strictly owner-bound (`request.auth.uid == userId`), requiring support staff to upload response media under their own user path (`support_media/{staffUid}`).
+> - **`accountGuard.ts` Observability**: Maintain the fail-open availability policy on `requireAccountActive` when Firestore reads fail, but format `CRITICAL INFRA ERROR` logs as structured JSON carrying `severity: "CRITICAL"` for Cloud Logging alerting.
+> - **`driverStatus.ts` (`goOffline`) Fail-Closed Policy**: Refactor `goOffline` so that any Firestore read failure during active trip verification re-throws an `HttpsError('unavailable')` rather than silently swallowing the error and dropping the driver offline.
+> - **`driverStatus.ts` (`goOnline`) Error Wrapping**: Refactor `goOnline` try/catch blocks (suspension check, profile/vehicle verification, active trip verification) so non-`HttpsError` read failures are logged and wrapped into `HttpsError('unavailable')` rather than silently swallowed.
 
 ## Proposed Changes
 
-### Firebase Storage Security Rules (`storage.rules`)
+### Firebase Cloud Functions (`functions/src`)
 
-#### [MODIFY] [storage.rules](file:///Users/micheal/sese_app/storage.rules)
+#### [MODIFY] [accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts)
+- In `requireAccountActive`: Format Firestore read failure error logs as JSON payloads with `severity: "CRITICAL"` for Cloud Logging metric filters.
 
-1. **Audio Helper Sharpening**:
-   - Update `isAudio()` helper to validate exact audio MIME types:
-     `return request.resource.contentType.matches('audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)');`
-
-2. **Profile Photos Read Restriction**:
-   - Update `profile_photos/{userId}/{allPaths=**}` read rule:
-     `allow read: if request.auth != null && (request.auth.uid == userId || isHubStaffClaim());`
-
-3. **Per-User Support Media Write Boundary**:
-   - Update `support_media/{userId}/{allPaths=**}` write rule:
-     `allow write: if isSupportMediaOwner(userId) && ((isImage() && request.resource.size < 2 * 1024 * 1024) || (isAudio() && request.resource.size < 5 * 1024 * 1024));`
-     where `isSupportMediaOwner(userId)` enforces `request.auth.uid == userId`.
+#### [MODIFY] [driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts)
+- In `goOffline`: Refactor `activeTrips` verification catch block to fail closed (`throw new HttpsError("unavailable", ...)`) on read failure.
+- In `goOnline`: Refactor `try/catch` blocks for suspension check, profile/vehicle verification check, and active trip verification to catch non-`HttpsError` failures, log them, and throw `HttpsError("unavailable", ...)`.
 
 ---
 
 ## Verification Plan
 
-### Automated Dry-Run Validation
-- Run `firebase deploy --only storage:rules --dry-run` from `/Users/micheal/sese_app` to verify storage rules compilation.
+### Automated Test Execution
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
 
-### Full Pipeline Execution
-- Execute backend unit test suite (`npm test`).
-- Execute mandatory build, test, deploy, and git synchronization pipeline.
+### Deployment & Synchronization
+- Run `npm run build` to regenerate `functions.yaml` and validate manifest.
+- Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
+- Execute full git add, commit, and push pipeline.

@@ -70,7 +70,8 @@ export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
     }
   } catch (e) {
     if (e instanceof HttpsError) throw e;
-    // Non-fatal — continue
+    console.error(`[goOnline] Suspension check read failed for driver ${uid}:`, e);
+    throw new HttpsError("unavailable", "Unable to verify account status. Please try again.");
   }
 
   // Hub profile verification gate: drivers CANNOT go online until BOTH
@@ -95,7 +96,8 @@ export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
     }
   } catch (e) {
     if (e instanceof HttpsError) throw e;
-    // Non-fatal — fall through to the fleet guard below
+    console.error(`[goOnline] Profile verification read failed for driver ${uid}:`, e);
+    throw new HttpsError("unavailable", "Unable to verify profile verification status. Please try again.");
   }
 
   // Fleet verification guard: strictly enforce single active approved vehicle.
@@ -206,6 +208,8 @@ export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
     }
   } catch (e) {
     if (e instanceof HttpsError) throw e;
+    console.error(`[goOnline] Active trip check failed for driver ${uid}:`, e);
+    throw new HttpsError("unavailable", "Unable to verify active trip status. Please try again.");
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
@@ -330,6 +334,8 @@ export const goOffline = guardedOnCall<GoOfflineData>(async (request) => {
     }
   } catch (e) {
     if (e instanceof HttpsError) throw e;
+    console.error(`[goOffline] Active trip verification read failed for driver ${uid}:`, e);
+    throw new HttpsError("unavailable", "Unable to verify active trip status. Please try again.");
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
