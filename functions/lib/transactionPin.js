@@ -304,12 +304,19 @@ exports.verifyTransactionPin = (0, accountGuard_1.guardedOnCall)(async (request)
  * `drivers/{uid}/private/auth`.
  */
 exports.resetTransactionPin = (0, accountGuard_1.guardedOnCall)(async (request) => {
-    var _a;
+    var _a, _b;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
     const uid = request.auth.uid;
-    const pin = assertPinShape((_a = request.data) === null || _a === void 0 ? void 0 : _a.pin);
+    // Zero-trust re-authentication enforcement.
+    // The server requires a fresh sign-in within the last 10 minutes (600 seconds).
+    const authTimeSec = Number((_a = request.auth.token.auth_time) !== null && _a !== void 0 ? _a : 0);
+    const ageSec = Date.now() / 1000 - authTimeSec;
+    if (!Number.isFinite(ageSec) || ageSec < 0 || ageSec > 10 * 60) {
+        throw new https_1.HttpsError("unauthenticated", "Recent re-authentication is required to reset your transaction PIN.");
+    }
+    const pin = assertPinShape((_b = request.data) === null || _b === void 0 ? void 0 : _b.pin);
     const salt = randomSaltHex();
     const pinData = {
         pinHash: hashPin(pin, salt),

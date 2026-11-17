@@ -1,33 +1,37 @@
-# Refactor Error Handling, Observability & Fail-Safe Logic in `accountGuard.ts` & `driverStatus.ts`
+# Token Freshness (`auth_time`) Validation in `resetTransactionPin`
 
-Refactor the error handling, logging severity, and fail-safe behavior in `accountGuard.ts` and `driverStatus.ts` to ensure structured Cloud Logging observability during infrastructure outages and enforce fail-closed status transitions for driver operations.
+Enforce zero-trust re-authentication token freshness validation inside `resetTransactionPin` in `functions/src/transactionPin.ts`.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **`accountGuard.ts` Observability**: Maintain the fail-open availability policy on `requireAccountActive` when Firestore reads fail, but format `CRITICAL INFRA ERROR` logs as structured JSON carrying `severity: "CRITICAL"` for Cloud Logging alerting.
-> - **`driverStatus.ts` (`goOffline`) Fail-Closed Policy**: Refactor `goOffline` so that any Firestore read failure during active trip verification re-throws an `HttpsError('unavailable')` rather than silently swallowing the error and dropping the driver offline.
-> - **`driverStatus.ts` (`goOnline`) Error Wrapping**: Refactor `goOnline` try/catch blocks (suspension check, profile/vehicle verification, active trip verification) so non-`HttpsError` read failures are logged and wrapped into `HttpsError('unavailable')` rather than silently swallowed.
+> - **Re-Authentication Freshness Gate**: Replicate the exact pattern from `deleteAccount.ts` inside `resetTransactionPin`.
+> - **Validation Rule**:
+>   - Extract `authTimeSec = Number(request.auth.token.auth_time ?? 0)`.
+>   - Calculate `ageSec = Date.now() / 1000 - authTimeSec`.
+>   - If `!Number.isFinite(ageSec) || ageSec < 0 || ageSec > 10 * 60` (older than 10 minutes / 600 seconds), throw `HttpsError('unauthenticated', 'Recent re-authentication is required to reset your transaction PIN.')`.
+> - **Unit Tests**: Update `transactionPin.test.ts` to include fresh `auth_time` on test requests and add a dedicated test verifying rejection of stale session tokens.
 
 ## Proposed Changes
 
 ### Firebase Cloud Functions (`functions/src`)
 
-#### [MODIFY] [accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts)
-- In `requireAccountActive`: Format Firestore read failure error logs as JSON payloads with `severity: "CRITICAL"` for Cloud Logging metric filters.
+#### [MODIFY] [transactionPin.ts](file:///Users/micheal/sese_app/functions/src/transactionPin.ts#L290-L330)
+- Add `auth_time` freshness check to `resetTransactionPin`.
 
-#### [MODIFY] [driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts)
-- In `goOffline`: Refactor `activeTrips` verification catch block to fail closed (`throw new HttpsError("unavailable", ...)`) on read failure.
-- In `goOnline`: Refactor `try/catch` blocks for suspension check, profile/vehicle verification check, and active trip verification to catch non-`HttpsError` failures, log them, and throw `HttpsError("unavailable", ...)`.
+#### [MODIFY] [transactionPin.test.ts](file:///Users/micheal/sese_app/functions/src/test/transactionPin.test.ts#L180-L200)
+- Update mock request in `resetTransactionPin` unit test to include `auth.token.auth_time = Math.floor(Date.now() / 1000)`.
+- Add test verifying stale `auth_time` rejection.
 
 ---
 
 ## Verification Plan
 
 ### Automated Test Execution
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to compile TypeScript and run unit test suites.
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to verify that all unit tests pass.
 
-### Deployment & Synchronization
-- Run `npm run build` to regenerate `functions.yaml` and validate manifest.
+### Mandatory Pipeline Execution
+- Run `flutter test` (if applicable) and `flutter analyze` in `sese_ride`.
+- Run `npm run build` in `functions/`.
 - Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Execute full git add, commit, and push pipeline.
+- Stage, commit with message `perf: eliminate blocking loaders, implement local-first caching, optimistic UI, and background pre-fetching`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.

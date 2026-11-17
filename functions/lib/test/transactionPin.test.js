@@ -180,15 +180,39 @@ const transactionPin_1 = require("../transactionPin");
             return true;
         });
     });
-    (0, node_test_1.test)("resetTransactionPin updates PIN and clears active lock", async () => {
+    (0, node_test_1.test)("resetTransactionPin requires recent re-authentication (auth_time <= 10m)", async () => {
+        store.set("users/user_stale", { uid: "user_stale" });
+        await transactionPin_1.setTransactionPin.run({
+            auth: { uid: "user_stale" },
+            data: { pin: "1111" },
+        });
+        // Stale token (older than 10 mins)
+        const staleReq = {
+            auth: {
+                uid: "user_stale",
+                token: { auth_time: Math.floor(Date.now() / 1000) - 700 },
+            },
+            data: { pin: "9999" },
+        };
+        await node_assert_1.default.rejects(async () => await transactionPin_1.resetTransactionPin.run(staleReq), (err) => {
+            node_assert_1.default.ok(err instanceof https_1.HttpsError);
+            node_assert_1.default.strictEqual(err.code, "unauthenticated");
+            node_assert_1.default.match(err.message, /Recent re-authentication is required/);
+            return true;
+        });
+    });
+    (0, node_test_1.test)("resetTransactionPin updates PIN and clears active lock when re-authenticated", async () => {
         store.set("users/user_4", { uid: "user_4" });
         await transactionPin_1.setTransactionPin.run({
             auth: { uid: "user_4" },
             data: { pin: "1111" },
         });
-        // Reset PIN to 9999
+        // Reset PIN to 9999 with fresh auth_time
         const resetReq = {
-            auth: { uid: "user_4" },
+            auth: {
+                uid: "user_4",
+                token: { auth_time: Math.floor(Date.now() / 1000) },
+            },
             data: { pin: "9999" },
         };
         const res = await transactionPin_1.resetTransactionPin.run(resetReq);

@@ -1,28 +1,28 @@
-# Walkthrough - Storage Security Rules Hardening
+# Walkthrough - Error Handling, Observability & Fail-Safe Logic Refactoring
 
 ## Summary of Changes
 
-Updated `storage.rules` to sharpen audio MIME type validation, narrow profile photo read access, and enforce strict per-user storage write boundaries.
+Refactored error handling and logging across `functions/src/accountGuard.ts` and `functions/src/driverStatus.ts` to improve Cloud Logging observability during infrastructure outages and enforce fail-closed status transitions for driver operations.
 
-### 1. Sharpened Audio MIME Type & Size Caps
-**[storage.rules](file:///Users/micheal/sese_app/storage.rules#L11-L18)**
-- Updated `isAudio()` helper to strictly match exact audio formats (`audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)`) with a 5 MB cap for support chat voice notes.
+### 1. Structured Cloud Logging in `accountGuard.ts`
+**[accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts#L150-L185)**
+- Maintained the fail-open availability trade-off in `requireAccountActive` during Firestore read failures.
+- Formatted `CRITICAL INFRA ERROR` logs as structured JSON payloads with `severity: "CRITICAL"` for GCP Cloud Logging alert metric filters.
 
-### 2. Narrowed Profile Photo Read Access
-**[storage.rules](file:///Users/micheal/sese_app/storage.rules#L80-L95)**
-- Restricted `profile_photos/{userId}/{allPaths=**}` read permissions from universal authenticated access (`allow read: if request.auth != null;`) to the account owner or authorized hub staff (`allow read: if request.auth != null && (request.auth.uid == userId || isHubStaffClaim());`).
+### 2. Fail-Closed Active Trip Verification in `goOffline`
+**[driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts#L320-L345)**
+- Refactored `goOffline` active trip check to fail closed: if a Firestore read error occurs during active trip verification, it logs the error and re-throws `HttpsError("unavailable", "Unable to verify active trip status. Please try again.")` instead of silently dropping the driver offline.
 
-### 3. Enforced Per-User Write Boundaries
-**[storage.rules](file:///Users/micheal/sese_app/storage.rules#L155-L175)**
-- Removed blanket staff write permissions on `support_media/{userId}` folders.
-- Enforced `isSupportMediaOwner(userId)` requiring `request.auth.uid == userId` for all writes. Support staff upload response media under their own authenticated UID (`support_media/{staffUid}`).
+### 3. Non-Lossy Error Wrapping in `goOnline`
+**[driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts#L60-L215)**
+- Refactored `goOnline` try/catch blocks (suspension check, profile/vehicle verification check, active trip check) so that non-`HttpsError` Firestore read failures are logged and wrapped into `HttpsError("unavailable", ...)` rather than silently swallowed.
 
 ---
 
 ## Verification Results
 
-### Automated Validation & Deployment
-- **Storage Rules Compilation**: `firebase deploy --only storage` — `firebase.storage: rules file storage.rules compiled successfully` and released live.
+### Automated Tests & Deployment
 - **Backend Unit Tests**: `npm test` — 137 unit tests passed across 46 test suites with 0 failures.
 - **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
-- **Git Sync**: Pushed commit `1c4b9e5` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Firebase Deployment**: All 76 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
+- **Git Sync**: Pushed commit `98056a8` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

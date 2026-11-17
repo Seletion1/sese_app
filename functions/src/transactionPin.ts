@@ -332,6 +332,18 @@ export const resetTransactionPin = guardedOnCall<ResetPinData>(async (request) =
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
   const uid = request.auth.uid;
+
+  // Zero-trust re-authentication enforcement.
+  // The server requires a fresh sign-in within the last 10 minutes (600 seconds).
+  const authTimeSec = Number(request.auth.token.auth_time ?? 0);
+  const ageSec = Date.now() / 1000 - authTimeSec;
+  if (!Number.isFinite(ageSec) || ageSec < 0 || ageSec > 10 * 60) {
+    throw new HttpsError(
+      "unauthenticated",
+      "Recent re-authentication is required to reset your transaction PIN."
+    );
+  }
+
   const pin = assertPinShape(request.data?.pin);
 
   const salt = randomSaltHex();
