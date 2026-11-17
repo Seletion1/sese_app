@@ -10,7 +10,7 @@ service firebase.storage {
       return request.resource.contentType == 'application/pdf';
     }
     function isAudio() {
-      return request.resource.contentType.matches('audio/.*');
+      return request.resource.contentType.matches('audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)');
     }
     // 2MB cap: client-side ImageCompressionService targets ~150–300KB per photo;
     // the 2MB ceiling is a defence-in-depth guard for PDFs and any unusual
@@ -82,7 +82,9 @@ service firebase.storage {
 
     // ── Profile avatars ───────────────────────────────────────────────────────
     match /profile_photos/{userId}/{allPaths=**} {
-      allow read: if request.auth != null;
+      allow read: if request.auth != null
+                  && (request.auth.uid == userId
+                      || isHubStaffClaim());
       allow write: if request.auth != null
                    && request.auth.uid == userId
                    && isImage()
@@ -167,8 +169,8 @@ service firebase.storage {
 
     match /support_media/{userId}/{allPaths=**} {
       allow read: if isSupportMediaOwner(userId) || isSupportStaff();
-      // Images (≤ 2MB) or Voice Notes / Audio (≤ 5MB).
-      allow write: if (isSupportMediaOwner(userId) || isSupportStaff()) &&
+      // Images (≤ 2MB) or Voice Notes / Audio (≤ 5MB) uploaded under user's own UID.
+      allow write: if isSupportMediaOwner(userId) &&
                     ((isImage() && request.resource.size < 2 * 1024 * 1024) ||
                      (isAudio() && request.resource.size < 5 * 1024 * 1024));
     }

@@ -1,30 +1,39 @@
-# Restrict Read Access on `driver_status` Collection in `firestore.rules`
+# Firebase Storage Security Rules Hardening (`storage.rules`)
 
-Restrict read access on `driver_status/{driverId}` to eliminate stalking and competitive intelligence location exposure.
+Update `storage.rules` to resolve policy contradictions, narrow profile photo visibility, and enforce strict per-user write boundaries.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Read Access Restriction**: Previously, `match /driver_status/{driverId}` allowed unconstrained read access for any authenticated user (`allow read: if isAuthenticated();`).
-> - With this change, read access is restricted strictly to:
->   1. **The driver themselves**: `request.auth.uid == driverId` or `resource.data.driverId == request.auth.uid`.
->   2. **Hub Staff / Admins**: Authorized hub staff, operations admins, and support agents (`isHubStaff()`, `isAgent()`, `isAdminAuthClaim()`, `isOperationsAdmin()`, `isSuperAdmin()`).
->   3. **Assigned Active Trip Customer**: Rules-side lookup verifying that `resource.data.activeTripId` points to an active trip document where `customerId == request.auth.uid`.
+> - **Audio MIME Type & Size Validation (`support_media`)**: Clarified documentation and sharpened `isAudio()` validation to strictly match permitted audio MIME types (`audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)`) capped at 5 MB for support voice notes.
+> - **Narrow `profile_photos` Read Access**: Restricted read access on `profile_photos/{userId}` from universal authenticated access (`allow read: if request.auth != null;`) to the account owner or authorized hub staff (`allow read: if request.auth != null && (request.auth.uid == userId || isHubStaffClaim());`).
+> - **Enforce Per-User Write Boundaries**: Removed staff write permission on `support_media/{userId}` folders. All user storage writes are now strictly owner-bound (`request.auth.uid == userId`), requiring support staff to upload response media under their own user path (`support_media/{staffUid}`).
 
 ## Proposed Changes
 
-### Firestore Security Rules (`firestore.rules`)
+### Firebase Storage Security Rules (`storage.rules`)
 
-#### [MODIFY] [firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L1590-L1610)
-- Update `match /driver_status/{driverId}` read rule to require caller authorization (self-driver, staff/admin, or active trip customer).
-- Maintain `allow write: if false;` (server-managed online status written exclusively by Cloud Functions via Admin SDK).
+#### [MODIFY] [storage.rules](file:///Users/micheal/sese_app/storage.rules)
+
+1. **Audio Helper Sharpening**:
+   - Update `isAudio()` helper to validate exact audio MIME types:
+     `return request.resource.contentType.matches('audio/(aac|mp3|mpeg|ogg|opus|wav|webm|m4a|x-m4a|amr|3gpp|mp4)');`
+
+2. **Profile Photos Read Restriction**:
+   - Update `profile_photos/{userId}/{allPaths=**}` read rule:
+     `allow read: if request.auth != null && (request.auth.uid == userId || isHubStaffClaim());`
+
+3. **Per-User Support Media Write Boundary**:
+   - Update `support_media/{userId}/{allPaths=**}` write rule:
+     `allow write: if isSupportMediaOwner(userId) && ((isImage() && request.resource.size < 2 * 1024 * 1024) || (isAudio() && request.resource.size < 5 * 1024 * 1024));`
+     where `isSupportMediaOwner(userId)` enforces `request.auth.uid == userId`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Dry-Run Validation
-- Run `firebase deploy --only firestore:rules --dry-run` from `/Users/micheal/sese_app` to verify security rules syntax compilation.
+- Run `firebase deploy --only storage:rules --dry-run` from `/Users/micheal/sese_app` to verify storage rules compilation.
 
 ### Full Pipeline Execution
 - Execute backend unit test suite (`npm test`).
