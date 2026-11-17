@@ -317,7 +317,8 @@ service cloud.firestore {
         (isNotSuspended() && resource.data.driverId == request.auth.uid &&
          request.resource.data.diff(resource.data).affectedKeys()
            .hasOnly(['cashCheckpoints', 'deliveryPinVerified', 'status', 'updatedAt']) &&
-         request.resource.data.status in ['ARRIVED', 'PICKED_UP', 'IN_TRANSIT', 'COMPLETED', resource.data.status]) ||
+         request.resource.data.status in ['ARRIVED', 'PICKED_UP', 'IN_TRANSIT', resource.data.status] &&
+         (request.resource.data.status != 'COMPLETED' || resource.data.status == 'COMPLETED')) ||
         (isNotSuspended() && resource.data.status == 'unassigned' &&
          request.resource.data.driverId == request.auth.uid &&
          request.resource.data.status == 'assigned' &&
@@ -343,6 +344,15 @@ service cloud.firestore {
 
     // ===== QUICK ORDERS =====
     match /quick_orders/{orderId} {
+      function isValidQuickOrderUpdate() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'assignedDriverId', 'acceptedAt', 'updatedAt', 'completedAt', 'cancelledAt', 'cancellationReason', 'notes'
+        ]) &&
+        request.resource.data.driverId == resource.data.driverId &&
+        (!request.resource.data.keys().hasAny(['status']) ||
+          request.resource.data.status in ['broadcasted', 'searching', 'pending', 'accepted', 'in_progress', 'completed', 'cancelled']);
+      }
+
       allow read: if isAuthenticated() && (
         resource.data.driverId == request.auth.uid ||
         resource.data.assignedDriverId == request.auth.uid ||
@@ -352,9 +362,8 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isNotSuspended() &&
         request.resource.data.driverId == request.auth.uid;
       allow update: if isAuthenticated() && isNotSuspended() && (
-        resource.data.driverId == request.auth.uid ||
-        resource.data.assignedDriverId == request.auth.uid ||
-        isAgent()
+        isAgent() ||
+        ((resource.data.driverId == request.auth.uid || resource.data.assignedDriverId == request.auth.uid) && isValidQuickOrderUpdate())
       );
       allow delete: if isSuperAdmin();
     }
@@ -586,9 +595,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // GPS telemetry trail — owner can write own telemetry even while pending
+    // GPS telemetry trail — owner can read; write requires owner + not suspended
     match /drivers/{driverId}/telemetry/{telemetryId} {
-      allow read, write: if isOwner(driverId);
+      allow read: if isOwner(driverId);
+      allow write: if isOwner(driverId) && isNotSuspended();
     }
 
     // ===== PROMPT 50 — DRIVER FLEET REGISTRY =====
@@ -1115,6 +1125,15 @@ service cloud.firestore {
         );
       }
 
+      function isValidCallUpdate() {
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'answer', 'offer', 'updatedAt', 'endedAt', 'connectedAt', 'rejectedAt', 'durationSeconds'
+        ]) &&
+        (!request.resource.data.keys().hasAny(['status']) ||
+          request.resource.data.status in ['ringing', 'connecting', 'connected', 'ended', 'rejected', 'idle', 'cancelled']) &&
+        request.resource.data.callerId == resource.data.callerId;
+      }
+
       // Only the caller, receiver, or administrative staff may read call signaling
       allow read: if isAuthenticated() && (
         isCallParticipant() ||
@@ -1130,11 +1149,8 @@ service cloud.firestore {
         request.resource.data.get('status', 'ringing') in ['ringing', 'connecting', 'idle'];
 
       // Only caller or receiver can update call signaling state (e.g. answer, reject, end)
-      allow update: if isAuthenticated() && isNotSuspended() && (
-        resource.data.callerId == request.auth.uid ||
-        resource.data.receiverId == request.auth.uid ||
-        resource.data.get('targetUserId', '') == request.auth.uid
-      );
+      allow update: if isAuthenticated() && isNotSuspended() &&
+        isCallParticipant() && isValidCallUpdate();
 
       allow delete: if isSuperAdmin();
 
@@ -1231,13 +1247,7 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.userId == request.auth.uid &&
         request.resource.data.status == 'PENDING';
-      allow update: if isAuthenticated() &&
-        resource.data.userId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'cardToken', 'last4', 'brand', 'verifiedAt',
-          'failedReason', 'updatedAt']) &&
-        (request.resource.data.status == 'VERIFIED' ||
-         request.resource.data.status == 'FAILED');
+      allow update: if isOperationsAdmin();
       allow delete: if isSuperAdmin();
     }
 

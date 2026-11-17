@@ -1,81 +1,45 @@
-# Refactor Cloud Functions onCall Handlers to Enforce Firebase App Check Globally
+# Firestore Security Rules Hardening (`firestore.rules`)
 
-Refactor all Cloud Functions `onCall` handlers across `functions/src/` to use a unified `guardedOnCall` security wrapper, bringing App Check and zero-trust enforcement coverage to 100% (75/75 handlers).
+Update `firestore.rules` to eliminate data manipulation vulnerabilities across `calls`, `card_verifications`, `quick_orders`, `orders`, and `drivers/{driverId}/telemetry`.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Global Security Wrapper**: `guardedOnCall` will be defined in `accountGuard.ts`. It sets `{ enforceAppCheck: true }` in GCF options and executes `enforceAppCheck(request)` synchronously at runtime before any business logic executes.
-> - **Explicit Bypass Rule**: An explicit `bypassAppCheckOnCall` function builder is provided for any function requiring an intentional bypass, making unprotected endpoints immediately visible during code audits.
-> - **100% Coverage**: Every `onCall` export across 16 module files will be migrated to `guardedOnCall`.
+> - **Calls Field Whitelist**: Restrict updates on `calls/{callId}` to permitted signaling fields (`status`, `answer`, `offer`, timestamps) and ensure `callerId` remains immutable.
+> - **Card Verification Control**: Remove client-side permission to self-set `card_verifications` status to `VERIFIED`. Status flips must be processed exclusively via backend Cloud Functions (`processCardVerificationCallback`).
+> - **Quick Orders Field Whitelist**: Bound client updates on `quick_orders/{orderId}` to safe mutable fields (`status`, `assignedDriverId`, timestamps, cancellation fields, notes) while locking `driverId` (creator).
+> - **Orders Completion Integrity**: Remove `COMPLETED` from the allowed status list in driver client updates on `orders/{orderId}`, forcing order completion through Cloud Functions.
+> - **Suspension-Gated Telemetry**: Require `isNotSuspended()` on write rules for `drivers/{driverId}/telemetry/{telemetryId}`.
 
 ## Proposed Changes
 
-### Firebase Cloud Functions (`functions/src`)
+### Firestore Security Rules (`firestore.rules`)
 
-#### [MODIFY] [accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts)
-- Export `guardedOnCall` wrapper function enforcing `enforceAppCheck: true` and runtime `enforceAppCheck(request)` guard.
-- Export `bypassAppCheckOnCall` wrapper for explicit bypass scenarios.
+#### [MODIFY] [firestore.rules](file:///Users/micheal/sese_app/firestore.rules)
 
-#### [MODIFY] [adminOnboarding.ts](file:///Users/micheal/sese_app/functions/src/adminOnboarding.ts)
-- Migrate `lookupAccountForOnboarding`, `sendOnboardingOtp`, `verifyOnboardingOtp`, and `adminRegisterUser` to `guardedOnCall`.
+1. **`calls/{callId}`**:
+   - Define `isValidCallUpdate()` helper checking affected keys (`['status', 'answer', 'offer', 'updatedAt', 'endedAt', 'connectedAt', 'rejectedAt', 'durationSeconds']`), valid status values, and immutable `callerId`.
+   - Update `allow update:` to require `isCallParticipant()` and `isValidCallUpdate()`.
 
-#### [MODIFY] [broadcast.ts](file:///Users/micheal/sese_app/functions/src/broadcast.ts)
-- Migrate `sendTargetedBroadcast` to `guardedOnCall`.
+2. **`card_verifications/{verificationId}`**:
+   - Update `allow update:` to restrict client updates, preventing card owners from self-setting status to `VERIFIED` or `FAILED` (reserved for Operations Admin or Cloud Functions Admin SDK).
 
-#### [MODIFY] [callTokens.ts](file:///Users/micheal/sese_app/functions/src/callTokens.ts)
-- Migrate `getAgoraToken`, `recordCallDuration`, and `getZegoToken` to `guardedOnCall`.
+3. **`quick_orders/{orderId}`**:
+   - Define `isValidQuickOrderUpdate()` helper checking affected keys (`['status', 'assignedDriverId', 'acceptedAt', 'updatedAt', 'completedAt', 'cancelledAt', 'cancellationReason', 'notes']`), immutable `driverId`, and valid status values.
+   - Update `allow update:` to enforce `isValidQuickOrderUpdate()`.
 
-#### [MODIFY] [deleteAccount.ts](file:///Users/micheal/sese_app/functions/src/deleteAccount.ts)
-- Migrate `deleteAccount` to `guardedOnCall`.
+4. **`orders/{orderId}`**:
+   - Update driver update rule to allow status transitions in `['ARRIVED', 'PICKED_UP', 'IN_TRANSIT']`, explicitly excluding `COMPLETED` from client writes.
 
-#### [MODIFY] [driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts)
-- Migrate `goOnline`, `goOffline`, and `hubSetDriverOnlineStatus` to `guardedOnCall`.
-
-#### [MODIFY] [driverTripHistory.ts](file:///Users/micheal/sese_app/functions/src/driverTripHistory.ts)
-- Migrate `backfillDriverTripHistory` to `guardedOnCall`.
-
-#### [MODIFY] [email.ts](file:///Users/micheal/sese_app/functions/src/email.ts)
-- Migrate `sendTransactionalEmail`, `sendEmailOtp`, and `verifyEmailOtp` to `guardedOnCall`.
-
-#### [MODIFY] [googleMaps.ts](file:///Users/micheal/sese_app/functions/src/googleMaps.ts)
-- Migrate `googleMapsProxy` to `guardedOnCall`.
-
-#### [MODIFY] [hubBootstrap.ts](file:///Users/micheal/sese_app/functions/src/hubBootstrap.ts)
-- Migrate `bootstrapHubOwner` to `guardedOnCall`.
-
-#### [MODIFY] [index.ts](file:///Users/micheal/sese_app/functions/src/index.ts)
-- Migrate `calculateFare` to `guardedOnCall`.
-
-#### [MODIFY] [payments.ts](file:///Users/micheal/sese_app/functions/src/payments.ts)
-- Migrate `initializePayment` and `verifyPayment` to `guardedOnCall`.
-
-#### [MODIFY] [payouts.ts](file:///Users/micheal/sese_app/functions/src/payouts.ts)
-- Migrate `paystackBanks`, `resolveBankAccount`, `verifyBankAccount`, `processWalletWithdrawal`, `approveWeeklyPayout`, and `approveAllWeeklyPayouts` to `guardedOnCall`.
-
-#### [MODIFY] [transactionPin.ts](file:///Users/micheal/sese_app/functions/src/transactionPin.ts)
-- Migrate `setTransactionPin`, `verifyTransactionPin`, and `resetTransactionPin` to `guardedOnCall`.
-
-#### [MODIFY] [trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts)
-- Migrate all trip callables (`createTrip`, `acceptTrip`, `declineTrip`, `updateDriverLocation`, `advanceTripStatus`, `cancelTrip`, `confirmCashCancellation`, `submitBid`, `rejectBid`, `acceptBid`, `increaseTripFare`, `reassignTrip`, `verifyDeliveryPin`, `skipDeliveryPin`, `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`, `hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`, `submitTripRating`, `submitCancellationFeedback`) to `guardedOnCall`.
-
-#### [MODIFY] [uniqueIdentifiers.ts](file:///Users/micheal/sese_app/functions/src/uniqueIdentifiers.ts)
-- Migrate `checkIdentifierAvailability`, `registerUser`, `updateProfile`, and `registerVehicle` to `guardedOnCall`.
-
-#### [MODIFY] [verification.ts](file:///Users/micheal/sese_app/functions/src/verification.ts)
-- Migrate `reviewCustomerVerification` and `reviewDriverVerification` to `guardedOnCall`.
+5. **`drivers/{driverId}/telemetry/{telemetryId}`**:
+   - Update write rule from `allow read, write: if isOwner(driverId);` to `allow read: if isOwner(driverId); allow write: if isOwner(driverId) && isNotSuspended();`.
 
 ---
 
 ## Verification Plan
 
-### Static Analysis & Audit
-- Run grep/audit script confirming every `onCall` in `functions/src/` is wrapped with `guardedOnCall` (or `bypassAppCheckOnCall`).
+### Automated Dry-Run Validation
+- Run `firebase deploy --only firestore:rules --dry-run` from `/Users/micheal/sese_app` to verify security rules syntax compilation.
 
-### Automated Test Execution
-- Run `npm test` inside `/Users/micheal/sese_app/functions` to ensure all 137 unit tests pass.
-
-### Deployment & Synchronization
-- Run `npm run build` to regenerate `functions.yaml` and validate manifest.
-- Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Execute full git add, commit, and push pipeline.
+### Full Pipeline Execution
+- Execute mandatory build, test, deploy, and git synchronization pipeline.

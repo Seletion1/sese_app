@@ -1,33 +1,44 @@
-# Walkthrough - Manifest Reconciliation & Automated CI/CD Guard
+# Walkthrough - Global `guardedOnCall` Refactoring & App Check Enforcement
 
 ## Summary of Changes
 
-Reconciled `functions/functions.yaml` with all active exports in `functions/src/index.ts`, implemented automated manifest generation during builds, and added a CI/CD validation guard.
+Refactored all Cloud Functions `onCall` callable handlers across `functions/src/` to enforce Firebase App Check globally by default, bringing coverage up to 100% (76/76 callables).
 
-### 1. Reconciled Missing Manifest Endpoints
-**[functions.yaml](file:///Users/micheal/sese_app/functions/functions.yaml)**
-- Added the 10 previously missing Cloud Functions to `functions.yaml`:
-  - Out-of-Range Drop-Off Approvals: `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`
-  - In-App VoIP Calling: `getZegoToken`, `getAgoraToken`, `recordCallDuration`
-  - Financial & Security: `approveWeeklyPayout`, `approveAllWeeklyPayouts`, `resetTransactionPin`
+### 1. Global Security Factory Wrapper
+**[accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts#L30-L75)**
+- Created and exported `guardedOnCall` wrapper function:
+  - Sets `{ enforceAppCheck: true }` in GCF options.
+  - Executes synchronous `enforceAppCheck(request)` runtime middleware before handler logic.
+- Created `bypassAppCheckOnCall` wrapper for explicit, code-reviewed bypasses.
 
-### 2. Automated Manifest Generation & CI/CD Validation
-**[generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js)**
-- Created script that imports `lib/index.js`, extracts every exported endpoint with `__endpoint`, and generates a complete `functions.yaml`.
+### 2. Migration of 16 Module Files
+Migrated every `onCall` handler to `guardedOnCall` across the following files:
+- `adminOnboarding.ts`
+- `broadcast.ts`
+- `callTokens.ts`
+- `deleteAccount.ts`
+- `driverStatus.ts`
+- `driverTripHistory.ts`
+- `email.ts`
+- `googleMaps.ts`
+- `hubBootstrap.ts`
+- `index.ts`
+- `payments.ts`
+- `payouts.ts`
+- `transactionPin.ts`
+- `trips.ts`
+- `uniqueIdentifiers.ts`
+- `verification.ts`
 
-**[validate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/validate-manifest.js)**
-- Created validation script that fails the build (`exit(1)`) if any exported Cloud Function is missing from `functions.yaml`.
-
-**[package.json](file:///Users/micheal/sese_app/functions/package.json)**
-- Updated `"build"` script: `"tsc && node scripts/generate-manifest.js && node scripts/validate-manifest.js"`.
+### 3. Static Audit Verification
+Grep analysis across `functions/src/` confirmed that 100% of callable exports use `guardedOnCall`, leaving zero unprotected raw `onCall` handlers.
 
 ---
 
 ## Verification Results
 
-### Build, Test & Deployment Summary
-- **Manifest Generation & Validation**: Successfully generated `functions.yaml` with 76 endpoints and validated 0 drift.
-- **Backend Tests**: All 137 unit tests passed across 46 test suites.
+### Test Suite Execution
+- **Backend Tests**: All 137 unit tests passed across 46 test suites with 0 failures.
 - **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
-- **Firebase Deployment**: Successfully created and deployed the 10 missing Cloud Functions (`getAgoraToken`, `requestDropoffApproval`, `resetTransactionPin`, etc.) to `sese-ride`.
-- **Git Sync**: Pushed commit `f93fc7c` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Firebase Deployment**: Deployed all 76 functions and security rules live to `sese-ride`.
+- **Git Sync**: Pushed commit `3d502a2` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
