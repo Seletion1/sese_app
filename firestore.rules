@@ -1594,7 +1594,16 @@ service cloud.firestore {
     // before mutating `isOnline`/`status` + the geospatial index.
     // The owning driver (and agents) may read the mirror for UI dispatch.
     match /driver_status/{driverId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        driverId == request.auth.uid ||
+        resource.data.driverId == request.auth.uid ||
+        isHubStaff() || isAgent() || isAdminAuthClaim() || isOperationsAdmin() || isSuperAdmin() ||
+        (resource.data.keys().hasAll(['activeTripId']) &&
+         resource.data.activeTripId != null &&
+         resource.data.activeTripId != '' &&
+         exists(/databases/$(database)/documents/trips/$(resource.data.activeTripId)) &&
+         get(/databases/$(database)/documents/trips/$(resource.data.activeTripId)).data.customerId == request.auth.uid)
+      );
       allow write: if false;
     }
 

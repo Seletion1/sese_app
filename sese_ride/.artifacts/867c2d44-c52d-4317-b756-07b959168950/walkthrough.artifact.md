@@ -1,44 +1,35 @@
-# Walkthrough - Global `guardedOnCall` Refactoring & App Check Enforcement
+# Walkthrough - Firestore Security Rules Hardening
 
 ## Summary of Changes
 
-Refactored all Cloud Functions `onCall` callable handlers across `functions/src/` to enforce Firebase App Check globally by default, bringing coverage up to 100% (76/76 callables).
+Updated `firestore.rules` to eliminate data manipulation vulnerabilities across `calls`, `card_verifications`, `quick_orders`, `orders`, and `drivers/{driverId}/telemetry`.
 
-### 1. Global Security Factory Wrapper
-**[accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts#L30-L75)**
-- Created and exported `guardedOnCall` wrapper function:
-  - Sets `{ enforceAppCheck: true }` in GCF options.
-  - Executes synchronous `enforceAppCheck(request)` runtime middleware before handler logic.
-- Created `bypassAppCheckOnCall` wrapper for explicit, code-reviewed bypasses.
+### 1. `calls/{callId}` Update Field Whitelist
+**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L1110-L1135)**
+- Added `isValidCallUpdate()` helper restricting updates to signaling fields (`status`, `answer`, `offer`, `updatedAt`, `endedAt`, `connectedAt`, `rejectedAt`, `durationSeconds`) and preserving immutable `callerId`.
 
-### 2. Migration of 16 Module Files
-Migrated every `onCall` handler to `guardedOnCall` across the following files:
-- `adminOnboarding.ts`
-- `broadcast.ts`
-- `callTokens.ts`
-- `deleteAccount.ts`
-- `driverStatus.ts`
-- `driverTripHistory.ts`
-- `email.ts`
-- `googleMaps.ts`
-- `hubBootstrap.ts`
-- `index.ts`
-- `payments.ts`
-- `payouts.ts`
-- `transactionPin.ts`
-- `trips.ts`
-- `uniqueIdentifiers.ts`
-- `verification.ts`
+### 2. `card_verifications/{verificationId}` Status Control
+**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L1230-L1245)**
+- Removed client-side update permission that allowed card owners to self-set status to `VERIFIED`. Status flips are now strictly server-managed via Cloud Functions.
 
-### 3. Static Audit Verification
-Grep analysis across `functions/src/` confirmed that 100% of callable exports use `guardedOnCall`, leaving zero unprotected raw `onCall` handlers.
+### 3. `quick_orders/{orderId}` Field Whitelist
+**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L340-L365)**
+- Added `isValidQuickOrderUpdate()` helper bounding client updates on `quick_orders` to safe mutable fields (`status`, `assignedDriverId`, timestamps, cancellation fields, notes) while locking `driverId` (creator).
+
+### 4. `orders/{orderId}` Status Integrity
+**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L310-L325)**
+- Excluded `COMPLETED` from the allowed status list in driver client updates, forcing order completion handling through secure Cloud Functions.
+
+### 5. Suspension-Gated Driver Telemetry
+**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L585-L595)**
+- Updated `drivers/{driverId}/telemetry/{telemetryId}` write rules to require `isOwner(driverId) && isNotSuspended()`.
 
 ---
 
 ## Verification Results
 
-### Test Suite Execution
-- **Backend Tests**: All 137 unit tests passed across 46 test suites with 0 failures.
-- **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
-- **Firebase Deployment**: Deployed all 76 functions and security rules live to `sese-ride`.
-- **Git Sync**: Pushed commit `3d502a2` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+### Automated Validation & Test Suite
+- **Firestore Rules Dry-Run Compilation**: Ran `firebase deploy --only firestore:rules --dry-run` — `cloud.firestore: rules file firestore.rules compiled successfully`.
+- **Backend Unit Tests**: Ran `npm test` — 137 unit tests passed across 46 test suites with 0 failures.
+- **Flutter Code Analysis**: `flutter analyze` passed with 0 issues.
+- **Git Sync**: Pushed commit `ead1fb7` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

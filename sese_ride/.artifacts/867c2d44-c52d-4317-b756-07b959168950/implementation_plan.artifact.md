@@ -1,38 +1,23 @@
-# Firestore Security Rules Hardening (`firestore.rules`)
+# Restrict Read Access on `driver_status` Collection in `firestore.rules`
 
-Update `firestore.rules` to eliminate data manipulation vulnerabilities across `calls`, `card_verifications`, `quick_orders`, `orders`, and `drivers/{driverId}/telemetry`.
+Restrict read access on `driver_status/{driverId}` to eliminate stalking and competitive intelligence location exposure.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Calls Field Whitelist**: Restrict updates on `calls/{callId}` to permitted signaling fields (`status`, `answer`, `offer`, timestamps) and ensure `callerId` remains immutable.
-> - **Card Verification Control**: Remove client-side permission to self-set `card_verifications` status to `VERIFIED`. Status flips must be processed exclusively via backend Cloud Functions (`processCardVerificationCallback`).
-> - **Quick Orders Field Whitelist**: Bound client updates on `quick_orders/{orderId}` to safe mutable fields (`status`, `assignedDriverId`, timestamps, cancellation fields, notes) while locking `driverId` (creator).
-> - **Orders Completion Integrity**: Remove `COMPLETED` from the allowed status list in driver client updates on `orders/{orderId}`, forcing order completion through Cloud Functions.
-> - **Suspension-Gated Telemetry**: Require `isNotSuspended()` on write rules for `drivers/{driverId}/telemetry/{telemetryId}`.
+> - **Read Access Restriction**: Previously, `match /driver_status/{driverId}` allowed unconstrained read access for any authenticated user (`allow read: if isAuthenticated();`).
+> - With this change, read access is restricted strictly to:
+>   1. **The driver themselves**: `request.auth.uid == driverId` or `resource.data.driverId == request.auth.uid`.
+>   2. **Hub Staff / Admins**: Authorized hub staff, operations admins, and support agents (`isHubStaff()`, `isAgent()`, `isAdminAuthClaim()`, `isOperationsAdmin()`, `isSuperAdmin()`).
+>   3. **Assigned Active Trip Customer**: Rules-side lookup verifying that `resource.data.activeTripId` points to an active trip document where `customerId == request.auth.uid`.
 
 ## Proposed Changes
 
 ### Firestore Security Rules (`firestore.rules`)
 
-#### [MODIFY] [firestore.rules](file:///Users/micheal/sese_app/firestore.rules)
-
-1. **`calls/{callId}`**:
-   - Define `isValidCallUpdate()` helper checking affected keys (`['status', 'answer', 'offer', 'updatedAt', 'endedAt', 'connectedAt', 'rejectedAt', 'durationSeconds']`), valid status values, and immutable `callerId`.
-   - Update `allow update:` to require `isCallParticipant()` and `isValidCallUpdate()`.
-
-2. **`card_verifications/{verificationId}`**:
-   - Update `allow update:` to restrict client updates, preventing card owners from self-setting status to `VERIFIED` or `FAILED` (reserved for Operations Admin or Cloud Functions Admin SDK).
-
-3. **`quick_orders/{orderId}`**:
-   - Define `isValidQuickOrderUpdate()` helper checking affected keys (`['status', 'assignedDriverId', 'acceptedAt', 'updatedAt', 'completedAt', 'cancelledAt', 'cancellationReason', 'notes']`), immutable `driverId`, and valid status values.
-   - Update `allow update:` to enforce `isValidQuickOrderUpdate()`.
-
-4. **`orders/{orderId}`**:
-   - Update driver update rule to allow status transitions in `['ARRIVED', 'PICKED_UP', 'IN_TRANSIT']`, explicitly excluding `COMPLETED` from client writes.
-
-5. **`drivers/{driverId}/telemetry/{telemetryId}`**:
-   - Update write rule from `allow read, write: if isOwner(driverId);` to `allow read: if isOwner(driverId); allow write: if isOwner(driverId) && isNotSuspended();`.
+#### [MODIFY] [firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L1590-L1610)
+- Update `match /driver_status/{driverId}` read rule to require caller authorization (self-driver, staff/admin, or active trip customer).
+- Maintain `allow write: if false;` (server-managed online status written exclusively by Cloud Functions via Admin SDK).
 
 ---
 
@@ -42,4 +27,5 @@ Update `firestore.rules` to eliminate data manipulation vulnerabilities across `
 - Run `firebase deploy --only firestore:rules --dry-run` from `/Users/micheal/sese_app` to verify security rules syntax compilation.
 
 ### Full Pipeline Execution
+- Execute backend unit test suite (`npm test`).
 - Execute mandatory build, test, deploy, and git synchronization pipeline.
