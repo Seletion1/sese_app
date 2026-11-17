@@ -39,6 +39,7 @@ exports.assertHubStaffOrAdmin = assertHubStaffOrAdmin;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const accountGuard_1 = require("./accountGuard");
 const db = () => admin.firestore();
 // ─── Referral Code Generation ────────────────────────────────────────────────
 /**
@@ -292,7 +293,7 @@ async function assertHubStaffOrAdmin(callerUidOrAuth, callerEmail, token) {
  * Approving sets verificationStatus = 'verified' and custom claim isVerified = true.
  * Rejecting stores a structured rejection reason and sends an FCM push notification.
  */
-exports.reviewCustomerVerification = (0, https_1.onCall)(async (request) => {
+exports.reviewCustomerVerification = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
@@ -405,7 +406,7 @@ exports.reviewCustomerVerification = (0, https_1.onCall)(async (request) => {
  *
  * Hub admins call this to approve or reject driver profile onboarding documents.
  */
-exports.reviewDriverVerification = (0, https_1.onCall)(async (request) => {
+exports.reviewDriverVerification = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");

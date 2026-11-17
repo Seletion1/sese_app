@@ -1,42 +1,81 @@
-# Reconcile Cloud Functions Manifest (`functions.yaml`) & Automate Manifest Generation
+# Refactor Cloud Functions onCall Handlers to Enforce Firebase App Check Globally
 
-Reconcile `functions/functions.yaml` with all active Cloud Function exports in `functions/src/index.ts`, automate manifest generation, and add CI/CD validation guards.
+Refactor all Cloud Functions `onCall` handlers across `functions/src/` to use a unified `guardedOnCall` security wrapper, bringing App Check and zero-trust enforcement coverage to 100% (75/75 handlers).
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Manifest Drift Reconciled**: 10 active Cloud Functions were exported in `functions/src/index.ts` but missing from `functions/functions.yaml`:
->   - `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`
->   - `getZegoToken`, `getAgoraToken`, `recordCallDuration`
->   - `approveWeeklyPayout`, `approveAllWeeklyPayouts`, `resetTransactionPin`
-> - **Automated Generation**: A node script (`scripts/generate-manifest.js`) will mechanically generate `functions.yaml` directly from `lib/index.js` exports during `npm run build`.
-> - **CI/CD Guard**: A validation script (`scripts/validate-manifest.js`) will fail the build if any exported function is missing from `functions.yaml`.
+> - **Global Security Wrapper**: `guardedOnCall` will be defined in `accountGuard.ts`. It sets `{ enforceAppCheck: true }` in GCF options and executes `enforceAppCheck(request)` synchronously at runtime before any business logic executes.
+> - **Explicit Bypass Rule**: An explicit `bypassAppCheckOnCall` function builder is provided for any function requiring an intentional bypass, making unprotected endpoints immediately visible during code audits.
+> - **100% Coverage**: Every `onCall` export across 16 module files will be migrated to `guardedOnCall`.
 
 ## Proposed Changes
 
-### Firebase Cloud Functions (`functions/`)
+### Firebase Cloud Functions (`functions/src`)
 
-#### [NEW] [generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js)
-- Script that imports `lib/index.js`, extracts all exported endpoints with `__endpoint` properties, and writes a complete, normalized `functions.yaml`.
+#### [MODIFY] [accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts)
+- Export `guardedOnCall` wrapper function enforcing `enforceAppCheck: true` and runtime `enforceAppCheck(request)` guard.
+- Export `bypassAppCheckOnCall` wrapper for explicit bypass scenarios.
 
-#### [NEW] [validate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/validate-manifest.js)
-- Script that validates `functions.yaml` against `lib/index.js` exports, exiting with code 1 if any endpoint is missing.
+#### [MODIFY] [adminOnboarding.ts](file:///Users/micheal/sese_app/functions/src/adminOnboarding.ts)
+- Migrate `lookupAccountForOnboarding`, `sendOnboardingOtp`, `verifyOnboardingOtp`, and `adminRegisterUser` to `guardedOnCall`.
 
-#### [MODIFY] [package.json](file:///Users/micheal/sese_app/functions/package.json)
-- Update `build` script to: `"tsc && node scripts/generate-manifest.js && node scripts/validate-manifest.js"`.
-- Add `"generate-manifest"` and `"validate-manifest"` scripts.
+#### [MODIFY] [broadcast.ts](file:///Users/micheal/sese_app/functions/src/broadcast.ts)
+- Migrate `sendTargetedBroadcast` to `guardedOnCall`.
 
-#### [MODIFY] [functions.yaml](file:///Users/micheal/sese_app/functions/functions.yaml)
-- Regenerated manifest containing all 76 Cloud Function endpoints.
+#### [MODIFY] [callTokens.ts](file:///Users/micheal/sese_app/functions/src/callTokens.ts)
+- Migrate `getAgoraToken`, `recordCallDuration`, and `getZegoToken` to `guardedOnCall`.
+
+#### [MODIFY] [deleteAccount.ts](file:///Users/micheal/sese_app/functions/src/deleteAccount.ts)
+- Migrate `deleteAccount` to `guardedOnCall`.
+
+#### [MODIFY] [driverStatus.ts](file:///Users/micheal/sese_app/functions/src/driverStatus.ts)
+- Migrate `goOnline`, `goOffline`, and `hubSetDriverOnlineStatus` to `guardedOnCall`.
+
+#### [MODIFY] [driverTripHistory.ts](file:///Users/micheal/sese_app/functions/src/driverTripHistory.ts)
+- Migrate `backfillDriverTripHistory` to `guardedOnCall`.
+
+#### [MODIFY] [email.ts](file:///Users/micheal/sese_app/functions/src/email.ts)
+- Migrate `sendTransactionalEmail`, `sendEmailOtp`, and `verifyEmailOtp` to `guardedOnCall`.
+
+#### [MODIFY] [googleMaps.ts](file:///Users/micheal/sese_app/functions/src/googleMaps.ts)
+- Migrate `googleMapsProxy` to `guardedOnCall`.
+
+#### [MODIFY] [hubBootstrap.ts](file:///Users/micheal/sese_app/functions/src/hubBootstrap.ts)
+- Migrate `bootstrapHubOwner` to `guardedOnCall`.
+
+#### [MODIFY] [index.ts](file:///Users/micheal/sese_app/functions/src/index.ts)
+- Migrate `calculateFare` to `guardedOnCall`.
+
+#### [MODIFY] [payments.ts](file:///Users/micheal/sese_app/functions/src/payments.ts)
+- Migrate `initializePayment` and `verifyPayment` to `guardedOnCall`.
+
+#### [MODIFY] [payouts.ts](file:///Users/micheal/sese_app/functions/src/payouts.ts)
+- Migrate `paystackBanks`, `resolveBankAccount`, `verifyBankAccount`, `processWalletWithdrawal`, `approveWeeklyPayout`, and `approveAllWeeklyPayouts` to `guardedOnCall`.
+
+#### [MODIFY] [transactionPin.ts](file:///Users/micheal/sese_app/functions/src/transactionPin.ts)
+- Migrate `setTransactionPin`, `verifyTransactionPin`, and `resetTransactionPin` to `guardedOnCall`.
+
+#### [MODIFY] [trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts)
+- Migrate all trip callables (`createTrip`, `acceptTrip`, `declineTrip`, `updateDriverLocation`, `advanceTripStatus`, `cancelTrip`, `confirmCashCancellation`, `submitBid`, `rejectBid`, `acceptBid`, `increaseTripFare`, `reassignTrip`, `verifyDeliveryPin`, `skipDeliveryPin`, `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`, `hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`, `submitTripRating`, `submitCancellationFeedback`) to `guardedOnCall`.
+
+#### [MODIFY] [uniqueIdentifiers.ts](file:///Users/micheal/sese_app/functions/src/uniqueIdentifiers.ts)
+- Migrate `checkIdentifierAvailability`, `registerUser`, `updateProfile`, and `registerVehicle` to `guardedOnCall`.
+
+#### [MODIFY] [verification.ts](file:///Users/micheal/sese_app/functions/src/verification.ts)
+- Migrate `reviewCustomerVerification` and `reviewDriverVerification` to `guardedOnCall`.
 
 ---
 
 ## Verification Plan
 
-### Automated Build & Manifest Generation
-- Run `npm run build` inside `/Users/micheal/sese_app/functions` to compile TypeScript, generate `functions.yaml`, and validate all 76 endpoints.
+### Static Analysis & Audit
+- Run grep/audit script confirming every `onCall` in `functions/src/` is wrapped with `guardedOnCall` (or `bypassAppCheckOnCall`).
 
-### Deployment & Active Function Listing
-- Deploy functions using `firebase deploy --only functions`.
-- Execute `firebase functions:list` to confirm all 76 endpoints are active and running on Cloud Functions.
-- Run full mandatory build/test/git sync pipeline.
+### Automated Test Execution
+- Run `npm test` inside `/Users/micheal/sese_app/functions` to ensure all 137 unit tests pass.
+
+### Deployment & Synchronization
+- Run `npm run build` to regenerate `functions.yaml` and validate manifest.
+- Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
+- Execute full git add, commit, and push pipeline.

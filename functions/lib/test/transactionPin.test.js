@@ -45,6 +45,7 @@ const transactionPin_1 = require("../transactionPin");
     let store = new Map();
     const originalDescriptor = Object.getOwnPropertyDescriptor(admin, "firestore");
     (0, node_test_1.beforeEach)(() => {
+        process.env.DISABLE_APP_CHECK = "true";
         store = new Map();
         const mockDb = () => ({
             collection: (collName) => ({

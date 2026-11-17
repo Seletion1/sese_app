@@ -116,7 +116,7 @@ async function paystackGet(path, secret) {
  * Callable: starts a Paystack collection for the caller.
  * Returns `{ authorizationUrl, accessCode, reference }`.
  */
-exports.initializePayment = (0, https_1.onCall)(async (request) => {
+exports.initializePayment = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to pay.");
@@ -386,7 +386,7 @@ async function settleIntent(reference, verifiedAmountKobo) {
  * wallet on success. Safe to call repeatedly (second call reports
  * `{ settled: false }`).
  */
-exports.verifyPayment = (0, https_1.onCall)(async (request) => {
+exports.verifyPayment = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");

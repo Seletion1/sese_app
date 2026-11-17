@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { guardedOnCall } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -347,7 +348,7 @@ export async function assertHubStaffOrAdmin(
  * Approving sets verificationStatus = 'verified' and custom claim isVerified = true.
  * Rejecting stores a structured rejection reason and sends an FCM push notification.
  */
-export const reviewCustomerVerification = onCall<ReviewCustomerData>(
+export const reviewCustomerVerification = guardedOnCall<ReviewCustomerData>(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Authentication required.");
@@ -489,7 +490,7 @@ export const reviewCustomerVerification = onCall<ReviewCustomerData>(
  *
  * Hub admins call this to approve or reject driver profile onboarding documents.
  */
-export const reviewDriverVerification = onCall<ReviewDriverData>(
+export const reviewDriverVerification = guardedOnCall<ReviewDriverData>(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Authentication required.");

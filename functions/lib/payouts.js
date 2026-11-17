@@ -154,7 +154,7 @@ async function registeredName(uid) {
 // ─── Callables ──────────────────────────────────────────────────────────────
 let bankCache = null;
 const BANK_CACHE_TTL_MS = 10 * 60 * 1000;
-exports.paystackBanks = (0, https_1.onCall)(async (request) => {
+exports.paystackBanks = (0, accountGuard_1.guardedOnCall)(async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
     }
@@ -170,7 +170,7 @@ exports.paystackBanks = (0, https_1.onCall)(async (request) => {
     bankCache = { at: now, banks };
     return { banks };
 });
-exports.verifyBankAccount = (0, https_1.onCall)(async (request) => {
+exports.verifyBankAccount = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
@@ -199,7 +199,7 @@ exports.resolveBankAccount = exports.verifyBankAccount;
  * Callable: Instant Ad-Hoc Self-Service Withdrawal
  * Automatically deducts flat ₦100 fee (10,000 kobo).
  */
-exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
+exports.processWalletWithdrawal = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
@@ -437,7 +437,7 @@ exports.processWalletWithdrawal = (0, https_1.onCall)(async (request) => {
  * Callable: Hub Admin Weekly Fee-Free Payout Approval
  * Debits full remaining user balance and transfers 100% full amount to bank (0 fee).
  */
-exports.approveWeeklyPayout = (0, https_1.onCall)(async (request) => {
+exports.approveWeeklyPayout = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");
@@ -605,7 +605,7 @@ exports.approveWeeklyPayout = (0, https_1.onCall)(async (request) => {
 /**
  * Callable: Bulk Weekly Payout Approval for all eligible users in queue.
  */
-exports.approveAllWeeklyPayouts = (0, https_1.onCall)(async (request) => {
+exports.approveAllWeeklyPayouts = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in.");

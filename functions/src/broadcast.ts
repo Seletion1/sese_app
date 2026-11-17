@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 /**
@@ -139,7 +140,7 @@ async function driverHasVehicleCategory(
   }
 }
 
-export const sendTargetedBroadcast = onCall(async (request) => {
+export const sendTargetedBroadcast = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Sign in to send broadcasts.");
   }

@@ -299,7 +299,7 @@ function checkIdentifierRateLimit(uid) {
  * Callable: checkIdentifierAvailability
  * Fast O(1) pre-flight check for mobile and hub registration/editing forms.
  */
-exports.checkIdentifierAvailability = (0, https_1.onCall)(async (request) => {
+exports.checkIdentifierAvailability = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to check identifier availability.");
@@ -352,7 +352,7 @@ exports.checkIdentifierAvailability = (0, https_1.onCall)(async (request) => {
  * Callable: registerUser
  * Atomically verifies and reserves user credentials in `unique_identifiers` while creating `users/{uid}`.
  */
-exports.registerUser = (0, https_1.onCall)(async (request) => {
+exports.registerUser = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to register user profile.");
@@ -454,7 +454,7 @@ exports.registerUser = (0, https_1.onCall)(async (request) => {
  * Atomically validates any changed sensitive credentials, releases retired identifiers,
  * and updates user/driver profile records.
  */
-exports.updateProfile = (0, https_1.onCall)(async (request) => {
+exports.updateProfile = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to update profile.");
@@ -581,7 +581,7 @@ exports.updateProfile = (0, https_1.onCall)(async (request) => {
  * Callable: registerVehicle
  * Atomically verifies license plate uniqueness and registers a new vehicle in PENDING status.
  */
-exports.registerVehicle = (0, https_1.onCall)(async (request) => {
+exports.registerVehicle = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to register vehicle.");

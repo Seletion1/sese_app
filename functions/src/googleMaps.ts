@@ -1,6 +1,6 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import { nextEngine, recordCall } from "./mapQuotas";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 
 /**
  * Google Maps Platform proxy: the ONLY place the server-side Google key
@@ -383,7 +383,7 @@ export function checkProxyRateLimit(uid: string): void {
   }
 }
 
-export const googleMapsProxy = onCall<ProxyRequest>(async (request) => {
+export const googleMapsProxy = guardedOnCall<ProxyRequest>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to search.");
   }

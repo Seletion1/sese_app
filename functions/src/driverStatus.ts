@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 const db = () => admin.firestore();
@@ -34,7 +35,7 @@ const LIVE_STATUSES = [
   "pending_customer_approval",
 ];
 
-export const goOnline = onCall<GoOnlineData>(async (request) => {
+export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to go online.");
   }
@@ -303,7 +304,7 @@ interface GoOfflineData {
   sessionId?: string;
 }
 
-export const goOffline = onCall<GoOfflineData>(async (request) => {
+export const goOffline = guardedOnCall<GoOfflineData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to go offline.");
   }
@@ -367,7 +368,7 @@ interface HubSetDriverOnlineStatusData {
  * Synchronizes both `drivers/{driverId}` and `driver_status/{driverId}` mirrors and
  * notifies the driver via high-priority FCM.
  */
-export const hubSetDriverOnlineStatus = onCall<HubSetDriverOnlineStatusData>(async (request) => {
+export const hubSetDriverOnlineStatus = guardedOnCall<HubSetDriverOnlineStatusData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Staff must sign in to manage driver status.");
   }

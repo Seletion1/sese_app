@@ -125,7 +125,7 @@ async function sendEmailViaResend(options) {
 /**
  * Callable: Send general transactional emails from authenticated client or staff apps.
  */
-exports.sendTransactionalEmail = (0, https_1.onCall)(async (request) => {
+exports.sendTransactionalEmail = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to send emails.");
@@ -187,7 +187,7 @@ function checkEmailOtpRateLimit(uid) {
  * Callable: Mints a 6-digit OTP code, saves a salted SHA-256 hash in Firestore,
  * and delivers the code via Resend to the user's authenticated email address.
  */
-exports.sendEmailOtp = (0, https_1.onCall)(async (request) => {
+exports.sendEmailOtp = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required to request OTP.");
@@ -259,7 +259,7 @@ exports.sendEmailOtp = (0, https_1.onCall)(async (request) => {
 /**
  * Callable: Verifies a 6-digit email OTP against the stored salted hash with lockout.
  */
-exports.verifyEmailOtp = (0, https_1.onCall)(async (request) => {
+exports.verifyEmailOtp = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");

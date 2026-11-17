@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.hubSetDriverOnlineStatus = exports.goOffline = exports.goOnline = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const hubBootstrap_1 = require("./hubBootstrap");
 const db = () => admin.firestore();
 const LIVE_STATUSES = [
@@ -46,7 +47,7 @@ const LIVE_STATUSES = [
     "IN_PROGRESS",
     "pending_customer_approval",
 ];
-exports.goOnline = (0, https_1.onCall)(async (request) => {
+exports.goOnline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to go online.");
@@ -278,7 +279,7 @@ exports.goOnline = (0, https_1.onCall)(async (request) => {
         message: "You are now ONLINE.",
     };
 });
-exports.goOffline = (0, https_1.onCall)(async (request) => {
+exports.goOffline = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to go offline.");
@@ -327,7 +328,7 @@ exports.goOffline = (0, https_1.onCall)(async (request) => {
  * Synchronizes both `drivers/{driverId}` and `driver_status/{driverId}` mirrors and
  * notifies the driver via high-priority FCM.
  */
-exports.hubSetDriverOnlineStatus = (0, https_1.onCall)(async (request) => {
+exports.hubSetDriverOnlineStatus = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Staff must sign in to manage driver status.");

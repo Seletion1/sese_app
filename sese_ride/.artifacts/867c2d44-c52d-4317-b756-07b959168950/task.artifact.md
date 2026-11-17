@@ -1,9 +1,8 @@
-# Implementation Task Checklist - Manifest Reconciliation & Automation
+# Implementation Task Checklist - Global `guardedOnCall` Refactoring
 
-- [/] Create `functions/scripts/generate-manifest.js` and `functions/scripts/validate-manifest.js`
-- [ ] Update `functions/package.json` build scripts
-- [ ] Run `npm run build` to generate `functions.yaml` and validate manifest
-- [ ] Run `npm test` unit test suite
-- [ ] Run mandatory build, test & Firebase deployment pipeline
-- [ ] Verify active functions with `firebase functions:list`
+- [/] Define `guardedOnCall` and `bypassAppCheckOnCall` in `functions/src/accountGuard.ts`
+- [ ] Migrate `onCall` handlers to `guardedOnCall` across all 16 module files in `functions/src/`
+- [ ] Run static analysis audit confirming 100% `guardedOnCall` coverage
+- [ ] Build & run backend test suite (`npm test`)
+- [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

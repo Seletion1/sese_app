@@ -1,10 +1,10 @@
 import * as admin from "firebase-admin";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
+import { HttpsError, onRequest } from "firebase-functions/v2/https";
 
 import { settleTransfer } from "./payouts";
 import { requireValidPin } from "./transactionPin";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
@@ -112,7 +112,7 @@ interface InitializePaymentData {
  * Callable: starts a Paystack collection for the caller.
  * Returns `{ authorizationUrl, accessCode, reference }`.
  */
-export const initializePayment = onCall<InitializePaymentData>(
+export const initializePayment = guardedOnCall<InitializePaymentData>(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must sign in to pay.");
@@ -453,7 +453,7 @@ interface VerifyPaymentData {
  * wallet on success. Safe to call repeatedly (second call reports
  * `{ settled: false }`).
  */
-export const verifyPayment = onCall<VerifyPaymentData>(async (request) => {
+export const verifyPayment = guardedOnCall<VerifyPaymentData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }

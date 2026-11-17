@@ -27,8 +27,8 @@
 
 import * as crypto from "crypto";
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { HttpsError } from "firebase-functions/v2/https";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { _generateAndSaveReferralCode } from "./verification";
 
 const db = () => admin.firestore();
@@ -358,7 +358,7 @@ export function checkIdentifierRateLimit(uid: string): void {
  * Callable: checkIdentifierAvailability
  * Fast O(1) pre-flight check for mobile and hub registration/editing forms.
  */
-export const checkIdentifierAvailability = onCall<CheckAvailabilityData>(
+export const checkIdentifierAvailability = guardedOnCall<CheckAvailabilityData>(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError(
@@ -451,7 +451,7 @@ export interface RegisterUserData {
  * Callable: registerUser
  * Atomically verifies and reserves user credentials in `unique_identifiers` while creating `users/{uid}`.
  */
-export const registerUser = onCall<RegisterUserData>(async (request) => {
+export const registerUser = guardedOnCall<RegisterUserData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to register user profile.");
   }
@@ -606,7 +606,7 @@ export interface UpdateProfileData {
  * Atomically validates any changed sensitive credentials, releases retired identifiers,
  * and updates user/driver profile records.
  */
-export const updateProfile = onCall<UpdateProfileData>(async (request) => {
+export const updateProfile = guardedOnCall<UpdateProfileData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to update profile.");
   }
@@ -736,7 +736,7 @@ export interface RegisterVehicleData {
  * Callable: registerVehicle
  * Atomically verifies license plate uniqueness and registers a new vehicle in PENDING status.
  */
-export const registerVehicle = onCall<RegisterVehicleData>(async (request) => {
+export const registerVehicle = guardedOnCall<RegisterVehicleData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to register vehicle.");
   }

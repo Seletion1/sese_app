@@ -243,7 +243,7 @@ function checkProxyRateLimit(uid) {
         }
     }
 }
-exports.googleMapsProxy = (0, https_1.onCall)(async (request) => {
+exports.googleMapsProxy = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must sign in to search.");

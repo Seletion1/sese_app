@@ -1,8 +1,8 @@
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import { Resend } from "resend";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 const db = () => admin.firestore();
@@ -118,7 +118,7 @@ interface TransactionalEmailData {
 /**
  * Callable: Send general transactional emails from authenticated client or staff apps.
  */
-export const sendTransactionalEmail = onCall<TransactionalEmailData>(async (request) => {
+export const sendTransactionalEmail = guardedOnCall<TransactionalEmailData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to send emails.");
   }
@@ -210,7 +210,7 @@ export function checkEmailOtpRateLimit(uid: string): void {
  * Callable: Mints a 6-digit OTP code, saves a salted SHA-256 hash in Firestore,
  * and delivers the code via Resend to the user's authenticated email address.
  */
-export const sendEmailOtp = onCall<SendEmailOtpData>(async (request) => {
+export const sendEmailOtp = guardedOnCall<SendEmailOtpData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to request OTP.");
   }
@@ -305,7 +305,7 @@ interface VerifyEmailOtpData {
 /**
  * Callable: Verifies a 6-digit email OTP against the stored salted hash with lockout.
  */
-export const verifyEmailOtp = onCall<VerifyEmailOtpData>(async (request) => {
+export const verifyEmailOtp = guardedOnCall<VerifyEmailOtpData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }

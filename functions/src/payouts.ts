@@ -1,7 +1,7 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import { requireValidPin } from "./transactionPin";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { assertHubStaffOrAdmin } from "./verification";
 
 const db = () => admin.firestore();
@@ -156,7 +156,7 @@ async function registeredName(uid: string): Promise<string> {
 let bankCache: { at: number; banks: Array<Record<string, unknown>> } | null = null;
 const BANK_CACHE_TTL_MS = 10 * 60 * 1000;
 
-export const paystackBanks = onCall(async (request) => {
+export const paystackBanks = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -185,7 +185,7 @@ export interface ResolveBankAccountResult {
   accountNumber: string;
 }
 
-export const verifyBankAccount = onCall<ResolveBankAccountData>(
+export const verifyBankAccount = guardedOnCall<ResolveBankAccountData>(
   async (request): Promise<ResolveBankAccountResult> => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must sign in.");
@@ -246,7 +246,7 @@ export interface ProcessWithdrawalResult {
  * Callable: Instant Ad-Hoc Self-Service Withdrawal
  * Automatically deducts flat ₦100 fee (10,000 kobo).
  */
-export const processWalletWithdrawal = onCall<ProcessWithdrawalData>(
+export const processWalletWithdrawal = guardedOnCall<ProcessWithdrawalData>(
   async (request): Promise<ProcessWithdrawalResult> => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must sign in.");
@@ -557,7 +557,7 @@ interface ApproveWeeklyPayoutData {
  * Callable: Hub Admin Weekly Fee-Free Payout Approval
  * Debits full remaining user balance and transfers 100% full amount to bank (0 fee).
  */
-export const approveWeeklyPayout = onCall<ApproveWeeklyPayoutData>(
+export const approveWeeklyPayout = guardedOnCall<ApproveWeeklyPayoutData>(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must sign in.");
@@ -748,7 +748,7 @@ export const approveWeeklyPayout = onCall<ApproveWeeklyPayoutData>(
 /**
  * Callable: Bulk Weekly Payout Approval for all eligible users in queue.
  */
-export const approveAllWeeklyPayouts = onCall(async (request) => {
+export const approveAllWeeklyPayouts = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }

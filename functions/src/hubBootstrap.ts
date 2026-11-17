@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 
 /** Primary platform owners with inherent super admin bootstrap authority. */
 export const PRIMARY_OWNER_EMAILS = [
@@ -25,7 +26,7 @@ export function isPlatformOwnerEmail(email?: string | null): boolean {
  * - Persists or updates the owner's `hub_staff/{email}` record with all permissions
  * Restricted strictly to the primary owner email.
  */
-export const bootstrapHubOwner = onCall(async (request) => {
+export const bootstrapHubOwner = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }

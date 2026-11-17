@@ -1,35 +1,33 @@
-# Walkthrough - Securing `sendEmailOtp` against Open Relay & Takeover
+# Walkthrough - Manifest Reconciliation & Automated CI/CD Guard
 
 ## Summary of Changes
 
-Fixed open mail relay and OTP takeover vulnerabilities in `sendEmailOtp` located in `functions/src/email.ts`.
+Reconciled `functions/functions.yaml` with all active exports in `functions/src/index.ts`, implemented automated manifest generation during builds, and added a CI/CD validation guard.
 
-### 1. Recipient Email Pinning to Authenticated Token
-**[email.ts](file:///Users/micheal/sese_app/functions/src/email.ts#L180-L230)**
-- Pinned recipient email to `request.auth.token.email`.
-- Added strict verification: if `request.data.email` is supplied and does not match `request.auth.token.email`, an immediate `HttpsError('invalid-argument', 'Email address must match your authenticated profile.')` is thrown.
+### 1. Reconciled Missing Manifest Endpoints
+**[functions.yaml](file:///Users/micheal/sese_app/functions/functions.yaml)**
+- Added the 10 previously missing Cloud Functions to `functions.yaml`:
+  - Out-of-Range Drop-Off Approvals: `recordDropoffArrival`, `requestDropoffApproval`, `respondDropoffApproval`, `cancelDropoffApprovalRequest`
+  - In-App VoIP Calling: `getZegoToken`, `getAgoraToken`, `recordCallDuration`
+  - Financial & Security: `approveWeeklyPayout`, `approveAllWeeklyPayouts`, `resetTransactionPin`
 
-### 2. UID-Namespaced OTP Storage
-**[email.ts](file:///Users/micheal/sese_app/functions/src/email.ts#L230-L250)**
-- Changed `email_otps` storage document key from `email_otps/{email}` to `email_otps/{uid}`.
-- Updated `verifyEmailOtp` cleanup to delete `email_otps/{uid}` upon successful OTP verification.
+### 2. Automated Manifest Generation & CI/CD Validation
+**[generate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/generate-manifest.js)**
+- Created script that imports `lib/index.js`, extracts every exported endpoint with `__endpoint`, and generates a complete `functions.yaml`.
 
-### 3. App Check Enforcement & Per-UID Throttling
-- Added explicit App Check validation (`enforceAppCheck(request)`).
-- Implemented `checkEmailOtpRateLimit(uid)` enforcing a sliding window rate limit of 3 requests per minute per UID to block automated spamming and relay abuse.
+**[validate-manifest.js](file:///Users/micheal/sese_app/functions/scripts/validate-manifest.js)**
+- Created validation script that fails the build (`exit(1)`) if any exported Cloud Function is missing from `functions.yaml`.
 
-### 4. Unit Testing & Deployment Pipeline
-**[email_otp_security.test.ts](file:///Users/micheal/sese_app/functions/src/test/email_otp_security.test.ts)**
-- Added unit tests for email mismatch rejection, unauthenticated call rejection, and UID sliding window rate limiting.
-- Ran backend test suite (137 tests passed cleanly).
-- Ran Flutter analysis (`flutter analyze`), built TypeScript functions (`npm run build`), deployed Cloud Functions (`firebase deploy`), and synced git repository to main branch.
+**[package.json](file:///Users/micheal/sese_app/functions/package.json)**
+- Updated `"build"` script: `"tsc && node scripts/generate-manifest.js && node scripts/validate-manifest.js"`.
 
 ---
 
 ## Verification Results
 
-### Test Suite & Deployment Summary
-- **Backend Tests**: 137 unit tests passed across 46 test suites with 0 failures.
-- **Flutter Code Analysis**: `flutter analyze` passed with 0 issues.
-- **Firebase Deployment**: Updated Cloud Functions successfully on project `sese-ride`.
-- **Git Push**: Pushed commit `f408c32` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+### Build, Test & Deployment Summary
+- **Manifest Generation & Validation**: Successfully generated `functions.yaml` with 76 endpoints and validated 0 drift.
+- **Backend Tests**: All 137 unit tests passed across 46 test suites.
+- **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
+- **Firebase Deployment**: Successfully created and deployed the 10 missing Cloud Functions (`getAgoraToken`, `requestDropoffApproval`, `resetTransactionPin`, etc.) to `sese-ride`.
+- **Git Sync**: Pushed commit `f93fc7c` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

@@ -61,7 +61,7 @@ function getUtcMonthKey() {
  * - Evaluates automatic failover: if monthly Agora minutes reach the threshold (default: 9,900/10,000 mins),
  *   signals the client to failover to native WebRTC.
  */
-exports.getAgoraToken = (0, https_1.onCall)(async (request) => {
+exports.getAgoraToken = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c;
     (0, accountGuard_1.enforceAppCheck)(request);
     if (!request.auth) {
@@ -136,7 +136,7 @@ exports.getAgoraToken = (0, https_1.onCall)(async (request) => {
 /**
  * Records completed call minutes and updates global usage counters for the current month.
  */
-exports.recordCallDuration = (0, https_1.onCall)(async (request) => {
+exports.recordCallDuration = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c;
     (0, accountGuard_1.enforceAppCheck)(request);
     if (!request.auth) {
@@ -182,7 +182,7 @@ exports.recordCallDuration = (0, https_1.onCall)(async (request) => {
  * Generates a short-lived ZegoCloud authentication token server-side.
  * Uses the secret AppSign stored securely in `/system_config/call_secrets`.
  */
-exports.getZegoToken = (0, https_1.onCall)(async (request) => {
+exports.getZegoToken = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "User must be authenticated to request Zego token.");

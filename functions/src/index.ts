@@ -24,7 +24,8 @@ if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
 // isolated worker) never observes an uninitialized default app.
 admin.initializeApp();
 
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 import { fetchRoute } from "./routing";
 import { computeFares } from "./pricing";
 import { generateFareToken } from "./fareToken";
@@ -170,7 +171,7 @@ interface CalculateFareData {
  * 4. Computes minimum fare floor, per-km/per-min rates, and multipliers.
  * 5. Generates a signed cryptographic fareToken ensuring zero client-side tampering.
  */
-export const calculateFare = onCall<CalculateFareData>(async (request) => {
+export const calculateFare = guardedOnCall<CalculateFareData>(async (request) => {
   // Zero-Trust Guard: reject unauthenticated callers. The Firebase SDK
   // attaches the verified JWT session as request.auth; absence of it means
   // the caller is not signed in and must never receive authoritative fares.

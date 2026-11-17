@@ -147,6 +147,7 @@ describe("Unique Identifiers & Duplicate-Prevention Engine Tests", () => {
 
     // Malformed NIN validation rejection
     const authReq = {
+      app: { appId: "com.sese.ride", alreadyConsumed: false },
       auth: { uid: "user_test_rate_1" },
       data: { type: "nin", value: "123" }, // Invalid < 11 digits
     } as any;

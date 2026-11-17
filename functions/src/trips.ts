@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import {
   onDocumentCreated,
   FirestoreEvent,
@@ -18,7 +18,7 @@ import {
   persistTripChangeLogInTx,
 } from "./driverStreak";
 import { roundToNearest100 } from "./pricing";
-import { enforceAppCheck, requireAccountActive } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { chargePaystackCardAuthorization } from "./payments";
 import { assertHubStaffOrAdmin } from "./verification";
 
@@ -761,7 +761,7 @@ interface CreateTripData {
  * Callable: validates the booking, verifies the signed fareToken, and mints
  * the live trip document. Returns `{ tripId }`.
  */
-export const createTrip = onCall<CreateTripData>(async (request) => {
+export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to book.");
   }
@@ -1885,7 +1885,7 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
  *   bid (if any) is marked accepted and every other pending bid is
  *   rejected, so no stale `pending` bid survives a claim.
  */
-export const acceptTrip = onCall(async (request) => {
+export const acceptTrip = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -2211,7 +2211,7 @@ export const acceptTrip = onCall(async (request) => {
  * sequentially to the next nearest Stage 1 driver or falls back directly
  * to the global Order Pool (Stage 3).
  */
-export const declineTrip = onCall(async (request) => {
+export const declineTrip = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -2310,7 +2310,7 @@ export const declineTrip = onCall(async (request) => {
  * Mock Location Guard: heartbeats flagged `isMocked` (GPS spoofing) are
  * rejected so a spoofed fix can never move the live marker, feed
  * proximity triggers, or poison nearest-driver ranking. */
-export const updateDriverLocation = onCall(async (request) => {
+export const updateDriverLocation = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -2364,7 +2364,7 @@ const DRIVER_TRANSITIONS: Record<string, string[]> = {
 };
 
 /** Driver advances arrival/progress/completion along the allowed chain. */
-export const advanceTripStatus = onCall(async (request) => {
+export const advanceTripStatus = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -2752,7 +2752,7 @@ export async function releaseTripEscrow(
 }
 
 /** Customer or driver cancels a live trip — sets cancellationSource for streak logic. */
-export const cancelTrip = onCall(async (request) => {
+export const cancelTrip = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -3094,7 +3094,7 @@ export const cancelTrip = onCall(async (request) => {
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────
 
 /** Driver submits a custom fare bid on an open trip document */
-export const submitBid = onCall(async (request) => {
+export const submitBid = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in to bid.");
   }
@@ -3369,7 +3369,7 @@ export const submitBid = onCall(async (request) => {
 });
 
 /** Customer rejects a driver's bid (driver may re-bid later) */
-export const rejectBid = onCall(async (request) => {
+export const rejectBid = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -3414,7 +3414,7 @@ export const rejectBid = onCall(async (request) => {
 });
 
 /** Customer accepts a driver's bid via an atomic Firestore Transaction */
-export const acceptBid = onCall(async (request) => {
+export const acceptBid = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -3626,7 +3626,7 @@ export const acceptBid = onCall(async (request) => {
 });
 
 /** Customer raises the offered price / fare to attract drivers faster */
-export const increaseTripFare = onCall(async (request) => {
+export const increaseTripFare = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -3908,7 +3908,7 @@ async function handleReassignTrip(request: { auth?: { uid: string }; data?: any 
   };
 }
 
-export const reassignTrip = onCall(handleReassignTrip);
+export const reassignTrip = guardedOnCall(handleReassignTrip);
 export const retryTripDispatch = reassignTrip;
 export const keepSearchingTrip = reassignTrip;
 
@@ -3926,7 +3926,7 @@ export const keepSearchingTrip = reassignTrip;
  * are rejected without revealing the code, and there is no lockout — a
  * lockout would let anyone deny a delivery by spamming guesses.
  */
-export const verifyDeliveryPin = onCall(async (request) => {
+export const verifyDeliveryPin = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -4054,7 +4054,7 @@ export const verifyDeliveryPin = onCall(async (request) => {
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
 
 /** Hub Admin: Force Complete a trip during live support/dispute resolution */
-export const hubForceCompleteTrip = onCall(async (request) => {
+export const hubForceCompleteTrip = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -4134,7 +4134,7 @@ export const hubForceCompleteTrip = onCall(async (request) => {
 });
 
 /** Driver confirms cash collected from customer for waiting time cancellation */
-export const confirmCashCancellation = onCall(async (request) => {
+export const confirmCashCancellation = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -4365,7 +4365,7 @@ export const confirmCashCancellation = onCall(async (request) => {
 });
 
 /** Hub Admin: Cancel trip & refund any held escrow */
-export const hubCancelRefundTrip = onCall(async (request) => {
+export const hubCancelRefundTrip = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -4384,7 +4384,7 @@ export const hubCancelRefundTrip = onCall(async (request) => {
 });
 
 /** Hub Admin: Manual PIN Bypass during call verification */
-export const hubManualPinBypass = onCall(async (request) => {
+export const hubManualPinBypass = guardedOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -4412,7 +4412,7 @@ export const hubManualPinBypass = onCall(async (request) => {
  * compound doc ID of `{tripId}_{userId}` so first-write wins — idempotent on
  * duplicate submissions.
  */
-export const submitCancellationFeedback = onCall(async (request) => {
+export const submitCancellationFeedback = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError(
       "unauthenticated",
@@ -4467,7 +4467,7 @@ export const submitCancellationFeedback = onCall(async (request) => {
  * - `users/{ratedUserId}`: totalRatingSum, totalRatingCount, averageRating
  * - `drivers/{ratedUserId}`: (if isRatedUserDriver) totalRatingSum, totalRatingCount, averageRating, rating
  */
-export const submitTripRating = onCall(async (request) => {
+export const submitTripRating = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated.");
   }
@@ -4613,7 +4613,7 @@ export const submitTripRating = onCall(async (request) => {
  * calling this function. The server does NOT enforce the dialog — it is a UX
  * gate only. The permanent audit trail is the real safeguard.
  */
-export const skipDeliveryPin = onCall(async (request) => {
+export const skipDeliveryPin = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -4701,7 +4701,7 @@ export const skipDeliveryPin = onCall(async (request) => {
 });
 
 /** Records driver arrival timestamp at drop-off for waiting & billing tracking. */
-export const recordDropoffArrival = onCall(async (request) => {
+export const recordDropoffArrival = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -4737,7 +4737,7 @@ export const recordDropoffArrival = onCall(async (request) => {
  * drop-off completion radius. Puts the order in a non-blocking `PENDING`
  * customer approval state and alerts the customer via push and in-app prompt.
  */
-export const requestDropoffApproval = onCall(async (request) => {
+export const requestDropoffApproval = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
@@ -4854,7 +4854,7 @@ export const requestDropoffApproval = onCall(async (request) => {
  * triggers synchronous commission and wallet settlement, and alerts the driver.
  * If rejected: keeps trip in `IN_PROGRESS` and alerts the driver to proceed to destination.
  */
-export const respondDropoffApproval = onCall(async (request) => {
+export const respondDropoffApproval = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
@@ -5005,7 +5005,7 @@ export const respondDropoffApproval = onCall(async (request) => {
 });
 
 /** Driver cancels an active pending out-of-range drop-off confirmation request. */
-export const cancelDropoffApprovalRequest = onCall(async (request) => {
+export const cancelDropoffApprovalRequest = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }

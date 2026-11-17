@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 
 /**
  * Transaction Security PIN authority (zero-trust).
@@ -253,7 +254,7 @@ interface SetPinData {
  *   versa) — the two credentials are fully independent by construction:
  *   different storage (Firestore vs Auth), different verifiers.
  */
-export const setTransactionPin = onCall<SetPinData>(async (request) => {
+export const setTransactionPin = guardedOnCall<SetPinData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -307,7 +308,7 @@ interface VerifyPinData {
  * PIN management screen and JIT sheets to give immediate wrong-PIN feedback
  * before the money callable runs — which re-verifies independently).
  */
-export const verifyTransactionPin = onCall<VerifyPinData>(async (request) => {
+export const verifyTransactionPin = guardedOnCall<VerifyPinData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
@@ -326,7 +327,7 @@ interface ResetPinData {
  * clears any active lockout, and updates `users/{uid}/private/auth` or
  * `drivers/{uid}/private/auth`.
  */
-export const resetTransactionPin = onCall<ResetPinData>(async (request) => {
+export const resetTransactionPin = guardedOnCall<ResetPinData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in.");
   }

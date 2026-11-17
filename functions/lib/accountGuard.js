@@ -63,12 +63,37 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.guardedOnCall = guardedOnCall;
+exports.bypassAppCheckOnCall = bypassAppCheckOnCall;
 exports.enforceAppCheck = enforceAppCheck;
 exports.requireAccountActive = requireAccountActive;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
-// ── App Check ────────────────────────────────────────────────────────────────
+// ── App Check & Global Guarded OnCall Wrapper ─────────────────────────────────
 /**
+ * Global Factory Wrapper for Cloud Functions `onCall` handlers.
+ * Enforces Firebase App Check globally by default (`enforceAppCheck: true`)
+ * and executes runtime `enforceAppCheck(request)` middleware.
+ *
+ * @param handler - The callable function logic.
+ */
+function guardedOnCall(handler) {
+    return (0, https_1.onCall)({ enforceAppCheck: true }, async (request) => {
+        enforceAppCheck(request);
+        return await handler(request);
+    });
+}
+/**
+ * Explicit Bypass Wrapper for Cloud Functions `onCall` handlers that intentionally
+ * omit App Check enforcement. MUST be used with explicit code-review justification.
+ *
+ * @param handler - The callable function logic.
+ */
+function bypassAppCheckOnCall(handler) {
+    return (0, https_1.onCall)({ enforceAppCheck: false }, handler);
+}
+/**
+ * Enforces Firebase App Check on the incoming callable request.
  * Enforces Firebase App Check on the incoming callable request.
  *
  * App Check enforcement is ENABLED BY DEFAULT in all environments. Any

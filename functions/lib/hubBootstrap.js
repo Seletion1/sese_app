@@ -38,6 +38,7 @@ exports.bootstrapHubOwner = exports.PRIMARY_OWNER_EMAILS = void 0;
 exports.isPlatformOwnerEmail = isPlatformOwnerEmail;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 /** Primary platform owners with inherent super admin bootstrap authority. */
 exports.PRIMARY_OWNER_EMAILS = [
     "bamiduromichael2@gmail.com",
@@ -60,7 +61,7 @@ function isPlatformOwnerEmail(email) {
  * - Persists or updates the owner's `hub_staff/{email}` record with all permissions
  * Restricted strictly to the primary owner email.
  */
-exports.bootstrapHubOwner = (0, https_1.onCall)(async (request) => {
+exports.bootstrapHubOwner = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");

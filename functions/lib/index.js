@@ -59,6 +59,7 @@ if (!process.env.K_SERVICE && !process.env.FUNCTION_NAME) {
 // isolated worker) never observes an uninitialized default app.
 admin.initializeApp();
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const routing_1 = require("./routing");
 const pricing_1 = require("./pricing");
 const fareToken_1 = require("./fareToken");
@@ -181,7 +182,7 @@ Object.defineProperty(exports, "registerVehicle", { enumerable: true, get: funct
  * 4. Computes minimum fare floor, per-km/per-min rates, and multipliers.
  * 5. Generates a signed cryptographic fareToken ensuring zero client-side tampering.
  */
-exports.calculateFare = (0, https_1.onCall)(async (request) => {
+exports.calculateFare = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a;
     // Zero-Trust Guard: reject unauthenticated callers. The Firebase SDK
     // attaches the verified JWT session as request.auth; absence of it means

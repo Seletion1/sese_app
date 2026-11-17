@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteAccount = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const db = () => admin.firestore();
 const ACTIVE_TRIP_STATUSES = [
     "SEARCHING_DRIVER",
@@ -58,7 +59,7 @@ const ACTIVE_TRIP_STATUSES = [
  *    - Soft-deletes user/driver document with 30-day regulatory archival
  *    - Revokes active session tokens
  */
-exports.deleteAccount = (0, https_1.onCall)(async (request) => {
+exports.deleteAccount = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "You must be authenticated to request account deletion.");

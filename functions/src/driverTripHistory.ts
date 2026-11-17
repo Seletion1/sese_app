@@ -32,7 +32,7 @@
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
-import { onCall } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -132,7 +132,7 @@ export const onTripWrittenForDriverHistory = onDocumentWritten(
 );
 
 /** SUPER_ADMIN-only one-shot backfill: mirrors the trips collection page by page. */
-export const backfillDriverTripHistory = onCall(async (request) => {
+export const backfillDriverTripHistory = guardedOnCall(async (request) => {
   const uid = request.auth?.uid ?? "";
   if (!uid) throw new HttpsError("unauthenticated", "You must sign in.");
   const role = String(request.auth?.token?.role ?? "").toUpperCase();

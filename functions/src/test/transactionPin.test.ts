@@ -15,6 +15,7 @@ describe("transactionPin — Authority, Validation & Recovery", () => {
   const originalDescriptor = Object.getOwnPropertyDescriptor(admin, "firestore");
 
   beforeEach(() => {
+    process.env.DISABLE_APP_CHECK = "true";
     store = new Map();
 
     const mockDb = () => ({

@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 import {
   assertAndReserveIdentifiersTx,
   normalizeIdentifier,
@@ -83,7 +84,7 @@ interface LookupData {
   identifier?: string; // Phone or Email
 }
 
-export const lookupAccountForOnboarding = onCall<LookupData>(async (request) => {
+export const lookupAccountForOnboarding = guardedOnCall<LookupData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
   const identifier = String(request.data?.identifier ?? "").trim();
@@ -214,7 +215,7 @@ interface SendOtpData {
   identifier: string;
 }
 
-export const sendOnboardingOtp = onCall<SendOtpData>(async (request) => {
+export const sendOnboardingOtp = guardedOnCall<SendOtpData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
   const rawIdentifier = String(request.data?.identifier ?? "").trim();
@@ -294,7 +295,7 @@ interface VerifyOtpData {
   otp: string;
 }
 
-export const verifyOnboardingOtp = onCall<VerifyOtpData>(async (request) => {
+export const verifyOnboardingOtp = guardedOnCall<VerifyOtpData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
   const rawIdentifier = String(request.data?.identifier ?? "").trim();
@@ -369,7 +370,7 @@ interface AdminRegisterUserData {
   livePhotoUrl?: string;
 }
 
-export const adminRegisterUser = onCall<AdminRegisterUserData>(async (request) => {
+export const adminRegisterUser = guardedOnCall<AdminRegisterUserData>(async (request) => {
   await assertStaffWithManageUsersScope(request.auth as any);
 
   const adminUid = request.auth!.uid;

@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -25,7 +26,7 @@ const ACTIVE_TRIP_STATUSES = [
  *    - Soft-deletes user/driver document with 30-day regulatory archival
  *    - Revokes active session tokens
  */
-export const deleteAccount = onCall(async (request) => {
+export const deleteAccount = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError(
       "unauthenticated",

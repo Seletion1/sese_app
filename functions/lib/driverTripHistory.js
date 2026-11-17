@@ -67,7 +67,7 @@ exports.backfillDriverTripHistory = exports.onTripWrittenForDriverHistory = void
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
-const https_2 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const db = () => admin.firestore();
 /** All driver ids the given trip document involved (assigned ∪ attempted). */
 function collectDriverIds(data) {
@@ -153,7 +153,7 @@ exports.onTripWrittenForDriverHistory = (0, firestore_1.onDocumentWritten)("trip
     await batch.commit();
 });
 /** SUPER_ADMIN-only one-shot backfill: mirrors the trips collection page by page. */
-exports.backfillDriverTripHistory = (0, https_2.onCall)(async (request) => {
+exports.backfillDriverTripHistory = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
     const uid = (_b = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid) !== null && _b !== void 0 ? _b : "";
     if (!uid)

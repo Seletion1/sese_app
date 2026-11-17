@@ -1,8 +1,8 @@
 import * as admin from "firebase-admin";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { HttpsError } from "firebase-functions/v2/https";
 import * as crypto from "crypto";
 import { RtcTokenBuilder, RtcRole } from "agora-token";
-import { enforceAppCheck } from "./accountGuard";
+import { enforceAppCheck, guardedOnCall } from "./accountGuard";
 
 function db(): admin.firestore.Firestore {
   return admin.firestore();
@@ -28,7 +28,7 @@ function getUtcMonthKey(): string {
  * - Evaluates automatic failover: if monthly Agora minutes reach the threshold (default: 9,900/10,000 mins),
  *   signals the client to failover to native WebRTC.
  */
-export const getAgoraToken = onCall(async (request) => {
+export const getAgoraToken = guardedOnCall(async (request) => {
   enforceAppCheck(request);
 
   if (!request.auth) {
@@ -128,7 +128,7 @@ export const getAgoraToken = onCall(async (request) => {
 /**
  * Records completed call minutes and updates global usage counters for the current month.
  */
-export const recordCallDuration = onCall(async (request) => {
+export const recordCallDuration = guardedOnCall(async (request) => {
   enforceAppCheck(request);
 
   if (!request.auth) {
@@ -187,7 +187,7 @@ export const recordCallDuration = onCall(async (request) => {
  * Generates a short-lived ZegoCloud authentication token server-side.
  * Uses the secret AppSign stored securely in `/system_config/call_secrets`.
  */
-export const getZegoToken = onCall(async (request) => {
+export const getZegoToken = guardedOnCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated to request Zego token.");
   }

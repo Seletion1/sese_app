@@ -141,6 +141,7 @@ const uniqueIdentifiers_1 = require("../uniqueIdentifiers");
         }, (err) => err.code === "unauthenticated");
         // Malformed NIN validation rejection
         const authReq = {
+            app: { appId: "com.sese.ride", alreadyConsumed: false },
             auth: { uid: "user_test_rate_1" },
             data: { type: "nin", value: "123" }, // Invalid < 11 digits
         };

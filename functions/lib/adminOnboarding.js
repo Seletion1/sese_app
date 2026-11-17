@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.adminRegisterUser = exports.verifyOnboardingOtp = exports.sendOnboardingOtp = exports.lookupAccountForOnboarding = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const uniqueIdentifiers_1 = require("./uniqueIdentifiers");
 const hubBootstrap_1 = require("./hubBootstrap");
 const email_1 = require("./email");
@@ -96,7 +97,7 @@ async function assertStaffWithManageUsersScope(auth) {
     }
     throw new https_1.HttpsError("permission-denied", "Only Hub staff members or administrators with user management scope can perform onboarding actions.");
 }
-exports.lookupAccountForOnboarding = (0, https_1.onCall)(async (request) => {
+exports.lookupAccountForOnboarding = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f, _g, _h;
     await assertStaffWithManageUsersScope(request.auth);
     const identifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim();
@@ -220,7 +221,7 @@ exports.lookupAccountForOnboarding = (0, https_1.onCall)(async (request) => {
         driverData,
     };
 });
-exports.sendOnboardingOtp = (0, https_1.onCall)(async (request) => {
+exports.sendOnboardingOtp = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b;
     await assertStaffWithManageUsersScope(request.auth);
     const rawIdentifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim();
@@ -283,7 +284,7 @@ exports.sendOnboardingOtp = (0, https_1.onCall)(async (request) => {
         message: `OTP dispatched to ${rawIdentifier}.`,
     };
 });
-exports.verifyOnboardingOtp = (0, https_1.onCall)(async (request) => {
+exports.verifyOnboardingOtp = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     await assertStaffWithManageUsersScope(request.auth);
     const rawIdentifier = String((_b = (_a = request.data) === null || _a === void 0 ? void 0 : _a.identifier) !== null && _b !== void 0 ? _b : "").trim();
@@ -318,7 +319,7 @@ exports.verifyOnboardingOtp = (0, https_1.onCall)(async (request) => {
         message: "OTP verified successfully.",
     };
 });
-exports.adminRegisterUser = (0, https_1.onCall)(async (request) => {
+exports.adminRegisterUser = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d, _e, _f;
     await assertStaffWithManageUsersScope(request.auth);
     const adminUid = request.auth.uid;

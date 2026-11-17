@@ -37,6 +37,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendTargetedBroadcast = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const accountGuard_1 = require("./accountGuard");
 const hubBootstrap_1 = require("./hubBootstrap");
 /**
  * Granular targeted push broadcast engine.
@@ -146,7 +147,7 @@ async function driverHasVehicleCategory(uid, categoryName) {
         return false;
     }
 }
-exports.sendTargetedBroadcast = (0, https_1.onCall)(async (request) => {
+exports.sendTargetedBroadcast = (0, accountGuard_1.guardedOnCall)(async (request) => {
     var _a, _b, _c, _d;
     if (!request.auth) {
         throw new https_1.HttpsError("unauthenticated", "Sign in to send broadcasts.");
