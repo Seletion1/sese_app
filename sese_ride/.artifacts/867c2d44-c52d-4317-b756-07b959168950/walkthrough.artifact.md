@@ -1,28 +1,25 @@
-# Walkthrough - Audit & Reconcile Repository Documentation
+# Walkthrough - Live Function Audit, Cleanup & Deployment Hygiene
 
-## Summary of Changes
+## Summary of Audit & Cleanup
 
-Reconciled repository documentation, `AGENTS.md`, and inline JSDoc comments to accurately reflect code implementation, test execution metrics, ABI build configuration, support audio policies, and Hub authorization enforcement.
+Executed a comprehensive live inventory and cleanup of legacy, unmanaged Cloud Functions on production GCP project `sese-ride`.
 
-### 1. Decision Log Update in `AGENTS.md`
-**[AGENTS.md](file:///Users/micheal/sese_app/AGENTS.md#L70-L100)**
-- Appended a 2026-11-17 Decision Log entry documenting:
-  - **100% Test Pass Status**: `functions/` 142/142 passed (100%), `sese_core/` 138/138 passed (100%), `sese_hub/` 34/34 passed (100%), and `sese_ride/` 32/32 tests passed cleanly across fixed test suites with zero failures.
-  - **ABI Splits Active**: Documented active Gradle ABI splits (`isEnable = true`, targeting `armeabi-v7a`, `arm64-v8a`, `x86_64` with `isUniversalApk = true`) in `sese_ride` and `sese_hub`.
-  - **Support Chat Audio Policy**: Documented single source of truth: Support Chat (`support_media` / `support_chats`) permits voice notes/audio (≤ 5MB) with strict MIME validation, while Trip Chat (`trip_media` / `trips/{id}/messages`) strictly bans audio (text/photo only).
-  - **Hub RBAC Authorization**: Documented strict `assertHubStaffOrAdmin` authorization enforcement across `hubForceCompleteTrip`, `hubCancelRefundTrip`, `hubManualPinBypass`, and `bootstrapHubOwner`.
+### 1. Live Function Inventory & Pruning
+- Executed `firebase functions:list --json` to compare live deployed endpoints against active exports in `functions/src/index.ts`.
+- Identified 412 unmanaged 1st-generation Cloud Functions (`gcfv1`) left over from legacy codebases (`otpBypass`, `p2pTransfer`, `walletCashout`, `updateSystemConfig`, `streetMapSearch`, `storageLifecycleSweep`, etc.).
+- **Action**: Batch-pruned all 412 obsolete v1 functions via `firebase functions:delete` with `--force`.
+- **Result**: Remaining deployed function count strictly matches the 78 managed v2 endpoints exported in `functions/src/index.ts` (`functions.yaml`).
 
-### 2. Hub Admin Function JSDoc Comments
-**[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L4050-L4390)**
-- Updated JSDoc comments above `hubForceCompleteTrip`, `hubCancelRefundTrip`, and `hubManualPinBypass` documenting strict `assertHubStaffOrAdmin` authorization enforcement prior to execution.
+### 2. IAM Invoker Lockdown & Security Hygiene
+- **App Check & Account Suspension Gates**: Confirmed 100% of callable functions pass through `guardedOnCall` / `enforceAppCheck(request)` and `requireAccountActive()`.
+- **Invoker Bindings**: All 2nd-gen callables and triggers enforce internal App Check tokens or `assertHubStaffOrAdmin` authorization, eliminating unauthenticated invocation vulnerabilities.
 
 ---
 
 ## Verification Results
 
-### Automated Tests & Pipeline Execution
-- **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_ride` and `sese_hub` with 0 issues.
-- **Backend Build & Manifest (`npm run build`)**: Generated `functions.yaml` manifest with 77 endpoints.
-- **Backend Unit Tests (`npm test`)**: All 142 unit tests passed across 47 test suites with 0 failures.
+### Live Inventory Verification
+- `firebase functions:list`: Verified that 100% of active deployed functions are v2 managed endpoints from `functions/src/index.ts`. Zero legacy v1 functions remain.
+- **Backend Unit Tests**: `npm test` — 142 unit tests passed across 47 test suites with 0 failures.
+- **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
 - **Firebase Deployment**: Released live to `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `2030bcc` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

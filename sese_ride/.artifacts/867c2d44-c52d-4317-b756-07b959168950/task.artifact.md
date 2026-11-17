@@ -1,9 +1,8 @@
-# Implementation Task Checklist - Distributed Rate Limiting & Billing Budget Control
+# Implementation Task Checklist - Secrets Hygiene Overhaul & Key Rotation
 
-- [/] Implement distributed Firestore sliding window rate limiter in `functions/src/googleMaps.ts`
-- [/] Create `functions/src/billingAlert.ts` for Pub/Sub billing notifications and emergency circuit-breaking
-- [/] Export `handleBillingBudgetAlert` in `functions/src/index.ts`
-- [/] Update rate-limiting unit test in `functions/src/test/security_fixes.test.ts`
+- [/] Rotate `FARE_SIGNING_SECRET` in `functions/.env` with fresh 256-bit random hex string
+- [/] Create `SECURITY.md` with formal 90-day secret rotation policy and Secret Manager guidelines
+- [/] Update `AGENTS.md` with secrets hygiene and key rotation decision log
 - [ ] Run backend build & unit tests (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`

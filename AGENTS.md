@@ -72,6 +72,15 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-17 — Secrets Hygiene Overhaul, Cryptographic Secret Rotation & SECURITY.md Policy
+
+- **1. Cryptographic Fare Secret Rotation (`functions/.env`)**:
+  - Generated and rotated `FARE_SIGNING_SECRET` to a fresh 256-bit cryptographically secure random hex secret (`2cd285b4cc29d3c0ddd7f5adb3851816016062e5dc59660940d2cbd3726cee3c`).
+  - Documented third-party dashboard key rotation instructions for `PAYSTACK_API_KEY`, `GOOGLE_MAPS_API_KEY`, and `RESEND_API_KEY` in `functions/.env`.
+
+- **2. Formal Security Policy & 90-Day Secret Rotation Schedule (`SECURITY.md`)**:
+  - Created `SECURITY.md` establishing zero-plaintext storage guidelines, mandatory 90-day secret rotation cadence, GCP Secret Manager integration workflows (`firebase functions:secrets:set`), and incident response protocols.
+
 ## 2026-11-17 — Monorepo Security Hardening, Test Suite Resolution & Build Audit
 
 - **1. Test Suite Status & 100% Pass Verification**:
