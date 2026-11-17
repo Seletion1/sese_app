@@ -1,0 +1,13 @@
+# Compiled TypeScript output directory
+lib/
+
+# Local environment file
+.env
+
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log
+firebase-debug.log
+firebase-debug.*.log

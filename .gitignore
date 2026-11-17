@@ -7,8 +7,9 @@ yarn-error.log*
 firebase-debug.log*
 firebase-debug.*.log*
 
-# Firebase cache
+# Firebase cache & compiled functions output
 .firebase/
+functions/lib/
 
 # Runtime data
 pids
