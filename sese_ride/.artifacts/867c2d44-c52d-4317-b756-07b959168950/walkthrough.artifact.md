@@ -1,26 +1,33 @@
-# Walkthrough - Re-Authentication Freshness Check in `resetTransactionPin`
+# Walkthrough - Export & Secure `bootstrapHubOwner` Production Setup Function
 
 ## Summary of Changes
 
-Enforced a zero-trust re-authentication token freshness validation check (`auth_time`) inside `resetTransactionPin` in `functions/src/transactionPin.ts`, matching the security pattern established in `deleteAccount.ts`.
+Exported `bootstrapHubOwner` as an active Cloud Function endpoint and reinforced it with strict one-time setup security guards to prevent unauthorized re-triggering or privilege escalation after initial setup.
 
-### 1. Zero-Trust Token Freshness Validation (`auth_time`)
-**[transactionPin.ts](file:///Users/micheal/sese_app/functions/src/transactionPin.ts#L320-L335)**
-- Added re-authentication age check verifying `request.auth.token.auth_time`.
-- Calculates elapsed time since last authentication (`Date.now() / 1000 - authTimeSec`).
-- If `auth_time` is missing, invalid, or older than 10 minutes (600 seconds), throws `HttpsError('unauthenticated', 'Recent re-authentication is required to reset your transaction PIN.')`.
+### 1. One-Time Setup Security Guard
+**[hubBootstrap.ts](file:///Users/micheal/sese_app/functions/src/hubBootstrap.ts#L33-L58)**
+- Added a one-time setup check verifying if `hub_staff/{email}` already exists with `active: true` and `role: "Super"`, AND the user's custom claims are already `SUPER_ADMIN`.
+- Blocks malicious re-triggering with `HttpsError('already-exists', ...)` unless `process.env.ALLOW_REBOOTSTRAP === "true"` or a valid secret parameter matching `process.env.BOOTSTRAP_SECRET` is supplied.
 
-### 2. Unit Testing
-**[transactionPin.test.ts](file:///Users/micheal/sese_app/functions/src/test/transactionPin.test.ts#L180-L225)**
-- Updated mock test requests in `transactionPin.test.ts` to supply fresh `auth_time` timestamps.
-- Added a dedicated unit test asserting that `resetTransactionPin` rejects stale tokens (`auth_time` > 10 minutes old).
+### 2. Export Registration
+**[index.ts](file:///Users/micheal/sese_app/functions/src/index.ts#L135)**
+- Exported `bootstrapHubOwner` from `./hubBootstrap` in `functions/src/index.ts`.
+- Automatically generated `functions.yaml` manifest with 77 endpoints.
+
+### 3. Unit Test Suite
+**[hubBootstrap.test.ts](file:///Users/micheal/sese_app/functions/src/test/hubBootstrap.test.ts#L1-L140)**
+- Created unit tests verifying:
+  1. Rejection of unauthenticated requests (`unauthenticated`).
+  2. Rejection of non-primary owner emails (`permission-denied`).
+  3. Successful bootstrapping of primary platform owner (`bamiduromichael2@gmail.com`).
+  4. Locking re-triggering when already bootstrapped (`already-exists`).
 
 ---
 
 ## Verification Results
 
 ### Automated Tests & Pipeline Execution
-- **Backend Unit Tests**: `npm test` — 138 unit tests passed across 46 test suites with 0 failures.
+- **Backend Unit Tests**: `npm test` — 142 unit tests passed across 47 test suites with 0 failures.
 - **Flutter Code Analysis**: `flutter analyze` completed with 0 issues.
-- **Firebase Deployment**: All 76 Cloud Functions, Firestore rules, and Storage rules released live to `sese-ride`.
-- **Git Sync**: Pushed commit `2932cff` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Firebase Deployment**: Created and deployed `bootstrapHubOwner` endpoint live on `sese-ride`.
+- **Git Sync**: Pushed commit `a755191` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

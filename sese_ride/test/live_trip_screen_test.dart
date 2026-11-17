@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sese_core/services/network_status_service.dart';
 import 'package:sese_ride/features/trips/models/bid_models.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/features/trips/presentation/live_trip_screen.dart';
@@ -104,11 +105,13 @@ void main() {
     late _FakeTripRepository repo;
 
     setUp(() {
+      NetworkStatusService.instance.reachabilityChecker = () async => true;
       OsmMapView.debugTileProviderOverride = BlankTileProvider();
       repo = _FakeTripRepository();
     });
 
     tearDown(() {
+      NetworkStatusService.instance.reachabilityChecker = null;
       OsmMapView.debugTileProviderOverride = null;
       repo.controller.close();
     });

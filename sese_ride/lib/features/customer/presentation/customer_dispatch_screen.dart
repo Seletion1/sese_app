@@ -1373,7 +1373,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Non-intrusive phone input: customer input is free and unconstrained across
   /// all flows (Ride Booking, Send Item, Receive Item). Background normalization
   /// formats E.164 values quietly for the server/driver.
-  bool get _phonesValid => true;
+  bool get _phonesValid {
+    final p = _pickupPhoneController.text.trim();
+    final d = _dropoffPhoneController.text.trim();
+    return isOptionalNigerianPhoneNumber(p) && isOptionalNigerianPhoneNumber(d);
+  }
 
   void _onPhoneChanged() {
     // Refresh Confirm-button enablement + inline validation errors.
@@ -4212,7 +4216,9 @@ class _RouteReviewCard extends StatelessWidget {
                   // (see onPhoneChanged guard below).
                   onPhoneChanged?.call();
                 },
-                validator: (value) => null,
+                validator: (value) => isOptionalNigerianPhoneNumber(value)
+                    ? null
+                    : 'Enter a valid phone number',
               ),
             ),
 
@@ -4305,7 +4311,9 @@ class _RouteReviewCard extends StatelessWidget {
                   // No echo-back (see pickup field + onPhoneChanged guard).
                   onPhoneChanged?.call();
                 },
-                validator: (value) => null,
+                validator: (value) => isOptionalNigerianPhoneNumber(value)
+                    ? null
+                    : 'Enter a valid phone number',
               ),
             ),
 

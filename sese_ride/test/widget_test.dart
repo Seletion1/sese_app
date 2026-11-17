@@ -40,8 +40,10 @@ class _SignupAuth extends _SignedOutAuth {
 }
 
 Future<void> _pumpLogin(WidgetTester tester, AuthRepository auth) async {
+  NetworkStatusService.instance.reachabilityChecker = () async => true;
   await tester.pumpWidget(MyApp(authRepository: auth));
-  await tester.pumpAndSettle();
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
 }
 
 void main() {

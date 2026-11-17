@@ -84,6 +84,8 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Camera access is used to take live verification photos during driver and customer onboarding.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SeseHub requires microphone access to enable voice notes and real-time voice communication in support chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Photo library access is used to attach screenshots and images in support chat conversations.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

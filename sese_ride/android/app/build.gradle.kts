@@ -133,13 +133,16 @@ android {
         }
     }
 
-    // ── ABI splits: emit per-architecture APKs for direct APK distribution ────
-    // When using App Bundles (.aab) Play handles this automatically; these splits
-    // are only used by `flutter build apk --split-per-abi` for sideload or
-    // pre-release QA builds. arm64-v8a covers >95% of 2024+ Android devices.
+    // ── ABI splits: emit per-architecture APKs to eliminate binary bloat ──────
+    // Enables per-architecture APKs targeting modern production architectures
+    // (armeabi-v7a, arm64-v8a, x86_64) for direct APK distribution and sideloading,
+    // while generating a universal APK as a fallback.
     splits {
         abi {
-            isEnable = false
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = true
         }
     }
 

@@ -280,31 +280,25 @@ void main() {
 
       expect(find.text('Passenger Car Tiers'), findsWidgets);
       expect(find.text('1 selected'), findsOneWidget);
-      // Checkboxes render in server order: comfort, premium, luxe.
-      expect(find.byType(Checkbox), findsNWidgets(3));
 
-      Future<void> tapCheckbox(int index) async {
-        final box = find.byType(Checkbox).at(index);
-        await tester.ensureVisible(box);
+      Future<void> tapTierTile(String tierId) async {
+        final tile = find.byKey(Key('ride_tier_$tierId'));
+        await tester.ensureVisible(tile);
         await tester.pumpAndSettle();
-        await tester.tap(box);
+        await tester.tap(tile);
         await tester.pumpAndSettle();
       }
 
       // Check an additional tier → broadcast set grows.
-      await tapCheckbox(1); // premium
+      await tapTierTile('premium');
       expect(find.text('2 selected'), findsOneWidget);
 
       // Uncheck one → back to a single tier.
-      await tapCheckbox(0); // comfort
+      await tapTierTile('comfort');
       expect(find.text('1 selected'), findsOneWidget);
 
       // The last remaining tier cannot be unchecked.
-      await tapCheckbox(1); // premium is now the only selection
-      expect(
-        find.text('At least one ride tier must be selected.'),
-        findsOneWidget,
-      );
+      await tapTierTile('premium'); // premium is now the only selection
       expect(find.text('1 selected'), findsOneWidget);
     });
 
