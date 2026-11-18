@@ -3615,22 +3615,25 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         : Colors.grey.shade200,
                   ),
                 ),
-                child: SwitchListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text(
-                    'Allow Driver Bidding / Counter-Offers',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                child: Material(
+                  color: Colors.transparent,
+                  child: SwitchListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Allow Driver Bidding / Counter-Offers',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      _allowBidding
+                          ? 'Drivers can submit counter-offers for your review.'
+                          : 'Fixed fare order: drivers can accept or decline, but cannot counter-offer.',
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                    value: _allowBidding,
+                    activeColor: AppColors.seseGold,
+                    onChanged: (val) => setState(() => _allowBidding = val),
                   ),
-                  subtitle: Text(
-                    _allowBidding
-                        ? 'Drivers can submit counter-offers for your review.'
-                        : 'Fixed fare order: drivers can accept or decline, but cannot counter-offer.',
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  value: _allowBidding,
-                  activeColor: AppColors.seseGold,
-                  onChanged: (val) => setState(() => _allowBidding = val),
                 ),
               ),
             ],

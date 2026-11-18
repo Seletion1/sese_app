@@ -558,11 +558,8 @@ class PushNotificationService {
   /// dispatch heartbeats, so minimizing or task-switching no longer reads
   /// as going offline. Silent (no chime) and non-clearable by swipe.
   ///
-  /// SINGLE unified tray item: the `flutter_overlay_window` OverlayService
-  /// foreground notification is suppressed via `visibilitySecret`, so this
-  /// (id 9002) is the ONLY entry the driver sees while ONLINE. Its
-  /// title/body are mirrored as the overlay's `overlayTitle`/`overlayContent`
-  /// for the same reason.
+  /// SINGLE unified tray item: this ongoing notification (id 9002) is the primary
+  /// entry the driver sees while ONLINE. Tapping it restores the app to the foreground.
   ///
   /// TAP: the content intent is built by `flutter_local_notifications` with
   /// `PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE` and

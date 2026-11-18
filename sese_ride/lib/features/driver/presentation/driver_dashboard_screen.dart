@@ -17,7 +17,6 @@ import '../../trips/presentation/trip_rating_dialog.dart';
 import '../../trips/services/trip_rating_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
-import '../services/driver_overlay_service.dart';
 import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import '../services/navigation_launcher_service.dart';
@@ -415,9 +414,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (mounted) _mapController.move(_driverPosition, 15.0);
     });
 
-    // Overlay → app actions (bubble tap, overlay accept/reject/expired).
-    DriverOverlayService.instance.listenActions(_handleOverlayAction);
-
     // Network connectivity listener: instant re-sync the moment internet returns
     _networkReconnectSub = NetworkStatusService.instance.onReconnected.listen((_) {
       if (mounted) {
@@ -439,14 +435,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         }
       },
     );
-  }
-
-  void _handleOverlayAction(String action, String tripId) {
-    if (!mounted) return;
-    if (action == 'foreground') {
-      unawaited(DriverOverlayService.instance.bringToForeground());
-      unawaited(DriverOverlayService.instance.closeOverlayWidget());
-    }
   }
 
   void _initSessionControl() {
@@ -515,19 +503,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = activeSessionId;
       _sessionOverriddenOnOtherDevice = false;
     });
-    DriverOverlayService.instance.isOnline = true;
-    if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-      unawaited(DriverOverlayService.instance.closeOverlayWidget());
-    } else {
-      unawaited(DriverOverlayService.instance.showOverlayWidget());
-    }
     // Re-establish the visible online signal after process recreation. The
     // dashboard GPS stream is already started in initState and remains alive
     // while the app process is up.
     unawaited(PushNotificationService.showOngoingOnlineAlert());
     unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
     unawaited(MediaPermissionService.ensureBackgroundLocation());
-    unawaited(_checkAndPromptOverlayPermission());
   }
 
   Future<void> _persistOnlineSession(String? sessionId) async {
@@ -552,13 +533,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = null;
       _sessionOverriddenOnOtherDevice = true;
     });
-    DriverOverlayService.instance.isOnline = false;
 
     // Cleanup background and foreground services on this device
     // ignore: discarded_futures
     AppSoundService.instance.playOfflineSound();
-    // ignore: discarded_futures
-    DriverOverlayService.instance.hide();
     // ignore: discarded_futures
     PushNotificationService.cancelOnlineAlert();
     // ignore: discarded_futures
@@ -609,14 +587,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
     setState(() => _appPaused = nowPaused);
-    if (!mounted) return;
-    if (nowPaused) {
-      if (_isOnline) {
-        unawaited(DriverOverlayService.instance.showOverlayWidget());
-      }
-    } else {
-      unawaited(DriverOverlayService.instance.closeOverlayWidget());
-    }
   }
 
   /// Best-effort platform fix for the signed online payload and the
@@ -985,8 +955,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _streaks.activeSessionId = null;
           _sessionOverriddenOnOtherDevice = false;
         });
-        DriverOverlayService.instance.isOnline = false;
-        unawaited(DriverOverlayService.instance.hide());
         // Audio feedback: offline double-tone.
         // ignore: discarded_futures
         AppSoundService.instance.playOfflineSound();
@@ -1349,12 +1317,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _currentSessionId = decision.sessionId;
           _streaks.activeSessionId = decision.sessionId;
         });
-        DriverOverlayService.instance.isOnline = true;
-        if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
-          unawaited(DriverOverlayService.instance.closeOverlayWidget());
-        } else {
-          unawaited(DriverOverlayService.instance.showOverlayWidget());
-        }
         unawaited(_persistOnlineSession(decision.sessionId));
         // Audio feedback: online chime.
         // ignore: discarded_futures
@@ -1366,7 +1328,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         PushNotificationService.showOngoingOnlineAlert();
         // ignore: discarded_futures
         PushNotificationService.subscribe('driver_${widget.driverId}');
-        unawaited(_checkAndPromptOverlayPermission());
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1386,98 +1347,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
-  }
-
-  Future<void> _checkAndPromptOverlayPermission() async {
-    if (kIsWeb || !mounted) return;
-    try {
-      final canDraw = await AppLauncher().canDrawOverlays();
-      if (!canDraw && mounted) {
-        _showOverlayPermissionPrompt();
-      }
-    } catch (e) {
-      debugPrint('DriverDashboard: canDrawOverlays check failed: $e');
-    }
-  }
-
-  void _showOverlayPermissionPrompt() {
-    if (!mounted) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isDismissible: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.layers_rounded,
-                  color: AppColors.primary,
-                  size: 28,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Display Over Other Apps',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Allow SeSe to pop up incoming orders in full screen immediately while you are on your home screen or using navigation.',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.black87,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () async {
-                    Navigator.of(ctx).pop();
-                    await AppLauncher().requestOverlayPermission();
-                  },
-                  child: const Text(
-                    'Enable in Settings',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Not Now'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   void _openFleetManagement() async {
@@ -2987,8 +2856,6 @@ class _PingListenerState extends State<_PingListener>
     _sheetForTrip = ping.tripId;
     _sheetOpen = true;
     setState(() => _sheetOpen = true);
-    // Hide any floating bubble so it does not collide with the full-screen order sheet
-    unawaited(DriverOverlayService.instance.closeOverlayWidget());
     // Urgent order alert loop — enforces full configured countdown window.
     // ignore: discarded_futures
     AppSoundService.instance.playIncomingOrderAlert(
@@ -3025,9 +2892,6 @@ class _PingListenerState extends State<_PingListener>
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
     if (mounted) setState(() => _sheetOpen = false);
-    if (widget.isAppPaused() && DriverOverlayService.instance.isOnline) {
-      unawaited(DriverOverlayService.instance.showOverlayWidget());
-    }
   }
 }
 

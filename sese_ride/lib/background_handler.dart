@@ -1,7 +1,6 @@
 import 'package:app_launcher/app_launcher.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import 'package:sese_core/services/push_notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -54,44 +53,7 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: showFromMessage fullScreenIntent failed: $e');
     }
 
-    // 3. Trigger full-screen incoming order overlay immediately over home screen & external apps
-    try {
-      final hasOverlayPerm = await FlutterOverlayWindow.isPermissionGranted();
-      if (hasOverlayPerm) {
-        final isActive = await FlutterOverlayWindow.isActive();
-        if (isActive) {
-          await FlutterOverlayWindow.resizeOverlay(
-            WindowSize.fullCover,
-            WindowSize.fullCover,
-            false,
-          );
-          await FlutterOverlayWindow.updateFlag(OverlayFlag.focusPointer);
-          await FlutterOverlayWindow.shareData({
-            'mode': 'order',
-            'offer': message.data,
-          });
-          debugPrint(
-              'driverBackgroundHandler: expanded overlay to full-screen order card for trip ${message.data['tripId']}');
-        } else {
-          await FlutterOverlayWindow.showOverlay(
-            height: WindowSize.fullCover,
-            width: WindowSize.matchParent,
-            flag: OverlayFlag.focusPointer,
-            visibility: NotificationVisibility.visibilitySecret,
-          );
-          await FlutterOverlayWindow.shareData({
-            'mode': 'order',
-            'offer': message.data,
-          });
-          debugPrint(
-              'driverBackgroundHandler: launched new full-screen overlay for trip ${message.data['tripId']}');
-        }
-      }
-    } catch (e) {
-      debugPrint('driverBackgroundHandler: overlay trigger error: $e');
-    }
-
-    // 4. Immediately launch MainActivity to the foreground over any active app or home screen!
+    // 3. Immediately launch MainActivity to the foreground over any active app or home screen!
     try {
       final brought = await AppLauncher().bringToForeground(
         extras: {

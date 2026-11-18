@@ -6,6 +6,7 @@ import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:app_launcher/app_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -19,12 +20,9 @@ import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
 import 'core/services/remote_config_service.dart';
 import 'core/services/shorebird_update_service.dart';
-import 'driver_overlay_entry.dart';
-export 'driver_overlay_entry.dart' show overlayMain;
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
-import 'features/driver/services/driver_overlay_service.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
@@ -135,9 +133,6 @@ void main() async {
     backgroundMessageHandler: driverBackgroundHandler,
     requestPermissionImmediately: false,
   );
-  // Keep a static reference so the overlay entry-point is retained.
-  // ignore: unnecessary_statements
-  overlayMain;
 
   // ── Killed-state offer cold-start handoff ──────────────────────────────
   // When a driver offer FCM arrives while the app is killed, pushBackgroundHandler
@@ -205,7 +200,7 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   final type = (data['type'] ?? '').toString();
   if (type == 'foreground_request') {
     debugPrint('sese_ride: online-alert tap — app restored to foreground.');
-    unawaited(DriverOverlayService.instance.bringToForeground());
+    unawaited(AppLauncher().bringToForeground());
     return;
   }
 
