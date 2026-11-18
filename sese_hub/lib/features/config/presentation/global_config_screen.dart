@@ -117,6 +117,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
   final _maxOfferBoostPctCtrl = TextEditingController(text: '100');
+  bool _allowStackedOrders = true;
+  final _maxDistanceToDropoffKmCtrl = TextEditingController(text: '2.0');
+  final _maxRemainingTimeMinutesCtrl = TextEditingController(text: '10');
 
   // Financial System Parameters Controllers (/system_configs/financials)
   final _minWalletBalanceToOnlineCtrl = TextEditingController(text: '1.0');
@@ -344,6 +347,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
       _maxOfferBoostPctCtrl.text = tuning.maxOfferBoostPct.toStringAsFixed(0);
+      _allowStackedOrders = tuning.allowStackedOrders;
+      _maxDistanceToDropoffKmCtrl.text = tuning.maxDistanceToDropoffKm.toString();
+      _maxRemainingTimeMinutesCtrl.text = tuning.maxRemainingTimeMinutes.toString();
       _bicycleMaxCtrl.text =
           vehicleRec.bicycleMaxDistanceKm.toString();
       _kekeMaxCtrl.text = vehicleRec.kekeMaxDistanceKm.toString();
@@ -607,6 +613,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_cameraDropoffDwellCtrl.text.trim()) ?? 2,
           maxOfferBoostPct:
               double.tryParse(_maxOfferBoostPctCtrl.text.trim()) ?? 100.0,
+          allowStackedOrders: _allowStackedOrders,
+          maxDistanceToDropoffKm:
+              double.tryParse(_maxDistanceToDropoffKmCtrl.text.trim()) ?? 2.0,
+          maxRemainingTimeMinutes:
+              int.tryParse(_maxRemainingTimeMinutesCtrl.text.trim()) ?? 10,
           maxConcurrentBids: maxBids,
         ),
       );
@@ -2885,7 +2896,20 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 2 (1–15 sec). Camera hold duration at destination before returning.'),
                 numField(_maxOfferBoostPctCtrl, 'Max offer boost cap', '%',
                     'Default 100% (50–300%). Hard cap on customer fare boosts above baseline fare.'),
+                numField(_maxDistanceToDropoffKmCtrl, 'Stacked max drop-off distance', 'km',
+                    'Default 2.0 km (0.1–10 km). Max distance to active drop-off to receive next stacked order.'),
+                numField(_maxRemainingTimeMinutesCtrl, 'Stacked max drop-off time', 'min',
+                    'Default 10 min (1–60 min). Max remaining ETA to active drop-off for next stacked order.'),
               ],
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              title: const Text('Allow Stacked Orders (Final Stage Proximity)'),
+              subtitle: const Text(
+                'Permit online drivers with active trips in IN_PROGRESS to receive next-trip/stacked orders when within proximity thresholds of their active drop-off.',
+              ),
+              value: _allowStackedOrders,
+              onChanged: (val) => setState(() => _allowStackedOrders = val),
             ),
           ],
         ),

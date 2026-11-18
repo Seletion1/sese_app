@@ -49,6 +49,11 @@ class DispatchTuning {
   /// Maximum concurrent driver bids visible to customer in live bidding list.
   final int maxConcurrentBids; // default: 5
 
+  /// Stacked Order Proximity & Final Stage Criteria (Hub Configurable)
+  final bool allowStackedOrders; // default: true
+  final double maxDistanceToDropoffKm; // default: 2.0 km
+  final int maxRemainingTimeMinutes; // default: 10 min
+
   const DispatchTuning({
     this.dispatchRadiusKm = 15,
     this.tier1RadiusKm = 3,
@@ -63,6 +68,9 @@ class DispatchTuning {
     this.cameraPickupDwellSec = 5,
     this.cameraDropoffDwellSec = 2,
     this.maxConcurrentBids = 5,
+    this.allowStackedOrders = true,
+    this.maxDistanceToDropoffKm = 2.0,
+    this.maxRemainingTimeMinutes = 10,
   });
 
   /// Resolves the driver search radius (in kilometers) for a given trip dispatch tier (1, 3).
@@ -120,6 +128,11 @@ class DispatchTuning {
       cameraPickupDwellSec: intOf('cameraPickupDwellSec', 5),
       cameraDropoffDwellSec: intOf('cameraDropoffDwellSec', 2),
       maxConcurrentBids: intOf('maxConcurrentBids', intOf('max_visible_bids', 5)),
+      allowStackedOrders: map['allowStackedOrders'] is bool
+          ? map['allowStackedOrders'] as bool
+          : true,
+      maxDistanceToDropoffKm: numOf('maxDistanceToDropoffKm', 2.0),
+      maxRemainingTimeMinutes: intOf('maxRemainingTimeMinutes', 10),
     );
   }
 
@@ -143,5 +156,8 @@ class DispatchTuning {
         'cameraDropoffDwellSec': cameraDropoffDwellSec,
         'maxConcurrentBids': maxConcurrentBids,
         'max_visible_bids': maxConcurrentBids,
+        'allowStackedOrders': allowStackedOrders,
+        'maxDistanceToDropoffKm': maxDistanceToDropoffKm,
+        'maxRemainingTimeMinutes': maxRemainingTimeMinutes,
       };
 }

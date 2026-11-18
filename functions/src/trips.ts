@@ -75,6 +75,9 @@ interface DispatchTuning {
   maxOfferBoostPct: number;
   bidCountdownMs: number;
   bidCountdownSec: number;
+  allowStackedOrders: boolean;
+  maxDistanceToDropoffKm: number;
+  maxRemainingTimeMinutes: number;
 }
 
 const DEFAULT_TUNING: DispatchTuning = {
@@ -90,6 +93,9 @@ const DEFAULT_TUNING: DispatchTuning = {
   maxOfferBoostPct: 100,
   bidCountdownMs: 10 * 1000,
   bidCountdownSec: 10,
+  allowStackedOrders: true,
+  maxDistanceToDropoffKm: 2.0,
+  maxRemainingTimeMinutes: 10,
 };
 
 let tuningCache: { at: number; value: DispatchTuning } | null = null;
@@ -135,6 +141,10 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
     const publicPoolDurationMin = Math.round(
       num(d.publicPoolDurationMin ?? d.poolDurationMin ?? d.publicPoolDurationMinutes, 60, 5, 1440)
     );
+    const allowStackedOrders = typeof d.allowStackedOrders === "boolean" ? d.allowStackedOrders : true;
+    const maxDistanceToDropoffKm = num(d.maxDistanceToDropoffKm, 2.0, 0.1, 10.0);
+    const maxRemainingTimeMinutes = Math.round(num(d.maxRemainingTimeMinutes, 10, 1, 60));
+
     const value: DispatchTuning = {
       dispatchRadiusKm: tier3Radius,
       tier1RadiusKm: tier1Radius,
@@ -148,6 +158,9 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       maxOfferBoostPct: num(d.maxOfferBoostPct, 100, 10, 500),
       bidCountdownMs: bidCountdownSec * 1000,
       bidCountdownSec: bidCountdownSec,
+      allowStackedOrders,
+      maxDistanceToDropoffKm,
+      maxRemainingTimeMinutes,
     };
     tuningCache = { at: Date.now(), value };
     return value;
@@ -1299,6 +1312,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
 interface NearbyDriver {
   id: string;
   distanceKm: number;
+  isStackedOrder?: boolean;
+  priorTripId?: string;
 }
 
 function pickupOf(data: admin.firestore.DocumentData): { lat: number; lng: number } | null {
@@ -1385,7 +1400,75 @@ async function findNearestDrivers(
     if (tiers.length > 0 && serviceType === "ride" && !tiers.includes("ride")) {
       continue;
     }
+
     const loc = data.lastLocation as { lat?: unknown; lng?: unknown } | undefined;
+
+    // Active Trip Blocking Rule & Stacked Order Proximity Criteria:
+    let isStackedOrder = false;
+    let priorTripId: string | undefined = undefined;
+
+    try {
+      const activeTripSnap = await db()
+        .collection("trips")
+        .where("driverId", "==", doc.id)
+        .where("status", "in", [
+          "DRIVER_ACCEPTED",
+          "DRIVER_ARRIVING",
+          "DRIVER_ARRIVED",
+          "IN_PROGRESS",
+          "pending_customer_approval",
+        ])
+        .limit(1)
+        .get();
+
+      if (!activeTripSnap.empty) {
+        const activeTripDoc = activeTripSnap.docs[0];
+        const activeTripData = activeTripDoc.data();
+        const activeStatus = String(activeTripData.status ?? "");
+
+        // 1. By default, stacked orders must be enabled globally in dispatch config
+        if (!tuning.allowStackedOrders) {
+          continue;
+        }
+
+        // 2. Driver MUST be in the final stage: IN_PROGRESS (en route to drop-off)
+        if (activeStatus !== "IN_PROGRESS") {
+          continue;
+        }
+
+        // 3. Driver MUST have reported location and active trip MUST have valid drop-off coordinates
+        const dropoffLat = Number(
+          activeTripData.dropoff?.lat ?? activeTripData.dropoffLocation?.latitude ?? activeTripData.dropoffLat ?? 0
+        );
+        const dropoffLng = Number(
+          activeTripData.dropoff?.lng ?? activeTripData.dropoffLocation?.longitude ?? activeTripData.dropoffLng ?? 0
+        );
+
+        if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number" || !dropoffLat || !dropoffLng) {
+          continue;
+        }
+
+        // 4. Distance to active drop-off MUST be <= maxDistanceToDropoffKm (default 2.0 km)
+        const distToDropoffKm = haversineKm(loc.lat, loc.lng, dropoffLat, dropoffLng);
+        if (distToDropoffKm > tuning.maxDistanceToDropoffKm) {
+          continue;
+        }
+
+        // 5. Estimated time to drop-off MUST be <= maxRemainingTimeMinutes (default 10 min)
+        const driverSpeedKmh = typeof data.speedKmh === "number" && data.speedKmh > 5 ? data.speedKmh : 25;
+        const estTimeMinutes = (distToDropoffKm / driverSpeedKmh) * 60;
+        if (estTimeMinutes > tuning.maxRemainingTimeMinutes) {
+          continue;
+        }
+
+        // Passed all stacked order proximity criteria!
+        isStackedOrder = true;
+        priorTripId = activeTripDoc.id;
+      }
+    } catch (e) {
+      console.warn(`findNearestDrivers: stacked order evaluation warning for driver ${doc.id}: ${e}`);
+    }
+
     const distanceKm =
       loc && typeof loc.lat === "number" && typeof loc.lng === "number"
         ? haversineKm(pickup.lat, pickup.lng, loc.lat, loc.lng)
@@ -1393,7 +1476,7 @@ async function findNearestDrivers(
     // Stage radius defaults to the outer cap when the caller passes none.
     const capKm = radiusKm ?? tuning.dispatchRadiusKm;
     if (distanceKm <= capKm) {
-      ranked.push({ id: doc.id, distanceKm });
+      ranked.push({ id: doc.id, distanceKm, isStackedOrder, priorTripId });
     }
   }
   ranked.sort((a, b) => a.distanceKm - b.distanceKm);
@@ -1511,7 +1594,7 @@ async function advanceSequentialDispatch(
   const targetDriver = nearest[0];
   const stepExpiresAt = nowMs() + tuning.tier1TimeoutMs;
 
-  await tripRef.update({
+  const tripUpdates: Record<string, any> = {
     status: "WAITING_FOR_ACCEPTANCE",
     dispatchTier: 1,
     dispatchStep: nextStep,
@@ -1530,9 +1613,18 @@ async function advanceSequentialDispatch(
       reason: `sequential_dispatch_step_${nextStep}`,
       driverId: targetDriver.id,
       distanceKm: targetDriver.distanceKm,
+      isStackedOrder: targetDriver.isStackedOrder === true,
+      priorTripId: targetDriver.priorTripId ?? null,
       timestamp: nowMs(),
     }),
-  });
+  };
+
+  if (targetDriver.isStackedOrder) {
+    tripUpdates.isStackedOrder = true;
+    tripUpdates.priorTripId = targetDriver.priorTripId ?? null;
+  }
+
+  await tripRef.update(tripUpdates);
 
   // Pre-acceptance scoping: push targeted notification carrying exclusively broadcast_fare
   const broadcastFareAmount = Number(
