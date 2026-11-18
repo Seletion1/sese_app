@@ -7,6 +7,7 @@ import '../config/services/system_config_service.dart';
 import '../dashboard/presentation/hub_dashboard_screen.dart'
     show showHubThemePickerSheet;
 import '../dashboard/services/hub_route_persistence.dart';
+import '../dashboard/services/view_mode_controller.dart';
 import 'calling_config_screen.dart';
 
 /// Dedicated Settings screen for `sese_hub` staff.
@@ -147,6 +148,44 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                   ),
                   onTap: () =>
                       showHubThemePickerSheet(context, ThemeController.instance),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── View Mode & Responsive Layout ─────────────────────────────────
+          _SectionHeader('View Mode & Layout'),
+          Card(
+            child: ValueListenableBuilder<HubViewMode>(
+              valueListenable: ViewModeController.instance,
+              builder: (context, currentMode, _) {
+                return SettingsTile(
+                  tileKey: const Key('hub_settings_view_mode_tile'),
+                  leading: const Icon(Icons.desktop_windows_outlined),
+                  title: 'Desktop View Mode',
+                  infoDescription:
+                      'Switch between Auto (System Default), Mobile View, or Desktop View ("Request Desktop Site" with 1280px viewport and pinch-to-zoom).',
+                  trailing: DropdownButton<HubViewMode>(
+                    value: currentMode,
+                    underline: const SizedBox.shrink(),
+                    items: HubViewMode.values
+                        .map(
+                          (m) => DropdownMenuItem(
+                            value: m,
+                            child: Text(
+                              m.label,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        ViewModeController.instance.setViewMode(val);
+                      }
+                    },
+                  ),
                 );
               },
             ),

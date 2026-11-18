@@ -8,8 +8,10 @@ import 'package:sese_core/sese_core.dart';
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/config/services/system_config_service.dart';
+import 'features/dashboard/presentation/adaptive_view_wrapper.dart';
 import 'features/dashboard/presentation/hub_dashboard_screen.dart';
 import 'features/dashboard/services/hub_route_persistence.dart';
+import 'features/dashboard/services/view_mode_controller.dart';
 import 'features/staff/services/hub_access_service.dart';
 
 void main() async {
@@ -54,6 +56,9 @@ void main() async {
   // ignore: discarded_futures
   PushNotificationService.init(onTap: _handlePushTap);
 
+  // Prime persisted ViewMode preference (auto, mobile, desktop).
+  await ViewModeController.instance.load();
+
   runApp(MyApp(showSplash: true, securityResult: securityResult));
 }
 
@@ -87,6 +92,7 @@ class _MyAppState extends State<MyApp> {
     // Best-effort restore of the persisted appearance (defaults to
     // ThemeMode.system, which adopts the OS Dark/Light preference).
     ThemeController.instance.load();
+    ViewModeController.instance.load();
 
     if (widget.securityResult?.hasViolation == true) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -116,8 +122,10 @@ class _MyAppState extends State<MyApp> {
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: themeMode,
-          builder: (context, child) => NetworkStatusBannerWrapper(
-            child: child ?? const SizedBox.shrink(),
+          builder: (context, child) => AdaptiveViewWrapper(
+            child: NetworkStatusBannerWrapper(
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
           home: widget.showSplash
               ? SeSeSplashScreen(
