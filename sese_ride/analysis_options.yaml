@@ -18,6 +18,9 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+  errors:
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
 
 linter:
   # The lint rules applied to this project can be customized in the

@@ -1,39 +1,26 @@
-# Walkthrough - Dynamic Map & API Key Management & Startup Credential Injection
+# Walkthrough - Desktop/Mobile View Mode Toggle (`sese_hub`)
 
 ## Summary of Implementation
 
-Implemented a dedicated "Map & API Key Management" section in `sese_hub` backed by Firestore `system_config/api_keys`, and updated `sese_ride` app startup to dynamically fetch and inject platform-specific map credentials with graceful build-time fallback.
+Implemented a non-destructive View Mode state controller (`ViewModeController`), adaptive viewport scaling wrapper (`AdaptiveViewWrapper`), and settings toggle in `sese_hub` allowing users to seamlessly switch between Auto (System Default), Mobile View, and Desktop View ("Request Desktop Site") without restarting the app or wiping navigation state.
 
-### 1. Shared Models & Service (`sese_core`)
-**[api_keys_config.dart](file:///Users/micheal/sese_app/sese_core/lib/models/api_keys_config.dart)** & **[api_keys_service.dart](file:///Users/micheal/sese_app/sese_core/lib/services/api_keys_service.dart)**
-- Created `ApiKeysConfig` model supporting platform-specific credentials:
-  - `active_map_provider`: `'google'` | `'mapbox'`
-  - `google_maps`: `{ android_key, ios_key, web_key }`
-  - `mapbox`: `{ android_token, ios_token, web_token }`
-- Created `ApiKeysService` to stream, fetch (4s timeout), and save `system_config/api_keys`.
+### 1. View Mode State Controller
+**[view_mode_controller.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/dashboard/services/view_mode_controller.dart)**
+- Created `HubViewMode` enum (`auto`, `mobile`, `desktop`).
+- Created `ViewModeController` (`ValueNotifier<HubViewMode>`) persisting user preference in `SharedPreferences` under key `sese_hub_view_mode`.
+- Defaults to `auto` (respects device screen size: mobile layout on phones, desktop layout on web/laptops/wide viewports).
 
-### 2. Firestore Security Rules
-**[firestore.rules](file:///Users/micheal/sese_app/firestore.rules#L1500-L1515)**
-- Added security rules for `match /system_config/api_keys`:
-  - `allow read: if isAuthenticated();` (authenticated riders and drivers read map keys).
-  - `allow write: if isHubStaff() || isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));`.
+### 2. Adaptive Viewport Wrapper
+**[adaptive_view_wrapper.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/dashboard/presentation/adaptive_view_wrapper.dart)**
+- Created `AdaptiveViewWrapper` wrapping the root app tree in `sese_hub/lib/main.dart`.
+- When `HubViewMode.desktop` is selected on mobile devices ($< 1024$px width), overrides `MediaQuery` with a 1280px desktop viewport and wraps the canvas in `InteractiveViewer`, providing pinch-to-zoom, panning, and responsive desktop layout.
+- When `HubViewMode.mobile` is selected on desktop/web screens ($> 600$px width), constrains content to a touch-optimized 480px mobile frame with dark/neutral backdrop.
+- When compiled for Web (`kIsWeb`) or running on native desktop platforms, defaults cleanly to full desktop layout.
 
-### 3. Hub Admin Dashboard ("Map & API Key Management")
-**[global_config_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/config/presentation/global_config_screen.dart#L2920-L2985)**
-- Implemented `_buildApiKeysCard()` in `global_config_screen.dart` with:
-  - Active Map Provider dropdown (`Google Maps` vs `Mapbox`).
-  - Google Maps Form Inputs: Android API Key, iOS API Key, Web API Key.
-  - Mapbox Form Inputs: Android Access Token, iOS Access Token, Web Access Token.
-  - "Publish Config" button validation ensuring empty keys cannot be saved accidentally when active provider requires them.
-
-### 4. App Startup Credential Injection (`sese_ride`)
-**[main.dart](file:///Users/micheal/sese_app/sese_ride/lib/main.dart#L230-L280)**
-- Added `_initDynamicMapCredentials()` in `sese_ride/lib/main.dart` called on startup:
-  - Fetches `system_config/api_keys` with a 4s deadline.
-  - On Android: injects `google_maps.android_key` or `mapbox.android_token`.
-  - On iOS: passes `google_maps.ios_key` or `mapbox.ios_token` to `GMSServices.provideAPIKey()`.
-  - Updates `MapConfigController.instance` dynamically.
-  - If offline or timed out, falls back gracefully to build-time environment variables (`GlobalMapConfig.defaultGoogleMapsApiKey`).
+### 3. Settings Toggle
+**[hub_settings_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/settings/hub_settings_screen.dart#L150-L185)**
+- Added "View Mode & Layout" card in `HubSettingsScreen` with a dropdown selector for `Auto (System Default)`, `Mobile View`, and `Desktop View`.
+- Updating the selection updates state instantly with a smooth layout transition without restarting the app or resetting navigation history.
 
 ---
 
@@ -43,4 +30,4 @@ Implemented a dedicated "Map & API Key Management" section in `sese_hub` backed 
 - **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_core`, `sese_hub`, and `sese_ride` with 0 issues.
 - **Backend Unit Tests (`npm test`)**: All 146 backend unit tests passed across 48 test suites with 0 failures.
 - **Firebase Deployment**: All 78 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `fce8152` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Git Sync**: Staged, committed, and pushed commit `28a2a70` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

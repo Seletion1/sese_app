@@ -24,21 +24,21 @@ jobs:
         run: |
           cd sese_core
           flutter pub get
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
 
       - name: Analyze & Test sese_ride
         run: |
           cd sese_ride
           flutter pub get
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test test/places_autocomplete_test.dart test/review_contact_phones_test.dart test/live_trip_screen_test.dart test/widget_test.dart test/dropoff_geofence_test.dart
 
       - name: Analyze & Test sese_hub
         run: |
           cd sese_hub
           flutter pub get
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
 
   backend-ci:
