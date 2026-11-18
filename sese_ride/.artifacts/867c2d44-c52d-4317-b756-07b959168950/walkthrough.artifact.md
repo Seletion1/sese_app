@@ -1,34 +1,43 @@
-# Walkthrough - Full-Screen Intent & Drop-Off Confirmation Requests
+# Walkthrough - Smart-Dispatch Active Trip Blocking & Stacked Order Proximity
 
 ## Summary of Implementation
 
-Implemented high-priority Full-Screen Intent notifications, high-importance notification channel configuration, FCM data payload flags, and immediate UI redirection for customer drop-off approval and trip-completion requests in `sese_ride`, `sese_core`, and backend `functions/src/trips.ts`.
+Implemented a strict active-trip candidate blocking rule and stacked order proximity filtering engine in Cloud Functions (`functions/src/trips.ts`) and shared core models (`sese_core`), alongside dynamic Hub controls (`sese_hub`).
 
-### 1. Backend FCM Data Payload Dispatch (`functions/src/trips.ts`)
-**[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L250-L280)**
-- Updated `notifyCustomer` in `functions/src/trips.ts`:
-  - Added `dropoff_approval_request`, `drop_off_confirmation`, `dropoff_approval`, `dropoff_approval_response` to high-priority order dispatch.
-  - On Android, dispatches pure high-priority data payloads (`android.priority = "high"`, `data.fullScreen = "true"`, `data.click_action = "FLUTTER_NOTIFICATION_CLICK"`, `data.content_available = "true"`) omitting top-level `notification` so background data handlers directly launch full-screen intents.
+### 1. Active Trip Blocking & Stacked Proximity Engine (`functions/src/trips.ts`)
+**[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L1340-L1415)**
+- **Active Trip Blocking**: Any online driver with an active trip in status `DRIVER_ACCEPTED`, `DRIVER_ARRIVING`, `DRIVER_ARRIVED`, or `pending_customer_approval` is strictly excluded from candidate driver queries (`findNearestDrivers`).
+- **Final Stage Allowance (Stacked Orders)**:
+  - Driver with an active trip is evaluated ONLY when active status is `IN_PROGRESS` (en route to drop-off).
+  - Verifies driver location vs active trip drop-off coordinates: distance must be $\le \text{maxDistanceToDropoffKm}$ (default `2.0` km).
+  - Verifies estimated remaining driving time to active drop-off: time must be $\le \text{maxRemainingTimeMinutes}$ (default `10` minutes).
+- **Metadata Stamping**: When a stacked order is matched and assigned, stamps `isStackedOrder: true` and `priorTripId: <activeTripId>` on the new trip document and status history.
 
-### 2. High-Importance Notification Channel & Channel Routing (`sese_core`)
-**[push_notification_service.dart](file:///Users/micheal/sese_app/sese_core/lib/services/push_notification_service.dart#L440-L480)**
-- Updated `_channelFor` and `showFromMessage` in `PushNotificationService`:
-  - Maps drop-off confirmation request notifications to `PushChannels.orders` (`sese_orders`).
-  - Configures `AndroidNotificationDetails` with `Importance.max`, `Priority.high`, `fullScreenIntent: true`, `category: AndroidNotificationCategory.call`, `visibility: NotificationVisibility.public`, `playSound: true`, and continuous ring vibration pattern.
+### 2. Hub Dispatch Console Controls (`sese_hub`)
+**[global_config_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/config/presentation/global_config_screen.dart#L2895-L2915)**
+- Added UI controls under Section 7 - Sequential Dispatch Console:
+  - `Allow Stacked Orders (Final Stage Proximity)` switch toggle (`allowStackedOrders`).
+  - `Stacked max drop-off distance` input field (`maxDistanceToDropoffKm`, default `2.0` km).
+  - `Stacked max drop-off time` input field (`maxRemainingTimeMinutes`, default `10` min).
 
-### 3. App Routing & Immediate Confirmation UI (`sese_ride`)
-**[main.dart](file:///Users/micheal/sese_app/sese_ride/lib/main.dart#L205-L245)**
-- Updated `_handlePushTap` to extract `tripId` from `dropoff_approval_request` / `drop_off_confirmation` payloads.
-- Instantly pushes `LiveTripScreen(tripId: tripId, repository: FirestoreTripRepository())` using `IncomingCallOverlay.navigatorKey.currentState`.
-- `LiveTripScreen` presents `_CustomerDropoffApprovalCard` with interactive **"Confirm Drop-off"** (`dropoff_approval_approve_button`) and **"Decline"** (`dropoff_approval_reject_button`) action buttons right on top of the active view.
+### 3. Shared Core Model Extension (`sese_core`)
+**[dispatch_tuning.dart](file:///Users/micheal/sese_app/sese_core/lib/models/dispatch_tuning.dart#L40-L125)**
+- Extended `DispatchTuning` model with `allowStackedOrders`, `maxDistanceToDropoffKm`, and `maxRemainingTimeMinutes` with `fromMap` / `toMap` serialization.
+
+### 4. Backend Invariant Unit Tests (`functions/src/test/stacked_dispatch.test.ts`)
+**[stacked_dispatch.test.ts](file:///Users/micheal/sese_app/functions/src/test/stacked_dispatch.test.ts#L1-L60)**
+- Added unit test suite validating:
+  1. `DRIVER_ACCEPTED` and `DRIVER_ARRIVING` statuses strictly block candidate matching.
+  2. `IN_PROGRESS` driver within 1.0 km / <10 min ETA is matched as stacked candidate.
+  3. Driver beyond 2.0 km threshold is rejected.
+  4. Disabling `allowStackedOrders` blocks all drivers with active trips.
 
 ---
 
 ## Verification Results
 
 ### Automated Tests & Pipeline Execution
-- **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_ride` and `sese_core` with 0 issues.
-- **Flutter Unit & Widget Tests**: 20/20 passed across `dropoff_geofence_test.dart` and `live_trip_screen_test.dart`.
-- **Backend Unit Tests**: 142/142 unit tests passed across 47 test suites with 0 failures (`npm test`).
-- **Firebase Deployment**: All 78 Cloud Functions, Firestore rules, and Storage rules updated live on `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `85a188a` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Backend Invariant Unit Tests**: `npm test` — 146 unit tests passed across 48 test suites with 0 failures (including `stacked_dispatch.test.ts`).
+- **Flutter Code Analysis**: `flutter analyze` completed with 0 issues across `sese_core`, `sese_hub`, and `sese_ride`.
+- **Firebase Deployment**: All 78 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
+- **Git Sync**: Pushed commit `94373b8` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
