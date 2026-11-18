@@ -2100,19 +2100,25 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
     switch (widget.trip.status) {
       case TripStatus.searchingDriver:
       case TripStatus.unknown:
-        message = widget.trip.reassignmentCount > 0
-            ? 'Driver had to cancel. Finding you another nearby driver...'
-            : (widget.trip.declineCount > 0
-                ? "First driver didn't accept... Looking for available drivers"
-                : 'Searching for nearby available drivers...');
+        message = widget.trip.allowBidding == false
+            ? 'Fixed-fare order: searching for nearby drivers...'
+            : (widget.trip.reassignmentCount > 0
+                ? 'Driver had to cancel. Finding you another nearby driver...'
+                : (widget.trip.declineCount > 0
+                    ? "First driver didn't accept... Looking for available drivers"
+                    : 'Searching for nearby available drivers...'));
       case TripStatus.waitingForAcceptance:
       case TripStatus.driverPinged:
         message = 'Driver connected... Waiting for driver to accept';
       case TripStatus.marketplaceOpen:
       case TripStatus.marketplaceList:
-        message = 'Broadcasting to nearby drivers...';
+        message = widget.trip.allowBidding == false
+            ? 'Fixed-fare order: broadcasting to nearby drivers...'
+            : 'Broadcasting to nearby drivers...';
       case TripStatus.bidding:
-        message = 'Drivers are submitting bids — choose the best offer below';
+        message = widget.trip.allowBidding == false
+            ? 'Fixed-fare order: searching for drivers to accept...'
+            : 'Drivers are submitting bids — choose the best offer below';
       case TripStatus.driverAccepted:
       case TripStatus.driverArriving:
         final name = widget.trip.driver?.fullName ?? 'Your driver';

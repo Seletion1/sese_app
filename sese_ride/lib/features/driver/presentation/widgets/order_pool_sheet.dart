@@ -950,6 +950,7 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   }
 
   bool get _isCounterOffer {
+    if (widget.trip.allowBidding == false) return false;
     if (_selectedSuggestionPct != null && _selectedSuggestionPct! > 0) return true;
     if (_isCustomBidActive) return true;
     return false;

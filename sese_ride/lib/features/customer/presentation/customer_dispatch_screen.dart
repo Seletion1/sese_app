@@ -301,6 +301,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   // ── Context-Aware, Security PIN & Payment selection state ─────────────────
   bool _isReceivePackageMode = false;
   bool _requireDeliveryPin = false;
+  bool _allowBidding = true;
   String _paymentMode =
       'sender_pays'; // 'sender_pays', 'receiver_pays'
   String _paymentMethod = 'auto'; // 'auto' (default), 'cash', 'wallet'
@@ -1630,6 +1631,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           recoveredDebt: negativeBalance,
           collectAt: collectAt,
           payerRole: payerRole,
+          allowBidding: _allowBidding,
           // Rides never request a PIN (no toggle exists in the ride review;
           // gating here also covers Delivery→Ride toggles carrying a stale
           // `_requireDeliveryPin`). The server mints rides PIN-free anyway —
@@ -3597,6 +3599,38 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       ),
                     ],
                   ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Per-Trip Bidding Toggle (Allow Driver Bidding / Counter-Offers)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF252530) : Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF3A3A46)
+                        : Colors.grey.shade200,
+                  ),
+                ),
+                child: SwitchListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Allow Driver Bidding / Counter-Offers',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    _allowBidding
+                        ? 'Drivers can submit counter-offers for your review.'
+                        : 'Fixed fare order: drivers can accept or decline, but cannot counter-offer.',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                  value: _allowBidding,
+                  activeColor: AppColors.seseGold,
+                  onChanged: (val) => setState(() => _allowBidding = val),
                 ),
               ),
             ],

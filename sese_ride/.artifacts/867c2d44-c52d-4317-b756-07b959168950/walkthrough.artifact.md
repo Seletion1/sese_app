@@ -1,26 +1,27 @@
-# Walkthrough - Desktop/Mobile View Mode Toggle (`sese_hub`)
+# Walkthrough - Complete & Clean Removal of Zego Engine
 
 ## Summary of Implementation
 
-Implemented a non-destructive View Mode state controller (`ViewModeController`), adaptive viewport scaling wrapper (`AdaptiveViewWrapper`), and settings toggle in `sese_hub` allowing users to seamlessly switch between Auto (System Default), Mobile View, and Desktop View ("Request Desktop Site") without restarting the app or wiping navigation state.
+Performed a complete and clean removal of Zego from the codebase (`sese_core`, `sese_hub`, `sese_ride`, and `functions`). The platform's calling architecture now routes exclusively through self-hosted WebRTC (Firebase signaling) and Agora RTC Engine.
 
-### 1. View Mode State Controller
-**[view_mode_controller.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/dashboard/services/view_mode_controller.dart)**
-- Created `HubViewMode` enum (`auto`, `mobile`, `desktop`).
-- Created `ViewModeController` (`ValueNotifier<HubViewMode>`) persisting user preference in `SharedPreferences` under key `sese_hub_view_mode`.
-- Defaults to `auto` (respects device screen size: mobile layout on phones, desktop layout on web/laptops/wide viewports).
+### 1. Deleted Service & Exports
+- **Deleted File**: Deleted `sese_core/lib/services/call/zego_call_service_impl.dart`.
+- **Barrel Export**: Removed `export 'services/call/zego_call_service_impl.dart';` from `sese_core/lib/sese_core.dart`.
 
-### 2. Adaptive Viewport Wrapper
-**[adaptive_view_wrapper.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/dashboard/presentation/adaptive_view_wrapper.dart)**
-- Created `AdaptiveViewWrapper` wrapping the root app tree in `sese_hub/lib/main.dart`.
-- When `HubViewMode.desktop` is selected on mobile devices ($< 1024$px width), overrides `MediaQuery` with a 1280px desktop viewport and wraps the canvas in `InteractiveViewer`, providing pinch-to-zoom, panning, and responsive desktop layout.
-- When `HubViewMode.mobile` is selected on desktop/web screens ($> 600$px width), constrains content to a touch-optimized 480px mobile frame with dark/neutral backdrop.
-- When compiled for Web (`kIsWeb`) or running on native desktop platforms, defaults cleanly to full desktop layout.
+### 2. Core Calling Engine (`sese_core`)
+- **[i_call_service.dart](file:///Users/micheal/sese_app/sese_core/lib/services/call/i_call_service.dart)**: Removed `zego` from `CallProviderType` enum. Active providers are `webrtc` and `agora`.
+- **[call_config_repository.dart](file:///Users/micheal/sese_app/sese_core/lib/services/call/call_config_repository.dart)**: Removed `zegoAppId`, `zegoAppSign`, `hasValidZegoCredentials`, and legacy local storage keys (`_kPrefZegoAppId`, `_kPrefZegoAppSign`).
+- **[call_service_manager.dart](file:///Users/micheal/sese_app/sese_core/lib/services/call/call_service_manager.dart)**: Removed `_zegoService` initialization, `ZegoCallServiceImpl` import, and `CallProviderType.zego` switch cases.
+- **[call_service_test.dart](file:///Users/micheal/sese_app/sese_core/test/call_service_test.dart)**: Removed Zego unit test assertions.
 
-### 3. Settings Toggle
-**[hub_settings_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/settings/hub_settings_screen.dart#L150-L185)**
-- Added "View Mode & Layout" card in `HubSettingsScreen` with a dropdown selector for `Auto (System Default)`, `Mobile View`, and `Desktop View`.
-- Updating the selection updates state instantly with a smooth layout transition without restarting the app or resetting navigation history.
+### 3. Hub Admin UI & Calling Config (`sese_hub`)
+- **[calling_config_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/settings/calling_config_screen.dart)**: Removed Zego provider selection, Zego App ID/Sign fields, and Zego test loopback controls.
+- **[hub_settings_screen.dart](file:///Users/micheal/sese_app/sese_hub/lib/features/settings/hub_settings_screen.dart)**: Updated calling tile description to reference Agora and WebRTC.
+
+### 4. Backend Cloud Functions (`functions/src`)
+- **[callTokens.ts](file:///Users/micheal/sese_app/functions/src/callTokens.ts)**: Removed `getZegoToken` function.
+- **[index.ts](file:///Users/micheal/sese_app/functions/src/index.ts)**: Removed `getZegoToken` export.
+- **Firebase Functions**: Executed `firebase functions:delete getZegoToken --region us-central1 --force` to purge the remote Cloud Function endpoint.
 
 ---
 
@@ -28,6 +29,7 @@ Implemented a non-destructive View Mode state controller (`ViewModeController`),
 
 ### Automated Tests & Pipeline Execution
 - **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_core`, `sese_hub`, and `sese_ride` with 0 issues.
+- **Flutter Unit Tests (`flutter test`)**: All 153 tests passed in `sese_core`.
 - **Backend Unit Tests (`npm test`)**: All 146 backend unit tests passed across 48 test suites with 0 failures.
-- **Firebase Deployment**: All 78 Cloud Functions, Firestore rules, and Storage rules updated successfully live on `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `28a2a70` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Firebase Deployment**: All 77 Cloud Functions and Firestore security rules deployed successfully live on `sese-ride`.
+- **Git Sync**: Staged, committed, and pushed commit `c2a5320` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

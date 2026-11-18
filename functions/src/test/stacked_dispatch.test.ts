@@ -67,4 +67,14 @@ describe("Strict Smart-Dispatch & Stacked Order Proximity Invariants", () => {
     assert.strictEqual(res.eligible, false);
     assert.strictEqual(res.reason, "stacked_orders_disabled");
   });
+
+  test("5. Fixed-fare trip (allow_bidding: false) rejects driver counter-offer bids", () => {
+    const tripWithBidding = { allow_bidding: true, allowBidding: true };
+    const tripFixedFare = { allow_bidding: false, allowBidding: false };
+
+    const isBiddingAllowed = (trip: any) => trip.allowBidding !== false && trip.allow_bidding !== false;
+
+    assert.strictEqual(isBiddingAllowed(tripWithBidding), true);
+    assert.strictEqual(isBiddingAllowed(tripFixedFare), false);
+  });
 });

@@ -96,6 +96,7 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
       if (!mounted) return;
       final biddingTrips = trips.where((t) {
         if (!t.isCustomerLive) return false;
+        if (t.allowBidding == false) return false;
         return t.status == TripStatus.searchingDriver ||
             t.status == TripStatus.waitingForAcceptance ||
             t.status == TripStatus.bidding ||

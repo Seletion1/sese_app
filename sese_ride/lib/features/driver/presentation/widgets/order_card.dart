@@ -727,6 +727,25 @@ class _OrderCardState extends State<OrderCard> {
                   ],
                 ),
               ),
+            ] else if (widget.trip.allowBidding == false) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: _sending
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.check),
+                  label: Text(_sending ? 'Claiming…' : 'Accept (Fixed Fare)'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.green.shade700,
+                    minimumSize: const Size.fromHeight(44),
+                  ),
+                  onPressed: (_sending || _bidding) ? null : _accept,
+                ),
+              ),
             ] else ...[
               Row(
                 children: [

@@ -1129,6 +1129,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     serviceType,
     status: "SEARCHING_DRIVER",
     isVerifiedCustomer: isVerifiedCust,
+    allowBidding: (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
+    allow_bidding: (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
     ...maskedPhoneMap,
     deliveryPinRequired: isPinRequired,
     deliveryPinVerified: !isPinRequired,
@@ -3240,6 +3242,15 @@ export const submitBid = guardedOnCall(async (request) => {
     throw new HttpsError("not-found", "Trip not found.");
   }
   const tripData = tripSnap.data()!;
+
+  // Fixed-Fare Order Guard: If customer disabled driver bidding for this trip, reject counter-offers
+  const isBiddingAllowed = tripData.allowBidding !== false && tripData.allow_bidding !== false;
+  if (!isBiddingAllowed) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This trip is fixed-price only and does not accept driver counter-offers."
+    );
+  }
 
   // Active Vehicle Approval & Category Isolation Guard
   const activeVehicleId = String(driverData.activeVehicleId ?? "");

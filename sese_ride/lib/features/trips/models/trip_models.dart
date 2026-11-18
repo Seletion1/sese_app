@@ -378,6 +378,9 @@ class ActiveTrip {
   /// Who pays the cash: 'sender', 'receiver', or 'split'.
   final String payerRole;
 
+  /// Whether driver counter-offer bidding is enabled for this trip (default: true).
+  final bool allowBidding;
+
   /// Number of times this order has been auto-reassigned after driver cancellation.
   final int reassignmentCount;
 
@@ -539,6 +542,7 @@ class ActiveTrip {
     this.cashToCollect = 0.0,
     this.collectAt = 'pickup',
     this.payerRole = 'sender',
+    this.allowBidding = true,
     this.escrowLocked = false,
     this.rejections = const [],
     this.attemptedDriverIds = const [],
@@ -863,6 +867,9 @@ class ActiveTrip {
       settledAt: dateOf(settlement['settledAt']) ?? dateOf(map['settledAt']),
       updatedAt: dateOf(map['updatedAt']),
       createdAt: dateOf(map['createdAt']) ?? dateOf(map['requestedAt']),
+      allowBidding: map['allowBidding'] == true ||
+          map['allow_bidding'] == true ||
+          (map['allowBidding'] == null && map['allow_bidding'] == null),
       fareAmount: fareAmount,
       isVerifiedCustomer: map['isVerifiedCustomer'] == true,
       streakLevel: n(settlement['streakLevel'])?.toInt() ?? n(map['streakLevel'])?.toInt() ?? 0,
@@ -1067,6 +1074,9 @@ class TripDraft {
   /// Amount of customer negative balance / debt recovered on this trip.
   final double recoveredDebt;
 
+  /// Whether driver counter-offer bidding is enabled for this trip (default: true).
+  final bool allowBidding;
+
   const TripDraft({
     required this.customerId,
     required this.pickupLat,
@@ -1098,10 +1108,13 @@ class TripDraft {
     this.collectAt = 'pickup',
     this.payerRole = 'sender',
     this.recoveredDebt = 0.0,
+    this.allowBidding = true,
   });
 
   Map<String, dynamic> toMap() {
     final map = <String, dynamic>{
+      'allowBidding': allowBidding,
+      'allow_bidding': allowBidding,
       'pickup': {
         'lat': pickupLat,
         'lng': pickupLng,

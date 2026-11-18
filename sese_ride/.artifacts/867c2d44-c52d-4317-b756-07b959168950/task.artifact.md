@@ -1,13 +1,12 @@
-# Implementation Task Checklist - Complete Removal of Zego Engine
+# Implementation Task Checklist - Per-Trip Bidding Toggle & Fixed-Fare Enforcement
 
-- [/] Delete `sese_core/lib/services/call/zego_call_service_impl.dart`
-- [/] Remove Zego from `i_call_service.dart`, `call_config_repository.dart`, and `call_service_manager.dart`
-- [/] Remove `zego_call_service_impl.dart` export from `sese_core.dart`
-- [/] Clean up Zego references in `sese_core/test/call_service_test.dart`
-- [/] Update `calling_config_screen.dart` and `hub_settings_screen.dart` in `sese_hub`
-- [/] Remove `getZegoToken` from `functions/src/callTokens.ts` and `functions/src/index.ts`
-- [ ] Run static code analysis (`flutter analyze`) across packages
-- [ ] Run `flutter test` in `sese_core`
+- [/] Add `allowBidding` field to `TripDraft`, `TripData`, and `TripModel` in `trip_models.dart`
+- [/] Enforce `allow_bidding` in Cloud Functions `createTrip` and `submitBid` (`functions/src/trips.ts`)
+- [/] Add unit test for fixed-fare bidding rejection in `functions/src/test/stacked_dispatch.test.ts`
+- [/] Add "Allow Driver Bidding / Counter-Offers" switch on checkout sheet in `customer_dispatch_screen.dart`
+- [/] Update driver cards (`order_card.dart`, `order_pool_sheet.dart`) for fixed-fare mode
+- [/] Update customer live trip screen & bid overlay for fixed-fare searching status
 - [ ] Run backend unit test suite (`npm test`)
+- [ ] Run static code analysis (`flutter analyze`) across packages
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`
