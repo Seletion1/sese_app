@@ -64,6 +64,9 @@ export function guardedOnCall<T = any, Return = any>(
 export function bypassAppCheckOnCall<T = any, Return = any>(
   handler: (request: CallableRequest<T>) => Return
 ): HttpsFunction & { run(request: CallableRequest<T>): Return } {
+  if (process.env.NODE_ENV === "production" || process.env.ENFORCE_APP_CHECK === "true") {
+    throw new Error("App Check bypass is strictly disabled in production.");
+  }
   return onCall({ enforceAppCheck: false }, handler) as any;
 }
 

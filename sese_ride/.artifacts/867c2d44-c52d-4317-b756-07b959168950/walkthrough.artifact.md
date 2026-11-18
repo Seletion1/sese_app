@@ -1,25 +1,21 @@
-# Walkthrough - GitHub Actions CI/CD Pipeline Implementation
+# Walkthrough - Strict Release Build Signing Protection (H-3)
 
 ## Summary of Implementation
 
-Created the automated GitHub Actions CI/CD pipeline workflow (`.github/workflows/ci.yml`) to automatically validate code quality, run static analysis, execute unit/widget tests, and build artifacts across all Flutter packages and Cloud Functions on every push and pull request.
+Enforced task-aware release signing verification in Android Gradle configuration (`sese_ride` and `sese_hub`). Release tasks (`flutter build appbundle`, `flutter build apk --release`, `assembleRelease`) fail loudly if `key.properties` or environment secrets are missing, eliminating accidental silent fallbacks to debug signing for production Play Store uploads.
 
-### 1. GitHub Actions Workflow Configuration
-**[ci.yml](file:///Users/micheal/sese_app/.github/workflows/ci.yml#L1-L50)**
-- **Triggers**: Configured for `push` and `pull_request` on `main` and `master` branches.
-- **Flutter Job (`flutter-ci`)**:
-  - Uses `subosito/flutter-action@v2` with stable Flutter 3.x.
-  - Runs `flutter pub get`, `flutter analyze`, and `flutter test` sequentially across `sese_core`, `sese_ride`, and `sese_hub`.
-- **Cloud Functions Job (`backend-ci`)**:
-  - Uses `actions/setup-node@v4` with Node.js 22.
-  - Installs dependencies (`npm ci`), builds TypeScript & generates manifest (`npm run build`), and executes all 142 backend unit tests (`npm test`).
+### 1. Task-Aware Release Signing Guards
+**[sese_ride build.gradle.kts](file:///Users/micheal/sese_app/sese_ride/android/app/build.gradle.kts#L85-L115)** & **[sese_hub build.gradle.kts](file:///Users/micheal/sese_app/sese_hub/android/app/build.gradle.kts#L55-L80)**
+- Inspects `gradle.startParameter.taskNames`:
+  - When a **release task** is requested (`release`, `bundle`, `assembleRelease`, `bundleRelease`), verifies presence of release signing properties (`key.properties` or environment secrets) and throws a `GradleException` loudly if missing.
+  - For **local debug builds** (`flutter run`, `assembleDebug`), falls back gracefully to `debug` keystore configuration so developers can run debug builds seamlessly.
 
 ---
 
 ## Verification Results
 
-### Pipeline & Test Execution
+### Automated Tests & Build Pipeline
 - **Flutter Code Analysis (`flutter analyze`)**: Passed with 0 issues across `sese_core`, `sese_hub`, and `sese_ride`.
-- **Backend Unit Tests (`npm test`)**: All 142 backend unit tests passed across 47 test suites with 0 failures.
+- **Backend Unit Tests (`npm test`)**: All 146 unit tests passed across 48 test suites with 0 failures.
 - **Firebase Deployment**: Released live to `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `795e000` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Git Sync**: Pushed commit `b3796c0` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
