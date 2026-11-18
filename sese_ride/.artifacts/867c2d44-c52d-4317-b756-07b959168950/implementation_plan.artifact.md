@@ -1,29 +1,42 @@
-# Purge / Lock Down `bypassAppCheckOnCall` (`H-4`)
+# Firebase Crashlytics Integration (`H-2`)
 
-Purge/restrict `bypassAppCheckOnCall` in `functions/src/accountGuard.ts` with a hard production gate and strict environment check to eliminate potential App Check bypass vulnerabilities.
+Integrate `firebase_crashlytics` into `sese_core`, `sese_ride`, and `sese_hub` to automatically record unhandled Flutter framework errors, async isolate crashes, and native exceptions to the Firebase console alongside local `crash_reports` logging.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Production Guard & Purge**:
->   - In `functions/src/accountGuard.ts`: Hard-gate `bypassAppCheckOnCall` so that it throws an immediate `Error('App Check bypass is strictly disabled in production.')` in production environments (`NODE_ENV === 'production'`), ensuring 100% of callable functions enforce App Check via `guardedOnCall`.
+> - **Dependency Additions**:
+>   - Add `firebase_crashlytics: ^4.3.0` to `sese_core/pubspec.yaml`, `sese_ride/pubspec.yaml`, and `sese_hub/pubspec.yaml`.
+> - **CrashReporterService Integration**:
+>   - Wire `FirebaseCrashlytics.instance.recordFlutterFatalError` and `FirebaseCrashlytics.instance.recordError` into `CrashReporterService.initialize()` (`FlutterError.onError` and `PlatformDispatcher.instance.onError`).
+>   - Ensure lazy initialization and try/catch guards so unit tests and headless environments gracefully fall back without throwing `no-app` exceptions.
 
 ## Proposed Changes
 
-### Cloud Functions Security Core (`functions/src`)
+### Shared Core & App Packages
 
-#### [MODIFY] [accountGuard.ts](file:///Users/micheal/sese_app/functions/src/accountGuard.ts#L60-L75)
-- Add hard production check in `bypassAppCheckOnCall` throwing an error when executed in production.
+#### [MODIFY] [sese_core/pubspec.yaml](file:///Users/micheal/sese_app/sese_core/pubspec.yaml)
+- Add `firebase_crashlytics: ^4.3.0` under dependencies.
+
+#### [MODIFY] [sese_ride/pubspec.yaml](file:///Users/micheal/sese_app/sese_ride/pubspec.yaml)
+- Add `firebase_crashlytics: ^4.3.0` under dependencies.
+
+#### [MODIFY] [sese_hub/pubspec.yaml](file:///Users/micheal/sese_app/sese_hub/pubspec.yaml)
+- Add `firebase_crashlytics: ^4.3.0` under dependencies.
+
+#### [MODIFY] [crash_reporter_service.dart](file:///Users/micheal/sese_app/sese_core/lib/services/crash_reporter_service.dart)
+- Wire `FirebaseCrashlytics` into `FlutterError.onError` and `PlatformDispatcher.instance.onError` within `CrashReporterService.initialize()`.
 
 ---
 
 ## Verification Plan
 
 ### Automated Test Execution
-- Run `npm run build` in `functions/` to compile TypeScript and generate `functions.yaml` manifest.
-- Run `npm test` in `functions/` to verify all 146 backend unit tests pass.
+- Run `flutter pub get` in `sese_core`, `sese_ride`, `sese_hub`.
+- Run `flutter analyze` across `sese_core`, `sese_hub`, `sese_ride`.
+- Run `flutter test` unit tests in `sese_core`.
+- Run `npm test` in `functions/`.
 
 ### Deployment Pipeline
-- Run `flutter analyze` across `sese_ride`.
 - Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
-- Stage, commit with message `security: lock down bypassAppCheckOnCall with hard production block (H-4)`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- Stage, commit with message `feat: integrate Firebase Crashlytics for automated crash reporting`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.

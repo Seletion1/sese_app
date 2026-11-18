@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -43,14 +44,21 @@ class CrashReporterService {
         debugPrint('CrashReporterService caught Flutter error in debug mode:');
         originalOnError?.call(details);
       }
+      try {
+        if (!kIsWeb) {
+          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        }
+      } catch (_) {}
       unawaited(recordCrash(
         details.exception,
         details.stack,
         context: 'FlutterError.onError',
+        fatal: !details.silent,
       ));
     };
 
     // 2. Platform dispatcher async / isolate error handler
+    final originalPlatformOnError = PlatformDispatcher.instance.onError;
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       final errStr = error.toString();
       if (errStr.contains('The client has already been terminated') ||
@@ -62,12 +70,18 @@ class CrashReporterService {
       if (kDebugMode) {
         debugPrint('CrashReporterService caught async platform error: $error');
       }
+      try {
+        if (!kIsWeb) {
+          FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        }
+      } catch (_) {}
       unawaited(recordCrash(
         error,
         stack,
         context: 'PlatformDispatcher.onError',
+        fatal: true,
       ));
-      return true; // Mark as handled
+      return originalPlatformOnError?.call(error, stack) ?? true;
     };
 
     // 3. Widget build failure handler
