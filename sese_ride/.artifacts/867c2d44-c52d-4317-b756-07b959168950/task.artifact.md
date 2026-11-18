@@ -1,10 +1,13 @@
-# Implementation Task Checklist - Desktop/Mobile View Mode Toggle (`sese_hub`)
+# Implementation Task Checklist - Complete Removal of Zego Engine
 
-- [x] Create `ViewModeController` in `sese_hub/lib/features/dashboard/services/view_mode_controller.dart`
-- [x] Create `AdaptiveViewWrapper` in `sese_hub/lib/features/dashboard/presentation/adaptive_view_wrapper.dart`
-- [x] Update root widget tree in `sese_hub/lib/main.dart` with `AdaptiveViewWrapper`
-- [x] Add View Mode setting toggle in `sese_hub/lib/features/settings/hub_settings_screen.dart`
-- [x] Run static code analysis (`flutter analyze`) across packages
-- [x] Run backend unit test suite (`npm test`)
-- [x] Execute mandatory build, test & Firebase deployment pipeline
-- [x] Create `walkthrough.artifact.md`
+- [/] Delete `sese_core/lib/services/call/zego_call_service_impl.dart`
+- [/] Remove Zego from `i_call_service.dart`, `call_config_repository.dart`, and `call_service_manager.dart`
+- [/] Remove `zego_call_service_impl.dart` export from `sese_core.dart`
+- [/] Clean up Zego references in `sese_core/test/call_service_test.dart`
+- [/] Update `calling_config_screen.dart` and `hub_settings_screen.dart` in `sese_hub`
+- [/] Remove `getZegoToken` from `functions/src/callTokens.ts` and `functions/src/index.ts`
+- [ ] Run static code analysis (`flutter analyze`) across packages
+- [ ] Run `flutter test` in `sese_core`
+- [ ] Run backend unit test suite (`npm test`)
+- [ ] Execute mandatory build, test & Firebase deployment pipeline
+- [ ] Create `walkthrough.artifact.md`

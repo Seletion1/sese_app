@@ -264,7 +264,7 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
               leading: const Icon(Icons.phone_in_talk_rounded),
               title: 'Calling Providers & Credentials',
               infoDescription:
-                  'Switch between self-hosted WebRTC (Firebase signaling) and ZegoCloud SDK, configure credentials, or test the audio pipeline.',
+                  'Configure Agora RTC Engine and self-hosted WebRTC calling providers, API keys, and failover rules.',
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 HubRoutePersistence.saveSubRoute('calling_config');

@@ -13,9 +13,6 @@ enum CallProviderType {
   /// Leverages Agora's monthly free tier (10,000 free minutes/month) with server-side
   /// RTC token isolation and automatic minute-failover to custom WebRTC.
   agora,
-
-  /// Managed calling SDK option powered by ZegoCloud (legacy fallback).
-  zego,
 }
 
 /// Routing policy for placing and managing in-app VoIP calls.
@@ -179,8 +176,8 @@ class CallSession {
 
 /// Abstract contract for in-app VoIP calling services.
 ///
-/// Implemented by [WebRtcCallServiceImpl] (self-hosted via Firebase signaling),
-/// [AgoraCallServiceImpl] (managed Agora RTC Engine), and [ZegoCallServiceImpl].
+/// Implemented by [WebRtcCallServiceImpl] (self-hosted via Firebase signaling)
+/// and [AgoraCallServiceImpl] (managed Agora RTC Engine).
 ///
 /// Consumers interact exclusively through this interface via [CallServiceManager],
 /// allowing transparent hot-swapping and minute-usage failover of calling providers

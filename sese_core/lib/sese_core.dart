@@ -92,7 +92,6 @@ export 'widgets/mandatory_legal_acceptance_dialog.dart';
 export 'services/call/i_call_service.dart';
 export 'services/call/call_config_repository.dart';
 export 'services/call/webrtc_call_service_impl.dart';
-export 'services/call/zego_call_service_impl.dart';
 export 'services/call/call_service_manager.dart';
 export 'services/uniqueness_service.dart';
 export 'services/sese_web_error_detector.dart';

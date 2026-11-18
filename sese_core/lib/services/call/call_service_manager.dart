@@ -6,7 +6,6 @@ import 'agora_call_service_impl.dart';
 import 'call_config_repository.dart';
 import 'i_call_service.dart';
 import 'webrtc_call_service_impl.dart';
-import 'zego_call_service_impl.dart';
 
 /// Dynamic factory, singleton orchestrator, and smart-fallback manager for in-app calling.
 ///
@@ -28,13 +27,11 @@ class CallServiceManager implements ICallService {
     _configRepo = CallConfigRepository.instance;
     _webrtcService = WebRtcCallServiceImpl(configRepo: _configRepo);
     _agoraService = AgoraCallServiceImpl(configRepo: _configRepo);
-    _zegoService = ZegoCallServiceImpl(configRepo: _configRepo);
   }
 
   late final CallConfigRepository _configRepo;
   late final WebRtcCallServiceImpl _webrtcService;
   late final AgoraCallServiceImpl _agoraService;
-  late final ZegoCallServiceImpl _zegoService;
 
   static FirebaseFirestore? get _safeFirestore {
     try {
@@ -117,8 +114,6 @@ class CallServiceManager implements ICallService {
     switch (_currentActiveProvider) {
       case CallProviderType.agora:
         return _agoraService;
-      case CallProviderType.zego:
-        return _zegoService;
       case CallProviderType.webrtc:
         return _webrtcService;
     }
@@ -147,12 +142,6 @@ class CallServiceManager implements ICallService {
     );
 
     await _agoraService.initialize(
-      currentUserId: currentUserId,
-      displayName: displayName,
-      avatarUrl: avatarUrl,
-    );
-
-    await _zegoService.initialize(
       currentUserId: currentUserId,
       displayName: displayName,
       avatarUrl: avatarUrl,
@@ -201,7 +190,7 @@ class CallServiceManager implements ICallService {
 
   /// Dynamically switches the active calling provider (backwards compatibility).
   Future<void> switchProvider(CallProviderType newProvider) async {
-    final newMode = (newProvider == CallProviderType.agora || newProvider == CallProviderType.zego)
+    final newMode = (newProvider == CallProviderType.agora)
         ? CallRoutingMode.thirdPartyOnly
         : CallRoutingMode.customP2pOnly;
     await switchRoutingMode(newMode);
@@ -488,7 +477,6 @@ class CallServiceManager implements ICallService {
 
     await _webrtcService.clearUserSession();
     await _agoraService.clearUserSession();
-    await _zegoService.clearUserSession();
 
     _currentUserId = null;
     _displayName = null;
@@ -506,6 +494,5 @@ class CallServiceManager implements ICallService {
     await _incomingCallController.close();
     await _webrtcService.dispose();
     await _agoraService.dispose();
-    await _zegoService.dispose();
   }
 }

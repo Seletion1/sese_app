@@ -15,27 +15,14 @@ void main() {
       expect(config.stunServers, contains('stun:stun.l.google.com:19302'));
       expect(config.stunServers, contains('stun:stun1.l.google.com:19302'));
       expect(config.hasValidAgoraCredentials, isFalse);
-      expect(config.hasValidZegoCredentials, isFalse);
     });
 
-    test('validates Agora and Zego credentials correctly', () {
+    test('validates Agora credentials correctly', () {
       const invalidAgora = CallConfig(agoraAppId: '');
       expect(invalidAgora.hasValidAgoraCredentials, isFalse);
 
       const validAgora = CallConfig(agoraAppId: 'cd70ed7adfca42f7bcadc14259a939c4');
       expect(validAgora.hasValidAgoraCredentials, isTrue);
-
-      const invalidZego = CallConfig(
-        zegoAppId: 0,
-        zegoAppSign: '0123456789abcdef0123456789abcdef',
-      );
-      expect(invalidZego.hasValidZegoCredentials, isFalse);
-
-      const validZego = CallConfig(
-        zegoAppId: 123456,
-        zegoAppSign: '0123456789abcdef0123456789abcdef',
-      );
-      expect(validZego.hasValidZegoCredentials, isTrue);
     });
 
     test('evaluates isAgoraLimitReached correctly', () {
@@ -94,9 +81,9 @@ void main() {
     });
 
     test('deserialization backward compatibility with legacy providerType and aliases', () {
-      final legacyZegoMap = {'providerType': 'zego'};
-      final cZego = CallConfig.fromMap(legacyZegoMap);
-      expect(cZego.routingMode, equals(CallRoutingMode.thirdPartyOnly));
+      final legacyAgoraMap = {'providerType': 'agora'};
+      final cAgora = CallConfig.fromMap(legacyAgoraMap);
+      expect(cAgora.routingMode, equals(CallRoutingMode.thirdPartyOnly));
 
       final legacyWebrtcMap = {'providerType': 'webrtc'};
       final cWebrtc = CallConfig.fromMap(legacyWebrtcMap);

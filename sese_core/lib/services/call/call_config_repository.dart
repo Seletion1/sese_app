@@ -36,12 +36,6 @@ class CallConfig {
   /// Tracked global call minutes used in the current billing cycle.
   final int agoraCallsUsedMinutesThisMonth;
 
-  /// ZegoCloud Application ID (numeric integer, legacy).
-  final int? zegoAppId;
-
-  /// ZegoCloud Application Sign (64-character hexadecimal authentication key, legacy).
-  final String? zegoAppSign;
-
   /// STUN servers used by WebRTC for ICE candidate discovery and NAT traversal.
   final List<String> stunServers;
 
@@ -56,8 +50,6 @@ class CallConfig {
     this.agoraMonthlyFreeMinutesCap = 10000,
     this.agoraAutoFailoverThresholdMinutes = 9900,
     this.agoraCallsUsedMinutesThisMonth = 0,
-    this.zegoAppId,
-    this.zegoAppSign,
     this.stunServers = defaultGoogleStunServers,
     this.enableDiagnostics = false,
   });
@@ -84,15 +76,6 @@ class CallConfig {
     return agoraCallsUsedMinutesThisMonth >= agoraAutoFailoverThresholdMinutes;
   }
 
-  /// True if ZegoCloud credentials are valid (legacy fallback).
-  bool get hasValidZegoCredentials {
-    if (zegoAppId == null || zegoAppId! <= 0) return false;
-    if (zegoAppSign != null && zegoAppSign!.isNotEmpty) {
-      return zegoAppSign!.trim().length >= 32;
-    }
-    return true;
-  }
-
   CallConfig copyWith({
     CallRoutingMode? routingMode,
     int? fallbackTimeoutSeconds,
@@ -102,14 +85,12 @@ class CallConfig {
     int? agoraMonthlyFreeMinutesCap,
     int? agoraAutoFailoverThresholdMinutes,
     int? agoraCallsUsedMinutesThisMonth,
-    int? zegoAppId,
-    String? zegoAppSign,
     List<String>? stunServers,
     bool? enableDiagnostics,
   }) {
     CallRoutingMode mode = routingMode ?? this.routingMode;
     if (routingMode == null && providerType != null) {
-      mode = (providerType == CallProviderType.agora || providerType == CallProviderType.zego)
+      mode = (providerType == CallProviderType.agora)
           ? CallRoutingMode.thirdPartyOnly
           : CallRoutingMode.customP2pOnly;
     }
@@ -124,8 +105,6 @@ class CallConfig {
           agoraAutoFailoverThresholdMinutes ?? this.agoraAutoFailoverThresholdMinutes,
       agoraCallsUsedMinutesThisMonth:
           agoraCallsUsedMinutesThisMonth ?? this.agoraCallsUsedMinutesThisMonth,
-      zegoAppId: zegoAppId ?? this.zegoAppId,
-      zegoAppSign: zegoAppSign ?? this.zegoAppSign,
       stunServers: stunServers ?? this.stunServers,
       enableDiagnostics: enableDiagnostics ?? this.enableDiagnostics,
     );
@@ -137,12 +116,11 @@ class CallConfig {
       'providerType': providerType.name,
       'fallbackTimeoutSeconds': fallbackTimeoutSeconds,
       'agoraAppId': agoraAppId,
-      // Security: Secret credentials (agoraAppCertificate, zegoAppSign) are strictly
+      // Security: Secret credentials (agoraAppCertificate) are strictly
       // omitted from client Firestore write payloads to prevent client key exposure.
       'agoraMonthlyFreeMinutesCap': agoraMonthlyFreeMinutesCap,
       'agoraAutoFailoverThresholdMinutes': agoraAutoFailoverThresholdMinutes,
       'agoraCallsUsedMinutesThisMonth': agoraCallsUsedMinutesThisMonth,
-      'zegoAppId': zegoAppId,
       'stunServers': stunServers,
       'enableDiagnostics': enableDiagnostics,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -220,14 +198,6 @@ class CallConfig {
       agoraUsedMins = int.tryParse(rawAgoraUsed.trim()) ?? 0;
     }
 
-    int? appId;
-    final rawAppId = map['zegoAppId'];
-    if (rawAppId is int) {
-      appId = rawAppId;
-    } else if (rawAppId is String) {
-      appId = int.tryParse(rawAppId.trim());
-    }
-
     List<String> stuns = defaultGoogleStunServers;
     if (map['stunServers'] is List) {
       final parsedList = (map['stunServers'] as List)
@@ -247,8 +217,6 @@ class CallConfig {
       agoraMonthlyFreeMinutesCap: agoraCap,
       agoraAutoFailoverThresholdMinutes: agoraThreshold,
       agoraCallsUsedMinutesThisMonth: agoraUsedMins,
-      zegoAppId: appId,
-      zegoAppSign: null,
       stunServers: stuns,
       enableDiagnostics: map['enableDiagnostics'] == true,
     );
@@ -269,8 +237,6 @@ class CallConfigRepository {
   static const String _kPrefAgoraCap = 'sese_call_agora_cap';
   static const String _kPrefAgoraThreshold = 'sese_call_agora_threshold';
   static const String _kPrefAgoraUsedMins = 'sese_call_agora_used_mins';
-  static const String _kPrefZegoAppId = 'sese_call_zego_app_id';
-  static const String _kPrefZegoAppSign = 'sese_call_zego_app_sign';
   static const String _kPrefStunServers = 'sese_call_stun_servers';
   static const String _kPrefDiagnostics = 'sese_call_enable_diagnostics';
 
@@ -309,7 +275,6 @@ class CallConfigRepository {
       final agoraCap = prefs.getInt(_kPrefAgoraCap) ?? 10000;
       final agoraThreshold = prefs.getInt(_kPrefAgoraThreshold) ?? 9900;
       final agoraUsed = prefs.getInt(_kPrefAgoraUsedMins) ?? 0;
-      final zegoAppId = prefs.getInt(_kPrefZegoAppId);
       final stunList = prefs.getStringList(_kPrefStunServers);
       final diagnostics = prefs.getBool(_kPrefDiagnostics) ?? false;
 
@@ -321,8 +286,6 @@ class CallConfigRepository {
         agoraMonthlyFreeMinutesCap: agoraCap,
         agoraAutoFailoverThresholdMinutes: agoraThreshold,
         agoraCallsUsedMinutesThisMonth: agoraUsed,
-        zegoAppId: zegoAppId,
-        zegoAppSign: null,
         stunServers: stunList != null && stunList.isNotEmpty
             ? stunList
             : CallConfig.defaultGoogleStunServers,
@@ -417,13 +380,6 @@ class CallConfigRepository {
       await prefs.setInt(_kPrefAgoraThreshold, config.agoraAutoFailoverThresholdMinutes);
       await prefs.setInt(_kPrefAgoraUsedMins, config.agoraCallsUsedMinutesThisMonth);
 
-      if (config.zegoAppId != null) {
-        await prefs.setInt(_kPrefZegoAppId, config.zegoAppId!);
-      } else {
-        await prefs.remove(_kPrefZegoAppId);
-      }
-
-      await prefs.remove(_kPrefZegoAppSign);
       await prefs.setStringList(_kPrefStunServers, config.stunServers);
       await prefs.setBool(_kPrefDiagnostics, config.enableDiagnostics);
     } catch (e) {
