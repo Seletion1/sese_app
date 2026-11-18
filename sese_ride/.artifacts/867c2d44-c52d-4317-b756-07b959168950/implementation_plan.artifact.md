@@ -1,27 +1,35 @@
-# Create GitHub Actions CI/CD Pipeline (`.github/workflows/ci.yml`)
+# Strict Release Build Signing Verification (`H-3`)
 
-Implement a comprehensive GitHub Actions CI workflow that automatically runs static analysis, unit/widget tests, and build validation across all 3 Flutter packages (`sese_core`, `sese_ride`, `sese_hub`) and the Cloud Functions Node.js backend on every push and pull request to `main` and `master`.
+Enforce strict release signing verification in Android Gradle configuration (`sese_ride` and `sese_hub`). Release builds (`flutter build appbundle`, `assembleRelease`) fail loudly if `key.properties` or release environment signing keys are missing, preventing accidental silent fallback to debug signing for production Play Store uploads.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> - **Monorepo Workflow Coverage**:
->   - **Flutter Job (`flutter-ci`)**: Runs `flutter pub get`, `flutter analyze`, and `flutter test` across `sese_core`, `sese_ride`, and `sese_hub`.
->   - **Backend Job (`backend-ci`)**: Sets up Node.js 22, runs `npm install`, `npm run build` (validating `tsc` compilation and `functions.yaml` manifest generation), and executes all 142 backend unit tests (`npm test`) in `functions/`.
-> - **Triggers**: Executes automatically on `push` and `pull_request` events targeting `main` or `master`.
+> - **Task-Aware Release Signing Protection**:
+>   - In `sese_ride/android/app/build.gradle.kts` and `sese_hub/android/app/build.gradle.kts`:
+>   - Inspect `gradle.startParameter.taskNames` during signing configuration.
+>   - When a **release task** is requested (`assembleRelease`, `bundleRelease`, `flutter build appbundle`, `flutter build apk --release`), require valid release signing properties (`key.properties` or environment variables) and throw a `GradleException` loudly if missing.
+>   - For **local debug tasks** (`flutter run`, `assembleDebug`), allow local debug signing fallback so developers can run debug builds seamlessly.
 
 ## Proposed Changes
 
-### GitHub Workflows
+### Android Build Configurations (`android/app/build.gradle.kts`)
 
-#### [NEW] [ci.yml](file:///Users/micheal/sese_app/.github/workflows/ci.yml)
-- Create `.github/workflows/ci.yml` with jobs for Flutter static analysis/tests (`sese_core`, `sese_ride`, `sese_hub`) and Node.js 22 backend build & unit tests (`functions/`).
+#### [MODIFY] [sese_ride build.gradle.kts](file:///Users/micheal/sese_app/sese_ride/android/app/build.gradle.kts#L85-L105)
+- Add task-aware `isReleaseRequested` check to `signingConfigs.create("release")` throwing `GradleException` loudly on release tasks when release keys are missing.
+
+#### [MODIFY] [sese_hub build.gradle.kts](file:///Users/micheal/sese_app/sese_hub/android/app/build.gradle.kts#L50-L75)
+- Add task-aware `isReleaseRequested` check to `signingConfigs.create("release")` throwing `GradleException` loudly on release tasks when release keys are missing.
 
 ---
 
 ## Verification Plan
 
-### Local & Remote Verification
-- Run `flutter analyze` across `sese_core`, `sese_hub`, `sese_ride`.
+### Automated Build & Test Execution
+- Run `flutter analyze` across `sese_ride`, `sese_hub`, `sese_core`.
+- Run `./gradlew assembleDebug` in `sese_ride/android` to verify debug builds succeed locally.
 - Run `npm test` in `functions/`.
-- Commit `.github/workflows/ci.yml` and push to GitHub remote (`https://github.com/Seletion1/sese_app.git`) on branch `main`.
+
+### Deployment Pipeline
+- Deploy backend via `firebase deploy --only functions,firestore:rules,storage.rules`.
+- Stage, commit with message `fix: enforce strict release build signing constraints in Gradle`, and push to `https://github.com/Seletion1/sese_app.git` on branch `main`.

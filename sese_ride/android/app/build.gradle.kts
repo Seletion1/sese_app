@@ -94,12 +94,27 @@ android {
                 keyAlias = aliasName
                 keyPassword = keyPass
             } else {
-                // Fall back to debug signing for local builds when key.properties is absent
-                val debugConfig = signingConfigs.getByName("debug")
-                storeFile = debugConfig.storeFile
-                storePassword = debugConfig.storePassword
-                keyAlias = debugConfig.keyAlias
-                keyPassword = debugConfig.keyPassword
+                val isReleaseRequested = gradle.startParameter.taskNames.any {
+                    it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+                }
+                if (isReleaseRequested) {
+                    throw GradleException(
+                        "MISSING RELEASE SIGNING CONFIGURATION:\n" +
+                        "Release build requested for sese_ride, but release signing properties (key.properties) were not found.\n" +
+                        "Provide a valid key.properties file in android/ or configure local.properties / environment variables:\n" +
+                        "  - storeFile (or RELEASE_STORE_FILE)\n" +
+                        "  - storePassword (or RELEASE_STORE_PASSWORD)\n" +
+                        "  - keyAlias (or RELEASE_KEY_ALIAS)\n" +
+                        "  - keyPassword (or RELEASE_KEY_PASSWORD)\n" +
+                        "Production release builds must never fall back to debug signing keys."
+                    )
+                } else {
+                    val debugConfig = signingConfigs.getByName("debug")
+                    storeFile = debugConfig.storeFile
+                    storePassword = debugConfig.storePassword
+                    keyAlias = debugConfig.keyAlias
+                    keyPassword = debugConfig.keyPassword
+                }
             }
         }
     }
