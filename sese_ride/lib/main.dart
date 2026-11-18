@@ -172,6 +172,7 @@ void main() async {
     }
   };
   unawaited(CancellationQueueService.instance.init());
+  unawaited(_initDynamicMapCredentials());
 
   // showSplash: true — the Flutter SeSeSplashScreen is the ONLY branded
   // experience. The native Android window is now a plain solid-colour fill
@@ -233,6 +234,54 @@ Future<void> _handlePushTap(Map<String, String> data) async {
         ),
       );
     }
+  }
+}
+
+/// Dynamically fetches and applies platform-specific map credentials from Firestore (`system_config/api_keys`).
+///
+/// On Android, injects `google_maps.android_key` or `mapbox.android_token`.
+/// On iOS, passes `google_maps.ios_key` or `mapbox.ios_token`.
+/// Gracefully falls back to build-time environment variables (`GOOGLE_MAPS_API_KEY`) if offline or timed out.
+Future<void> _initDynamicMapCredentials() async {
+  try {
+    final apiKeys = await const ApiKeysService()
+        .fetchApiKeys()
+        .timeout(const Duration(seconds: 4));
+    final activeProvider = apiKeys.normalizedProvider;
+
+    String? apiKey;
+    String? mapboxToken;
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      apiKey = apiKeys.googleAndroidKey.isNotEmpty
+          ? apiKeys.googleAndroidKey
+          : null;
+      mapboxToken = apiKeys.mapboxAndroidToken.isNotEmpty
+          ? apiKeys.mapboxAndroidToken
+          : null;
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      apiKey =
+          apiKeys.googleIosKey.isNotEmpty ? apiKeys.googleIosKey : null;
+      mapboxToken =
+          apiKeys.mapboxIosToken.isNotEmpty ? apiKeys.mapboxIosToken : null;
+    } else {
+      apiKey =
+          apiKeys.googleWebKey.isNotEmpty ? apiKeys.googleWebKey : null;
+      mapboxToken =
+          apiKeys.mapboxWebToken.isNotEmpty ? apiKeys.mapboxWebToken : null;
+    }
+
+    final globalConfig = GlobalMapConfig(
+      activeProvider: activeProvider,
+      apiKey: apiKey ?? GlobalMapConfig.defaultGoogleMapsApiKey,
+      mapboxToken: mapboxToken,
+    );
+
+    MapConfigController.instance.updateConfig(globalConfig);
+    debugPrint(
+        'sese_ride: Dynamic map credentials initialized (provider: $activeProvider)');
+  } catch (e) {
+    debugPrint('sese_ride: _initDynamicMapCredentials fallback warning: $e');
   }
 }
 

@@ -19,6 +19,8 @@ export 'auth/stub_auth_repository.dart';
 export 'config/app_check_config.dart';
 export 'services/app_check_service.dart';
 export 'models/car_tier_thresholds.dart';
+export 'models/api_keys_config.dart';
+export 'services/api_keys_service.dart';
 export 'models/admin_application.dart';
 export 'models/dispatch_tuning.dart';
 export 'services/admin_application_service.dart';

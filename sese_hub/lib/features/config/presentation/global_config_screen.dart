@@ -121,6 +121,15 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _maxDistanceToDropoffKmCtrl = TextEditingController(text: '2.0');
   final _maxRemainingTimeMinutesCtrl = TextEditingController(text: '10');
 
+  // Map & API Key Management Controllers (/system_config/api_keys)
+  String _apiKeysActiveProvider = 'google';
+  final _googleAndroidKeyCtrl = TextEditingController();
+  final _googleIosKeyCtrl = TextEditingController();
+  final _googleWebKeyCtrl = TextEditingController();
+  final _mapboxAndroidTokenCtrl = TextEditingController();
+  final _mapboxIosTokenCtrl = TextEditingController();
+  final _mapboxWebTokenCtrl = TextEditingController();
+
   // Financial System Parameters Controllers (/system_configs/financials)
   final _minWalletBalanceToOnlineCtrl = TextEditingController(text: '1.0');
   final _minTopUpAmountCtrl = TextEditingController(text: '1300');
@@ -283,6 +292,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     if (!mounted) return;
     final remoteKeys = await const RemoteKeysService().fetchRemoteKeys();
     if (!mounted) return;
+    final apiKeys = await const ApiKeysService().fetchApiKeys();
+    if (!mounted) return;
     String? googleCapText;
     String? mapboxCapText;
     try {
@@ -350,6 +361,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _allowStackedOrders = tuning.allowStackedOrders;
       _maxDistanceToDropoffKmCtrl.text = tuning.maxDistanceToDropoffKm.toString();
       _maxRemainingTimeMinutesCtrl.text = tuning.maxRemainingTimeMinutes.toString();
+
+      _apiKeysActiveProvider = apiKeys.normalizedProvider;
+      _googleAndroidKeyCtrl.text = apiKeys.googleAndroidKey;
+      _googleIosKeyCtrl.text = apiKeys.googleIosKey;
+      _googleWebKeyCtrl.text = apiKeys.googleWebKey;
+      _mapboxAndroidTokenCtrl.text = apiKeys.mapboxAndroidToken;
+      _mapboxIosTokenCtrl.text = apiKeys.mapboxIosToken;
+      _mapboxWebTokenCtrl.text = apiKeys.mapboxWebToken;
       _bicycleMaxCtrl.text =
           vehicleRec.bicycleMaxDistanceKm.toString();
       _kekeMaxCtrl.text = vehicleRec.kekeMaxDistanceKm.toString();
@@ -621,6 +640,50 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           maxConcurrentBids: maxBids,
         ),
       );
+
+      final newApiKeys = ApiKeysConfig(
+        activeMapProvider: _apiKeysActiveProvider,
+        googleAndroidKey: _googleAndroidKeyCtrl.text.trim(),
+        googleIosKey: _googleIosKeyCtrl.text.trim(),
+        googleWebKey: _googleWebKeyCtrl.text.trim(),
+        mapboxAndroidToken: _mapboxAndroidTokenCtrl.text.trim(),
+        mapboxIosToken: _mapboxIosTokenCtrl.text.trim(),
+        mapboxWebToken: _mapboxWebTokenCtrl.text.trim(),
+      );
+
+      if (newApiKeys.isGoogle &&
+          newApiKeys.googleAndroidKey.isEmpty &&
+          newApiKeys.googleIosKey.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please enter at least one valid Google Maps API Key before saving.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (newApiKeys.isMapbox &&
+          newApiKeys.mapboxAndroidToken.isEmpty &&
+          newApiKeys.mapboxIosToken.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Please enter at least one valid Mapbox Access Token before saving.',
+              ),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      await ApiKeysService().saveApiKeys(newApiKeys);
       await const VehicleRecommendationService().saveConfig(
         VehicleRecommendationConfig(
           bicycleMaxDistanceKm:
@@ -932,6 +995,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             _buildBiddingConfigCard(),
             const SizedBox(height: 20),
             _buildDispatchConsoleCard(),
+            const SizedBox(height: 20),
+            _buildApiKeysCard(),
             const SizedBox(height: 20),
             _buildVehicleRecommendationsCard(),
           ]),
@@ -2910,6 +2975,90 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               ),
               value: _allowStackedOrders,
               onChanged: (val) => setState(() => _allowStackedOrders = val),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Dedicated Map & API Key Management section (stored in system_config/api_keys)
+  Widget _buildApiKeysCard() {
+    Widget txtField(
+      TextEditingController controller,
+      String label,
+      String helper,
+    ) =>
+        _CappedField(
+          preferredWidth: 320,
+          child: TextFormField(
+            controller: controller,
+            obscureText: true,
+            decoration: InputDecoration(
+              labelText: label,
+              helperText: helper,
+              isDense: true,
+            ),
+          ),
+        );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Map & API Key Management (system_config/api_keys)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Dynamically managed map credentials streamed to sese_ride on app launch. '
+              'Keys are stored securely in system_config/api_keys with automatic environment fallback.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                const Text('Active Map Provider: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                DropdownButton<String>(
+                  value: _apiKeysActiveProvider,
+                  items: const [
+                    DropdownMenuItem(value: 'google', child: Text('Google Maps')),
+                    DropdownMenuItem(value: 'mapbox', child: Text('Mapbox')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _apiKeysActiveProvider = val);
+                    }
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('Google Maps API Keys', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                txtField(_googleAndroidKeyCtrl, 'Android API Key', 'google_maps.android_key'),
+                txtField(_googleIosKeyCtrl, 'iOS API Key', 'google_maps.ios_key'),
+                txtField(_googleWebKeyCtrl, 'Web API Key', 'google_maps.web_key'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('Mapbox Access Tokens', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                txtField(_mapboxAndroidTokenCtrl, 'Android Access Token', 'mapbox.android_token'),
+                txtField(_mapboxIosTokenCtrl, 'iOS Access Token', 'mapbox.ios_token'),
+                txtField(_mapboxWebTokenCtrl, 'Web Access Token', 'mapbox.web_token'),
+              ],
             ),
           ],
         ),

@@ -1,9 +1,10 @@
-# Implementation Task Checklist - Firebase Crashlytics Integration (H-2)
+# Implementation Task Checklist - Dynamic Map & API Key Management
 
-- [/] Add `firebase_crashlytics: ^4.3.0` to `sese_core`, `sese_ride`, and `sese_hub` `pubspec.yaml`
-- [/] Wire `FirebaseCrashlytics` into `CrashReporterService.initialize()` in `sese_core`
-- [ ] Run `flutter pub get` across `sese_core`, `sese_hub`, `sese_ride`
-- [ ] Run static code analysis (`flutter analyze`)
+- [/] Create `ApiKeysConfig` model and `ApiKeysService` in `sese_core`
+- [/] Update `firestore.rules` for `system_config/api_keys`
+- [/] Add Map & API Key Management section in `sese_hub` `global_config_screen.dart`
+- [/] Update startup credential injection in `sese_ride/lib/main.dart`
+- [ ] Run static code analysis (`flutter analyze`) across packages
 - [ ] Run backend unit test suite (`npm test`)
 - [ ] Execute mandatory build, test & Firebase deployment pipeline
 - [ ] Create `walkthrough.artifact.md`
