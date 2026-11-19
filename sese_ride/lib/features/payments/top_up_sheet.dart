@@ -186,19 +186,22 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         _amount! >= min &&
         _amount! <= max;
     return SafeArea(
-      child: Padding(
-        // 16px side gutters: chips, input, and Pay button span
-        // edge-to-edge instead of a 20px-inset column.
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 12,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 12,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Row(
               children: [
                 const Icon(Icons.account_balance_wallet_outlined),
@@ -382,11 +385,13 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                         }),
                 child: const Text('Change amount'),
               ),
+              const SizedBox(height: 8),
             ],
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

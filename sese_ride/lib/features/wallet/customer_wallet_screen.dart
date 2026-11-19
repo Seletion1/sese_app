@@ -194,12 +194,15 @@ Future<void> showWalletBalanceSheet(
   final service = payments ?? PaymentService();
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
     showDragHandle: true,
     builder: (sheetContext) {
       return SafeArea(
+        top: false,
         // 16px gutters: balance + CTA span edge-to-edge on phones.
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

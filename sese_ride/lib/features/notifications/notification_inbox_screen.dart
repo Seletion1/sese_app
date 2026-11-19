@@ -193,6 +193,7 @@ class NotificationInboxScreen extends StatelessWidget {
     _markRead(context, n);
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       showDragHandle: true,
       useSafeArea: true,
       builder: (ctx) => _NotificationDetailSheet(item: n),
@@ -377,12 +378,17 @@ class _NotificationDetailSheetState extends State<_NotificationDetailSheet> {
         : '${at.day}/${at.month}/${at.year} ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
     // 16px gutters: detail text + actions span edge-to-edge on phones.
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Row(
               children: [
                 CircleAvatar(
@@ -575,7 +581,8 @@ class _NotificationDetailSheetState extends State<_NotificationDetailSheet> {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

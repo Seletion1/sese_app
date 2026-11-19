@@ -245,49 +245,51 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.7,
-      minChildSize: 0.4,
-      maxChildSize: 0.92,
-      builder: (context, scrollController) {
-        return StreamBuilder<List<ActiveTrip>>(
-              stream: widget.streakService
-                  .marketplaceStream(driverId: widget.driverId),
-              builder: (context, snap) {
-                final trips = (snap.data ?? const <ActiveTrip>[])
-                    .where((t) =>
-                        t.status != TripStatus.returnedToCustomer &&
-                        t.status != TripStatus.expired)
-                    .where((t) =>
-                        widget.driverId == null ||
-                        widget.driverId!.isEmpty ||
-                        t.customerId != widget.driverId)
-                    .where((t) => OrderFeedState.withinPoolRadius(
-                        t, widget.driverPosition))
-                    .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
-                    .where((t) => _matchesActiveVehicleCategory(t))
-                    .toList();
-                // Opaque sheet surface: the modal opens with a transparent
-                // barrier background, so the content must carry its own
-                // surface — otherwise the header/empty-state text ghosts over
-                // the dashboard map underneath.
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(20)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 16,
-                        offset: const Offset(0, -4),
-                      ),
-                    ],
+    return StreamBuilder<List<ActiveTrip>>(
+      stream: widget.streakService
+          .marketplaceStream(driverId: widget.driverId),
+      builder: (context, snap) {
+        final trips = (snap.data ?? const <ActiveTrip>[])
+            .where((t) =>
+                t.status != TripStatus.returnedToCustomer &&
+                t.status != TripStatus.expired)
+            .where((t) =>
+                widget.driverId == null ||
+                widget.driverId!.isEmpty ||
+                t.customerId != widget.driverId)
+            .where((t) => OrderFeedState.withinPoolRadius(
+                t, widget.driverPosition))
+            .where((t) => !OrderPoolSession.isDismissed(t.tripId, t))
+            .where((t) => _matchesActiveVehicleCategory(t))
+            .toList();
+
+        final bool isEmpty = trips.isEmpty;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: isEmpty ? 0.35 : 0.65,
+          minChildSize: isEmpty ? 0.22 : 0.35,
+          maxChildSize: isEmpty ? 0.50 : 0.92,
+          builder: (context, scrollController) {
+            // Opaque sheet surface: the modal opens with a transparent
+            // barrier background, so the content must carry its own
+            // surface — otherwise the header/empty-state text ghosts over
+            // the dashboard map underneath.
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 16,
+                    offset: const Offset(0, -4),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                       const SizedBox(height: 8),
                       Container(
                         width: 40,
@@ -404,8 +406,8 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                 );
               },
             );
-      },
-    );
+          },
+        );
   }
 }
 
@@ -676,15 +678,6 @@ class PoolOrderDetailSheet extends StatefulWidget {
 
 typedef _PoolOrderDetailSheet = PoolOrderDetailSheet;
 
-/// Snap fractions for the detail-sheet [DraggableScrollableSheet].
-///
-/// [_kSheetMinSnap]  — collapsed: map visible, sheet peeking.
-/// [_kSheetMidSnap]  — default open: all bidding controls visible.
-/// [_kSheetMaxSnap]  — fully expanded: scrollable content fills screen.
-const double _kSheetMinSnap = 0.18;
-const double _kSheetMidSnap = 0.50;
-const double _kSheetMaxSnap = 0.88;
-
 class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   final SeSeMapController _mapController = SeSeMapController();
   List<LatLng> _routePoints = [];
@@ -701,8 +694,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   BidStatus? _lastTrackedBidStatus;
   bool _hasShownTimeoutToast = false;
   bool _hasShownRejectToast = false;
-  /// Mirrors the latest `isBidPending` value from the stream so that
-  /// [_sheetController] can be driven from outside the [StreamBuilder] tree.
   bool _isBidPending = false;
 
   LatLng get _pickup => LatLng(widget.trip.pickupLat, widget.trip.pickupLng);
@@ -787,8 +778,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     }
   }
 
-  late final DraggableScrollableController _sheetController;
-
   Stream<DispatchTuning> _dispatchTuningStream() {
     try {
       return FirebaseFirestore.instance
@@ -804,7 +793,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   @override
   void initState() {
     super.initState();
-    _sheetController = DraggableScrollableController();
     final baseline = widget.trip.fareAmount;
     _bidCtrl = TextEditingController(text: baseline.round().toString());
     _selectedSuggestionPct = null;
@@ -812,34 +800,7 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _mapController.fitPoints(_pickup, _dropoff, padding: 88);
-      // Auto-expand the bottom sheet to the mid snap so all bidding controls
-      // are immediately visible without requiring the driver to drag manually.
-      if (_sheetController.isAttached) {
-        _sheetController.animateTo(
-          _kSheetMidSnap,
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutCubic,
-        );
-      }
-      // Enforce the bid-lock floor: if a bid is pending and the driver drags
-      // the sheet below [_kSheetMidSnap], snap it back up immediately.
-      _sheetController.addListener(_enforceSheetFloor);
     });
-  }
-
-  /// Snaps the sheet back to [_kSheetMidSnap] when [_isBidPending] and the
-  /// driver has dragged it below that threshold.  Called on every controller
-  /// position tick so the response is instantaneous.
-  void _enforceSheetFloor() {
-    if (!_isBidPending) return;
-    if (!_sheetController.isAttached) return;
-    if (_sheetController.size < _kSheetMidSnap - 0.02) {
-      _sheetController.animateTo(
-        _kSheetMidSnap,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-      );
-    }
   }
 
   @override
@@ -847,7 +808,6 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
     _countdownTimer?.cancel();
     _bidCtrl.dispose();
     _bidFocusNode.dispose();
-    _sheetController.dispose();
     super.dispose();
   }
 
@@ -1147,22 +1107,10 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                 activeBid.status == BidStatus.pending &&
                 !activeBid.isExpired;
 
-            // Sync the state flag so that the DraggableScrollableSheet key
-            // and the map-tap guard are driven by the same value.  When a bid
-            // becomes pending, animate the sheet up to _kSheetMidSnap so that
-            // all bidding controls remain visible and the driver can clearly
-            // see the countdown.
             if (isBidPending != _isBidPending) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
                 setState(() => _isBidPending = isBidPending);
-                if (isBidPending && _sheetController.isAttached) {
-                  _sheetController.animateTo(
-                    _kSheetMidSnap,
-                    duration: const Duration(milliseconds: 280),
-                    curve: Curves.easeOutCubic,
-                  );
-                }
               });
             }
 
@@ -1202,20 +1150,8 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                           child: GestureDetector(
                             behavior: HitTestBehavior.translucent,
                             onTap: () {
-                              // During an active countdown the sheet is locked
-                              // at _kSheetMidSnap; tapping the map must not
-                              // collapse it below that floor.
-                              if (_sheetController.isAttached) {
-                                _sheetController.animateTo(
-                                  isBidPending
-                                      ? _kSheetMidSnap
-                                      : _kSheetMinSnap,
-                                  duration: const Duration(milliseconds: 300),
-                                  curve: Curves.easeOutCubic,
-                                );
-                              }
                               _mapController.fitPoints(_pickup, _dropoff,
-                                  padding: 64);
+                                  padding: 88);
                             },
                             child: SeSeMapView(
                               // Use the policy-aware resolver so that
@@ -1323,67 +1259,54 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                         ),
                       ),
 
-                      // ── Layer 2: Draggable Bottom Sheet with Sticky Primary Action ──
-                      // During an active bid countdown [_enforceSheetFloor]
-                      // listens to the controller and snaps the sheet back to
-                      // [_kSheetMidSnap] if the driver drags below that floor,
-                      // effectively locking the sheet open during the wait.
-                      DraggableScrollableSheet(
-                        controller: _sheetController,
-                        initialChildSize: _kSheetMidSnap,
-                        minChildSize: _kSheetMinSnap,
-                        maxChildSize: _kSheetMaxSnap,
-                        snap: true,
-                        snapSizes: const [
-                          _kSheetMinSnap,
-                          _kSheetMidSnap,
-                          _kSheetMaxSnap,
-                        ],
-                    builder: (context, scrollController) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).scaffoldBackgroundColor,
-                          borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(24)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 16,
-                              offset: const Offset(0, -4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            const SizedBox(height: 10),
-                            // Sheet drag handle — hidden during active bid to prevent drag-dismiss
-                            if (!isBidPending)
-                              Center(
-                                child: Container(
-                                  width: 44,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: scheme.onSurfaceVariant
-                                        .withValues(alpha: 0.4),
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
+                      // ── Layer 2: Dynamically Sized Bottom Sheet with Dynamic Bidding & Zero Dead Space ──
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                            borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(24)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 16,
+                                offset: const Offset(0, -4),
                               ),
-                            // Flexible(loose) lets the scrollable content area shrink to
-                            // its natural height instead of forcing Expanded to fill the
-                            // entire remaining sheet space — which was the source of the
-                            // empty white gap below the bidding controls after removing the
-                            // distance metric chips.
-                            Flexible(
-                              fit: FlexFit.loose,
+                            ],
+                          ),
+                          child: SafeArea(
+                            top: false,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight:
+                                    MediaQuery.of(context).size.height * 0.85,
+                              ),
                               child: SingleChildScrollView(
-                                controller: scrollController,
                                 padding:
-                                    const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                                    const EdgeInsets.fromLTRB(16, 10, 16, 14),
                                 child: Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   crossAxisAlignment:
                                       CrossAxisAlignment.stretch,
                                   children: [
+                                    const SizedBox(height: 2),
+                                    // Sheet drag handle — hidden during active bid to prevent dismissal
+                                    if (!isBidPending)
+                                      Center(
+                                        child: Container(
+                                          width: 44,
+                                          height: 4,
+                                          decoration: BoxDecoration(
+                                            color: scheme.onSurfaceVariant
+                                                .withValues(alpha: 0.4),
+                                            borderRadius:
+                                                BorderRadius.circular(2),
+                                          ),
+                                        ),
+                                      ),
                                     // Sender Profile Header & Prominent Fare
                                     Row(
                                       children: [
@@ -1752,176 +1675,153 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                         ),
                                       ],
                                     ],
-                                  ],
-                                ),
-                              ),
-                            ),
 
-                            // ── Sticky Primary Action Button Footer ──
-                            // Pinned to the bottom of the sheet, always visible without manual scrolling
-                            SafeArea(
-                              top: false,
-                              child: Container(
-                                padding: EdgeInsets.fromLTRB(
-                                  16,
-                                  8,
-                                  16,
-                                  16 + MediaQuery.of(context).viewInsets.bottom,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      Theme.of(context).scaffoldBackgroundColor,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.08),
-                                      offset: const Offset(0, -3),
-                                      blurRadius: 8,
-                                    ),
-                                  ],
-                                ),
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: isClaimedByAnotherDriver ||
-                                          isTripCancelled
-                                      ? FilledButton.icon(
-                                          key: Key(
-                                              'pool_primary_action_${trip.tripId}'),
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor:
-                                                Colors.grey.shade700,
-                                            foregroundColor: Colors.white,
-                                            padding: const EdgeInsets.symmetric(
-                                                vertical: 14),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          onPressed: () =>
-                                              Navigator.of(context).pop(),
-                                          icon: const Icon(Icons.arrow_back,
-                                              size: 20),
-                                          label: const Text(
-                                              'Back to Order Pool',
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15)),
-                                        )
-                                      : isBidPending
+                                    const SizedBox(height: 14),
+
+                                    // ── Primary Action Button ──
+                                    // Anchored at bottom with 12dp padding above SafeArea
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: isClaimedByAnotherDriver ||
+                                              isTripCancelled
                                           ? FilledButton.icon(
                                               key: Key(
                                                   'pool_primary_action_${trip.tripId}'),
                                               style: FilledButton.styleFrom(
                                                 backgroundColor:
-                                                    const Color(0xFFD97706),
+                                                    Colors.grey.shade700,
                                                 foregroundColor: Colors.white,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        vertical: 14),
+                                                padding: const EdgeInsets.symmetric(
+                                                    vertical: 14),
                                                 shape: RoundedRectangleBorder(
                                                   borderRadius:
                                                       BorderRadius.circular(12),
                                                 ),
-                                                disabledBackgroundColor:
-                                                    const Color(0xFFD97706)
-                                                        .withValues(alpha: 0.7),
-                                                disabledForegroundColor:
-                                                    Colors.white,
                                               ),
-                                              onPressed: null,
-                                              icon: const SizedBox(
-                                                width: 18,
-                                                height: 18,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2.5,
-                                                  color: Colors.white,
-                                                ),
-                                              ),
-                                              label: Text(
-                                                'Waiting for Customer... (${activeBid.remainingSeconds}s)',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15,
-                                                ),
-                                              ),
+                                              onPressed: () =>
+                                                  Navigator.of(context).pop(),
+                                              icon: const Icon(Icons.arrow_back,
+                                                  size: 20),
+                                              label: const Text(
+                                                  'Back to Order Pool',
+                                                  style: TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 15)),
                                             )
-                                          : FilledButton.icon(
-                                              key: Key(
-                                                  'pool_primary_action_${trip.tripId}'),
-                                              style: FilledButton.styleFrom(
-                                                backgroundColor: _isCounterOffer
-                                                    ? scheme.primary
-                                                    : AppColors.seseGold,
-                                                foregroundColor: Colors.black87,
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        vertical: 14),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                              ),
-                                              onPressed: _isCounterOffer
-                                                  ? ((_submittingBid ||
-                                                          _bidError != null)
-                                                      ? null
-                                                      : () => _submitBid(
-                                                          baseline))
-                                                  : (_accepting
-                                                      ? null
-                                                      : _acceptNow),
-                                              icon: (_accepting ||
-                                                      _submittingBid)
-                                                  ? const SizedBox(
-                                                      width: 18,
-                                                      height: 18,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        color: Colors.black87,
-                                                      ),
-                                                    )
-                                                  : Icon(
-                                                      _isCounterOffer
-                                                          ? Icons.send_rounded
-                                                          : Icons.flash_on,
-                                                      size: 20,
+                                          : isBidPending
+                                              ? FilledButton.icon(
+                                                  key: Key(
+                                                      'pool_primary_action_${trip.tripId}'),
+                                                  style: FilledButton.styleFrom(
+                                                    backgroundColor:
+                                                        const Color(0xFFD97706),
+                                                    foregroundColor: Colors.white,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                            vertical: 14),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
                                                     ),
-                                              label: Text(
-                                                _accepting
-                                                    ? 'Claiming trip...'
-                                                    : _submittingBid
-                                                        ? 'Submitting...'
-                                                        : _isCounterOffer
-                                                            ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
-                                                            : 'Accept ($fareLabel)',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15,
+                                                    disabledBackgroundColor:
+                                                        const Color(0xFFD97706)
+                                                            .withValues(alpha: 0.7),
+                                                    disabledForegroundColor:
+                                                        Colors.white,
+                                                  ),
+                                                  onPressed: null,
+                                                  icon: const SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2.5,
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                  label: Text(
+                                                    'Waiting for Customer... (${activeBid.remainingSeconds}s)',
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 15,
+                                                    ),
+                                                  ),
+                                                )
+                                              : FilledButton.icon(
+                                                  key: Key(
+                                                      'pool_primary_action_${trip.tripId}'),
+                                                  style: FilledButton.styleFrom(
+                                                    backgroundColor: _isCounterOffer
+                                                        ? scheme.primary
+                                                        : AppColors.seseGold,
+                                                    foregroundColor: Colors.black87,
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                            vertical: 14),
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(12),
+                                                    ),
+                                                  ),
+                                                  onPressed: _isCounterOffer
+                                                      ? ((_submittingBid ||
+                                                              _bidError != null)
+                                                          ? null
+                                                          : () => _submitBid(
+                                                              baseline))
+                                                      : (_accepting
+                                                          ? null
+                                                          : _acceptNow),
+                                                  icon: (_accepting ||
+                                                          _submittingBid)
+                                                      ? const SizedBox(
+                                                          width: 18,
+                                                          height: 18,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: Colors.black87,
+                                                          ),
+                                                        )
+                                                      : Icon(
+                                                          _isCounterOffer
+                                                              ? Icons.send_rounded
+                                                              : Icons.flash_on,
+                                                          size: 20,
+                                                        ),
+                                                  label: Text(
+                                                    _accepting
+                                                        ? 'Claiming trip...'
+                                                        : _submittingBid
+                                                            ? 'Submitting...'
+                                                            : _isCounterOffer
+                                                                ? 'Send Counter-Offer (${widget.currencySymbol}${_formatAmount(_currentBidAmount)})'
+                                                                : 'Accept ($fareLabel)',
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 15,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
-                                            ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            );
-          },
-        ),
+                );
+              },
+            ),
+          );
+        },
       );
     },
   );
-      },
-    );
-  }
+}
 }
 
 class _MapMiniButton extends StatelessWidget {

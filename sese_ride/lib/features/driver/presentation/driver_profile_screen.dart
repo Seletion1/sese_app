@@ -616,43 +616,49 @@ class _PhoneEditorSheetState extends State<_PhoneEditorSheet> {
   Widget build(BuildContext context) {
     // 16px gutters so the phone field + save bar span edge-to-edge.
     return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 12,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Update Phone Number',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            SesePhoneInputField(
-              controller: _ctrl,
-              initialValue: widget.initial,
-              labelText: 'Phone number',
-              enabled: !_saving,
-              onChanged: (e164) {
-                if (e164.isNotEmpty && _ctrl.text != e164) {
-                  _ctrl.text = e164;
-                }
-              },
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!,
-                  style:
-                      TextStyle(color: Colors.red.shade800, fontSize: 12)),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 12,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Update Phone Number',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              SesePhoneInputField(
+                controller: _ctrl,
+                initialValue: widget.initial,
+                labelText: 'Phone number',
+                enabled: !_saving,
+                onChanged: (e164) {
+                  if (e164.isNotEmpty && _ctrl.text != e164) {
+                    _ctrl.text = e164;
+                  }
+                },
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!,
+                    style:
+                        TextStyle(color: Colors.red.shade800, fontSize: 12)),
+              ],
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_saving ? 'Saving…' : 'Save'),
+              ),
             ],
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: _saving ? null : _save,
-              child: Text(_saving ? 'Saving…' : 'Save'),
-            ),
-          ],
+          ),
         ),
       ),
     );

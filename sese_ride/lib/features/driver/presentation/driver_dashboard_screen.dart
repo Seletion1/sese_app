@@ -1000,50 +1000,59 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   Future<void> _showGoOfflineConfirmation() async {
     final confirm = await showModalBottomSheet<bool>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Go Offline?',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _activeVehicle == null
-                    ? "You won't receive trip requests or earn bonuses while offline."
-                    : 'Online with ${_activeVehicle!.displayTitle}.\n'
-                        "You won't receive trip requests or earn bonuses while offline.",
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  minimumSize: const Size(double.infinity, 50),
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Go Offline?',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
                 ),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text(
-                  'Go Offline',
-                  style: TextStyle(color: Colors.white),
+                const SizedBox(height: 12),
+                Text(
+                  _activeVehicle == null
+                      ? "You won't receive trip requests or earn bonuses while offline."
+                      : 'Online with ${_activeVehicle!.displayTitle}.\n'
+                          "You won't receive trip requests or earn bonuses while offline.",
+                  textAlign: TextAlign.center,
                 ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    minimumSize: const Size(double.infinity, 50),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text(
+                    'Go Offline',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Stay Online and Keep Earning'),
-              ),
-            ],
+                const SizedBox(height: 10),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 50),
+                  ),
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Stay Online and Keep Earning'),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -1423,71 +1432,81 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
     final chosen = await showModalBottomSheet<int>(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) => SafeArea(
-        // 16px gutters so session-vehicle options span edge-to-edge.
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(4),
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    alignment: Alignment.center,
+                  ),
                 ),
-                alignment: Alignment.center,
-              ),
-              const Text(
-                'Take a Break',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'How long do you need? Quick-Order pool stays open during your break.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 13, color: Colors.grey),
-              ),
-              const SizedBox(height: 20),
-              FilledButton.icon(
-                key: const Key('break_option_1'),
-                icon: const Icon(Icons.coffee_outlined),
-                label: Text('$option1-Minute Break'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 52),
-                  backgroundColor: AppColors.seseGold,
-                  foregroundColor: Colors.black,
+                const Text(
+                  'Take a Break',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  textAlign: TextAlign.center,
                 ),
-                onPressed: () => Navigator.pop(ctx, option1),
-              ),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                key: const Key('break_option_2'),
-                icon: const Icon(Icons.hotel_outlined),
-                label: Text('$option2-Minute Break (${option2 == 60 ? '1 Hour' : '$option2 min'})'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 52),
-                  backgroundColor: AppColors.seseGold,
-                  foregroundColor: Colors.black,
+                const SizedBox(height: 8),
+                const Text(
+                  'How long do you need? Quick-Order pool stays open during your break.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
-                onPressed: () => Navigator.pop(ctx, option2),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 48),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  key: const Key('break_option_1'),
+                  icon: const Icon(Icons.coffee_outlined),
+                  label: Text('$option1-Minute Break'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    backgroundColor: AppColors.seseGold,
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => Navigator.pop(ctx, option1),
                 ),
-                child: const Text('Stay Online'),
-              ),
-            ],
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  key: const Key('break_option_2'),
+                  icon: const Icon(Icons.hotel_outlined),
+                  label: Text('$option2-Minute Break (${option2 == 60 ? '1 Hour' : '$option2 min'})'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    backgroundColor: AppColors.seseGold,
+                    foregroundColor: Colors.black,
+                  ),
+                  onPressed: () => Navigator.pop(ctx, option2),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                  child: const Text('Stay Online'),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -3161,17 +3180,23 @@ class _SessionVehiclePickerSheetState
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            16,
+            20,
+            MediaQuery.of(context).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           Center(
             child: Container(
               width: 40,
@@ -3284,7 +3309,9 @@ class _SessionVehiclePickerSheetState
           ),
         ],
       ),
-    );
+    ),
+  ),
+);
   }
 }
 

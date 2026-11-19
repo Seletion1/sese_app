@@ -1486,35 +1486,45 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             ),
           ],
         ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.withValues(alpha: 0.35),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+        child: SafeArea(
+          top: false,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  for (int i = 0; i < targets.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    _CallTargetTile(
+                      key: Key('call_target_option_$i'),
+                      target: targets[i],
+                      isDark: isDark,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _handleCallTarget(context, trip, targets[i]);
+                      },
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            for (int i = 0; i < targets.length; i++) ...[
-              if (i > 0) const SizedBox(height: 10),
-              _CallTargetTile(
-                key: Key('call_target_option_$i'),
-                target: targets[i],
-                isDark: isDark,
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _handleCallTarget(context, trip, targets[i]);
-                },
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );

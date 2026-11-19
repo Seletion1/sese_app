@@ -337,64 +337,70 @@ Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream(String uid) {
 Future<void> showSupportContactSheet(BuildContext context, AppUser user) {
   return showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
     showDragHandle: true,
     builder: (sheetContext) {
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              // 16px gutters match the profile ListView (16) so the sheet
-              // header spans edge-to-edge with the rows below.
-              padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Text('Help & Support',
-                  style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            ListTile(
-              key: const Key('chat_support_ai_tile'),
-              leading: const Icon(Icons.smart_toy_outlined),
-              title: const Text('Chat with SeSe Assistant'),
-              subtitle: const Text('AI help + human agent backup'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) =>
-                      SupportChatScreen(user: user, userRole: 'customer'),
-                ));
-              },
-            ),
-            const SizedBox(height: 12),
-            const ExpansionTile(
-              leading: Icon(Icons.help_outline),
-              title: Text('How do I book a ride?'),
-              children: [
-                Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Go to Home, enter pickup and drop-off, pick a ride tier, '
-                    'confirm contact numbers, then tap Confirm & Book Ride.',
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                // 16px gutters match the profile ListView (16) so the sheet
+                // header spans edge-to-edge with the rows below.
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text('Help & Support',
+                    style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              ListTile(
+                key: const Key('chat_support_ai_tile'),
+                leading: const Icon(Icons.smart_toy_outlined),
+                title: const Text('Chat with SeSe Assistant'),
+                subtitle: const Text('AI help + human agent backup'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) =>
+                        SupportChatScreen(user: user, userRole: 'customer'),
+                  ));
+                },
+              ),
+              const SizedBox(height: 12),
+              const ExpansionTile(
+                leading: Icon(Icons.help_outline),
+                title: Text('How do I book a ride?'),
+                children: [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Go to Home, enter pickup and drop-off, pick a ride tier, '
+                      'confirm contact numbers, then tap Confirm & Book Ride.',
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const ExpansionTile(
-              leading: Icon(Icons.help_outline),
-              title: Text('How do I pay?'),
-              children: [
-                Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'Pay with cash or your wallet balance. Top up anytime '
-                    'from Wallet & Payments.',
+                ],
+              ),
+              const ExpansionTile(
+                leading: Icon(Icons.help_outline),
+                title: Text('How do I pay?'),
+                children: [
+                  Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Pay with cash or your wallet balance. Top up anytime '
+                      'from Wallet & Payments.',
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-          ],
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       );
     },

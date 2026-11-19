@@ -4634,12 +4634,18 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                       top: Radius.circular(24),
                     ),
                   ),
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                  child: SafeArea(
+                    top: false,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(ctx).size.height * 0.85,
+                      ),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                         // Drag handle
                         Center(
                           child: Container(
@@ -4819,7 +4825,9 @@ class _VehicleTierTileState extends State<_VehicleTierTile> {
                     ),
                   ),
                 ),
-              );
+              ),
+            ),
+          );
             },
           );
         },

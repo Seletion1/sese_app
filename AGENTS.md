@@ -72,7 +72,35 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
-## 2026-11-19 — Compliant Driver Background Presence & Quick-Return Experience
+## 2026-11-19 — Elimination of Hardcoded Bottom Sheet Heights, Dynamic Bidding Sizing & Safe Edge Insets
+
+- **1. Driver Order Pool Detail Sheet Dynamic Content Wrap (`order_pool_sheet.dart`)**:
+  - Replaced legacy `DraggableScrollableSheet` with fixed child snaps (`initialChildSize: 0.50`) in `PoolOrderDetailSheet` with an intrinsic content-wrapping `Positioned(bottom: 0)` container and `Column(mainAxisSize: MainAxisSize.min)`.
+  - When bidding is disabled (`trip.allowBidding == false`), the bidding chips row is omitted entirely from the widget tree, shrinking the sheet vertically and allowing the interactive map canvas to expand—leaving zero dead white space below the primary `Accept` button.
+  - When bidding is enabled (`trip.allowBidding == true`), the sheet dynamically expands by the exact height of the bidding pills and custom bid input without forcing any extra blank space.
+  - Primary `Accept` button is anchored with compact 14dp padding above `SafeArea(top: false)` / `viewPadding.bottom` for both gesture navigation bars and 3-button system bars.
+
+- **2. Global Codebase Bottom Sheet Dynamic Sizing & System Insets Audit (`sese_ride`)**:
+  - Audited and updated 15 bottom sheet and modal locations across `sese_ride`:
+    - `driver_dashboard_screen.dart`: `_showGoOfflineConfirmation`, `_showBreakOptions`, and `_SessionVehiclePickerSheet` converted to `isScrollControlled: true`, `useSafeArea: true`, `ConstrainedBox(maxHeight: 0.85)` + `SingleChildScrollView`, and comfortable 20-24dp padding below cancel buttons.
+    - `driver_active_trip_card.dart`: `_showCallContactSheet` wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)`.
+    - `top_up_sheet.dart`: `TopUpSheet` wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)` with `SingleChildScrollView`.
+    - `transaction_pin_prompt.dart`: `_SetupPinSheet` & `_CollectPinSheet` wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)` with `SingleChildScrollView`.
+    - `customer_dispatch_screen.dart`: Fare boost sheet wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)`.
+    - `customer_wallet_screen.dart`: `showModalBottomSheet` updated with `isScrollControlled: true` and `useSafeArea: true`.
+    - `notification_inbox_screen.dart`: `_openDetail` / `_NotificationDetailSheet` updated with `isScrollControlled: true`, `SafeArea(top: false)`, and `ConstrainedBox(maxHeight: 0.85)`.
+    - `customer_trips_screen.dart`: `_showTripSummarySheet` wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)`.
+    - `live_trip_screen.dart`: `_WaitingFeeSettlementSheet` updated with comfortable bottom spacing below the cancel 'Go Back' button.
+    - `streak_progress_banner.dart`: `_showStreakDetailsSheet` updated with `isScrollControlled: true` and `SafeArea(top: false)`.
+    - `vehicle_registration_form.dart`: `_pickSlot` updated with `isScrollControlled: true` and comfortable bottom padding.
+    - `driver_profile_screen.dart`: `_PhoneEditorSheet` wrapped in `SafeArea(top: false)` and `ConstrainedBox(maxHeight: 0.85)`.
+    - `customer_profile_screen.dart`: `showSupportContactSheet` updated with `isScrollControlled: true`, `useSafeArea: true`, and `SingleChildScrollView`.
+    - `navigation_launcher_service.dart`: `_NavigationChooserSheet` updated with `isScrollControlled: true`, `SafeArea(top: false)`, and `ConstrainedBox(maxHeight: 0.85)`.
+
+- **3. Verification & Testing**:
+  - `flutter analyze` clean with 0 warnings, 0 errors across `sese_ride` and `sese_core`.
+  - 13/13 bidding flow and order pool tests passed (`synchronized_bidding_flow_test.dart`, `order_pool_bidding_test.dart`).
+  - 11/11 dispatch and fleet tests passed (`dispatch_and_fleet_test.dart`).
 
 - **1. Strict Cross-Platform Separation (`DriverPresenceService`)**:
   - Implemented `DriverPresenceService` with strict platform isolation (`Platform.isAndroid` vs `Platform.isIOS`).

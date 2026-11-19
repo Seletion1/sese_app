@@ -29,6 +29,7 @@ abstract final class NavigationLauncherService {
   }) async {
     final option = await showModalBottomSheet<NavigationAppOption>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _NavigationChooserSheet(
         destinationAddress: destinationAddress,
@@ -157,11 +158,18 @@ class _NavigationChooserSheet extends StatelessWidget {
         ],
       ),
       // 16px gutters so app options span edge-to-edge on phones.
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
           Center(
             child: Container(
               width: 36,
@@ -250,6 +258,9 @@ class _NavigationChooserSheet extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  ),
+),
     );
   }
 }
