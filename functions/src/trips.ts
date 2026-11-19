@@ -3542,6 +3542,15 @@ export const acceptBid = guardedOnCall(async (request) => {
       throw new HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data()!;
+
+    // Fixed-Fare Order Guard: If customer disabled driver bidding for this trip, reject counter-offers
+    const isBiddingAllowed = tripData.allowBidding !== false && tripData.allow_bidding !== false;
+    if (!isBiddingAllowed) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This trip is fixed-price only and does not accept counter-offer bids."
+      );
+    }
     const orderCustomerId = String(
       tripData.customerId ??
         tripData.userId ??

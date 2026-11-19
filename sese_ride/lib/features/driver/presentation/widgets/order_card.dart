@@ -291,6 +291,18 @@ class _OrderCardState extends State<OrderCard> {
 
   /// Opens a dialog for the driver to submit a custom fare bid.
   Future<void> _showBidDialog() async {
+    if (widget.trip.allowBidding == false) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This order is fixed-fare only and does not accept counter-offers.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final driverId = widget.streakService.driverId ?? '';
     final inTest = WidgetsBinding.instance.runtimeType.toString().contains('TestWidgetsFlutterBinding') ||
         SeseUniversalMap.debugTileProviderOverride != null;

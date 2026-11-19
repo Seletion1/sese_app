@@ -1008,6 +1008,18 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
   }
 
   Future<void> _submitBid([double? latestBaseline]) async {
+    if (widget.trip.allowBidding == false) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This order is fixed-fare only and does not accept counter-offers.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final val = double.tryParse(_bidCtrl.text.trim());
     final baseline = latestBaseline ?? widget.trip.fareAmount;
     if (val == null || val < baseline) {
@@ -1594,149 +1606,151 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                                     ],
 
                                     // ── Counter-Offer Suggestion Pills + Edit Pen Icon ──
-                                    // Stacked directly above the unified accept button
-                                    Row(
-                                      children: [
-                                        // Edit pen icon neatly in front of suggestion options
-                                        Tooltip(
-                                          message: isBidPending
-                                              ? 'Bid pending response'
-                                              : 'Enter custom counter-offer',
-                                          child: Material(
-                                            color: _isCustomBidActive
-                                                ? AppColors.seseGold
-                                                : scheme.surfaceContainerHighest,
-                                            shape: const CircleBorder(),
-                                            child: InkWell(
-                                              customBorder:
-                                                  const CircleBorder(),
-                                              onTap: isBidPending
-                                                  ? null
-                                                  : _toggleCustomBid,
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.all(8),
-                                                child: Icon(
-                                                  Icons.edit,
-                                                  size: 18,
-                                                  color: isBidPending
-                                                      ? Colors.grey
-                                                      : _isCustomBidActive
-                                                          ? Colors.black87
-                                                          : scheme
-                                                              .onSurfaceVariant,
+                                    // Rendered ONLY when customer enabled bidding for this trip
+                                    if (widget.trip.allowBidding) ...[
+                                      Row(
+                                        children: [
+                                          // Edit pen icon neatly in front of suggestion options
+                                          Tooltip(
+                                            message: isBidPending
+                                                ? 'Bid pending response'
+                                                : 'Enter custom counter-offer',
+                                            child: Material(
+                                              color: _isCustomBidActive
+                                                  ? AppColors.seseGold
+                                                  : scheme.surfaceContainerHighest,
+                                              shape: const CircleBorder(),
+                                              child: InkWell(
+                                                customBorder:
+                                                    const CircleBorder(),
+                                                onTap: isBidPending
+                                                    ? null
+                                                    : _toggleCustomBid,
+                                                child: Padding(
+                                                  padding:
+                                                      const EdgeInsets.all(8),
+                                                  child: Icon(
+                                                    Icons.edit,
+                                                    size: 18,
+                                                    color: isBidPending
+                                                        ? Colors.grey
+                                                        : _isCustomBidActive
+                                                            ? Colors.black87
+                                                            : scheme
+                                                                .onSurfaceVariant,
+                                                  ),
                                                 ),
                                               ),
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: SingleChildScrollView(
-                                            scrollDirection: Axis.horizontal,
-                                            child: Row(
-                                              children: [
-                                                ChoiceChip(
-                                                  label: Text(
-                                                      '${widget.currencySymbol}${_formatAmount(baseline)}'),
-                                                  selected:
-                                                      _selectedSuggestionPct ==
-                                                              null &&
-                                                          !_isCustomBidActive,
-                                                  selectedColor:
-                                                      AppColors.seseGold,
-                                                  labelStyle: TextStyle(
-                                                    color: (_selectedSuggestionPct ==
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: SingleChildScrollView(
+                                              scrollDirection: Axis.horizontal,
+                                              child: Row(
+                                                children: [
+                                                  ChoiceChip(
+                                                    label: Text(
+                                                        '${widget.currencySymbol}${_formatAmount(baseline)}'),
+                                                    selected:
+                                                        _selectedSuggestionPct ==
                                                                 null &&
-                                                            !_isCustomBidActive)
-                                                        ? Colors.black87
-                                                        : scheme.onSurface,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 12,
+                                                            !_isCustomBidActive,
+                                                    selectedColor:
+                                                        AppColors.seseGold,
+                                                    labelStyle: TextStyle(
+                                                      color: (_selectedSuggestionPct ==
+                                                                  null &&
+                                                              !_isCustomBidActive)
+                                                          ? Colors.black87
+                                                          : scheme.onSurface,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 12,
+                                                    ),
+                                                    onSelected: isBidPending
+                                                        ? null
+                                                        : (_) => _applySuggestion(
+                                                            null, baseline),
                                                   ),
-                                                  onSelected: isBidPending
-                                                      ? null
-                                                      : (_) => _applySuggestion(
-                                                          null, baseline),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                ChoiceChip(
-                                                  label: Text(
-                                                      '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
-                                                  selected:
-                                                      _selectedSuggestionPct ==
-                                                          5,
-                                                  selectedColor:
-                                                      AppColors.seseGold,
-                                                  labelStyle: TextStyle(
-                                                    color: _selectedSuggestionPct ==
-                                                            5
-                                                        ? Colors.black87
-                                                        : scheme.onSurface,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 12,
+                                                  const SizedBox(width: 8),
+                                                  ChoiceChip(
+                                                    label: Text(
+                                                        '+5% (${widget.currencySymbol}${_formatAmount(plus5Val)})'),
+                                                    selected:
+                                                        _selectedSuggestionPct ==
+                                                            5,
+                                                    selectedColor:
+                                                        AppColors.seseGold,
+                                                    labelStyle: TextStyle(
+                                                      color: _selectedSuggestionPct ==
+                                                              5
+                                                          ? Colors.black87
+                                                          : scheme.onSurface,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 12,
+                                                    ),
+                                                    onSelected: isBidPending
+                                                        ? null
+                                                        : (_) => _applySuggestion(
+                                                            5, plus5Val),
                                                   ),
-                                                  onSelected: isBidPending
-                                                      ? null
-                                                      : (_) => _applySuggestion(
-                                                          5, plus5Val),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                ChoiceChip(
-                                                  label: Text(
-                                                      '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
-                                                  selected:
-                                                      _selectedSuggestionPct ==
-                                                          10,
-                                                  selectedColor:
-                                                      AppColors.seseGold,
-                                                  labelStyle: TextStyle(
-                                                    color: _selectedSuggestionPct ==
-                                                            10
-                                                        ? Colors.black87
-                                                        : scheme.onSurface,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 12,
+                                                  const SizedBox(width: 8),
+                                                  ChoiceChip(
+                                                    label: Text(
+                                                        '+10% (${widget.currencySymbol}${_formatAmount(plus10Val)})'),
+                                                    selected:
+                                                        _selectedSuggestionPct ==
+                                                            10,
+                                                    selectedColor:
+                                                        AppColors.seseGold,
+                                                    labelStyle: TextStyle(
+                                                      color: _selectedSuggestionPct ==
+                                                              10
+                                                          ? Colors.black87
+                                                          : scheme.onSurface,
+                                                      fontWeight: FontWeight.bold,
+                                                      fontSize: 12,
+                                                    ),
+                                                    onSelected: isBidPending
+                                                        ? null
+                                                        : (_) => _applySuggestion(
+                                                            10, plus10Val),
                                                   ),
-                                                  onSelected: isBidPending
-                                                      ? null
-                                                      : (_) => _applySuggestion(
-                                                          10, plus10Val),
-                                                ),
-                                              ],
+                                                ],
+                                              ),
                                             ),
                                           ),
+                                        ],
+                                      ),
+
+                                      // Keyboard-safe custom amount input field
+                                      if (_isCustomBidActive) ...[
+                                        const SizedBox(height: 10),
+                                        TextField(
+                                          controller: _bidCtrl,
+                                          focusNode: _bidFocusNode,
+                                          enabled: !isBidPending,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: false),
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly
+                                          ],
+                                          decoration: InputDecoration(
+                                            labelText: 'Custom Offer Amount',
+                                            prefixText:
+                                                '${widget.currencySymbol} ',
+                                            errorText: _bidError,
+                                            border: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 12, vertical: 12),
+                                          ),
+                                          onChanged: _onBidChanged,
                                         ),
                                       ],
-                                    ),
-
-                                    // Keyboard-safe custom amount input field
-                                    if (_isCustomBidActive) ...[
-                                      const SizedBox(height: 10),
-                                      TextField(
-                                        controller: _bidCtrl,
-                                        focusNode: _bidFocusNode,
-                                        enabled: !isBidPending,
-                                        keyboardType: const TextInputType
-                                            .numberWithOptions(decimal: false),
-                                        inputFormatters: [
-                                          FilteringTextInputFormatter.digitsOnly
-                                        ],
-                                        decoration: InputDecoration(
-                                          labelText: 'Custom Offer Amount',
-                                          prefixText:
-                                              '${widget.currencySymbol} ',
-                                          errorText: _bidError,
-                                          border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                  horizontal: 12, vertical: 12),
-                                        ),
-                                        onChanged: _onBidChanged,
-                                      ),
                                     ],
                                   ],
                                 ),
