@@ -36,12 +36,16 @@ void main() {
       expect(find.text('Privacy & Control'), findsOneWidget);
 
       // Tap Agree
-      await tester.tap(find.byKey(const Key('driver_overlay_consent_agree_button')));
+      final agreeBtn = find.byKey(const Key('driver_overlay_consent_agree_button'));
+      await tester.ensureVisible(agreeBtn);
+      await tester.tap(agreeBtn);
       await tester.pumpAndSettle();
       expect(agreed, isTrue);
 
       // Tap Decline
-      await tester.tap(find.byKey(const Key('driver_overlay_consent_decline_button')));
+      final declineBtn = find.byKey(const Key('driver_overlay_consent_decline_button'));
+      await tester.ensureVisible(declineBtn);
+      await tester.tap(declineBtn);
       await tester.pumpAndSettle();
       expect(declined, isTrue);
     });
