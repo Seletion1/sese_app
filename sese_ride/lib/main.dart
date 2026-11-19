@@ -16,7 +16,6 @@ import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
     show GoogleMapsFlutterPlatform;
 
 import 'background_handler.dart';
-import 'driver_overlay_entry.dart' show overlayMain;
 export 'driver_overlay_entry.dart' show overlayMain;
 import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
