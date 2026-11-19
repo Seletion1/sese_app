@@ -436,6 +436,19 @@ class PushNotificationService {
         (data['channel'] ?? '').toString() == PushChannels.broadcast) {
       return PushChannels.broadcast;
     }
+    // Order offer & dispatch pings MUST be evaluated BEFORE generic 'trip_' prefix
+    // check so that 'trip_offer' is not trapped in the chat channel!
+    if (type == 'trip_offer' ||
+        type == 'direct_ping' ||
+        type == 'tier_ping' ||
+        type == 'marketplace_broadcast' ||
+        type.startsWith('order') ||
+        type == 'dropoff_approval_request' ||
+        type == 'drop_off_confirmation' ||
+        type == 'dropoff_approval' ||
+        type == 'dropoff_approval_response') {
+      return PushChannels.orders;
+    }
     if (type.startsWith('trip_') ||
         type == 'driver_counter_bid' ||
         type.startsWith('support_') ||
@@ -443,17 +456,6 @@ class PushNotificationService {
         type == 'trip_chat_message' ||
         type == 'support_reply') {
       return PushChannels.chat;
-    }
-    if (type.startsWith('order') ||
-        type == 'trip_offer' ||
-        type == 'direct_ping' ||
-        type == 'tier_ping' ||
-        type == 'marketplace_broadcast' ||
-        type == 'dropoff_approval_request' ||
-        type == 'drop_off_confirmation' ||
-        type == 'dropoff_approval' ||
-        type == 'dropoff_approval_response') {
-      return PushChannels.orders;
     }
     return PushChannels.system;
   }
