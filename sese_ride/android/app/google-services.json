@@ -59,11 +59,27 @@
       },
       "oauth_client": [
         {
+          "client_id": "618721373016-0lgu4kj2mmqhacqdb8echb18vakgces7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "09e5dafc3d8f0bdb3872ff9a9e179df37db50e3c"
+          }
+        },
+        {
           "client_id": "618721373016-esv6atid357671vqo641hb27l8v0dbgn.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.sesetech.sese_ride",
             "certificate_hash": "0dd52479733a25ba59eb0bb5cbfaaa1d80d2d075"
+          }
+        },
+        {
+          "client_id": "618721373016-hovs2bd5c65qbkivbt7a3hbl3jir1krp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "8acb50c63b7af6c966d762f9f9cf04d90e6e67d0"
           }
         },
         {
