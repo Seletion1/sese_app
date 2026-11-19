@@ -1100,13 +1100,13 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   FilledButton.icon(
                     style: FilledButton.styleFrom(backgroundColor: Colors.red.shade800),
                     icon: const Icon(Icons.cancel_outlined),
-                    label: const Text('Cancel & Refund Escrow'),
+                    label: const Text('Remove Trip & Refund Customer'),
                     onPressed: () async {
                       try {
-                        await FirebaseFunctions.instance.httpsCallable('hubCancelRefundTrip').call({'tripId': tripId, 'reason': 'Cancelled by Hub admin'});
+                        await FirebaseFunctions.instance.httpsCallable('hubCancelRefundTrip').call({'tripId': tripId, 'reason': 'Removed by Support/Admin'});
                         if (context.mounted) {
                           Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip cancelled and escrow refunded.')));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip removed and customer refunded.')));
                         }
                       } catch (e) {
                         if (context.mounted) {

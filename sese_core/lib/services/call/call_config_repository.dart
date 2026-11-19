@@ -39,6 +39,16 @@ class CallConfig {
   /// STUN servers used by WebRTC for ICE candidate discovery and NAT traversal.
   final List<String> stunServers;
 
+  /// TURN relay servers for cross-network calling (cellular ↔ Wi-Fi / symmetric NAT).
+  ///
+  /// Each entry is a fully-formed ICE-server map, e.g.:
+  /// ```json
+  /// {"urls": "turn:your.turn.server:3478", "username": "u", "credential": "p"}
+  /// ```
+  /// Configured from Hub (`system_settings/calling`) and loaded via [CallConfigRepository].
+  /// Falls back to empty list when unset (STUN-only mode — P2P on same network).
+  final List<Map<String, dynamic>> turnServers;
+
   /// Whether WebRTC data channel or diagnostic stats are enabled.
   final bool enableDiagnostics;
 
@@ -51,6 +61,7 @@ class CallConfig {
     this.agoraAutoFailoverThresholdMinutes = 9900,
     this.agoraCallsUsedMinutesThisMonth = 0,
     this.stunServers = defaultGoogleStunServers,
+    this.turnServers = const [],
     this.enableDiagnostics = false,
   });
 
@@ -86,6 +97,7 @@ class CallConfig {
     int? agoraAutoFailoverThresholdMinutes,
     int? agoraCallsUsedMinutesThisMonth,
     List<String>? stunServers,
+    List<Map<String, dynamic>>? turnServers,
     bool? enableDiagnostics,
   }) {
     CallRoutingMode mode = routingMode ?? this.routingMode;
@@ -106,6 +118,7 @@ class CallConfig {
       agoraCallsUsedMinutesThisMonth:
           agoraCallsUsedMinutesThisMonth ?? this.agoraCallsUsedMinutesThisMonth,
       stunServers: stunServers ?? this.stunServers,
+      turnServers: turnServers ?? this.turnServers,
       enableDiagnostics: enableDiagnostics ?? this.enableDiagnostics,
     );
   }
@@ -122,6 +135,7 @@ class CallConfig {
       'agoraAutoFailoverThresholdMinutes': agoraAutoFailoverThresholdMinutes,
       'agoraCallsUsedMinutesThisMonth': agoraCallsUsedMinutesThisMonth,
       'stunServers': stunServers,
+      'turnServers': turnServers,
       'enableDiagnostics': enableDiagnostics,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -209,6 +223,17 @@ class CallConfig {
       }
     }
 
+    // Parse TURN server entries — each entry is an ICE-server map with
+    // `urls`, `username`, and `credential` keys.
+    List<Map<String, dynamic>> turns = const [];
+    final rawTurn = map['turnServers'];
+    if (rawTurn is List) {
+      turns = rawTurn
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+    }
+
     return CallConfig(
       routingMode: routingMode,
       fallbackTimeoutSeconds: timeout,
@@ -218,6 +243,7 @@ class CallConfig {
       agoraAutoFailoverThresholdMinutes: agoraThreshold,
       agoraCallsUsedMinutesThisMonth: agoraUsedMins,
       stunServers: stuns,
+      turnServers: turns,
       enableDiagnostics: map['enableDiagnostics'] == true,
     );
   }

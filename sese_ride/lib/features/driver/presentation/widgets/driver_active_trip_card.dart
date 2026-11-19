@@ -346,9 +346,12 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
 
     if (next == 'COMPLETED') {
       // Step 2: Drop-Off Stage Collection Check
-      // Only prompt if cash is actually due from the receiver at drop-off.
+      // If cash is due, prompt for cash collection. If prepaid, show settlement summary.
       if (trip.hasCashDueAtDropoff) {
         final confirmed = await _showDropoffCashCheckDialog(trip);
+        if (confirmed != true) return;
+      } else if (trip.walletCoverageAmount > 0) {
+        final confirmed = await _showDropoffPrepaidSettlementDialog(trip);
         if (confirmed != true) return;
       }
 
@@ -687,6 +690,70 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Confirm Cash Collected'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Displays drop-off confirmation for prepaid trips informing the driver that payment
+  /// has already been collected online and summarizing the earnings credited upon completion.
+  Future<bool?> _showDropoffPrepaidSettlementDialog(ActiveTrip trip) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fareStr = '₦${trip.baseTripFare.toStringAsFixed(0)}';
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.green),
+            SizedBox(width: 8),
+            Text('Trip Payment Settled'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Trip fare of $fareStr has already been collected online.',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Do NOT collect cash from the customer. The earnings will be credited directly to your driver wallet upon completion.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF065F46).withValues(alpha: 0.3)
+                    : const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDark
+                      ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                      : const Color(0xFFA7F3D0),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Amount Settled:', style: TextStyle(fontWeight: FontWeight.w500)),
+                  Text(fareStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirm & Complete'),
           ),
         ],
       ),
@@ -1197,7 +1264,10 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
       return 'SPLIT (WALLET + CASH)';
     } else if (trip.paymentMethod.toLowerCase() == 'wallet' ||
         (hasWallet && !hasCash)) {
-      return '100% WALLET PREPAID';
+      final isStarted = trip.status == TripStatus.inProgress ||
+          trip.status == TripStatus.pendingCustomerApproval ||
+          trip.status == TripStatus.completed;
+      return isStarted ? '100% WALLET PREPAID' : 'PAYMENT READY';
     } else if (mode == 'sender_pays') {
       return 'SENDER PAYS (CASH)';
     }
@@ -3051,6 +3121,64 @@ class _PaymentCollectionCard extends StatelessWidget {
     // 3. In Progress (Heading to Drop-off / At Drop-off):
     if (status == TripStatus.inProgress) {
       if (!trip.hasCashDueAtDropoff) {
+        if (trip.walletCoverageAmount > 0) {
+          final cardBg = isDark
+              ? const Color(0xFF064E3B).withValues(alpha: 0.25)
+              : const Color(0xFFECFDF5);
+          final borderColor = isDark
+              ? const Color(0xFF10B981).withValues(alpha: 0.4)
+              : const Color(0xFFA7F3D0);
+          final accentColor =
+              isDark ? const Color(0xFF6EE7B7) : const Color(0xFF059669);
+          final textColor = isDark ? Colors.white : const Color(0xFF065F46);
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor, width: 1.2),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded, size: 16, color: accentColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      'PREPAID TRIP • NO CASH TO COLLECT',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                        color: accentColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Trip fare of ₦${trip.baseTripFare.toStringAsFixed(0)} is paid via customer wallet. Do not collect cash from customer.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Payment will be credited to your driver wallet upon completion.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isDark ? Colors.white70 : const Color(0xFF047857),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         return const SizedBox.shrink();
       }
 

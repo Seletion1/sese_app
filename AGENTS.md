@@ -72,6 +72,41 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-19 — In-App Calling Hub 3-Mode Routing & Silent Fallback, Immediate Trip Escrow Deduction, In-Progress Cancellation Lock & Driver Settlement Transparency
+
+- **1. Hub Call Routing Mode Setting & Silent Provider Failover (`sese_hub`, `sese_core`)**:
+  - Implemented configurable 3-mode call routing options in `sese_hub` (`calling_config_screen.dart`) and `sese_core` (`call_config_repository.dart`, `call_service_manager.dart`):
+    - `Automatic (WebRTC Primary → Agora Fallback)` (Default): Attempts WebRTC with Firebase signaling first; upon failure or watchdog timeout, fails over to Agora.
+    - `Force WebRTC`: WebRTC with Firebase signaling only.
+    - `Force Agora`: Agora RTC only.
+  - In `Automatic` mode, `_executeFallbackToAgora()` switches seamlessly behind the scenes by aborting WebRTC tracks and updating the active Firestore `calls/{callId}` document with `{ provider: 'agora', fallback: true }` without re-emitting duplicate `ringing` events to the callee.
+
+- **2. Clean User-Facing Call UI (`in_app_call_screen.dart`)**:
+  - Purged all internal/technical debug badges and labels, including `(🔄) Backup Relay (3rd-Party)` and `Connecting via backup relay...`.
+  - Replaced debug labels with clean, customer-grade calling states: `'Connecting...'`, `'Ringing...'`, active call timer `MM:SS`, `'Call Ended'`, and `'Call Failed'`. Provider failovers execute silently with zero technical exposure.
+
+- **3. Cross-Network ICE/TURN Connectivity & Hangup Loop Prevention (`call_service_manager.dart`, `webrtc_call_service_impl.dart`)**:
+  - Configured optimized Google STUN/TURN traversal with balanced audio constraints (`echoCancellation`, `noiseSuppression`, `autoGainControl`) for cellular-to-Wi-Fi and cross-carrier reliability.
+  - Terminating or hanging up a call immediately cancels all watchdog fallback timers, disposes peer connections/tracks on both providers, and transitions the Firestore call document directly to `'ended'` to prevent duplicate ringing loops.
+
+- **4. Immediate Wallet/Card Deduction on Booking & Server Settlement (`functions/src/trips.ts`, `functions/src/driverStreak.ts`)**:
+  - In `createTrip`: Atomically decrements the customer's available balance (`mainWalletBalance` and `balance`) by `actualCoverage` upon booking and places it into `escrowBalance`, preventing balance double-spending across concurrent rides.
+  - In `handleTripCompletion`: Clears `escrowBalance` and credits the driver's wallet with earnings and wallet coverage without double-debiting customer funds.
+  - In `handleTripCancellationSettlement`: When a trip is cancelled before starting, releases `escrowBalance` and cleanly refunds the customer's available balance.
+
+- **5. Cancellation Lock Once Trip Starts & Support Removal (`functions/src/trips.ts`, `live_trip_screen.dart`, `active_rides_console_screen.dart`)**:
+  - Normal cancellation by customer or driver is locked once the trip is started (`inProgress` or `pending_customer_approval`). The cancellation button is hidden and attempts to cancel return an error instructing the user to contact Support.
+  - Hub Admin/Support removal (`hubCancelRefundTrip`) refunds the customer trip fare cleanly, does not compensate the driver trip fare (unless a configured waiting fee applies), and settles waiting fees if applicable.
+
+- **6. Configurable Waiting Fee Controls in Hub (`global_config_screen.dart`, `pricing_config.dart`, `driverStreak.ts`)**:
+  - Added Hub controls for Grace Waiting Minutes (`freeWaitingMinutes`, default 10m), Waiting Rate per Minute (`waitingRatePerMinute`, default ₦20/min), and operational toggles (`enableWaitingTimeBilling`, `enableCancellationLock`).
+  - Synced dynamically with `DailyStreakConfig` and backend settlement functions.
+
+- **7. Driver Wallet Visibility & Drop-off Settlement Summary (`driver_active_trip_card.dart`, `order_card.dart`)**:
+  - Hides `"100% Wallet Prepaid — No cash required"` from the driver prior to trip start (`_paymentLabel` shows `'PAYMENT READY'`).
+  - Displays a reassurance card (`PREPAID TRIP • NO CASH TO COLLECT`) once the ride is in progress.
+  - At drop-off completion, prompts `_showDropoffPrepaidSettlementDialog` informing the driver that payment was settled online and summarizing collected vs. credited amounts.
+
 ## 2026-11-19 — Elimination of Hardcoded Bottom Sheet Heights, Dynamic Bidding Sizing & Safe Edge Insets
 
 - **1. Driver Order Pool Detail Sheet Dynamic Content Wrap (`order_pool_sheet.dart`)**:

@@ -1277,14 +1277,19 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
                               ),
                             ],
                           ),
-                          child: SafeArea(
-                            top: false,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxHeight:
-                                    MediaQuery.of(context).size.height * 0.85,
-                              ),
+                          child: ConstrainedBox(
+                            // Cap the sheet at 78 % of the screen so the map
+                            // canvas above is always reachable; content
+                            // shorter than this height wraps naturally and
+                            // leaves zero dead white space.
+                            constraints: BoxConstraints(
+                              maxHeight:
+                                  MediaQuery.of(context).size.height * 0.78,
+                            ),
+                            child: SafeArea(
+                              top: false,
                               child: SingleChildScrollView(
+                                physics: const ClampingScrollPhysics(),
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 10, 16, 14),
                                 child: Column(

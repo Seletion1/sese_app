@@ -11,6 +11,7 @@ import {
   breakDriverStreak,
   handleTripCompletion,
   handleTripCancellationSettlement,
+  resolveStreakConfig,
   nairaToKobo,
   logFinancialMutation,
   logTripTransition,
@@ -1237,6 +1238,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
         tx.set(
           custWalletRef,
           {
+            mainWalletBalance: admin.firestore.FieldValue.increment(-actualCoverage),
+            balance: admin.firestore.FieldValue.increment(-actualCoverageKobo),
             escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
@@ -2874,8 +2877,32 @@ export const cancelTrip = guardedOnCall(async (request) => {
   if (!isCustomer && !isDriver) {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
+  const streakConfig = await resolveStreakConfig(
+    String(data.countryCode ?? "NG"),
+    String(data.stateOrRegion ?? "LAGOS")
+  );
+
+  // ── In-Progress Cancellation Lock ──────────────────────────────────────────
+  // Per platform policy: Once a trip is started (IN_PROGRESS or pending approval),
+  // cancellation is strictly locked for both customer and driver to prevent
+  // fare avoidance, mid-trip ride abandonment, or unfair cancellation.
+  // Users must contact support if they need emergency cancellation.
+  const cancelLockEnabled = streakConfig.enableCancellationLock !== false;
+  if (cancelLockEnabled && (data.status === "IN_PROGRESS" || data.status === "pending_customer_approval")) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This trip is currently in progress and cannot be cancelled. Please contact customer support if you need assistance."
+    );
+  }
+
   const CANCELLABLE_STATUSES = new Set<string>([
-    ...LIVE_STATUSES,
+    "SEARCHING_DRIVER",
+    "WAITING_FOR_ACCEPTANCE",
+    "MARKETPLACE_OPEN",
+    "MARKETPLACE_LIST",
+    "DRIVER_ACCEPTED",
+    "DRIVER_ARRIVING",
+    "DRIVER_ARRIVED",
     "returned_to_customer",
     "expired",
     "needs_customer_action",
@@ -2959,15 +2986,16 @@ export const cancelTrip = guardedOnCall(async (request) => {
     const arrivedAtMs = (data.status === "IN_PROGRESS" && data.dropoffArrivedAt?.toMillis?.())
       ? data.dropoffArrivedAt.toMillis()
       : (data.arrivedAt?.toMillis?.() ?? 0);
-    const enableWaitingBilling = data.enableWaitingTimeBilling !== false;
+    const enableWaitingBilling = data.enableWaitingTimeBilling !== false && streakConfig.enableWaitingTimeBilling !== false;
+    const freeWaitMinutes = typeof streakConfig.freeWaitingMinutes === "number" ? streakConfig.freeWaitingMinutes : 10;
+    const waitRatePerMin = typeof streakConfig.waitingRatePerMinute === "number" ? streakConfig.waitingRatePerMinute : (Number(data.timeRatePerMinute ?? 20));
 
     if (isArrivedOrProgress && arrivedAtMs > 0 && enableWaitingBilling) {
       const elapsedMs = nowMs() - arrivedAtMs;
-      const freeWaitMs = 10 * 60 * 1000; // 10 minutes free countdown
+      const freeWaitMs = freeWaitMinutes * 60 * 1000;
       if (elapsedMs > freeWaitMs) {
         const paidWaitMins = Math.ceil((elapsedMs - freeWaitMs) / (60 * 1000));
-        const timeRatePerMin = Number(data.timeRatePerMinute ?? 20);
-        paidWaitingFee = Math.max(0, paidWaitMins * timeRatePerMin);
+        paidWaitingFee = Math.max(0, paidWaitMins * waitRatePerMin);
       }
     }
 
@@ -4505,12 +4533,32 @@ export const hubCancelRefundTrip = guardedOnCall(async (request) => {
   const reason = String(request.data?.reason ?? "Cancelled by Hub admin");
   if (!tripId) throw new HttpsError("invalid-argument", "tripId required.");
 
+  let paidWaitingFee = 0;
+  try {
+    const tripSnap = await db().collection("trips").doc(tripId).get();
+    if (tripSnap.exists) {
+      const data = tripSnap.data()!;
+      const arrivedAtMs = data.arrivedAt?.toMillis?.() ?? 0;
+      const enableWaitingBilling = data.enableWaitingTimeBilling !== false;
+      if (arrivedAtMs > 0 && enableWaitingBilling) {
+        const elapsedMs = Date.now() - arrivedAtMs;
+        const freeWaitMs = 10 * 60 * 1000;
+        if (elapsedMs > freeWaitMs) {
+          const paidWaitMins = Math.ceil((elapsedMs - freeWaitMs) / (60 * 1000));
+          const timeRatePerMin = Number(data.timeRatePerMinute ?? 20);
+          paidWaitingFee = Math.max(0, paidWaitMins * timeRatePerMin);
+        }
+      }
+    }
+  } catch (_) {}
+
   const result = await handleTripCancellationSettlement({
     tripId,
     cancelledBy: "hub_admin",
     actorId: adminUid,
     role: "hub_admin",
     reason,
+    paidWaitingFee,
   });
 
   return { ok: true, tripId, alreadyCancelled: result.alreadyCancelled };

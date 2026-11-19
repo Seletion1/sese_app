@@ -54,6 +54,11 @@ class WebRtcCallServiceImpl implements ICallService {
   bool _isMuted = false;
   bool _isSpeakerOn = false;
 
+  /// Guard flag: prevents re-entrant calls to [endCall] (e.g. the Firestore
+  /// status-update triggering the call-document listener while teardown is
+  /// already in progress).
+  bool _isEnding = false;
+
   /// Optional listener triggered when WebRTC connection or ICE candidate gathering fails.
   void Function(String reason)? onConnectionFailed;
 
@@ -168,14 +173,37 @@ class WebRtcCallServiceImpl implements ICallService {
     final stunList = _configRepo.currentConfig.stunServers;
     final iceServers = <Map<String, dynamic>>[];
 
+    // Primary STUN servers (NAT traversal for direct P2P)
     for (final stun in stunList) {
       iceServers.add({'urls': stun});
+    }
+
+    // Additional Google STUN for broader NAT coverage
+    const extraStun = [
+      'stun:stun3.l.google.com:19302',
+      'stun:stun4.l.google.com:19302',
+    ];
+    for (final stun in extraStun) {
+      if (!stunList.contains(stun)) {
+        iceServers.add({'urls': stun});
+      }
+    }
+
+    // Public TURN servers for cross-network relay (cellular ↔ Wi-Fi / NAT symmetry)
+    // These are open/public TURN servers for fallback when direct P2P fails.
+    // For production, replace with your own TURN credentials or a service like
+    // Metered (metered.ca) or Twilio TURN for reliability guarantees.
+    final turnServers = _configRepo.currentConfig.turnServers;
+    for (final turn in turnServers) {
+      iceServers.add(turn);
     }
 
     return {
       'iceServers': iceServers,
       'sdpSemantics': 'unified-plan',
-      'iceCandidatePoolSize': 2,
+      'iceCandidatePoolSize': 10,
+      'bundlePolicy': 'max-bundle',
+      'rtcpMuxPolicy': 'require',
     };
   }
 
@@ -576,8 +604,25 @@ class WebRtcCallServiceImpl implements ICallService {
 
   @override
   Future<void> endCall({String? reason}) async {
+    // Re-entrant guard: the Firestore status write below triggers _callDocSub,
+    // which would call endCall() again. The flag breaks the loop.
+    if (_isEnding) return;
+    _isEnding = true;
+
     _durationTimer?.cancel();
     _durationTimer = null;
+
+    // Cancel Firestore listeners FIRST to prevent the 'ended' write from
+    // re-triggering the call-doc listener and looping back into endCall().
+    try {
+      await _callDocSub?.cancel();
+    } catch (_) {}
+    _callDocSub = null;
+
+    try {
+      await _candidatesSub?.cancel();
+    } catch (_) {}
+    _candidatesSub = null;
 
     final session = _currentSession;
     if (session != null && _firestore != null) {
@@ -588,19 +633,9 @@ class WebRtcCallServiceImpl implements ICallService {
           'endReason': reason ?? 'normal',
         });
       } catch (_) {
-        // Document may have already been closed or deleted
+        // Document may have already been closed or deleted — safe to ignore.
       }
     }
-
-    try {
-      await _callDocSub?.cancel();
-    } catch (_) {}
-    _callDocSub = null;
-
-    try {
-      await _candidatesSub?.cancel();
-    } catch (_) {}
-    _candidatesSub = null;
 
     if (_localStream != null) {
       try {
@@ -635,6 +670,7 @@ class WebRtcCallServiceImpl implements ICallService {
 
     _isMuted = false;
     _isSpeakerOn = false;
+    _isEnding = false;
     _setCallState(CallState.ended);
     _currentSession = null;
     _connectedAt = null;
@@ -653,6 +689,7 @@ class WebRtcCallServiceImpl implements ICallService {
   Future<void> abortForFallback() async {
     _durationTimer?.cancel();
     _durationTimer = null;
+    _isEnding = false; // Reset so endCall can proceed if called after abort
 
     try {
       await _callDocSub?.cancel();

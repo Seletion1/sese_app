@@ -429,6 +429,19 @@ class _OrderRecoveryBodyState extends State<_OrderRecoveryBody> {
   }
 
   Future<void> _cancel() async {
+    if (widget.trip.status == TripStatus.inProgress ||
+        widget.trip.status == TripStatus.pendingCustomerApproval) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Trips in progress cannot be cancelled. Please contact customer support.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     final result = await CancelTripDialog.show(context, isDriver: false);
     if (result == null || !mounted) return;
     try {
@@ -3314,7 +3327,8 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 //   - COMPLETED / any closed status: hide.
                 if (widget.onCancel != null &&
                     trip.status != TripStatus.completed &&
-                    trip.status != TripStatus.inProgress) ...[
+                    trip.status != TripStatus.inProgress &&
+                    trip.status != TripStatus.pendingCustomerApproval) ...[
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
                     // Determine if the 10-minute free-wait window has elapsed.

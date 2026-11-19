@@ -27,6 +27,15 @@ class CallServiceManager implements ICallService {
     _configRepo = CallConfigRepository.instance;
     _webrtcService = WebRtcCallServiceImpl(configRepo: _configRepo);
     _agoraService = AgoraCallServiceImpl(configRepo: _configRepo);
+    _webrtcService.onConnectionFailed = (reason) {
+      if (_configRepo.currentConfig.routingMode == CallRoutingMode.smartFallback &&
+          !_isFallbackActive &&
+          _currentState != CallState.connected &&
+          _currentState != CallState.ended) {
+        debugPrint('CallServiceManager: WebRTC ICE/connection failure ($reason). Triggering smart fallback to Agora...');
+        _executeFallbackToAgora(reason: reason);
+      }
+    };
   }
 
   late final CallConfigRepository _configRepo;
@@ -205,12 +214,13 @@ class CallServiceManager implements ICallService {
         _fallbackTimer = null;
       }
 
-      // If in automatic mode and primary provider emitted error before connecting, trigger fallback
+      // If in automatic mode and WebRTC emitted error before connecting, trigger silent fallback to Agora
       if (_configRepo.currentConfig.routingMode == CallRoutingMode.smartFallback &&
           !_isFallbackActive &&
+          service == _webrtcService &&
           (state == CallState.error)) {
-        debugPrint('CallServiceManager: Primary provider reported error before connection. Triggering smart fallback to WebRTC...');
-        _executeFallback(reason: 'Primary call error transition');
+        debugPrint('CallServiceManager: WebRTC reported error before connection. Triggering smart fallback to Agora...');
+        _executeFallbackToAgora(reason: 'WebRTC call error transition');
         return;
       }
 
@@ -238,7 +248,6 @@ class CallServiceManager implements ICallService {
     Map<String, dynamic>? metadata,
   }) async {
     final mode = _configRepo.currentConfig.routingMode;
-    final config = _configRepo.currentConfig;
 
     _lastTargetUserId = targetUserId;
     _lastCallId = callId;
@@ -276,43 +285,24 @@ class CallServiceManager implements ICallService {
       return;
     }
 
-    // 3. Automatic / Smart Fallback mode (Default):
-    // Uses Agora primary if minutes < failover threshold & valid credentials exist.
-    // If usage reaches threshold (e.g. 9,900/10,000 mins) or connection fails/times out, fails over to WebRTC.
-    if (config.isAgoraLimitReached || !config.hasValidAgoraCredentials) {
-      debugPrint('CallServiceManager [AutoMode]: Minute threshold reached (${config.agoraCallsUsedMinutesThisMonth}/${config.agoraAutoFailoverThresholdMinutes}) or credentials missing. Auto-routing to WebRTC...');
-      _currentActiveProvider = CallProviderType.webrtc;
-      _isFallbackActive = true;
-      _pipeServiceEvents(_webrtcService);
-      await _webrtcService.startCall(
-        targetUserId: targetUserId,
-        callId: callId,
-        targetUserName: targetUserName,
-        targetUserAvatar: targetUserAvatar,
-        metadata: {
-          ...?metadata,
-          'autoFailover': true,
-          'reason': 'agora_threshold_reached_or_unconfigured',
-        },
-      );
-      return;
-    }
-
+    // 3. Automatic Mode (Default): WebRTC Primary -> Agora Fallback.
+    // Attempts WebRTC (Firebase signaling) first. If WebRTC fails to connect or times out,
+    // automatically falls back to Agora RTC behind the scenes.
     _isFallbackActive = false;
-    _currentActiveProvider = CallProviderType.agora;
-    _pipeServiceEvents(_agoraService);
+    _currentActiveProvider = CallProviderType.webrtc;
+    _pipeServiceEvents(_webrtcService);
 
     final timeoutSec = _configRepo.currentConfig.fallbackTimeoutSeconds;
     _fallbackTimer?.cancel();
     _fallbackTimer = Timer(Duration(seconds: timeoutSec), () {
       if (_currentState != CallState.connected && _currentState != CallState.ended) {
-        debugPrint('CallServiceManager [AutoMode]: Agora connection watchdog timed out after $timeoutSec s.');
-        _executeFallback(reason: 'Agora connection timed out after $timeoutSec s');
+        debugPrint('CallServiceManager [AutoMode]: WebRTC connection watchdog timed out after $timeoutSec s.');
+        _executeFallbackToAgora(reason: 'WebRTC connection timed out after $timeoutSec s');
       }
     });
 
     try {
-      await _agoraService.startCall(
+      await _webrtcService.startCall(
         targetUserId: targetUserId,
         callId: callId,
         targetUserName: targetUserName,
@@ -320,13 +310,13 @@ class CallServiceManager implements ICallService {
         metadata: metadata,
       );
     } catch (e) {
-      debugPrint('CallServiceManager [AutoMode]: Agora startCall exception: $e');
-      await _executeFallback(reason: 'Agora startCall exception: $e');
+      debugPrint('CallServiceManager [AutoMode]: WebRTC startCall exception: $e');
+      await _executeFallbackToAgora(reason: 'WebRTC startCall exception: $e');
     }
   }
 
-  /// Triggers a seamless fallback to the native WebRTC calling provider without dropping the UI.
-  Future<void> _executeFallback({required String reason}) async {
+  /// Triggers a seamless, silent fallback to Agora without dropping the call UI.
+  Future<void> _executeFallbackToAgora({required String reason}) async {
     if (_isFallbackActive || _currentState == CallState.connected || _currentState == CallState.ended) {
       return;
     }
@@ -335,21 +325,24 @@ class CallServiceManager implements ICallService {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
 
-    debugPrint('CallServiceManager [SmartFallback]: Executing seamless fallback to native WebRTC ($reason)...');
+    debugPrint('CallServiceManager [SmartFallback]: Seamlessly falling back to Agora RTC ($reason)...');
 
-    // Switch active provider to native WebRTC
-    _currentActiveProvider = CallProviderType.webrtc;
-    _pipeServiceEvents(_webrtcService);
+    // Abort local WebRTC session without closing the overall call document
+    await _webrtcService.abortForFallback();
 
-    // Notify Firestore signaling document that provider has fallen back to WebRTC
+    // Switch active provider to Agora
+    _currentActiveProvider = CallProviderType.agora;
+    _pipeServiceEvents(_agoraService);
+
+    // Notify Firestore signaling document that provider has fallen back to Agora
     if (_lastCallId != null && _safeFirestore != null) {
       try {
-        await _safeFirestore!.collection('calls').doc(_lastCallId).set({
-          'provider': CallProviderType.webrtc.name,
+        await _safeFirestore!.collection('calls').doc(_lastCallId).update({
+          'provider': CallProviderType.agora.name,
           'fallback': true,
           'fallbackReason': reason,
           'fallbackAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        });
       } catch (e) {
         debugPrint('CallServiceManager: failed to sync fallback to Firestore: $e');
       }
@@ -358,7 +351,7 @@ class CallServiceManager implements ICallService {
     _currentState = CallState.connecting;
     if (_currentSession != null) {
       _currentSession = _currentSession!.copyWith(
-        provider: CallProviderType.webrtc,
+        provider: CallProviderType.agora,
         isFallbackActive: true,
         state: CallState.connecting,
       );
@@ -366,7 +359,7 @@ class CallServiceManager implements ICallService {
     _stateController.add(CallState.connecting);
 
     try {
-      await _webrtcService.startCall(
+      await _agoraService.startCall(
         targetUserId: _lastTargetUserId!,
         callId: _lastCallId!,
         targetUserName: _lastTargetUserName,
@@ -378,7 +371,7 @@ class CallServiceManager implements ICallService {
         },
       );
     } catch (e) {
-      debugPrint('CallServiceManager [SmartFallback]: Fallback to WebRTC failed: $e');
+      debugPrint('CallServiceManager [SmartFallback]: Fallback to Agora failed: $e');
       _currentState = CallState.error;
       _stateController.add(CallState.error);
     }
@@ -402,34 +395,39 @@ class CallServiceManager implements ICallService {
       return;
     }
 
-    // Automatic mode: check if caller triggered a fallback or specified provider
+    // Automatic mode: check signaling document for provider selection or fallback
+    String providerStr = 'webrtc';
     if (_safeFirestore != null) {
       try {
         final doc = await _safeFirestore!.collection('calls').doc(callId).get();
         if (doc.exists) {
-          final provStr = doc.data()?['provider']?.toString().toLowerCase();
-          if (provStr == 'webrtc') {
-            _currentActiveProvider = CallProviderType.webrtc;
-            _pipeServiceEvents(_webrtcService);
-            await _webrtcService.answerCall(callId);
-            return;
+          final prov = doc.data()?['provider']?.toString().toLowerCase();
+          if (prov == 'agora') {
+            providerStr = 'agora';
           }
         }
       } catch (_) {}
     }
 
-    // Default auto: answer on Agora
-    _currentActiveProvider = CallProviderType.agora;
-    _pipeServiceEvents(_agoraService);
-    try {
+    if (providerStr == 'agora') {
+      _currentActiveProvider = CallProviderType.agora;
+      _pipeServiceEvents(_agoraService);
       await _agoraService.answerCall(callId);
+      return;
+    }
+
+    // Default auto: answer on WebRTC, with failover to Agora if answering fails
+    _currentActiveProvider = CallProviderType.webrtc;
+    _pipeServiceEvents(_webrtcService);
+    try {
+      await _webrtcService.answerCall(callId);
     } catch (e) {
       if (mode == CallRoutingMode.smartFallback) {
-        debugPrint('CallServiceManager: Answering Agora failed: $e. Dropping over to WebRTC...');
-        _currentActiveProvider = CallProviderType.webrtc;
+        debugPrint('CallServiceManager: Answering WebRTC failed: $e. Dropping over to Agora...');
+        _currentActiveProvider = CallProviderType.agora;
         _isFallbackActive = true;
-        _pipeServiceEvents(_webrtcService);
-        await _webrtcService.answerCall(callId);
+        _pipeServiceEvents(_agoraService);
+        await _agoraService.answerCall(callId);
       } else {
         rethrow;
       }
@@ -440,7 +438,8 @@ class CallServiceManager implements ICallService {
   Future<void> rejectCall(String callId, {String? reason}) async {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
-    await activeProviderService.rejectCall(callId, reason: reason);
+    await _webrtcService.rejectCall(callId, reason: reason);
+    await _agoraService.rejectCall(callId, reason: reason);
   }
 
   @override
@@ -448,7 +447,40 @@ class CallServiceManager implements ICallService {
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
     _isFallbackActive = false;
-    await activeProviderService.endCall(reason: reason);
+
+    // Terminate signaling document in Firestore immediately to prevent any loop or re-ringing
+    final callId = _lastCallId ?? _currentSession?.callId;
+    if (callId != null && _safeFirestore != null) {
+      try {
+        await _safeFirestore!.collection('calls').doc(callId).update({
+          'status': 'ended',
+          'endedAt': FieldValue.serverTimestamp(),
+          'endReason': reason ?? 'normal',
+        });
+      } catch (_) {}
+    }
+
+    // Cleanly terminate both services so no hardware tracks or background listeners linger
+    try {
+      await _webrtcService.endCall(reason: reason);
+    } catch (_) {}
+    try {
+      await _agoraService.endCall(reason: reason);
+    } catch (_) {}
+
+    _currentState = CallState.ended;
+    _currentSession = null;
+    if (!_stateController.isClosed) {
+      _stateController.add(CallState.ended);
+    }
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (_currentState == CallState.ended) {
+        _currentState = CallState.idle;
+        if (!_stateController.isClosed) {
+          _stateController.add(CallState.idle);
+        }
+      }
+    });
   }
 
   @override

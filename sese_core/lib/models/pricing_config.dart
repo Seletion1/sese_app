@@ -203,6 +203,20 @@ class DailyStreakConfig {
   /// Global switch to enable or disable paid waiting time charges system-wide.
   final bool enableWaitingTimeBilling;
 
+  /// Grace/free waiting minutes at customer pickup before paid waiting billing starts.
+  final int freeWaitingMinutes;
+
+  /// Waiting fee charged per minute after the grace period expires (in Naira).
+  final double waitingRatePerMinute;
+
+  /// When true, customers and drivers cannot cancel a trip once it has
+  /// transitioned to [TripStatus.inProgress] or [TripStatus.pendingCustomerApproval].
+  ///
+  /// Enforced server-side in `cancelTrip` (functions/src/trips.ts). This flag
+  /// is the client-side mirror used to show/hide the "Cancel ride" button on
+  /// [LiveTripScreen] so the UI matches backend policy without an extra round-trip.
+  final bool enableCancellationLock;
+
   const DailyStreakConfig({
     this.streakEnabled = true,
     this.baseCommissionRate = 0.20,
@@ -211,6 +225,9 @@ class DailyStreakConfig {
     this.autoArrivalEnabled = true,
     this.autoArrivalCountdownSeconds = 5,
     this.enableWaitingTimeBilling = true,
+    this.freeWaitingMinutes = 10,
+    this.waitingRatePerMinute = 20.0,
+    this.enableCancellationLock = true,
     this.disabledCountries = const [],
     this.disabledStates = const [],
   });
@@ -237,6 +254,9 @@ class DailyStreakConfig {
         'autoArrivalEnabled': autoArrivalEnabled,
         'autoArrivalCountdownSeconds': autoArrivalCountdownSeconds,
         'enableWaitingTimeBilling': enableWaitingTimeBilling,
+        'freeWaitingMinutes': freeWaitingMinutes,
+        'waitingRatePerMinute': waitingRatePerMinute,
+        'enableCancellationLock': enableCancellationLock,
         'disabledCountries': disabledCountries,
         'disabledStates': disabledStates,
       };
@@ -255,6 +275,12 @@ class DailyStreakConfig {
           safeNum(map['autoArrivalCountdownSeconds'])?.toInt() ?? 5,
       enableWaitingTimeBilling:
           (map['enableWaitingTimeBilling'] as bool?) ?? true,
+      freeWaitingMinutes:
+          safeNum(map['freeWaitingMinutes'])?.toInt() ?? 10,
+      waitingRatePerMinute:
+          safeNum(map['waitingRatePerMinute'])?.toDouble() ?? 20.0,
+      enableCancellationLock:
+          (map['enableCancellationLock'] as bool?) ?? true,
       disabledCountries: (map['disabledCountries'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -274,6 +300,9 @@ class DailyStreakConfig {
     bool? autoArrivalEnabled,
     int? autoArrivalCountdownSeconds,
     bool? enableWaitingTimeBilling,
+    int? freeWaitingMinutes,
+    double? waitingRatePerMinute,
+    bool? enableCancellationLock,
     List<String>? disabledCountries,
     List<String>? disabledStates,
   }) {
@@ -287,6 +316,10 @@ class DailyStreakConfig {
           autoArrivalCountdownSeconds ?? this.autoArrivalCountdownSeconds,
       enableWaitingTimeBilling:
           enableWaitingTimeBilling ?? this.enableWaitingTimeBilling,
+      freeWaitingMinutes: freeWaitingMinutes ?? this.freeWaitingMinutes,
+      waitingRatePerMinute: waitingRatePerMinute ?? this.waitingRatePerMinute,
+      enableCancellationLock:
+          enableCancellationLock ?? this.enableCancellationLock,
       disabledCountries: disabledCountries ?? this.disabledCountries,
       disabledStates: disabledStates ?? this.disabledStates,
     );

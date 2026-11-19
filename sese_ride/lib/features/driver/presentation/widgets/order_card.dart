@@ -202,43 +202,10 @@ class _OrderCardState extends State<OrderCard> {
         ),
       );
     } else if (hasWallet && !hasCash) {
-      return Container(
-        margin: const EdgeInsets.only(top: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF065F46).withValues(alpha: 0.3)
-              : Colors.green.shade50,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: isDark
-                ? const Color(0xFF10B981).withValues(alpha: 0.4)
-                : Colors.green.shade200,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.check_circle_outline,
-              size: 13,
-              color: isDark ? const Color(0xFF6EE7B7) : Colors.green.shade800,
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Text(
-                '100% Wallet Prepaid • ₦0 cash to collect',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? const Color(0xFFA7F3D0) : Colors.green.shade800,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      );
+      // Payment is fully wallet-covered: intentionally hidden from the order
+      // pool card so drivers do not cherry-pick or skip wallet-prepaid trips.
+      // The payment detail is revealed on the active trip card once started.
+      return null;
     }
     return null;
   }

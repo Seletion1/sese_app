@@ -193,14 +193,11 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   String get _statusLabel {
     if (_errorMessage != null) return _errorMessage!;
-    if (_callManager.isFallbackActive && _state == CallState.connecting) {
-      return 'Connecting via backup relay...';
-    }
     switch (_state) {
       case CallState.idle:
         return 'Ready';
       case CallState.outgoing:
-        return 'Calling...';
+        return 'Ringing...';
       case CallState.incoming:
         return 'Incoming Call...';
       case CallState.connecting:
@@ -208,7 +205,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
       case CallState.connected:
         return _formatDuration(_duration);
       case CallState.reconnecting:
-        return 'Reconnecting...';
+        return 'Connecting...';
       case CallState.ended:
         return 'Call Ended';
       case CallState.error:
@@ -228,38 +225,30 @@ class _InAppCallScreenState extends State<InAppCallScreen>
         body: SafeArea(
           child: Column(
             children: [
-              // ── Header / Encrypted In-App Call Chip ──────────────────────
+              // ── Header ──────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.12),
+                        color: Colors.white.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Row(
+                      child: const Row(
                         children: [
                           Icon(
-                            _callManager.isFallbackActive
-                                ? Icons.sync_problem_rounded
-                                : Icons.shield_outlined,
-                            size: 14,
-                            color: _callManager.isFallbackActive
-                                ? Colors.amberAccent
-                                : Colors.cyanAccent,
+                            Icons.phone_in_talk_rounded,
+                            size: 13,
+                            color: Colors.white54,
                           ),
-                          const SizedBox(width: 6),
+                          SizedBox(width: 5),
                           Text(
-                            _callManager.isFallbackActive
-                                ? 'Backup Relay (3rd-Party)'
-                                : (_callManager.providerType == CallProviderType.webrtc
-                                    ? 'P2P Encrypted (WebRTC)'
-                                    : 'Direct Relay (3rd-Party SDK)'),
-                            style: const TextStyle(
-                              color: Colors.white70,
+                            'In-App Call',
+                            style: TextStyle(
+                              color: Colors.white54,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                             ),
@@ -268,8 +257,9 @@ class _InAppCallScreenState extends State<InAppCallScreen>
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white70),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white54),
                       onPressed: _endCall,
+                      tooltip: 'End call',
                     ),
                   ],
                 ),

@@ -118,11 +118,15 @@ export interface DailyStreakConfig {
   baseCommissionRate: number;
   noShowWaitMinutes: number;
   completionCashAward: number;
+  enableWaitingTimeBilling?: boolean;
+  freeWaitingMinutes?: number;
+  waitingRatePerMinute?: number;
+  enableCancellationLock?: boolean;
   disabledCountries: string[];
   disabledStates: string[];
 }
 
-async function resolveStreakConfig(
+export async function resolveStreakConfig(
   countryCode: string,
   stateOrRegion: string
 ): Promise<DailyStreakConfig> {
@@ -131,6 +135,10 @@ async function resolveStreakConfig(
     baseCommissionRate: 0.20,
     noShowWaitMinutes: 10,
     completionCashAward: 10000.0,
+    enableWaitingTimeBilling: true,
+    freeWaitingMinutes: 10,
+    waitingRatePerMinute: 20.0,
+    enableCancellationLock: true,
     disabledCountries: [],
     disabledStates: [],
   };
@@ -901,13 +909,12 @@ export async function handleTripCompletion(
       const currentCustEscrow = Number(custWData["escrowBalance"] ?? walletCoverage);
       const newCustEscrow = Math.max(0, currentCustEscrow - walletCoverage);
 
-      // Finalize debit on customer's wallet (deduct from main balance, clear escrow safely)
+      // Settle customer's wallet hold: escrow balance is cleared now that trip has completed.
+      // The fare amount was already deducted from mainWalletBalance upon booking.
       if (custWalletRef) {
         tx.set(
           custWalletRef,
           {
-            mainWalletBalance: admin.firestore.FieldValue.increment(-walletCoverage),
-            balance: admin.firestore.FieldValue.increment(-coverageKobo),
             escrowBalance: newCustEscrow,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
@@ -1345,12 +1352,14 @@ export async function handleTripCancellationSettlement(
       });
     }
 
-    // Escrow refund execution
+    // Escrow refund execution: return deducted fare back to customer wallet
     if (refundAmount > 0 && custWalletRef) {
       const coverageKobo = nairaToKobo(refundAmount);
       tx.set(
         custWalletRef,
         {
+          mainWalletBalance: admin.firestore.FieldValue.increment(refundAmount),
+          balance: admin.firestore.FieldValue.increment(coverageKobo),
           escrowBalance: newCustEscrow,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },

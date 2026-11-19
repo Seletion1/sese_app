@@ -245,14 +245,14 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
           const SizedBox(height: 24),
           const _SectionLabel('Active Calling Routing Policy'),
 
-          // ── Option 1: Automatic / Smart Fallback Card ────────────────────
+          // ── Option 1: Automatic (WebRTC Primary -> Agora Fallback) ──────
           _ProviderCard(
             key: const Key('routing_card_smart_fallback'),
-            title: 'Automatic (Agora Primary → WebRTC Failover)',
-            badge: 'Smart Failover (Default)',
+            title: 'Automatic (WebRTC Primary → Agora Fallback)',
+            badge: 'Automatic (Default)',
             badgeColor: Colors.green,
             description:
-                'Uses Agora RTC Engine as primary provider for 10,000 free monthly minutes. If monthly usage reaches threshold (9,900 mins) or connection fails, automatically switches future and active calls to native WebRTC.',
+                'Attempts WebRTC (Firebase signaling) first. If WebRTC fails to connect or times out, automatically falls back to Agora RTC in the background.',
             isSelected: _selectedRoutingMode == CallRoutingMode.smartFallback,
             icon: Icons.auto_mode_rounded,
             onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.smartFallback),
@@ -260,32 +260,32 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
 
           const SizedBox(height: 12),
 
-          // ── Option 2: Force Agora ─────────────────────────────────────────
+          // ── Option 2: Force WebRTC ────────────────────────────────────────
+          _ProviderCard(
+            key: const Key('routing_card_custom_p2p'),
+            title: 'Force WebRTC',
+            badge: 'WebRTC / Firebase',
+            badgeColor: Colors.teal,
+            description:
+                'Forces WebRTC / Firebase call flow exclusively. Self-hosted signaling with zero vendor minutes consumed.',
+            isSelected: _selectedRoutingMode == CallRoutingMode.customP2pOnly,
+            icon: Icons.sync_alt_rounded,
+            onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.customP2pOnly),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ── Option 3: Force Agora ─────────────────────────────────────────
           _ProviderCard(
             key: const Key('routing_card_third_party'),
             title: 'Force Agora',
             badge: 'Agora RTC Engine',
             badgeColor: Colors.indigo,
             description:
-                'Forces the use of Agora RTC Engine exclusively. Bypasses automatic minute failover.',
+                'Forces Agora RTC Engine exclusively for all in-app voice calls.',
             isSelected: _selectedRoutingMode == CallRoutingMode.thirdPartyOnly,
             icon: Icons.cloud_done_rounded,
             onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.thirdPartyOnly),
-          ),
-
-          const SizedBox(height: 12),
-
-          // ── Option 3: Force Native WebRTC ───────────────────────────────
-          _ProviderCard(
-            key: const Key('routing_card_custom_p2p'),
-            title: 'Force Native WebRTC',
-            badge: 'Zero Vendor Cost',
-            badgeColor: Colors.teal,
-            description:
-                'Uses custom self-hosted WebRTC exclusively via Cloud Firestore signaling and Google STUN servers. No Agora API tokens will be requested.',
-            isSelected: _selectedRoutingMode == CallRoutingMode.customP2pOnly,
-            icon: Icons.sync_alt_rounded,
-            onTap: () => setState(() => _selectedRoutingMode = CallRoutingMode.customP2pOnly),
           ),
 
           const SizedBox(height: 24),

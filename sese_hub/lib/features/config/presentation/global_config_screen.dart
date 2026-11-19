@@ -178,8 +178,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _driverBreakOption1Ctrl = TextEditingController(text: '30');
   final _driverBreakOption2Ctrl = TextEditingController(text: '60');
   final _dropoffRadiusCtrl = TextEditingController(text: '500');
+  final _freeWaitingMinutesCtrl = TextEditingController(text: '10');
+  final _waitingRatePerMinuteCtrl = TextEditingController(text: '20');
   bool _driverBreakEnabled = true;
   bool _enableWaitingTimeBilling = true;
+  bool _enableCancellationLock = true;
 
   @override
   void initState() {
@@ -274,6 +277,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _driverBreakOption1Ctrl.dispose();
     _driverBreakOption2Ctrl.dispose();
     _dropoffRadiusCtrl.dispose();
+    _freeWaitingMinutesCtrl.dispose();
+    _waitingRatePerMinuteCtrl.dispose();
     super.dispose();
   }
 
@@ -478,6 +483,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _dailyStreakEnabled = daily.streakEnabled;
     _autoArrivalEnabled = daily.autoArrivalEnabled;
     _enableWaitingTimeBilling = daily.enableWaitingTimeBilling;
+    _freeWaitingMinutesCtrl.text = daily.freeWaitingMinutes.toString();
+    _waitingRatePerMinuteCtrl.text = daily.waitingRatePerMinute.toStringAsFixed(0);
+    _enableCancellationLock = daily.enableCancellationLock;
     _baseCommissionCtrl.text =
         (daily.baseCommissionRate * 100).toStringAsFixed(1);
     _completionAwardCtrl.text = daily.completionCashAward.toStringAsFixed(0);
@@ -590,6 +598,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         autoArrivalCountdownSeconds:
             int.tryParse(_autoArrivalCountdownCtrl.text) ?? 5,
         enableWaitingTimeBilling: _enableWaitingTimeBilling,
+        freeWaitingMinutes: int.tryParse(_freeWaitingMinutesCtrl.text.trim()) ?? 10,
+        waitingRatePerMinute: double.tryParse(_waitingRatePerMinuteCtrl.text.trim()) ?? 20.0,
+        enableCancellationLock: _enableCancellationLock,
         disabledCountries: _disabledCountries.toList()..sort(),
         disabledStates: _disabledStates.toList()..sort(),
       );
@@ -1606,10 +1617,49 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   preferredWidth: 280,
                   child: SwitchListTile(
                     title: const Text('Enable Paid Waiting Billing'),
-                    subtitle: const Text('Bill waiting time after 10-min arrival countdown'),
+                    subtitle: const Text('Bill waiting time after arrival countdown expires'),
                     value: _enableWaitingTimeBilling,
                     onChanged: (val) {
                       setState(() => _enableWaitingTimeBilling = val);
+                    },
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 200,
+                  child: TextFormField(
+                    controller: _freeWaitingMinutesCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Grace Waiting Minutes',
+                      helperText: 'Free minutes at pickup (default 10m)',
+                      suffixText: 'mins',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.timer_outlined),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 200,
+                  child: TextFormField(
+                    controller: _waitingRatePerMinuteCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Waiting Rate / Min',
+                      helperText: 'Fee per minute after grace (default ₦20)',
+                      prefixText: '₦ ',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.money_outlined),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 280,
+                  child: SwitchListTile(
+                    title: const Text('Lock In-Progress Cancel'),
+                    subtitle: const Text('Disallow rider/driver cancel once trip is started'),
+                    value: _enableCancellationLock,
+                    onChanged: (val) {
+                      setState(() => _enableCancellationLock = val);
                     },
                   ),
                 ),
