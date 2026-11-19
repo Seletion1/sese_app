@@ -1,39 +1,41 @@
-# Walkthrough - Per-Trip Bidding Toggle & Fixed-Fare Enforcement
+# Walkthrough - Purge `SYSTEM_ALERT_WINDOW` Overlay & Transition to FCM `fullScreenIntent`
 
 ## Summary of Implementation
 
-Implemented a per-trip "Allow Driver Bidding / Counter-Offers" switch directly on the customer checkout screen in `sese_ride` (enabled by default), updated the Firestore `trips` schema (`allow_bidding: true/false`), and enforced fixed-fare broadcasting across Cloud Functions (`createTrip`, `submitBid`) and driver/customer UI surfaces.
+Completely purged custom overlay window code, floating bubble services, and the `SYSTEM_ALERT_WINDOW` permission from `sese_ride` and `sese_core`. Replaced with native Firebase Cloud Messaging (FCM) high-priority `fullScreenIntent` notifications that wake the screen and route directly to active order acceptance screens over the lockscreen.
 
-### 1. Checkout Screen UI Switch (`sese_ride`)
-**[customer_dispatch_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/customer/presentation/customer_dispatch_screen.dart#L3590-L3625)**
-- Added `_allowBidding` state variable initialized to `true`.
-- Added an "Allow Driver Bidding / Counter-Offers" switch tile on the trip review / checkout sheet under the payment summary.
-- Users can manually toggle it OFF if they want a fixed-fare order.
-- Passes `allowBidding: _allowBidding` to `TripDraft` when the customer confirms booking.
+### 1. Deleted Overlay Files & Package Purge
+- **Deleted Files**:
+  - `sese_ride/lib/driver_overlay_entry.dart`
+  - `sese_ride/lib/features/driver/services/driver_overlay_service.dart`
+  - `sese_ride/test/driver_overlay_card_widget_test.dart`
+  - `sese_ride/test/driver_overlay_service_test.dart`
+  - `sese_core/lib/widgets/driver_overlay_disclosure_dialog.dart`
+- **Package Purge**: Removed `flutter_overlay_window` from `sese_ride/pubspec.yaml` and purged `driver_overlay_disclosure_dialog.dart` export from `sese_core.dart`.
 
-### 2. Schema & Models (`sese_ride` & Firestore)
-**[trip_models.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/models/trip_models.dart)**
-- Extended `TripDraft`, `TripData`, and `TripModel` with `allowBidding` (default: `true`).
-- Serializes `allowBidding` and `allow_bidding` to the Firestore `trips` document upon `createTrip`.
+### 2. Android Native Configuration (`AndroidManifest.xml`)
+**[AndroidManifest.xml](file:///Users/micheal/sese_app/sese_ride/android/app/src/main/AndroidManifest.xml)**
+- Removed `<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />` to eliminate Google Play Store policy liabilities and rejection risks.
+- Removed `<service android:name="flutter.overlay.window.flutter_overlay_window.OverlayService" ... />` definition.
+- Preserved `MainActivity` flags `android:showWhenLocked="true"` and `android:turnScreenOn="true"` for lockscreen full-screen intents.
 
-### 3. Backend & Matching Engine Enforcement (`functions/src`)
-**[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L1120-L1130)** & **[trips.ts](file:///Users/micheal/sese_app/functions/src/trips.ts#L3235-L3250)**
-- **`createTrip`**: Stores `allowBidding` and `allow_bidding` on the created trip document.
-- **`submitBid`**: Verifies `tripData.allowBidding !== false && tripData.allow_bidding !== false`. If `false`, throws `failed-precondition` error ("This trip is fixed-price only and does not accept driver counter-offers.").
-- **[stacked_dispatch.test.ts](file:///Users/micheal/sese_app/functions/src/test/stacked_dispatch.test.ts#L55-L65)**: Added backend unit test verifying fixed-fare bidding rejection logic.
+### 3. Native `fullScreenIntent` High-Priority Notification Channel
+**[push_notification_service.dart](file:///Users/micheal/sese_app/sese_core/lib/services/push_notification_service.dart#L460-L510)** & **[background_handler.dart](file:///Users/micheal/sese_app/sese_ride/lib/background_handler.dart#L25-L65)**
+- High-priority order notifications trigger `PushNotificationService.showFromMessage` with `fullScreenIntent: true`, `importance: Importance.max`, `priority: Priority.high`, `category: AndroidNotificationCategory.call`, and `visibility: NotificationVisibility.public`.
+- When an order arrives while the screen is locked or the app is in the background, Android wakes up the screen and displays the high-importance notification banner or full-screen intent.
 
-### 4. UI/UX Refinement across Driver and Customer Views
-- **Driver Order Cards ([order_card.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/driver/presentation/widgets/order_card.dart#L730-L745) & [order_pool_sheet.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/driver/presentation/widgets/order_pool_sheet.dart#L950-L960))**:
-  - When `trip.allowBidding == false`, hides the "Bid Fare" button and counter-offer slider, showing a single "Accept (Fixed Fare)" action button.
-- **Customer Active Trip & Overlay ([live_trip_screen.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/live_trip_screen.dart#L2100-L2120) & [customer_bid_overlay.dart](file:///Users/micheal/sese_app/sese_ride/lib/features/trips/presentation/customer_bid_overlay.dart#L95-L105))**:
-  - When `allowBidding == false`, displays fixed-fare searching status ("Fixed-fare order: searching for nearby drivers...") and suppresses the counter-offer overlay stream.
+### 4. Background-to-Foreground Dispatch Handoff
+**[background_handler.dart](file:///Users/micheal/sese_app/sese_ride/lib/background_handler.dart#L60-L80)** & **[main.dart](file:///Users/micheal/sese_app/sese_ride/lib/main.dart#L200-L215)**
+- `driverBackgroundHandler` persists the offer payload to `SharedPreferences` and brings `MainActivity` to the foreground via `AppLauncher().bringToForeground(extras: {'tripId': tripId, 'type': type})`.
+- `PushNotificationService.incomingOfferNotifier` and `onMessageDataStream` consume the payload, opening the full-screen order sheet (`IncomingOfferSheet` / `OrderPoolSheet`) directly on top of the dashboard with clear Accept and Decline buttons.
 
 ---
 
 ## Verification Results
 
 ### Automated Tests & Pipeline Execution
-- **Backend Unit Tests (`npm test`)**: All 147 backend unit tests passed across 48 test suites with 0 failures (including the new fixed-fare bidding invariant test).
 - **Flutter Code Analysis (`flutter analyze`)**: Passed cleanly across `sese_core`, `sese_hub`, and `sese_ride` with 0 issues.
+- **Flutter Unit Tests (`flutter test`)**: All 153 unit tests in `sese_core` and 40 unit tests in `sese_ride` passed with 0 failures.
+- **Backend Unit Tests (`npm test`)**: All 147 backend unit tests passed across 48 test suites with 0 failures.
 - **Firebase Deployment**: All 77 Cloud Functions and Firestore security rules deployed successfully live on `sese-ride`.
-- **Git Sync**: Staged, committed, and pushed commit `8152e03` to `https://github.com/Seletion1/sese_app.git` on branch `main`.
+- **Git Sync**: Staged, committed, and pushed commit `1c68c8d` to `https://github.com/Seletion1/sese_app.git` on branch `main`.

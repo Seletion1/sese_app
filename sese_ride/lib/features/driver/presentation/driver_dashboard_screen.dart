@@ -1,9 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:app_launcher/app_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
