@@ -21,6 +21,10 @@
             "package_name": "com.sesetech.sese_hub",
             "certificate_hash": "1808e22ef783bcd1b55414da11b3629adc4de6a8"
           }
+        },
+        {
+          "client_id": "618721373016-qdc6er01skjqubo6edrqpn9d6gcjr778.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
@@ -36,10 +40,10 @@
               "client_type": 3
             },
             {
-              "client_id": "618721373016-dajoi83gr67l6cuafajbg1scrmhlgtvr.apps.googleusercontent.com",
+              "client_id": "618721373016-2he2ergijui3og4o08m8iqsh40op38mn.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.sesetech.seseHub"
+                "bundle_id": "tech.seletion.sese.seseAdmin"
               }
             }
           ]
@@ -55,12 +59,32 @@
       },
       "oauth_client": [
         {
+          "client_id": "618721373016-esv6atid357671vqo641hb27l8v0dbgn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "0dd52479733a25ba59eb0bb5cbfaaa1d80d2d075"
+          }
+        },
+        {
           "client_id": "618721373016-u6sepl65ohqdjik9igb47g3ghjdev3dh.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.sesetech.sese_ride",
             "certificate_hash": "1808e22ef783bcd1b55414da11b3629adc4de6a8"
           }
+        },
+        {
+          "client_id": "618721373016-vhra4j5duauhp9ltikjhjgio1d4slkg1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "fa69526bbf2526a4652b18349941e55cd155df84"
+          }
+        },
+        {
+          "client_id": "618721373016-qdc6er01skjqubo6edrqpn9d6gcjr778.apps.googleusercontent.com",
+          "client_type": 3
         }
       ],
       "api_key": [
@@ -76,10 +100,10 @@
               "client_type": 3
             },
             {
-              "client_id": "618721373016-dajoi83gr67l6cuafajbg1scrmhlgtvr.apps.googleusercontent.com",
+              "client_id": "618721373016-2he2ergijui3og4o08m8iqsh40op38mn.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.sesetech.seseHub"
+                "bundle_id": "tech.seletion.sese.seseAdmin"
               }
             }
           ]
