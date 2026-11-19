@@ -148,9 +148,16 @@ android {
     // Enables per-architecture APKs targeting modern production architectures
     // (armeabi-v7a, arm64-v8a, x86_64) for direct APK distribution and sideloading,
     // while generating a universal APK as a fallback.
+    //
+    // IMPORTANT: ABI splits must be disabled for App Bundle (AAB) builds.
+    // Bundles handle per-architecture delivery natively via Google Play's
+    // Dynamic Delivery — enabling splits during a bundle task causes
+    // "Multiple shrunk-resources files found" build failures (b/402800800).
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none {
+                it.contains("bundle", ignoreCase = true)
+            }
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             isUniversalApk = true

@@ -106,9 +106,13 @@ android {
     }
 
     // ABI splits for sideload/QA builds and binary size optimization.
+    // Disabled automatically for App Bundle (AAB) builds — bundles handle
+    // per-architecture delivery natively via Google Play Dynamic Delivery.
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none {
+                it.contains("bundle", ignoreCase = true)
+            }
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
             isUniversalApk = true
