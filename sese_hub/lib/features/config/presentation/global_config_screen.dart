@@ -112,6 +112,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _pingTimeoutCtrl = TextEditingController(text: '15');
   final _repingIntervalCtrl = TextEditingController(text: '30');
   final _candidateLimitCtrl = TextEditingController(text: '25');
+  final _maxSequentialDriversCtrl = TextEditingController(text: '1');
   final _publicPoolDurationCtrl = TextEditingController(text: '60');
   final _bidCountdownSecCtrl = TextEditingController(text: '15');
   final _cameraPickupDwellCtrl = TextEditingController(text: '5');
@@ -241,6 +242,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _pingTimeoutCtrl.dispose();
     _repingIntervalCtrl.dispose();
     _candidateLimitCtrl.dispose();
+    _maxSequentialDriversCtrl.dispose();
     _publicPoolDurationCtrl.dispose();
     _bidCountdownSecCtrl.dispose();
     _cameraPickupDwellCtrl.dispose();
@@ -353,6 +355,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _pingTimeoutCtrl.text = tuning.pingTimeoutSec.toString();
       _repingIntervalCtrl.text = tuning.repingIntervalSec.toString();
       _candidateLimitCtrl.text = tuning.candidateLimit.toString();
+      _maxSequentialDriversCtrl.text = tuning.maxSequentialDrivers.toString();
       _publicPoolDurationCtrl.text = tuning.publicPoolDurationMin.toString();
       _bidCountdownSecCtrl.text = tuning.bidCountdownSec.toString();
       _cameraPickupDwellCtrl.text = tuning.cameraPickupDwellSec.toString();
@@ -622,6 +625,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_repingIntervalCtrl.text.trim()) ?? 30,
           candidateLimit:
               int.tryParse(_candidateLimitCtrl.text.trim()) ?? 25,
+          maxSequentialDrivers:
+              int.tryParse(_maxSequentialDriversCtrl.text.trim()) ?? 1,
           publicPoolDurationMin:
               int.tryParse(_publicPoolDurationCtrl.text.trim()) ?? 60,
           bidCountdownSec:
@@ -2951,6 +2956,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 15 (5–120 sec). Offer countdown per sequential driver before fallback.'),
                 numField(_candidateLimitCtrl, 'Candidate scan limit', 'drivers',
                     'Default 25 (5–100). Max candidate pool evaluated for proximity.'),
+                numField(_maxSequentialDriversCtrl, 'Sequential driver attempts', 'drivers',
+                    'Default 1 driver. Number of sequential driver pings before sending order to Public Pool.'),
                 numField(_publicPoolDurationCtrl, 'Public Pool timeout', 'min',
                     'Default 60 min (1 hr). Automatically expires orders from the pool and returns them to customer.'),
                 numField(_bidCountdownSecCtrl, 'Driver bidding countdown', 'sec',

@@ -127,6 +127,7 @@ void main() {
       tier3RadiusKm: 10,
       tier1TimeoutSec: 15,
       candidateLimit: 25,
+      maxSequentialDrivers: 3,
     );
 
     test('resolves correct radius per dispatch tier', () {

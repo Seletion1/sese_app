@@ -5,9 +5,8 @@
 /// by Cloud Functions (`functions/src/trips.ts`), the Hub Dispatch Console
 /// (`sese_hub`), and the customer Live Trip searching screen (`sese_ride`).
 class DispatchTuning {
-  /// Maximum number of sequential nearest drivers targeted (Step 1, 2, 3)
-  /// before escalating to the Public Order Pool (Step 4).
-  static const int maxSequentialDrivers = 3;
+  /// Default sequential drivers targeted before escalating to Public Pool (1 driver by default).
+  static const int defaultMaxSequentialDrivers = 1;
 
   final double dispatchRadiusKm;
   final double tier1RadiusKm;
@@ -16,6 +15,7 @@ class DispatchTuning {
   final int pingTimeoutSec;
   final int repingIntervalSec;
   final int candidateLimit;
+  final int maxSequentialDrivers; // default: 1 driver before Public Pool
 
   /// Public Order Pool expiration duration in minutes (Hub configurable).
   /// Default: 60 minutes (1 hour). When reached without driver acceptance,
@@ -62,6 +62,7 @@ class DispatchTuning {
     this.pingTimeoutSec = 15,
     this.repingIntervalSec = 30,
     this.candidateLimit = 25,
+    this.maxSequentialDrivers = 1,
     this.publicPoolDurationMin = 60,
     this.bidCountdownSec = 15,
     this.maxOfferBoostPct = 100.0,
@@ -114,6 +115,7 @@ class DispatchTuning {
     final t1 = numOf('tier1RadiusKm', numOf('searchRadiusKm', 3));
     final t1Timeout = intOf('tier1TimeoutSec', intOf('sequentialTimeoutSec', 15));
     final bidTimeout = intOf('bidCountdownSec', intOf('bidCountdownSeconds', intOf('biddingCountdownSec', 15)));
+    final maxSeq = intOf('maxSequentialDrivers', intOf('sequentialAttemptsBeforePool', 1));
     return DispatchTuning(
       dispatchRadiusKm: t3,
       tier1RadiusKm: t1,
@@ -122,6 +124,7 @@ class DispatchTuning {
       pingTimeoutSec: intOf('pingTimeoutSec', t1Timeout),
       repingIntervalSec: intOf('repingIntervalSec', 30),
       candidateLimit: intOf('candidateLimit', 25),
+      maxSequentialDrivers: maxSeq,
       publicPoolDurationMin: intOf('publicPoolDurationMin', intOf('poolDurationMin', 60)),
       bidCountdownSec: bidTimeout,
       maxOfferBoostPct: numOf('maxOfferBoostPct', 100.0),
@@ -147,6 +150,8 @@ class DispatchTuning {
         'pingTimeoutSec': pingTimeoutSec,
         'repingIntervalSec': repingIntervalSec,
         'candidateLimit': candidateLimit,
+        'maxSequentialDrivers': maxSequentialDrivers,
+        'sequentialAttemptsBeforePool': maxSequentialDrivers,
         'publicPoolDurationMin': publicPoolDurationMin,
         'poolDurationMin': publicPoolDurationMin,
         'bidCountdownSec': bidCountdownSec,

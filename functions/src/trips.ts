@@ -78,6 +78,7 @@ interface DispatchTuning {
   allowStackedOrders: boolean;
   maxDistanceToDropoffKm: number;
   maxRemainingTimeMinutes: number;
+  maxSequentialDrivers: number;
 }
 
 const DEFAULT_TUNING: DispatchTuning = {
@@ -91,11 +92,12 @@ const DEFAULT_TUNING: DispatchTuning = {
   publicPoolDurationMin: DEFAULT_PUBLIC_POOL_DURATION_MIN,
   publicPoolDurationMs: DEFAULT_PUBLIC_POOL_DURATION_MIN * 60 * 1000,
   maxOfferBoostPct: 100,
-  bidCountdownMs: 10 * 1000,
-  bidCountdownSec: 10,
+  bidCountdownMs: 15 * 1000,
+  bidCountdownSec: 15,
   allowStackedOrders: true,
   maxDistanceToDropoffKm: 2.0,
   maxRemainingTimeMinutes: 10,
+  maxSequentialDrivers: 1,
 };
 
 let tuningCache: { at: number; value: DispatchTuning } | null = null;
@@ -126,17 +128,14 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       50
     );
     const bidCountdownSec = Math.round(
-      num(d.bidCountdownSec ?? d.bidCountdownSeconds, 10, 5, 60)
+      num(d.bidCountdownSec ?? d.bidCountdownSeconds, 15, 5, 60)
     );
     const tier1Radius = Math.min(
       num(d.tier1RadiusKm ?? d.searchRadiusKm, DEFAULT_TIER1_RADIUS_KM, 0.5, 50),
       tier3Radius
     );
-    const tier1TimeoutSec = num(
-      d.tier1TimeoutSec ?? d.sequentialTimeoutSec,
-      15,
-      5,
-      120
+    const tier1TimeoutSec = Math.round(
+      num(d.tier1TimeoutSec ?? d.sequentialTimeoutSec, 15, 5, 120)
     );
     const publicPoolDurationMin = Math.round(
       num(d.publicPoolDurationMin ?? d.poolDurationMin ?? d.publicPoolDurationMinutes, 60, 5, 1440)
@@ -144,6 +143,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
     const allowStackedOrders = typeof d.allowStackedOrders === "boolean" ? d.allowStackedOrders : true;
     const maxDistanceToDropoffKm = num(d.maxDistanceToDropoffKm, 2.0, 0.1, 10.0);
     const maxRemainingTimeMinutes = Math.round(num(d.maxRemainingTimeMinutes, 10, 1, 60));
+    const maxSequentialDrivers = Math.round(num(d.maxSequentialDrivers ?? d.sequentialAttemptsBeforePool, 1, 1, 10));
 
     const value: DispatchTuning = {
       dispatchRadiusKm: tier3Radius,
@@ -161,6 +161,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       allowStackedOrders,
       maxDistanceToDropoffKm,
       maxRemainingTimeMinutes,
+      maxSequentialDrivers,
     };
     tuningCache = { at: Date.now(), value };
     return value;
@@ -1544,10 +1545,11 @@ async function advanceSequentialDispatch(
   const currentStep =
     typeof data.dispatchStep === "number" ? data.dispatchStep : attempted.length;
 
-  // If already at or beyond 3 attempted drivers, automatically drop into Public Order Pool
+  // If already at or beyond maxSequentialDrivers attempted (default 1), automatically drop into Public Order Pool
+  const maxSeqLimit = tuning.maxSequentialDrivers ?? 1;
   if (
-    currentStep >= MAX_SEQUENTIAL_DISPATCH_DRIVERS ||
-    attempted.length >= MAX_SEQUENTIAL_DISPATCH_DRIVERS
+    currentStep >= maxSeqLimit ||
+    attempted.length >= maxSeqLimit
   ) {
     await dropToPublicPool(tripRef);
     return false;

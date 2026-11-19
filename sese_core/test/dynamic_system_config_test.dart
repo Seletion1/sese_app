@@ -415,6 +415,7 @@ void main() {
         'publicPoolDurationMin': 45,
         'bidCountdownSec': 10,
         'maxOfferBoostPct': 150.0,
+        'maxSequentialDrivers': 3,
       });
 
       expect(mapConfig.tier1RadiusKm, 4.5);
