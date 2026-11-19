@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-19 — Compliant Driver Background Presence & Quick-Return Experience
+
+- **1. Strict Cross-Platform Separation (`DriverPresenceService`)**:
+  - Implemented `DriverPresenceService` with strict platform isolation (`Platform.isAndroid` vs `Platform.isIOS`).
+  - Zero overlay or system window APIs are called on iOS, ensuring 100% compliance with Apple App Store Guideline 2.5.1.
+
+- **2. Android Policy-Compliant Floating Quick-Return Bubble (`SYSTEM_ALERT_WINDOW`)**:
+  - **Prominent Disclosure Gate**: Implemented `DriverOverlayDisclosureDialog` (`sese_core`) displayed before requesting "Display over other apps" permission, in strict compliance with Google Play Prominent Disclosure & Consent requirements.
+  - **Online-Only & Active Trip Lifecycle**: Floating bubble is displayed only when driver is actively ONLINE (or has an active trip) and the app is backgrounded. Dismissed immediately upon going offline, signing out, or app foregrounding.
+  - **Non-Obstructive & Compact**: 84x84 draggable circle with gold accent border and `SeSeLogo`, zero ads, zero deceptive overlays. Long-press displays instant dismiss target ("Hide").
+  - **Manifest Security**: Registered `OverlayService` with `android:exported="false"`, `foregroundServiceType="specialUse"`, and property `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` set to `driver_quick_return_bubble`.
+
+- **3. iOS Compliant Background Presence (APNs Time-Sensitive & Live Activities)**:
+  - Added `NSSupportsLiveActivities` and `NSSupportsLiveActivitiesFrequentUpdates` to `Info.plist`.
+  - Configured high-priority push notifications with `InterruptionLevel.timeSensitive` (iOS 15+) for immediate dispatch alerts while backgrounded or navigating.
+
+- **4. Driver Settings Toggle (`QuickReturnBubbleSection`)**:
+  - Added dedicated toggle in Driver Settings under "Navigation & Quick-Return" allowing drivers to toggle the quick-return bubble anytime or view platform background presence status.
+
+- **5. Comprehensive Verification**:
+  - 141/141 tests passed in `sese_ride` (including `driver_presence_service_test.dart` and `driver_overlay_bubble_widget_test.dart`).
+  - 140/140 tests passed in `sese_core` (including `driver_overlay_disclosure_dialog_test.dart`).
+  - 34/34 tests passed in `sese_hub`.
+  - Static analysis clean across `sese_core`, `sese_ride`, and `sese_hub` (0 errors, 0 warnings).
+
 ## 2026-11-18 — Architectural Security Regression Checks & Coding Standards
 
 - **1. Android Manifest Security Linters (`allowBackup="false"`, `exported="false"`)**:

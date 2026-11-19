@@ -541,6 +541,7 @@ class PushNotificationService {
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
+            interruptionLevel: InterruptionLevel.timeSensitive,
           ),
         ),
         payload: _payloadOf(message),

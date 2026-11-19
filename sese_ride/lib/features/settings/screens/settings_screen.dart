@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../auth/login_page.dart';
 import '../../driver/presentation/driver_fleet_screen.dart';
 import '../../driver/services/driver_fleet_service.dart';
+import '../../driver/services/driver_presence_service.dart';
 import '../../home/security_pin_screen.dart';
 import '../delete_account_dialog.dart';
 import '../mode_switcher.dart';
@@ -66,6 +67,9 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 20),
             const _SectionHeader('Preferences & Sound'),
             const AlertSoundSection(),
+            const SizedBox(height: 16),
+            const _SectionHeader('Navigation & Quick-Return'),
+            const QuickReturnBubbleSection(),
             const SizedBox(height: 8),
           ] else ...[
             const _SectionHeader('Preferences'),
@@ -824,6 +828,135 @@ class _AccountPasswordSheetState extends State<_AccountPasswordSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Floating Quick-Return Bubble toggle section for drivers.
+///
+/// On Android, controls the `SYSTEM_ALERT_WINDOW` permission state and floating bubble preference.
+/// On iOS, shows compliant status information regarding high-priority notifications & background presence.
+class QuickReturnBubbleSection extends StatefulWidget {
+  const QuickReturnBubbleSection({super.key});
+
+  @override
+  State<QuickReturnBubbleSection> createState() =>
+      _QuickReturnBubbleSectionState();
+}
+
+class _QuickReturnBubbleSectionState extends State<QuickReturnBubbleSection> {
+  bool _enabled = true;
+  bool _permissionGranted = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadState();
+  }
+
+  Future<void> _loadState() async {
+    final enabled =
+        await DriverPresenceService.instance.isBubbleSettingEnabled();
+    final granted =
+        await DriverPresenceService.instance.hasOverlayPermission();
+    if (mounted) {
+      setState(() {
+        _enabled = enabled;
+        _permissionGranted = granted;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _onToggle(bool value) async {
+    if (value) {
+      // Driver wants to turn on bubble
+      if (!_permissionGranted) {
+        final granted = await DriverPresenceService.instance
+            .requestOverlayPermissionWithDisclosure(context);
+        if (!mounted) return;
+        setState(() {
+          _permissionGranted = granted;
+          _enabled = granted;
+        });
+        await DriverPresenceService.instance.setBubbleSettingEnabled(granted);
+        return;
+      }
+    }
+    setState(() => _enabled = value);
+    await DriverPresenceService.instance.setBubbleSettingEnabled(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const SizedBox.shrink();
+
+    if (!DriverPresenceService.instance.isAndroidOverlaySupported) {
+      // iOS compliant status card (no window overlays)
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.seseGold.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.notifications_active_rounded,
+                  color: AppColors.seseGold,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Background Order Alerts',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      'High-priority alerts wake the screen for incoming offers while using Apple Maps or Google Maps.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF888888)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Android Switch toggle
+    return Card(
+      child: SwitchListTile(
+        key: const Key('settings_quick_return_bubble_switch'),
+        secondary: const Icon(Icons.picture_in_picture_alt_rounded,
+            color: AppColors.seseGold),
+        title: const Text(
+          'Floating Quick-Return Bubble',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          _permissionGranted
+              ? 'Display floating icon over navigation apps to quickly return to orders.'
+              : 'Permission required: Tap to enable "Display over other apps".',
+          style: TextStyle(
+            fontSize: 12,
+            color: _permissionGranted ? const Color(0xFF888888) : Colors.orangeAccent,
+          ),
+        ),
+        value: _enabled && _permissionGranted,
+        activeColor: AppColors.seseGold,
+        onChanged: _onToggle,
       ),
     );
   }

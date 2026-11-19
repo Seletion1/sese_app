@@ -85,6 +85,7 @@ export 'legal/legal_document_content.dart';
 export 'widgets/legal_document_viewer.dart';
 export 'widgets/legal_auth_disclaimer.dart';
 export 'widgets/prominent_location_disclosure_dialog.dart';
+export 'widgets/driver_overlay_disclosure_dialog.dart';
 export 'services/contacts_service.dart';
 export 'widgets/contacts_disclosure_dialog.dart';
 export 'widgets/mandatory_legal_acceptance_dialog.dart';

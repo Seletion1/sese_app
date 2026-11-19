@@ -18,6 +18,7 @@ import '../services/driver_fleet_service.dart';
 import '../services/driver_status_service.dart';
 import '../services/driver_streak_service.dart';
 import '../services/navigation_launcher_service.dart';
+import '../services/driver_presence_service.dart';
 import 'driver_fleet_screen.dart';
 import 'online_verification_shield_modal.dart';
 import 'widgets/driver_active_trip_card.dart';
@@ -507,6 +508,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     unawaited(PushNotificationService.showOngoingOnlineAlert());
     unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
     unawaited(MediaPermissionService.ensureBackgroundLocation());
+    unawaited(DriverPresenceService.instance.onDriverOnline(driverId: widget.driverId));
   }
 
   Future<void> _persistOnlineSession(String? sessionId) async {
@@ -537,6 +539,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     AppSoundService.instance.playOfflineSound();
     // ignore: discarded_futures
     PushNotificationService.cancelOnlineAlert();
+    // ignore: discarded_futures
+    DriverPresenceService.instance.onDriverOffline();
     // ignore: discarded_futures
     PushNotificationService.unsubscribe('driver_${widget.driverId}');
     unawaited(_persistOnlineSession(null));
@@ -585,6 +589,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
     setState(() => _appPaused = nowPaused);
+
+    if (nowPaused) {
+      unawaited(DriverPresenceService.instance.onAppBackgrounded());
+    } else if (foreground) {
+      unawaited(DriverPresenceService.instance.onAppForegrounded());
+    }
   }
 
   /// Best-effort platform fix for the signed online payload and the
@@ -959,6 +969,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         // ignore: discarded_futures
         PushNotificationService.cancelOnlineAlert();
         // ignore: discarded_futures
+        DriverPresenceService.instance.onDriverOffline();
+        // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
         unawaited(_persistOnlineSession(null));
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1325,7 +1337,23 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         // ignore: discarded_futures
         PushNotificationService.showOngoingOnlineAlert();
         // ignore: discarded_futures
+        DriverPresenceService.instance.onDriverOnline(driverId: widget.driverId);
+        // ignore: discarded_futures
         PushNotificationService.subscribe('driver_${widget.driverId}');
+
+        // First-time explicit disclosure for quick-return bubble (Android-only)
+        if (DriverPresenceService.instance.isAndroidOverlaySupported) {
+          unawaited(() async {
+            final shouldDisclose = await DriverOverlayDisclosureDialog.shouldShowDisclosure();
+            final enabled = await DriverPresenceService.instance.isBubbleSettingEnabled();
+            if (shouldDisclose && enabled && mounted) {
+              final granted = await DriverPresenceService.instance.hasOverlayPermission();
+              if (!granted && mounted) {
+                await DriverPresenceService.instance.requestOverlayPermissionWithDisclosure(context);
+              }
+            }
+          }());
+        }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

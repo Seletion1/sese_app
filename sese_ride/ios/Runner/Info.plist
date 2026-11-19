@@ -84,6 +84,10 @@
  		<string>remote-notification</string>
  		<string>location</string>
  	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
  	<key>NSContactsUsageDescription</key>
  	<string>SeSe uses your contacts only when you tap the Contacts icon to autofill a recipient's name and phone number on the ride or delivery booking screen. Only the contact you select is read — your full address book is never uploaded or stored.</string>
  	<key>NSMicrophoneUsageDescription</key>
