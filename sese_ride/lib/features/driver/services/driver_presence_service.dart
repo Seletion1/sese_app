@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_overlay_window/flutter_overlay_window.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -75,10 +76,15 @@ class DriverPresenceService {
   Future<bool> hasOverlayPermission() async {
     if (!isAndroidOverlaySupported) return false;
     try {
-      return await FlutterOverlayWindow.isPermissionGranted();
+      final granted = await Permission.systemAlertWindow.status.isGranted;
+      return granted;
     } catch (e) {
       debugPrint('DriverPresenceService hasOverlayPermission error: $e');
-      return false;
+      try {
+        return await FlutterOverlayWindow.isPermissionGranted();
+      } catch (_) {
+        return false;
+      }
     }
   }
 
@@ -104,11 +110,19 @@ class DriverPresenceService {
     await DriverOverlayDisclosureDialog.recordConsent(consented: true);
 
     try {
-      final requested = await FlutterOverlayWindow.requestPermission();
-      return requested ?? false;
+      final status = await Permission.systemAlertWindow.request();
+      if (kDebugMode) {
+        debugPrint('DriverPresenceService Permission.systemAlertWindow.request status: $status');
+      }
+      return status.isGranted;
     } catch (e) {
-      debugPrint('DriverPresenceService requestPermission failed: $e');
-      return false;
+      debugPrint('DriverPresenceService requestPermission failed with permission_handler: $e');
+      try {
+        final requested = await FlutterOverlayWindow.requestPermission();
+        return requested ?? false;
+      } catch (_) {
+        return false;
+      }
     }
   }
 

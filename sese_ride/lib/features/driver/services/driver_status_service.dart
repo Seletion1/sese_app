@@ -238,6 +238,12 @@ class DriverStatusService {
       );
     }
     if (fix.accuracyMeters > DriverGpsFix.maxAcceptableAccuracyMeters) {
+      if (kDebugMode) {
+        debugPrint(
+          'DriverStatusService: GPS accuracy too low (meters: ${fix.accuracyMeters}, '
+          'limit: ${DriverGpsFix.maxAcceptableAccuracyMeters})',
+        );
+      }
       throw const DriverStatusException(
         'gps-inaccurate',
         'GPS accuracy too low. Move to open sky and try again.',

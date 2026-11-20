@@ -855,7 +855,8 @@ class QuickReturnBubbleSection extends StatefulWidget {
       _QuickReturnBubbleSectionState();
 }
 
-class _QuickReturnBubbleSectionState extends State<QuickReturnBubbleSection> {
+class _QuickReturnBubbleSectionState extends State<QuickReturnBubbleSection>
+    with WidgetsBindingObserver {
   bool _enabled = true;
   bool _permissionGranted = false;
   bool _loading = true;
@@ -863,7 +864,21 @@ class _QuickReturnBubbleSectionState extends State<QuickReturnBubbleSection> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadState();
+    }
   }
 
   Future<void> _loadState() async {
@@ -882,16 +897,22 @@ class _QuickReturnBubbleSectionState extends State<QuickReturnBubbleSection> {
 
   Future<void> _onToggle(bool value) async {
     if (value) {
-      // Driver wants to turn on bubble
-      if (!_permissionGranted) {
+      // Driver wants to turn on bubble. Check live permission first.
+      final currentGranted =
+          await DriverPresenceService.instance.hasOverlayPermission();
+      if (!currentGranted) {
+        if (!mounted) return;
         final granted = await DriverPresenceService.instance
             .requestOverlayPermissionWithDisclosure(context);
+        final liveGranted =
+            await DriverPresenceService.instance.hasOverlayPermission();
+        final effective = granted || liveGranted;
         if (!mounted) return;
         setState(() {
-          _permissionGranted = granted;
-          _enabled = granted;
+          _permissionGranted = effective;
+          _enabled = effective;
         });
-        await DriverPresenceService.instance.setBubbleSettingEnabled(granted);
+        await DriverPresenceService.instance.setBubbleSettingEnabled(effective);
         return;
       }
     }

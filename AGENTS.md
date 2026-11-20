@@ -72,6 +72,30 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Permission State Synchronization, SYSTEM_ALERT_WINDOW Live Sync & GO ONLINE Pre-Flight Location Enforcement
+
+- **1. Floating Quick-Return Bubble Live Permission Synchronization (`settings_screen.dart`, `driver_presence_service.dart`)**:
+  - **Problem**: When a driver toggled the Quick-Return Bubble or revoked "Display over other apps" (`SYSTEM_ALERT_WINDOW`) in Android Settings, the app relied on stale in-memory flags and `FlutterOverlayWindow.isPermissionGranted()`. Returning to the app left the switch in an unsynchronized state requiring off/on reset toggles.
+  - **Solution**: Wired `_QuickReturnBubbleSectionState` to `WidgetsBindingObserver`. On `initState()` and `AppLifecycleState.resumed`, queries live permission via `await Permission.systemAlertWindow.status.isGranted`.
+  - In `_onToggle`: Checks live permission before switching. If not granted, presents `DriverOverlayDisclosureDialog`, invokes `Permission.systemAlertWindow.request()`, and on `resumed` syncs `.isGranted` cleanly with zero reset loop.
+  - In `DriverPresenceService`: Primary check now queries `Permission.systemAlertWindow.status.isGranted` with safe fallback to `FlutterOverlayWindow.isPermissionGranted()`.
+
+- **2. GO ONLINE Pre-Flight Location Enforcement & Disclosure Before GPS Accuracy Check (`driver_dashboard_screen.dart`, `prominent_location_disclosure_dialog.dart`)**:
+  - **Root Cause of "GPS accuracy too low" False Positives**: When location permissions were denied or revoked in Android Settings, `Geolocator.getCurrentPosition()` threw an exception. The fallback in `_collectGpsFix()` returned accuracy 9999m, which caused `DriverStatusService._precheckFix()` to fail fast with "GPS accuracy too low. Move to open sky and try again" before permissions were ever requested or diagnosed.
+  - **Solution**: Implemented `_ensureLocationPermissionsAndServices()` called immediately when tapping `GO ONLINE` and pre-flighted before `_collectGpsFix()`:
+    1. **Location Hardware Switch**: Checks `Geolocator.isLocationServiceEnabled()`. If disabled, prompts with "Location Services Disabled" dialog linking to device location settings.
+    2. **Foreground Location**: Checks `Geolocator.checkPermission()`. If denied, presents `ProminentLocationDisclosureDialog.showForeground()` before requesting OS permission. If permanently denied, presents "Location Access Required" dialog with one-tap link to App Settings.
+    3. **Background Location (`locationAlways`)**: On Android, if not granted, displays prominent in-app background disclosure (`ProminentLocationDisclosureDialog.show()`) explaining order dispatch while minimized or navigation is active, then requests `Permission.locationAlways.request()`.
+    4. **Diagnostic Logging**: Prints live diagnostic details (permission status, service enabled, acquired accuracy in meters) in debug builds.
+  - `ProminentLocationDisclosureDialog`: Updated `shouldShowDisclosure()` and `recordConsent()` to distinguish foreground vs background scopes (`isBackground`), ensuring background disclosure properly fires when upgrading from `whileInUse` to `always`.
+
+- **3. Live Permission Tracking While Resumed & Online**:
+  - In `DriverDashboardScreen.didChangeAppLifecycleState`: On `AppLifecycleState.resumed`, re-resolves position and triggers `_checkLiveLocationPermissionWhileOnline()`. If location access was revoked while online, immediately alerts the driver via SnackBar.
+
+- **4. Verification**:
+  - Static analysis clean: 0 warnings, 0 errors across `sese_core` and `sese_ride`.
+  - All targeted driver presence and overlay widget tests passed: 7/7 tests passed in `sese_ride` (`driver_presence_service_test.dart`, `driver_overlay_bubble_widget_test.dart`), 2/2 tests passed in `sese_core` (`driver_overlay_disclosure_dialog_test.dart`).
+
 ## 2026-11-20 — Android Process-Death KYC Recovery, Persistent Draft Manager & Route Restoration
 
 - **1. FormDraftManager Persistent Draft Service (`sese_core/lib/services/form_draft_manager.dart`)**:

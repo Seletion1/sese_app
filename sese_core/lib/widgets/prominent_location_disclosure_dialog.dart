@@ -24,27 +24,41 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
   });
 
   /// Persists local & server consent tracking when user agrees.
-  static Future<void> recordConsent({String? userId}) async {
+  static Future<void> recordConsent({
+    String? userId,
+    bool isBackground = true,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(consentKey, true);
+      final key = isBackground ? consentKey : '${consentKey}_fg';
+      await prefs.setBool(key, true);
     } catch (_) {}
 
     if (userId != null && userId.isNotEmpty) {
       try {
+        final field = isBackground
+            ? 'location_disclosure_accepted'
+            : 'fg_location_disclosure_accepted';
+        final atField = isBackground
+            ? 'location_accepted_at'
+            : 'fg_location_accepted_at';
         await FirebaseFirestore.instance.collection('users').doc(userId).set({
-          'location_disclosure_accepted': true,
-          'location_accepted_at': FieldValue.serverTimestamp(),
+          field: true,
+          atField: FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } catch (_) {}
     }
   }
 
   /// Pre-prompt verification gate: returns true if dialog should be displayed.
-  static Future<bool> shouldShowDisclosure({String? userId}) async {
+  static Future<bool> shouldShowDisclosure({
+    String? userId,
+    bool isBackground = true,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      var acceptedLocal = prefs.getBool(consentKey) ?? false;
+      final key = isBackground ? consentKey : '${consentKey}_fg';
+      var acceptedLocal = prefs.getBool(key) ?? false;
 
       if (!acceptedLocal && userId != null && userId.isNotEmpty) {
         try {
@@ -52,17 +66,22 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
               .collection('users')
               .doc(userId)
               .get();
+          final field = isBackground
+              ? 'location_disclosure_accepted'
+              : 'fg_location_disclosure_accepted';
           if (userSnap.exists &&
-              userSnap.data()?['location_disclosure_accepted'] == true) {
+              userSnap.data()?[field] == true) {
             acceptedLocal = true;
-            await prefs.setBool(consentKey, true);
+            await prefs.setBool(key, true);
           }
         } catch (_) {}
       }
 
       final perm = await Geolocator.checkPermission();
-      final osActive = perm == LocationPermission.always ||
-          perm == LocationPermission.whileInUse;
+      final osActive = isBackground
+          ? perm == LocationPermission.always
+          : (perm == LocationPermission.always ||
+              perm == LocationPermission.whileInUse);
 
       if (acceptedLocal && osActive) {
         return false; // SKIP dialog
@@ -78,7 +97,7 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
   /// Shows the **foreground** location disclosure dialog.
   /// Skips automatically if consent is already recorded and OS permissions active.
   static Future<bool> showForeground(BuildContext context, {String? userId}) async {
-    final shouldShow = await shouldShowDisclosure(userId: userId);
+    final shouldShow = await shouldShowDisclosure(userId: userId, isBackground: false);
     if (!shouldShow) return true;
 
     if (!context.mounted) return false;
@@ -87,7 +106,7 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
       barrierDismissible: false,
       builder: (ctx) => _ForegroundLocationDialog(
         onAgree: () async {
-          await recordConsent(userId: userId);
+          await recordConsent(userId: userId, isBackground: false);
           if (ctx.mounted) Navigator.of(ctx).pop(true);
         },
         onDecline: () => Navigator.of(ctx).pop(false),
@@ -103,7 +122,7 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
   /// Shows the **background** location disclosure dialog.
   /// Skips automatically if consent is already recorded and OS permissions active.
   static Future<bool> show(BuildContext context, {String? userId}) async {
-    final shouldShow = await shouldShowDisclosure(userId: userId);
+    final shouldShow = await shouldShowDisclosure(userId: userId, isBackground: true);
     if (!shouldShow) return true;
 
     if (!context.mounted) return false;
@@ -112,7 +131,7 @@ class ProminentLocationDisclosureDialog extends StatelessWidget {
       barrierDismissible: false,
       builder: (ctx) => ProminentLocationDisclosureDialog(
         onAgree: () async {
-          await recordConsent(userId: userId);
+          await recordConsent(userId: userId, isBackground: true);
           if (ctx.mounted) Navigator.of(ctx).pop(true);
         },
         onDecline: () => Navigator.of(ctx).pop(false),

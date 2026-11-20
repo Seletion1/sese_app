@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/remote_config_service.dart';
@@ -594,7 +597,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       unawaited(DriverPresenceService.instance.onAppBackgrounded());
     } else if (foreground) {
       unawaited(DriverPresenceService.instance.onAppForegrounded());
+      unawaited(_resolvePosition());
+      if (_isOnline) {
+        unawaited(_checkLiveLocationPermissionWhileOnline());
+      }
     }
+  }
+
+  Future<void> _checkLiveLocationPermissionWhileOnline() async {
+    try {
+      final perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        if (kDebugMode) {
+          debugPrint('DriverDashboard: Location permission was revoked while online ($perm)');
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permission was disabled. Please re-enable location to stay online.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   /// Best-effort platform fix for the signed online payload and the
@@ -888,12 +916,211 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
 
+  /// Ensures location services are active and foreground (+ best-effort background)
+  /// permissions are granted before proceeding with Go Online and before evaluating
+  /// GPS accuracy.
+  ///
+  /// Conforms strictly to Google Play Prominent Disclosure guidelines:
+  /// 1. Verifies location service (GPS hardware toggle) is enabled.
+  /// 2. Verifies foreground location permission (`ACCESS_FINE_LOCATION`). If denied,
+  ///    shows prominent foreground disclosure and requests permission.
+  /// 3. If foreground is granted and background tracking is needed (`locationAlways`),
+  ///    presents prominent background location disclosure and requests `locationAlways`.
+  /// 4. Logs diagnostic details in debug mode.
+  Future<bool> _ensureLocationPermissionsAndServices({
+    bool promptSettingsIfDenied = true,
+  }) async {
+    try {
+      // 1. Check if device location service (GPS) is turned on
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (kDebugMode) {
+        debugPrint('DriverDashboard: Location service enabled check: $serviceEnabled');
+      }
+      if (!serviceEnabled) {
+        if (!mounted) return false;
+        final openSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.location_off_rounded, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Location Services Disabled'),
+              ],
+            ),
+            content: const Text(
+              'Location services (GPS) are turned off on your device. Please turn on Location in system settings to go online.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Turn On Location'),
+              ),
+            ],
+          ),
+        );
+        if (openSettings == true) {
+          await Geolocator.openLocationSettings();
+        }
+        return false;
+      }
+
+      // 2. Check foreground location permission
+      var permission = await Geolocator.checkPermission();
+      if (kDebugMode) {
+        debugPrint('DriverDashboard: Live foreground location permission: $permission');
+      }
+
+      if (permission == LocationPermission.denied) {
+        // Show prominent foreground disclosure before OS prompt
+        if (!mounted) return false;
+        final consented = await ProminentLocationDisclosureDialog.showForeground(
+          context,
+          userId: widget.driverId,
+        );
+        if (!consented) return false;
+
+        permission = await Geolocator.requestPermission();
+        if (kDebugMode) {
+          debugPrint('DriverDashboard: Foreground permission after request: $permission');
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        if (kDebugMode) {
+          debugPrint('DriverDashboard: Foreground location permission is deniedForever');
+        }
+        if (!mounted) return false;
+        if (promptSettingsIfDenied) {
+          final openSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Location Access Required'),
+                ],
+              ),
+              content: const Text(
+                'Location access is permanently denied in Android Settings. SESE Ride needs location access to match you with nearby orders and calculate trip routes.\n\nPlease enable "Allow all the time" or "Allow while using app" in App Permissions.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+          if (openSettings == true) {
+            await openAppSettings();
+          }
+        }
+        return false;
+      }
+
+      if (permission == LocationPermission.denied) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Location permission is required to go online.'),
+            ),
+          );
+        }
+        return false;
+      }
+
+      // 3. Check background location permission (`locationAlways`) on Android
+      if (!kIsWeb && Platform.isAndroid) {
+        final alwaysStatus = await Permission.locationAlways.status;
+        if (kDebugMode) {
+          debugPrint('DriverDashboard: Live locationAlways status: $alwaysStatus');
+        }
+
+        if (!alwaysStatus.isGranted) {
+          if (!mounted) return false;
+          // Present the prominent in-app background location disclosure first
+          final bgConsented = await ProminentLocationDisclosureDialog.show(
+            context,
+            userId: widget.driverId,
+          );
+          if (bgConsented) {
+            final newAlwaysStatus = await Permission.locationAlways.request();
+            if (kDebugMode) {
+              debugPrint('DriverDashboard: locationAlways request result: $newAlwaysStatus');
+            }
+            if (newAlwaysStatus.isPermanentlyDenied && mounted && promptSettingsIfDenied) {
+              final openSettings = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Row(
+                    children: [
+                      Icon(Icons.location_on_outlined, color: Colors.orange),
+                      SizedBox(width: 8),
+                      Text('Background Location'),
+                    ],
+                  ),
+                  content: const Text(
+                    'To receive incoming trip requests while using Google Maps or while the screen is locked, SESE needs background location access.\n\nPlease set Location permission to "Allow all the time" in App Settings.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Continue Without'),
+                    ),
+                    FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Open Settings'),
+                    ),
+                  ],
+                ),
+              );
+              if (openSettings == true) {
+                await openAppSettings();
+              }
+            }
+          }
+        }
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          'DriverDashboard: Location permission check completed successfully (perm: $permission)',
+        );
+      }
+      return true;
+    } catch (e) {
+      debugPrint('DriverDashboard: _ensureLocationPermissionsAndServices error: $e');
+      return true; // Let downstream handle gracefully in tests
+    }
+  }
+
   /// Collects the signed GPS fix for the zero-trust online handshake.
   /// Falls back to the last known position with unknown accuracy so the
   /// server — never the client — decides.
   Future<DriverGpsFix> _collectGpsFix() async {
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (kDebugMode) {
+        debugPrint(
+          'DriverDashboard: Acquired GPS fix: lat=${pos.latitude}, lng=${pos.longitude}, '
+          'accuracy=${pos.accuracy}m, isMocked=${pos.isMocked}',
+        );
+      }
       return DriverGpsFix(
         latitude: pos.latitude,
         longitude: pos.longitude,
@@ -901,10 +1128,33 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         timestamp: DateTime.now(),
         isMocked: pos.isMocked,
       );
-    } catch (_) {
-      // Platform location unavailable: fall back to the last known position
-      // with unknown accuracy so the server — never the client — decides.
-      // Plain catch also covers native-load Errors (DynamicLibraryLoadError).
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint(
+          'DriverDashboard: getCurrentPosition error: $e. Checking lastKnownPosition...',
+        );
+      }
+      try {
+        final lastPos = await Geolocator.getLastKnownPosition();
+        if (lastPos != null) {
+          if (kDebugMode) {
+            debugPrint(
+              'DriverDashboard: Using lastKnownPosition: accuracy=${lastPos.accuracy}m',
+            );
+          }
+          return DriverGpsFix(
+            latitude: lastPos.latitude,
+            longitude: lastPos.longitude,
+            accuracyMeters: lastPos.accuracy,
+            timestamp: DateTime.now(),
+            isMocked: lastPos.isMocked,
+          );
+        }
+      } catch (_) {}
+
+      if (kDebugMode) {
+        debugPrint('DriverDashboard: No valid GPS position acquired, fallback to 9999m');
+      }
       return DriverGpsFix(
         latitude: _driverPosition.latitude,
         longitude: _driverPosition.longitude,
@@ -1060,8 +1310,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (confirm == true && mounted) _goOffline();
   }
 
-  void _goOnlineNow() {
+  void _goOnlineNow() async {
     if (_syncing) return;
+
+    // 1. Live location services and permission check FIRST
+    final locationOk = await _ensureLocationPermissionsAndServices();
+    if (!locationOk || !mounted) return;
 
     // Hub verification gate: drivers CANNOT go Online until BOTH
     // `isProfileVerified == true` AND an approved vehicle exist
@@ -1070,74 +1324,74 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     // A null read (offline / unavailable) falls through to the vehicle
     // guard below; the Cloud Functions `goOnline` handshake remains the
     // authoritative enforcement point.
-    _checkProfileVerified().then((profileOk) {
-      if (!mounted) return;
-      if (profileOk == false) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.hourglass_top_outlined, color: Colors.orange),
-                SizedBox(width: 8),
-                Text('Verification Pending'),
-              ],
-            ),
-            content: const Text(
-              'Account pending verification. Our team is reviewing your '
-              'submission.\n\nYou cannot go online yet, but you can register '
-              'vehicles in Fleet & Vehicles to speed up approval.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _openFleetManagement();
-                },
-                child: const Text('Fleet & Vehicles'),
-              ),
+    final profileOk = await _checkProfileVerified();
+    if (!mounted) return;
+    if (profileOk == false) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.hourglass_top_outlined, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Verification Pending'),
             ],
           ),
-        );
-        return;
-      }
-      // Document expiry guard — check after profile passes because a fresh
-      // driver without any dates entered (nulls) is allowed through; only
-      // hard-expired documents block the flow.
-      _checkDocExpiry().then((expiredDoc) {
-        if (!mounted) return;
-        if (expiredDoc != null) {
-          showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('Document Expired'),
-                ],
-              ),
-              content: Text(
-                'Your $expiredDoc has expired. Update the expiry date in '
-                'Driver Profile → Document Expiry Dates to go online again.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Dismiss'),
-                ),
-              ],
+          content: const Text(
+            'Account pending verification. Our team is reviewing your '
+            'submission.\n\nYou cannot go online yet, but you can register '
+            'vehicles in Fleet & Vehicles to speed up approval.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
             ),
-          );
-          return;
-        }
-        _goOnlineWithVerifiedProfile();
-      });
-    });
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openFleetManagement();
+              },
+              child: const Text('Fleet & Vehicles'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Document expiry guard — check after profile passes because a fresh
+    // driver without any dates entered (nulls) is allowed through; only
+    // hard-expired documents block the flow.
+    final expiredDoc = await _checkDocExpiry();
+    if (!mounted) return;
+    if (expiredDoc != null) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Document Expired'),
+            ],
+          ),
+          content: Text(
+            'Your $expiredDoc has expired. Update the expiry date in '
+            'Driver Profile → Document Expiry Dates to go online again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Dismiss'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    _goOnlineWithVerifiedProfile();
   }
 
   /// Reads the hub profile flag. Returns null when the read itself is
@@ -1321,6 +1575,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (_syncing) return;
     setState(() => _syncing = true);
     try {
+      final locationOk = await _ensureLocationPermissionsAndServices(
+        promptSettingsIfDenied: false,
+      );
+      if (!locationOk) {
+        if (mounted) setState(() => _syncing = false);
+        return;
+      }
+
       final fix = await _collectGpsFix();
       final decision = await _status.requestGoOnline(
         driverId: widget.driverId,
