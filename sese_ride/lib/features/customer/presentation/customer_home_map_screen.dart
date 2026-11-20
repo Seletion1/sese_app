@@ -73,6 +73,12 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
       _position = fast ?? const LatLng(6.5244, 3.3792); // Fast cache or Lagos fallback
       _resolvePosition();
     }
+    // Ensure any zombie/stale incoming call audio or overlays are cleared when arriving on Home
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        CallServiceManager.instance.endTripCalls('', reason: 'home_screen_active');
+      }
+    });
   }
 
   @override

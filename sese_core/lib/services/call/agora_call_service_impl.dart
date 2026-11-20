@@ -206,6 +206,7 @@ class AgoraCallServiceImpl implements ICallService {
         await _firestore.collection('calls').doc(callId).update({
           'status': 'connected',
           'answeredAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
         });
       }
 
@@ -263,6 +264,7 @@ class AgoraCallServiceImpl implements ICallService {
           'status': 'ended',
           'endedAt': FieldValue.serverTimestamp(),
           'endReason': reason ?? 'normal',
+          'updatedAt': FieldValue.serverTimestamp(),
         });
       } catch (_) {}
     }
@@ -305,8 +307,18 @@ class AgoraCallServiceImpl implements ICallService {
         'status': 'rejected',
         'endedAt': FieldValue.serverTimestamp(),
         'endReason': reason ?? 'declined_by_receiver',
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {}
+  }
+
+  @override
+  Future<void> endTripCalls(String tripId, {String? reason}) async {
+    if (tripId.isEmpty) return;
+    if (_currentSession?.tripId == tripId ||
+        _currentSession?.callId.contains(tripId) == true) {
+      await endCall(reason: reason ?? 'trip_completed');
+    }
   }
 
   @override

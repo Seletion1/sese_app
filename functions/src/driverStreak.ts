@@ -1101,8 +1101,52 @@ export async function handleTripCompletion(
 }
 
 /**
+ * Automatically terminates and cleans up any open or ringing call sessions
+ * associated with a completed or cancelled trip so post-trip calls cannot ring.
+ */
+export async function closeTripCalls(tripId: string, reason: string): Promise<void> {
+  if (!tripId) return;
+  try {
+    const firestore = db();
+    const [metaSnap, directSnap] = await Promise.all([
+      firestore
+        .collection("calls")
+        .where("metadata.tripId", "==", tripId)
+        .where("status", "in", ["ringing", "connecting", "connected", "idle"])
+        .get(),
+      firestore
+        .collection("calls")
+        .where("tripId", "==", tripId)
+        .where("status", "in", ["ringing", "connecting", "connected", "idle"])
+        .get(),
+    ]);
+
+    const batch = firestore.batch();
+    const seen = new Set<string>();
+
+    for (const doc of [...metaSnap.docs, ...directSnap.docs]) {
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      batch.update(doc.ref, {
+        status: "ended",
+        endedAt: admin.firestore.FieldValue.serverTimestamp(),
+        endReason: reason,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (seen.size > 0) {
+      await batch.commit();
+      console.log(`[closeTripCalls] Terminated ${seen.size} active call(s) for trip ${tripId} (${reason}).`);
+    }
+  } catch (e) {
+    console.warn(`[closeTripCalls] Error cleaning up calls for trip ${tripId}:`, e);
+  }
+}
+
+/**
  * Firestore trigger: fires when a trip document transitions to COMPLETED.
- * Idempotently executes trip completion settlement.
+ * Idempotently executes trip completion settlement and cleans up any open calls.
  */
 export const onTripCompleted = onDocumentUpdated(
   "trips/{tripId}",
@@ -1117,7 +1161,10 @@ export const onTripCompleted = onDocumentUpdated(
     }
 
     const tripId = event.params.tripId;
-    await handleTripCompletion(tripId, after);
+    await Promise.all([
+      handleTripCompletion(tripId, after),
+      closeTripCalls(tripId, "trip_completed"),
+    ]);
   }
 );
 
@@ -1918,6 +1965,12 @@ export const onTripCancelled = onDocumentUpdated(
     if (before["status"] === "CANCELLED" || after["status"] !== "CANCELLED") {
       return;
     }
+
+    // Automatically terminate any ringing or open calls for this cancelled trip
+    const tripId = event.params.tripId;
+    closeTripCalls(tripId, "trip_cancelled").catch((e) =>
+      console.warn(`[onTripCancelled] closeTripCalls error for ${tripId}:`, e)
+    );
 
     // Release active escrow if not already released (transactionally & idempotently)
     const walletCoverage = Number(

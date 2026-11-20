@@ -113,6 +113,15 @@ class CallSession {
   /// Optional metadata associated with the call (e.g. `tripId`, `userRole`).
   final Map<String, dynamic> metadata;
 
+  /// Whether the ringing call has exceeded its maximum ringing TTL (35s).
+  bool get isRingingExpired {
+    if (state != CallState.incoming) return false;
+    return DateTime.now().difference(startedAt).inSeconds > 35;
+  }
+
+  /// Trip ID associated with this call if trip-scoped.
+  String? get tripId => metadata['tripId']?.toString();
+
   const CallSession({
     required this.callId,
     required this.callerId,
@@ -238,6 +247,9 @@ abstract interface class ICallService {
   ///
   /// Optional [reason] is recorded for diagnostics and signaling cleanup.
   Future<void> endCall({String? reason});
+
+  /// Terminates any active or ringing call associated with [tripId].
+  Future<void> endTripCalls(String tripId, {String? reason});
 
   /// Toggles the local microphone mute state.
   Future<void> toggleMute(bool muted);

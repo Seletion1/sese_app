@@ -37,9 +37,11 @@ class IncomingCallOverlay extends StatefulWidget {
 
 class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   final CallServiceManager _callManager = CallServiceManager.instance;
+  final Set<String> _handledCallIds = {};
   StreamSubscription<CallSession?>? _incomingSub;
   CallSession? _incomingSession;
   Timer? _ringTimer;
+  Timer? _expiryTimer;
 
   @override
   void initState() {
@@ -47,15 +49,43 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _incomingSub = _callManager.incomingCallStream.listen((session) {
       if (!mounted) return;
       if (session != null && session.state == CallState.incoming) {
+        // 1. Guard against showing calls that the user already accepted or declined
+        if (_handledCallIds.contains(session.callId)) {
+          return;
+        }
+        // 2. Guard against showing banner when user is already in a call or call screen
+        if (_callManager.currentState != CallState.idle &&
+            _callManager.currentState != CallState.incoming) {
+          return;
+        }
+        // 3. Guard against showing expired/stale calls (> 35s old)
+        if (session.isRingingExpired) {
+          return;
+        }
+
         if (_incomingSession?.callId != session.callId) {
           setState(() => _incomingSession = session);
           _startRingtone();
+          _startExpiryTimer(session);
         }
       } else {
         if (_incomingSession != null) {
           _stopRingtone();
+          _expiryTimer?.cancel();
           setState(() => _incomingSession = null);
         }
+      }
+    });
+  }
+
+  void _startExpiryTimer(CallSession session) {
+    _expiryTimer?.cancel();
+    final elapsed = DateTime.now().difference(session.startedAt).inSeconds;
+    final remainingSeconds = (35 - elapsed).clamp(1, 35);
+    _expiryTimer = Timer(Duration(seconds: remainingSeconds), () {
+      if (!mounted) return;
+      if (_incomingSession?.callId == session.callId) {
+        _declineCall();
       }
     });
   }
@@ -84,7 +114,9 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   void _acceptCall() {
     final session = _incomingSession;
     if (session == null) return;
+    _handledCallIds.add(session.callId);
     _stopRingtone();
+    _expiryTimer?.cancel();
     setState(() => _incomingSession = null);
 
     final navState = widget.navKey?.currentState ??
@@ -114,15 +146,18 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   void _declineCall() {
     final session = _incomingSession;
     if (session == null) return;
+    _handledCallIds.add(session.callId);
     _stopRingtone();
+    _expiryTimer?.cancel();
     setState(() => _incomingSession = null);
     // ignore: discarded_futures
-    _callManager.rejectCall(session.callId);
+    _callManager.rejectCall(session.callId, reason: 'declined_from_overlay');
   }
 
   @override
   void dispose() {
     _stopRingtone();
+    _expiryTimer?.cancel();
     _incomingSub?.cancel();
     super.dispose();
   }

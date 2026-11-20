@@ -63,6 +63,7 @@ class CallServiceManager implements ICallService {
   StreamSubscription<CallState>? _serviceStateSub;
   StreamSubscription<Duration>? _serviceDurationSub;
   StreamSubscription<CallSession?>? _serviceIncomingSub;
+  final Set<String> _terminalCallIds = {};
 
   final _stateController = StreamController<CallState>.broadcast();
   final _durationController = StreamController<Duration>.broadcast();
@@ -159,6 +160,9 @@ class CallServiceManager implements ICallService {
     // Forward incoming call events from WebRTC (Firestore /calls stream)
     await _serviceIncomingSub?.cancel();
     _serviceIncomingSub = _webrtcService.incomingCallStream.listen((session) {
+      if (session != null && _terminalCallIds.contains(session.callId)) {
+        return; // Ignore calls already rejected or ended
+      }
       if (!_incomingCallController.isClosed) {
         _incomingCallController.add(session);
       }
@@ -436,8 +440,26 @@ class CallServiceManager implements ICallService {
 
   @override
   Future<void> rejectCall(String callId, {String? reason}) async {
+    _terminalCallIds.add(callId);
     _fallbackTimer?.cancel();
     _fallbackTimer = null;
+
+    // Immediately dismiss any incoming overlay locally
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+
+    if (_safeFirestore != null) {
+      try {
+        await _safeFirestore!.collection('calls').doc(callId).update({
+          'status': 'rejected',
+          'endedAt': FieldValue.serverTimestamp(),
+          'endReason': reason ?? 'declined_by_receiver',
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {}
+    }
+
     await _webrtcService.rejectCall(callId, reason: reason);
     await _agoraService.rejectCall(callId, reason: reason);
   }
@@ -448,16 +470,25 @@ class CallServiceManager implements ICallService {
     _fallbackTimer = null;
     _isFallbackActive = false;
 
+    // Immediately dismiss any incoming overlay locally
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+
     // Terminate signaling document in Firestore immediately to prevent any loop or re-ringing
     final callId = _lastCallId ?? _currentSession?.callId;
-    if (callId != null && _safeFirestore != null) {
-      try {
-        await _safeFirestore!.collection('calls').doc(callId).update({
-          'status': 'ended',
-          'endedAt': FieldValue.serverTimestamp(),
-          'endReason': reason ?? 'normal',
-        });
-      } catch (_) {}
+    if (callId != null) {
+      _terminalCallIds.add(callId);
+      if (_safeFirestore != null) {
+        try {
+          await _safeFirestore!.collection('calls').doc(callId).update({
+            'status': 'ended',
+            'endedAt': FieldValue.serverTimestamp(),
+            'endReason': reason ?? 'normal',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } catch (_) {}
+      }
     }
 
     // Cleanly terminate both services so no hardware tracks or background listeners linger
@@ -481,6 +512,21 @@ class CallServiceManager implements ICallService {
         }
       }
     });
+  }
+
+  @override
+  Future<void> endTripCalls(String tripId, {String? reason}) async {
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+    _isFallbackActive = false;
+    _terminalCallIds.add(tripId);
+
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+
+    await _webrtcService.endTripCalls(tripId, reason: reason);
+    await _agoraService.endTripCalls(tripId, reason: reason);
   }
 
   @override

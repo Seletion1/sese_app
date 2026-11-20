@@ -68,6 +68,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   StreamSubscription<CallState>? _stateSub;
   StreamSubscription<Duration>? _durationSub;
+  Timer? _watchdogTimer;
 
   late CallState _state;
   Duration _duration = Duration.zero;
@@ -103,12 +104,19 @@ class _InAppCallScreenState extends State<InAppCallScreen>
       if (!mounted || _isDismissed) return;
       setState(() => _state = state);
 
-      if (state == CallState.ended) {
+      if (state == CallState.connected) {
+        _watchdogTimer?.cancel();
+        _watchdogTimer = null;
+      } else if (state == CallState.ended) {
+        _watchdogTimer?.cancel();
+        _watchdogTimer = null;
         _pulseController.stop();
         Future.delayed(const Duration(milliseconds: 1000), () {
           _dismissScreen();
         });
       } else if (state == CallState.error) {
+        _watchdogTimer?.cancel();
+        _watchdogTimer = null;
         _pulseController.stop();
         setState(() => _errorMessage = 'Call failed to connect');
         Future.delayed(const Duration(seconds: 2), () {
@@ -120,6 +128,22 @@ class _InAppCallScreenState extends State<InAppCallScreen>
     _durationSub = _service.durationStream.listen((duration) {
       if (!mounted) return;
       setState(() => _duration = duration);
+    });
+
+    // Connection watchdog: if connection hangs for > 22 seconds, terminate cleanly
+    _watchdogTimer = Timer(const Duration(seconds: 22), () {
+      if (!mounted || _isDismissed) return;
+      if (_state == CallState.outgoing || _state == CallState.connecting) {
+        _pulseController.stop();
+        setState(() {
+          _state = CallState.error;
+          _errorMessage = 'Call connection timed out.';
+        });
+        unawaited(_service.endCall(reason: 'Connection watchdog timeout'));
+        Future.delayed(const Duration(seconds: 2), () {
+          _dismissScreen();
+        });
+      }
     });
 
     _initiateCall();
@@ -141,10 +165,13 @@ class _InAppCallScreenState extends State<InAppCallScreen>
     } catch (e) {
       debugPrint('InAppCallScreen initializeCall error: $e');
       if (mounted) {
+        _watchdogTimer?.cancel();
+        _pulseController.stop();
         setState(() {
           _state = CallState.error;
           _errorMessage = 'Call connection failed. Please try again.';
         });
+        unawaited(_service.endCall(reason: 'Connection error: $e'));
         Future.delayed(const Duration(seconds: 2), () {
           _dismissScreen();
         });
@@ -175,9 +202,13 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   @override
   void dispose() {
+    _watchdogTimer?.cancel();
     _pulseController.dispose();
     _stateSub?.cancel();
     _durationSub?.cancel();
+    if (_state != CallState.idle && _state != CallState.ended) {
+      unawaited(_service.endCall(reason: 'Call screen disposed'));
+    }
     super.dispose();
   }
 

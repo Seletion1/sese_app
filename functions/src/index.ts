@@ -63,7 +63,12 @@ export {
 
 export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
 
-export { getAgoraToken, recordCallDuration } from "./callTokens";
+export {
+  getAgoraToken,
+  recordCallDuration,
+  terminateCall,
+  cleanupTripCalls,
+} from "./callTokens";
 
 export {
   onTripCompleted,

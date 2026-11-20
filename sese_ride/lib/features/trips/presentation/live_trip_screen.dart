@@ -27,6 +27,9 @@ void _navigateBackToHomeOrPop(
   bool isPushedFromDispatch = false,
   ActiveTrip? trip,
 }) {
+  if (trip != null) {
+    unawaited(CallServiceManager.instance.endTripCalls(trip.tripId, reason: 'navigated_home'));
+  }
   if (isPushedFromDispatch && Navigator.of(context).canPop()) {
     Navigator.of(context).pop('cancelled');
   } else if (trip != null) {
@@ -183,10 +186,12 @@ class LiveTripScreen extends StatelessWidget {
             }
 
             if (trip.status == TripStatus.completed) {
+              unawaited(CallServiceManager.instance.endTripCalls(trip.tripId, reason: 'trip_completed'));
               return _CompletedTripView(trip: trip);
             }
             if (trip.status == TripStatus.cancelled ||
                 trip.status == TripStatus.cancelledWaitingCashSettlement) {
+              unawaited(CallServiceManager.instance.endTripCalls(trip.tripId, reason: 'trip_cancelled'));
               final isCashWaiting =
                   trip.status == TripStatus.cancelledWaitingCashSettlement;
               final fee = trip.pendingCashFee > 0
@@ -3514,6 +3519,7 @@ class _CompletedTripViewState extends State<_CompletedTripView> {
   @override
   void initState() {
     super.initState();
+    unawaited(CallServiceManager.instance.endTripCalls(widget.trip.tripId, reason: 'trip_completed'));
     _cacheCompletedLocations();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _promptRating();

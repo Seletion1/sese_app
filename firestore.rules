@@ -1127,10 +1127,27 @@ service cloud.firestore {
 
       function isValidCallUpdate() {
         return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'answer', 'offer', 'updatedAt', 'endedAt', 'connectedAt', 'rejectedAt', 'durationSeconds'
+          'status', 'answer', 'offer', 'updatedAt', 'endedAt', 'connectedAt',
+          'answeredAt', 'rejectedAt', 'cancelledAt', 'failedAt',
+          'durationSeconds', 'endReason', 'provider', 'fallback',
+          'fallbackReason', 'fallbackAt'
         ]) &&
         (!request.resource.data.keys().hasAny(['status']) ||
-          request.resource.data.status in ['ringing', 'connecting', 'connected', 'ended', 'rejected', 'idle', 'cancelled']) &&
+          request.resource.data.status in [
+            'ringing', 'connecting', 'connected', 'ended', 'rejected',
+            'declined', 'cancelled', 'missed', 'failed', 'completed', 'idle'
+          ]) &&
+        (!request.resource.data.keys().hasAny(['provider']) ||
+          request.resource.data.provider in ['webrtc', 'agora']) &&
+        (!request.resource.data.keys().hasAny(['fallback']) ||
+          request.resource.data.fallback is bool) &&
+        (!request.resource.data.keys().hasAny(['endReason']) ||
+          (request.resource.data.endReason is string && request.resource.data.endReason.size() <= 500)) &&
+        (!request.resource.data.keys().hasAny(['fallbackReason']) ||
+          (request.resource.data.fallbackReason is string && request.resource.data.fallbackReason.size() <= 500)) &&
+        (!request.resource.data.keys().hasAny(['durationSeconds']) ||
+          ((request.resource.data.durationSeconds is int || request.resource.data.durationSeconds is float) &&
+           request.resource.data.durationSeconds >= 0)) &&
         request.resource.data.callerId == resource.data.callerId;
       }
 

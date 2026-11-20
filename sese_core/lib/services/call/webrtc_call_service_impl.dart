@@ -128,23 +128,61 @@ class WebRtcCallServiceImpl implements ICallService {
             return;
           }
 
-          final doc = snapshot.docs.first;
-          final data = doc.data();
+          final now = DateTime.now();
+          QueryDocumentSnapshot<Map<String, dynamic>>? activeDoc;
+          Map<String, dynamic>? activeData;
+          DateTime? activeStartedAt;
+
+          // Scan ringing call documents:
+          // 1. Mark zombie calls (> 35s old) as missed so they never ring again
+          // 2. Locate the newest valid unexpired ringing call
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            DateTime docCreatedAt = now;
+            if (data['createdAt'] is Timestamp) {
+              docCreatedAt = (data['createdAt'] as Timestamp).toDate();
+            }
+
+            final ageSeconds = now.difference(docCreatedAt).inSeconds;
+            if (ageSeconds > 35) {
+              // Silently expire zombie call document in Firestore
+              doc.reference.update({
+                'status': 'missed',
+                'endedAt': FieldValue.serverTimestamp(),
+                'endReason': 'ringing_timeout',
+                'updatedAt': FieldValue.serverTimestamp(),
+              }).catchError((_) {});
+              continue;
+            }
+
+            // Pick the newest unexpired call
+            if (activeStartedAt == null || docCreatedAt.isAfter(activeStartedAt)) {
+              activeDoc = doc;
+              activeData = data;
+              activeStartedAt = docCreatedAt;
+            }
+          }
+
+          if (activeDoc == null || activeData == null) {
+            if (!_incomingCallController.isClosed) {
+              _incomingCallController.add(null);
+            }
+            return;
+          }
+
           final session = CallSession(
-            callId: doc.id,
-            callerId: data['callerId']?.toString() ?? '',
-            callerName: data['callerName']?.toString() ?? 'Caller',
-            callerAvatar: data['callerAvatar']?.toString(),
+            callId: activeDoc.id,
+            callerId: activeData['callerId']?.toString() ?? '',
+            callerName: activeData['callerName']?.toString() ?? 'Caller',
+            callerAvatar: activeData['callerAvatar']?.toString(),
             receiverId: currentUserId,
-            receiverName: data['receiverName']?.toString() ?? 'Receiver',
-            receiverAvatar: data['receiverAvatar']?.toString(),
+            receiverName: activeData['receiverName']?.toString() ?? 'Receiver',
+            receiverAvatar: activeData['receiverAvatar']?.toString(),
             provider: CallProviderType.webrtc,
             state: CallState.incoming,
-            startedAt: (data['createdAt'] is Timestamp)
-                ? (data['createdAt'] as Timestamp).toDate()
-                : DateTime.now(),
-            metadata: data['metadata'] is Map
-                ? Map<String, dynamic>.from(data['metadata'] as Map)
+            startedAt: activeStartedAt ?? now,
+            metadata: activeData['metadata'] is Map
+                ? Map<String, dynamic>.from(activeData['metadata'] as Map)
                 : <String, dynamic>{},
           );
 
@@ -317,8 +355,10 @@ class WebRtcCallServiceImpl implements ICallService {
       await _peerConnection!.setLocalDescription(offer);
 
       // 7. Publish call invitation document to Firestore
+      final tripId = metadata?['tripId']?.toString();
       await callDocRef.set({
         'callId': callId,
+        if (tripId != null && tripId.isNotEmpty) 'tripId': tripId,
         'callerId': _currentUserId,
         'callerName': _displayName ?? 'Caller',
         'callerAvatar': _avatarUrl,
@@ -333,6 +373,7 @@ class WebRtcCallServiceImpl implements ICallService {
         },
         'provider': CallProviderType.webrtc.name,
         'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
         'metadata': metadata ?? {},
       });
 
@@ -425,6 +466,30 @@ class WebRtcCallServiceImpl implements ICallService {
 
       if (!callDoc.exists || data == null) {
         throw Exception('Call session document not found: $callId');
+      }
+
+      final currentStatus = data['status']?.toString();
+      if (currentStatus == 'ended' ||
+          currentStatus == 'rejected' ||
+          currentStatus == 'declined' ||
+          currentStatus == 'cancelled' ||
+          currentStatus == 'missed' ||
+          currentStatus == 'failed') {
+        throw Exception('Call session has already ended or was dismissed.');
+      }
+
+      // Guard against answering an expired call (> 45s)
+      if (data['createdAt'] is Timestamp) {
+        final created = (data['createdAt'] as Timestamp).toDate();
+        if (DateTime.now().difference(created).inSeconds > 45) {
+          unawaited(callDocRef.update({
+            'status': 'missed',
+            'endedAt': FieldValue.serverTimestamp(),
+            'endReason': 'ringing_timeout',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }));
+          throw Exception('Call invitation has expired.');
+        }
       }
 
       final offerMap = data['offer'] as Map<String, dynamic>?;
@@ -521,6 +586,7 @@ class WebRtcCallServiceImpl implements ICallService {
         },
         'status': 'connected',
         'answeredAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
       // 9. Listen for caller cancellation or remote hangup
@@ -609,6 +675,11 @@ class WebRtcCallServiceImpl implements ICallService {
     if (_isEnding) return;
     _isEnding = true;
 
+    // Immediately dismiss any incoming overlay or ringtone
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+
     _durationTimer?.cancel();
     _durationTimer = null;
 
@@ -631,6 +702,7 @@ class WebRtcCallServiceImpl implements ICallService {
           'status': 'ended',
           'endedAt': FieldValue.serverTimestamp(),
           'endReason': reason ?? 'normal',
+          'updatedAt': FieldValue.serverTimestamp(),
         });
       } catch (_) {
         // Document may have already been closed or deleted — safe to ignore.
@@ -739,15 +811,49 @@ class WebRtcCallServiceImpl implements ICallService {
 
   @override
   Future<void> rejectCall(String callId, {String? reason}) async {
+    // Immediately emit null on incoming stream so UI dismisses instantly
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
     if (_firestore == null) return;
     try {
       await _firestore.collection('calls').doc(callId).update({
         'status': 'rejected',
         'endedAt': FieldValue.serverTimestamp(),
         'endReason': reason ?? 'declined_by_receiver',
+        'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {
       debugPrint('WebRtcCallServiceImpl: failed to reject call $callId: $e');
+    }
+  }
+
+  @override
+  Future<void> endTripCalls(String tripId, {String? reason}) async {
+    if (tripId.isEmpty) return;
+    if (_currentSession?.tripId == tripId ||
+        _currentSession?.callId.contains(tripId) == true) {
+      await endCall(reason: reason ?? 'trip_completed');
+    }
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+    if (_firestore != null) {
+      try {
+        final snap = await _firestore
+            .collection('calls')
+            .where('metadata.tripId', isEqualTo: tripId)
+            .where('status', whereIn: ['ringing', 'connecting', 'connected', 'idle'])
+            .get();
+        for (final doc in snap.docs) {
+          doc.reference.update({
+            'status': 'ended',
+            'endedAt': FieldValue.serverTimestamp(),
+            'endReason': reason ?? 'trip_completed',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }).catchError((_) {});
+        }
+      } catch (_) {}
     }
   }
 

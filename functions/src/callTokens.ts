@@ -181,3 +181,99 @@ export const recordCallDuration = guardedOnCall(async (request) => {
     monthKey,
   };
 });
+
+/**
+ * Callable function to explicitly terminate a call session with guaranteed server authority.
+ * Atomically transitions the Firestore call document to a terminal state (ended/rejected/failed/missed)
+ * and prevents any client or server retry loop.
+ */
+export const terminateCall = guardedOnCall(async (request) => {
+  enforceAppCheck(request);
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "User must be authenticated.");
+  }
+
+  const callId = String(request.data?.callId || "").trim();
+  const reason = String(request.data?.reason || "normal").trim();
+  const rawStatus = String(request.data?.status || "ended").toLowerCase().trim();
+  const status = ["rejected", "ended", "failed", "missed", "declined", "cancelled"].includes(rawStatus)
+    ? rawStatus
+    : "ended";
+
+  if (!callId) {
+    throw new HttpsError("invalid-argument", "Missing callId.");
+  }
+
+  const callRef = db().collection("calls").doc(callId);
+  const snap = await callRef.get();
+  if (!snap.exists) {
+    return { ok: true, found: false };
+  }
+
+  const data = snap.data() || {};
+  const callerId = data.callerId;
+  const receiverId = data.receiverId || data.targetUserId;
+  const uid = request.auth.uid;
+
+  if (callerId !== uid && receiverId !== uid) {
+    throw new HttpsError("permission-denied", "Only call participants can terminate the call.");
+  }
+
+  await callRef.update({
+    status,
+    endedAt: admin.firestore.FieldValue.serverTimestamp(),
+    endReason: reason,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, status };
+});
+
+/**
+ * Callable function to clean up and terminate all open calls for a given trip.
+ */
+export const cleanupTripCalls = guardedOnCall(async (request) => {
+  enforceAppCheck(request);
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "User must be authenticated.");
+  }
+
+  const tripId = String(request.data?.tripId || "").trim();
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "Missing tripId.");
+  }
+
+  const firestore = db();
+  const [metaSnap, directSnap] = await Promise.all([
+    firestore
+      .collection("calls")
+      .where("metadata.tripId", "==", tripId)
+      .where("status", "in", ["ringing", "connecting", "connected", "idle"])
+      .get(),
+    firestore
+      .collection("calls")
+      .where("tripId", "==", tripId)
+      .where("status", "in", ["ringing", "connecting", "connected", "idle"])
+      .get(),
+  ]);
+
+  const batch = firestore.batch();
+  const seen = new Set<string>();
+
+  for (const doc of [...metaSnap.docs, ...directSnap.docs]) {
+    if (seen.has(doc.id)) continue;
+    seen.add(doc.id);
+    batch.update(doc.ref, {
+      status: "ended",
+      endedAt: admin.firestore.FieldValue.serverTimestamp(),
+      endReason: "trip_cleanup_requested",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  if (seen.size > 0) {
+    await batch.commit();
+  }
+
+  return { ok: true, terminatedCount: seen.size };
+});
