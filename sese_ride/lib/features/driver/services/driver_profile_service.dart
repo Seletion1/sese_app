@@ -302,10 +302,12 @@ class DriverProfileService {
     final db = _db;
     try {
       if (db != null) {
-        await db.collection('drivers').doc(uid).update({
+        // Use set(merge: true) so the write succeeds even when the document
+        // was not yet created on Firestore (e.g. driver account just set up).
+        await db.collection('drivers').doc(uid).set({
           'photoUrl': url,
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        }, SetOptions(merge: true));
         // Best-effort mirror for any users/{uid} doc + auth profile so
         // avatars refresh across the app without re-login.
         try {

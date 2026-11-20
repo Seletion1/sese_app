@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -74,6 +75,27 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
 
   Future<void> _captureAvatar() async {
     if (_uploadingAvatar) return;
+
+    // Surface camera permission issues before starting the spinner — the
+    // service returns null silently when permission is denied, so we pre-check
+    // here and show actionable feedback to the driver.
+    if (!kIsWeb) {
+      final permission =
+          await MediaPermissionService.ensureFor(ImageSource.camera);
+      if (!mounted) return;
+      if (permission == MediaPermissionOutcome.permanentlyDenied) {
+        await MediaPermissionService.promptIfPermanentlyDenied(context);
+        return;
+      }
+      if (permission == MediaPermissionOutcome.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Camera permission required to update photo.')),
+        );
+        return;
+      }
+    }
+
     setState(() => _uploadingAvatar = true);
     try {
       final url =
@@ -88,6 +110,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not update photo. Please try again.')),
+      );
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
     }

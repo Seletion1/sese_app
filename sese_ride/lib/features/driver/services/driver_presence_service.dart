@@ -143,12 +143,29 @@ class DriverPresenceService {
   }
 
   /// Shows the circular quick-return floating bubble (Android only).
+  ///
+  /// The `isActive()` check is intentionally skipped on retry so that a
+  /// previously crashed or invisible overlay surface is always replaced.
+  /// We close any stale surface first, then re-open — this guarantees the
+  /// bubble appears even after the overlay engine silently dies in the
+  /// background.
   Future<void> showBubble() async {
     if (!isAndroidOverlaySupported) return;
 
     try {
-      final alreadyActive = await FlutterOverlayWindow.isActive();
-      if (alreadyActive) return;
+      // Dismiss any stale/zombie overlay surface before re-creating it.
+      // flutter_overlay_window.isActive() may return true even when the
+      // overlay window is no longer visible (engine crash / OOM kill). By
+      // always closing first we guarantee a fresh, visible bubble.
+      try {
+        final stale = await FlutterOverlayWindow.isActive();
+        if (stale) {
+          await FlutterOverlayWindow.closeOverlay().timeout(
+            const Duration(milliseconds: 400),
+            onTimeout: () => false,
+          );
+        }
+      } catch (_) {}
 
       await FlutterOverlayWindow.showOverlay(
         enableDrag: true,

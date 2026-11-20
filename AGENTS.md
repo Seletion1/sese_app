@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Driver Floating Bubble Fix, Profile Photo Permission & Full-Screen Order Improvements
+
+- **1. Floating Quick-Return Bubble — Zombie Overlay Guard (`driver_presence_service.dart`)**:
+  - **Root cause**: `showBubble()` called `FlutterOverlayWindow.isActive()` and returned early when it returned `true`. On OEM devices (Xiaomi/MIUI, Tecno, etc.), the overlay engine can be silently killed by the OS while `isActive()` still reports `true` (stale cache), causing the bubble to never appear even though permission was granted.
+  - **Fix**: Removed the bail-out guard. Instead, `showBubble()` now always closes any stale surface first (timeout 400ms, swallowed), then calls `showOverlay()` unconditionally. This guarantees a fresh, visible bubble on every app-background event.
+
+- **2. Driver Profile Photo — Camera Permission Feedback (`driver_profile_screen.dart`)**:
+  - **Root cause**: `captureAndPublishAvatar()` in `DriverProfileService` silently returns `null` when camera permission is `denied` or `permanentlyDenied` (by design, since it has no `BuildContext`). The old `_captureAvatar()` caller started the spinner, then got `null` back, and silently stopped — the driver saw the spinner flicker with no explanation.
+  - **Fix**: Pre-flight permission check in `_captureAvatar()` before setting `_uploadingAvatar = true`. On `permanentlyDenied`: calls `MediaPermissionService.promptIfPermanentlyDenied(context)` (opens Settings). On `denied`: shows a SnackBar. On any unexpected exception from the service: shows a catch-all SnackBar instead of swallowing silently.
+  - Added `flutter/foundation.dart` import for `kIsWeb` guard so the permission pre-check is skipped on web.
+
+- **3. Driver Firestore Avatar Write — Merge Safety (`driver_profile_service.dart`)**:
+  - **Root cause**: `captureAndPublishAvatar()` used `update({...})` which throws `NOT_FOUND` if the `drivers/{uid}` document doesn't exist yet.
+  - **Fix**: Changed to `set({...}, SetOptions(merge: true))` so the write creates or patches the document regardless of existence.
+
+- **4. Full-Screen Incoming Orders** (confirmed correct, no code change needed):
+  - `background_handler.dart` already fires `PushNotificationService.showFromMessage(message)` with `fullScreenIntent: true` for all order types.
+  - `MainActivity.kt` already sets `FLAG_SHOW_WHEN_LOCKED | FLAG_TURN_SCREEN_ON | FLAG_DISMISS_KEYGUARD` on `onNewIntent` and `onCreate`.
+  - `AppLauncher.bringToForeground()` correctly uses Android 14+ `setPendingIntentBackgroundActivityStartMode(MODE_BACKGROUND_ACTIVITY_START_ALLOWED)`.
+
+- **5. Verification**:
+  - `flutter analyze` clean — 0 issues in `sese_ride`.
+  - 13/13 targeted tests passed (`driver_presence_service_test`, `driver_profile_test`, `driver_overlay_bubble_widget_test`).
+  - Full `sese_ride` test suite passed.
+
 ## 2026-11-20 — Google Play Data Safety Alignment, Version Bump to 1.0.5+6 & Production Legal URLs
 
 - **1. Version Bump to `1.0.5+6` (`sese_ride/pubspec.yaml`)**:
