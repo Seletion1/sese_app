@@ -72,6 +72,36 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Google Play Data Safety Alignment, Version Bump to 1.0.5+6 & Production Legal URLs
+
+- **1. Version Bump to `1.0.5+6` (`sese_ride/pubspec.yaml`)**:
+  - Incremented version from `1.0.3+4` to `1.0.5+6` following Shorebird release of `1.0.4+5`.
+  - Maintained build hold ("don't build yet") per explicit user instruction.
+
+- **2. Exhaustive Google Play Data Safety Declarations (`legal_document_content.dart`, `public/privacy.html`)**:
+  - Aligned in-app Privacy Policy text and web hosting HTML (`https://sesetech.com/PrivacyPolicy`) with all 11 categories and sub-types submitted in the Google Play Console Data Safety questionnaire:
+    - *Personal Info*: Name, Email Address, User IDs (Firebase UID), Physical Addresses, Phone Number, Other Info (SHA-256 hashed NIN/BVN/Driver's License for KYC deduplication, vehicle info, DOB).
+    - *Financial Info*: User Payment Info (Paystack tokenized card keys, driver bank accounts for payouts), Purchase History (fares, courier deliveries, wallet top-ups, transaction ledger).
+    - *Location*: Approximate Location (coarse city fix), Precise Location (foreground & background GPS for live dispatch, navigation, ETA, and SOS).
+    - *Messages*: In-App Messages (rider-driver trip chat, support tickets).
+    - *Photos & Videos*: Photos (driver KYC licenses, vehicle inspection photos, proof-of-delivery photos, profile pictures, support claims).
+    - *Audio Files*: Voice recordings (VoIP calling via WebRTC/Agora RTC, support voice notes ≤ 5MB).
+    - *Contacts*: Contacts (`READ_CONTACTS` strictly on explicit user tap via native picker; zero bulk address book harvesting).
+    - *Files & Docs*: Vehicle registration, commercial insurance, roadworthiness certificates, exported PDF receipts.
+    - *App Activity*: App Interactions (orders, bids, ratings, reviews), In-App Search History (recent destinations).
+    - *Web Browsing*: Web Browsing History (Paystack 3D-Secure bank OTP authorizations, legal portals).
+    - *App Info & Performance*: Crash Logs (Firebase Crashlytics), Diagnostics (API latency, WebRTC signaling), Other Performance Data.
+    - *Device or Other IDs*: Firebase Installation ID, FCM push tokens, device model, and OS version.
+  - Declared: Encrypted in transit (TLS 1.3), No user data shared with third parties, Account creation via username/password and OAuth (Google Sign-In), and mandatory 30-day regulatory soft-archive retention before permanent PII erasure.
+
+- **3. Production Canonical URLs & Firebase Hosting**:
+  - Embedded canonical URLs across app legal viewers and Firebase web hosting:
+    - Terms of Service: `https://sesetech.com/terms`
+    - Privacy Policy: `https://sesetech.com/PrivacyPolicy`
+    - Account Deletion: `https://sesetech.com/delete`
+  - Deployed updated web hosting assets to Firebase Hosting (`sese-ride.web.app` / `sesetech.com`).
+  - 17/17 legal compliance tests passed in `sese_core`; static analysis clean across `sese_core` and `sese_ride` (0 errors, 0 warnings).
+
 ## 2026-11-19 — In-App Calling Hub 3-Mode Routing & Silent Fallback, Immediate Trip Escrow Deduction, In-Progress Cancellation Lock & Driver Settlement Transparency
 
 - **1. Hub Call Routing Mode Setting & Silent Provider Failover (`sese_hub`, `sese_core`)**:

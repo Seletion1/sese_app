@@ -104,6 +104,64 @@ void main() {
       expect(privacy, contains('Firebase'));
     });
 
+    test('declares all 11 Google Play Data Safety categories and sub-types', () {
+      final privacy = LegalDocumentContent.privacyPolicyText;
+      // 1. Personal Info
+      expect(privacy, contains('Personal Info:'));
+      expect(privacy, contains('Name:'));
+      expect(privacy, contains('Email Address:'));
+      expect(privacy, contains('User IDs:'));
+      expect(privacy, contains('Address:'));
+      expect(privacy, contains('Phone Number:'));
+      expect(privacy, contains('Other Info:'));
+
+      // 2. Financial Info
+      expect(privacy, contains('Financial Info:'));
+      expect(privacy, contains('User Payment Info:'));
+      expect(privacy, contains('Purchase History:'));
+
+      // 3. Location
+      expect(privacy, contains('Approximate Location:'));
+      expect(privacy, contains('Precise Location:'));
+
+      // 4. Messages
+      expect(privacy, contains('Other In-App Messages:'));
+
+      // 5. Photos and Videos
+      expect(privacy, contains('Photos and Videos:'));
+
+      // 6. Audio Files
+      expect(privacy, contains('Audio Files:'));
+      expect(privacy, contains('Voice or Sound Recordings:'));
+
+      // 7. Contacts
+      expect(privacy, contains('Contacts:'));
+
+      // 8. Files and Docs
+      expect(privacy, contains('Files and Docs:'));
+
+      // 9. App Activity
+      expect(privacy, contains('App Activity:'));
+      expect(privacy, contains('App Interactions:'));
+      expect(privacy, contains('In-App Search History:'));
+
+      // 10. Web Browsing
+      expect(privacy, contains('Web Browsing:'));
+
+      // 11. App Info and Performance
+      expect(privacy, contains('Crash Logs:'));
+      expect(privacy, contains('Diagnostics:'));
+      expect(privacy, contains('Other App Performance Data:'));
+
+      // 12. Device or Other IDs
+      expect(privacy, contains('Device or Other IDs:'));
+
+      // Data safety practices
+      expect(privacy, contains('No user data is shared with third parties'));
+      expect(privacy, contains('Encrypted in Transit'));
+      expect(privacy, contains('Google Sign-In'));
+    });
+
     test('title is correct', () {
       expect(LegalDocumentContent.titleFor(LegalDocType.privacy), 'Privacy Policy');
     });

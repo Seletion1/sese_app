@@ -18,6 +18,8 @@
       --text-muted: #9CA3AF;
       --text-heading: #FFFFFF;
       --accent: #E65100;
+      --success: #10B981;
+      --success-dim: rgba(16, 185, 129, 0.15);
     }
     * {
       box-sizing: border-box;
@@ -32,7 +34,7 @@
       padding: 0 20px 80px;
     }
     header {
-      max-width: 860px;
+      max-width: 900px;
       margin: 40px auto 20px;
       padding-bottom: 24px;
       border-bottom: 1px solid var(--card-border);
@@ -76,7 +78,7 @@
       border: 1px solid rgba(255, 179, 0, 0.3);
     }
     main {
-      max-width: 860px;
+      max-width: 900px;
       margin: 0 auto;
     }
     h1 {
@@ -93,6 +95,20 @@
       border-radius: 10px;
       margin: 24px 0 36px;
       color: #D1D5DB;
+    }
+    .summary-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--success-dim);
+      color: var(--success);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 8px;
+      margin-bottom: 8px;
+      border: 1px solid rgba(16, 185, 129, 0.3);
     }
     section {
       background: var(--card-bg);
@@ -111,7 +127,7 @@
       font-size: 16px;
       font-weight: 600;
       color: var(--text-heading);
-      margin: 16px 0 8px;
+      margin: 18px 0 8px;
     }
     p {
       margin-bottom: 14px;
@@ -132,8 +148,30 @@
       color: var(--gold-light);
       text-decoration: underline;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid var(--card-border);
+      padding: 10px 12px;
+      text-align: left;
+    }
+    th {
+      background: rgba(255, 179, 0, 0.08);
+      color: var(--gold);
+      font-weight: 700;
+    }
+    td {
+      color: #D1D5DB;
+    }
+    td strong {
+      color: #F3F4F6;
+    }
     footer {
-      max-width: 860px;
+      max-width: 900px;
       margin: 60px auto 0;
       padding-top: 24px;
       border-top: 1px solid var(--card-border);
@@ -154,16 +192,22 @@
         <a href="https://sesetech.com/delete">Account Deletion</a>
       </nav>
     </div>
-    <div class="doc-meta">Version 2026.11.20 • Google Play Data Safety Standard</div>
+    <div class="doc-meta">Version 2026.11.20 • Google Play Data Safety Standard Verified</div>
   </header>
 
   <main>
-    <h1>Privacy Policy & Data Safety Addendum</h1>
+    <h1>Privacy Policy & Google Play Data Safety Addendum</h1>
     <div class="intro-box">
-      <p><strong>SESE TECHNOLOGY LTD</strong> ("SESE", "We", "Us") values your privacy. This policy details how we collect, store, encrypt, and process your personal and telemetry information across <strong>SESE Ride</strong> and <strong>SESE Hub</strong> in strict compliance with the <strong>Nigeria Data Protection Act (NDPA)</strong>, <strong>GDPR</strong>, and <strong>Google Play Data Safety Standards</strong>.</p>
+      <p><strong>SESE TECHNOLOGY LTD</strong> ("SESE", "We", "Us") respects your fundamental right to privacy. This policy details how personal and telemetry information is collected, protected, and processed across <strong>SESE Ride</strong> and <strong>SESE Hub</strong> in strict compliance with the <strong>Nigeria Data Protection Act (NDPA) 2023</strong> and the <strong>Google Play Developer Data Safety Standards</strong>.</p>
+      <div style="margin-top: 12px;">
+        <span class="summary-badge">✓ Encrypted in Transit (TLS 1.3)</span>
+        <span class="summary-badge">✓ No Data Shared with Third Parties</span>
+        <span class="summary-badge">✓ Deletion Request Supported</span>
+        <span class="summary-badge">✓ OAuth & Password Logins</span>
+      </div>
     </div>
 
-    <!-- 1. PERMISSIONS & DATA SAFETY -->
+    <!-- 1. PERMISSIONS & RUNTIME DISCLOSURES -->
     <section>
       <h2>1. Android & iOS Permissions Disclosures</h2>
       <p>SESE explicitly discloses why each system permission is requested and how the corresponding data is processed:</p>
@@ -178,51 +222,138 @@
       <p>Accessed <strong>strictly on user tap</strong> when selecting "Book for Someone Else" or adding a parcel recipient. SESE launches the native system contact picker and retrieves only the selected contact's name and telephone number. <strong>SESE NEVER harvests, uploads, or stores your full contact address book.</strong></p>
 
       <h3>c) Camera & Photos (<code>CAMERA</code>, <code>READ_MEDIA_IMAGES</code>)</h3>
-      <p>Used solely for driver partner onboarding (identity documents, vehicle registration, and live facial verification selfie), courier dispute evidence (photographing damaged/missing goods), and profile picture updates.</p>
+      <p>Used solely for driver partner onboarding (identity documents, vehicle registration, and live facial verification selfie), courier dispute evidence (photographing damaged/missing goods), proof of delivery images, and profile picture updates.</p>
 
       <h3>d) Microphone / Audio (<code>RECORD_AUDIO</code>)</h3>
-      <p>Required for peer-to-peer VoIP in-app voice calling between riders and drivers without exposing personal phone numbers, and for submitting voice messages to customer support.</p>
+      <p>Required for peer-to-peer VoIP in-app voice calling between riders and drivers without exposing personal phone numbers (via WebRTC/Agora RTC), and for submitting voice messages to customer support.</p>
 
-      <h3>e) Display Over Other Apps (<code>SYSTEM_ALERT_WINDOW</code>)</h3>
-      <p>Allows drivers to receive immediate incoming ride alerts and navigate back to SESE Ride while utilizing third-party turn-by-turn navigation apps.</p>
+      <h3>e) Display Over Other Apps (<code>SYSTEM_ALERT_WINDOW</code>) — Android Only</h3>
+      <p>Enables the Driver Quick-Return Bubble floating overlay badge when a driver is online and the app is backgrounded. Displayed exclusively after an explicit prominent disclosure dialog. Drivers can toggle this off at any time in Driver Settings.</p>
+
+      <h3>f) Notifications & Locked-Screen Intents (<code>POST_NOTIFICATIONS</code>, <code>USE_FULL_SCREEN_INTENT</code>)</h3>
+      <p>Delivers real-time dispatch alerts, ride progress updates, and payment confirmations to drivers and customers, including full-screen dispatch alerts on locked screens for online drivers.</p>
     </section>
 
-    <!-- 2. DATA ENCRYPTION & SECURITY -->
+    <!-- 2. GOOGLE PLAY DATA SAFETY DECLARATION -->
     <section>
-      <h2>2. Data Security & Storage Standards</h2>
-      <p>All sensitive information is encrypted in transit using TLS 1.3 and at rest using AES-256 encryption. Government identity numbers (NIN, BVN) and telephone numbers are normalized and stored as deterministic SHA-256 cryptographic hashes to prevent identity exposure and ensure strict one-account deduplication.</p>
+      <h2>2. Google Play Data Safety Declaration & Data Types Collected</h2>
+      <p>In accordance with our Google Play Console Data Safety questionnaire, SESE collects the following categories of data directly to provide core transport and logistics services. <strong>No data is shared with third parties for commercial advertising:</strong></p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Data Category & Type</th>
+            <th>Purpose(s)</th>
+            <th>Handling & Retention</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Personal Info</strong><br>• Name<br>• Email address<br>• User IDs (Firebase UID)<br>• Physical Address<br>• Phone number<br>• Other info (KYC ID hashes, DOB, vehicle info)</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, security, and compliance, Personalization, Account management.</td>
+            <td>Collected & required. Encrypted in transit (TLS 1.3). Hashed using SHA-256 for duplicate KYC prevention. Purged upon account deletion (subject to 30-day AML archival).</td>
+          </tr>
+          <tr>
+            <td><strong>Financial Info</strong><br>• User payment info<br>• Purchase history</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Paystack tokenized card keys & driver payout bank details. SESE never stores raw card PAN or CVV. Purchase history retained for financial audit compliance.</td>
+          </tr>
+          <tr>
+            <td><strong>Location</strong><br>• Approximate location<br>• Precise location</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Real-time GPS tracking during active bookings and for online drivers. Essential for dispatch matching, ETA, route navigation, and SOS safety.</td>
+          </tr>
+          <tr>
+            <td><strong>Messages</strong><br>• Other in-app messages</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Rider-driver in-trip chat and support desk tickets. Used strictly for communication, safety, and dispute resolution.</td>
+          </tr>
+          <tr>
+            <td><strong>Photos and Videos</strong><br>• Photos</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Driver license images, vehicle inspection photos, proof-of-delivery photos, and avatar images. Stored in access-controlled Firebase Storage.</td>
+          </tr>
+          <tr>
+            <td><strong>Audio Files</strong><br>• Voice or sound recordings</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>VoIP in-app voice calling between rider and driver (WebRTC/Agora RTC) and customer support audio notes (≤ 5MB).</td>
+          </tr>
+          <tr>
+            <td><strong>Contacts</strong><br>• Contacts</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Zero address book uploading. Accessed only on interactive user tap to choose a ride or delivery contact recipient.</td>
+          </tr>
+          <tr>
+            <td><strong>Files and Docs</strong><br>• Files and docs</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Driver vehicle registration, roadworthiness, commercial insurance certificates, and exported PDF receipts.</td>
+          </tr>
+          <tr>
+            <td><strong>App Activity</strong><br>• App interactions<br>• In-app search history</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Bookings, bids, ratings, reviews, and recent destination searches for auto-complete and dispatch efficiency.</td>
+          </tr>
+          <tr>
+            <td><strong>Web Browsing</strong><br>• Web browsing history</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>In-app WebView navigation strictly for Paystack 3D-Secure bank OTP authorizations and viewing legal portals (sesetech.com).</td>
+          </tr>
+          <tr>
+            <td><strong>App Info & Performance</strong><br>• Crash logs<br>• Diagnostics<br>• Other performance data</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Firebase Crashlytics stack traces, API response latencies, memory footprint, and frame performance metrics.</td>
+          </tr>
+          <tr>
+            <td><strong>Device or Other IDs</strong><br>• Device or other IDs</td>
+            <td>App functionality, Analytics, Developer communications, Fraud prevention, Personalization, Account management.</td>
+            <td>Firebase Installation IDs, FCM push notification tokens, device model, and OS version for device binding and push dispatch.</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
-    <!-- 3. THIRD-PARTY PROCESSORS -->
+    <!-- 3. DATA ENCRYPTION & SECURITY -->
     <section>
-      <h2>3. Third-Party Service Providers</h2>
-      <p>We work only with certified third-party service providers:</p>
+      <h2>3. Data Security & Storage Standards</h2>
+      <p>All sensitive information is encrypted in transit using <strong>TLS 1.3</strong> and at rest using <strong>AES-256</strong>. Government identity numbers (NIN, BVN) and phone numbers are normalized and stored as deterministic <strong>SHA-256 cryptographic hashes</strong> to prevent identity exposure and ensure strict one-account deduplication.</p>
+      <p><strong>Account Creation Methods:</strong> SESE supports account registration via username (email/phone) and password, as well as federated OAuth (Google Sign-In). All authentication tokens are cryptographically secured by Firebase Authentication.</p>
+    </section>
+
+    <!-- 4. THIRD-PARTY PROCESSORS -->
+    <section>
+      <h2>4. Certified Third-Party Processors</h2>
+      <p>We partner only with certified service providers bound by strict data processing agreements:</p>
       <ul>
-        <li><strong>Payment Processing:</strong> Paystack (PCI-DSS Level 1 Certified). SESE never stores raw card credentials or CVV numbers.</li>
+        <li><strong>Payment Processing:</strong> Paystack (PCI-DSS Level 1 Certified). SESE never stores raw card PAN or CVV numbers.</li>
         <li><strong>Map & Geocoding Services:</strong> Google Maps Platform and OpenStreetMap raster tiles for route rendering and navigation.</li>
-        <li><strong>Calling & Telephony:</strong> WebRTC and Agora RTC for encrypted in-app voice communication.</li>
+        <li><strong>Calling & Telephony:</strong> WebRTC (peer-to-peer audio) and Agora RTC (relay fallback) for encrypted in-app voice calling.</li>
         <li><strong>Cloud Infrastructure:</strong> Google Cloud Platform & Firebase for secure database, storage, and server-side compute.</li>
+        <li><strong>Transactional Email:</strong> Resend API for OTP delivery and administrative notifications.</li>
       </ul>
     </section>
 
-    <!-- 4. ACCOUNT DELETION -->
+    <!-- 5. ACCOUNT DELETION -->
     <section>
-      <h2>4. Data Subject Rights & Account Deletion</h2>
-      <p>Under the NDPA and GDPR, you have the right to access, rectify, and delete your personal data. You may request account deletion at any time:</p>
+      <h2>5. Data Subject Rights & Account Deletion</h2>
+      <p>Under the NDPA 2023 and GDPR, you have the right to access, rectify, and delete your personal data. You may request account deletion at any time:</p>
       <ul>
-        <li><strong>In-App:</strong> Go to <em>Settings &rarr; Account Privacy &rarr; Delete Account</em>.</li>
+        <li><strong>In-App:</strong> Go to <em>Settings &rarr; Legal & Compliance &rarr; Delete Account</em>.</li>
         <li><strong>Web Request:</strong> Visit our dedicated web deletion portal at <a href="https://sesetech.com/delete"><strong>https://sesetech.com/delete</strong></a>.</li>
+        <li><strong>Email Request:</strong> Send an email to <a href="mailto:support@sesetech.com">support@sesetech.com</a> from your registered address.</li>
       </ul>
-      <p>Upon request, all PII is permanently removed. Completed transaction logs and financial invoices are retained in a restricted 30-day soft archive for tax, financial, and regulatory auditing before final erasure.</p>
+      <p>Upon deletion, all profile PII, authentication credentials, and media files are permanently removed. Completed transaction logs and financial records are retained in an access-restricted <strong>30-day soft archive</strong> for tax, financial, and anti-fraud auditing compliance before final erasure.</p>
     </section>
 
-    <!-- 5. CONTACT PRIVACY OFFICER -->
+    <!-- 6. CONTACT PRIVACY OFFICER -->
     <section>
-      <h2>5. Data Protection Officer (DPO) Contact</h2>
+      <h2>6. Data Protection Officer (DPO) Contact</h2>
       <p>For questions or data requests, contact our Data Protection Officer:</p>
       <ul>
         <li><strong>Email:</strong> <a href="mailto:privacy@sesetech.com">privacy@sesetech.com</a></li>
         <li><strong>Support:</strong> <a href="mailto:support@sesetech.com">support@sesetech.com</a></li>
+        <li><strong>Terms of Service:</strong> <a href="https://sesetech.com/terms">https://sesetech.com/terms</a></li>
+        <li><strong>Privacy Policy:</strong> <a href="https://sesetech.com/PrivacyPolicy">https://sesetech.com/PrivacyPolicy</a></li>
+        <li><strong>Account Deletion:</strong> <a href="https://sesetech.com/delete">https://sesetech.com/delete</a></li>
         <li><strong>Company:</strong> SESE Technology LTD, Ikorodu, Lagos State, Nigeria.</li>
       </ul>
     </section>
