@@ -18,6 +18,7 @@ import 'cancel_trip_dialog.dart';
 import 'mutual_profile_modal.dart';
 import 'trip_chat_screen.dart';
 import 'trip_rating_dialog.dart';
+import '../services/trip_chat_service.dart';
 import '../services/trip_rating_service.dart';
 import '../../customer/presentation/customer_dispatch_screen.dart';
 
@@ -3171,13 +3172,22 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _CommunicationButton(
-                        key: const Key('customer_chat_icon'),
-                        icon: Icons.chat_bubble_outline,
-                        label: 'Chat',
-                        color: isDark ? Colors.white : Colors.black87,
-                        bgColor: isDark ? const Color(0xFF252530) : Colors.grey.shade100,
-                        onTap: () => _openTripChat(context),
+                      child: StreamBuilder<int>(
+                        stream: TripChatService().unreadCountStream(
+                          tripId: trip.tripId,
+                          currentUid: widget.trip.customerId,
+                        ),
+                        builder: (context, snapshot) {
+                          return _CommunicationButton(
+                            key: const Key('customer_chat_icon'),
+                            icon: Icons.chat_bubble_outline,
+                            label: 'Chat',
+                            badgeCount: snapshot.data ?? 0,
+                            color: isDark ? Colors.white : Colors.black87,
+                            bgColor: isDark ? const Color(0xFF252530) : Colors.grey.shade100,
+                            onTap: () => _openTripChat(context),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -3411,6 +3421,7 @@ class _CommunicationButton extends StatelessWidget {
   final Color color;
   final Color bgColor;
   final VoidCallback onTap;
+  final int badgeCount;
 
   const _CommunicationButton({
     super.key,
@@ -3419,11 +3430,12 @@ class _CommunicationButton extends StatelessWidget {
     required this.color,
     required this.bgColor,
     required this.onTap,
+    this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    final btn = Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
@@ -3455,6 +3467,49 @@ class _CommunicationButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    if (badgeCount <= 0) return btn;
+
+    final badgeText = badgeCount > 9 ? '9+' : '$badgeCount';
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        btn,
+        Positioned(
+          top: -4,
+          right: -4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEF4444),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF1E1E24)
+                    : Colors.white,
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                ),
+              ],
+            ),
+            child: Text(
+              badgeText,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                height: 1.1,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

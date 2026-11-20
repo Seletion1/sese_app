@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Trip Chat Separation (Pickup vs. Dropoff), Live Unread Message Badges & Nav Camera Follow Stability
+
+- **1. Strict Channel Isolation in Trip Chat (`trip_chat_service.dart`, `trip_chat_screen.dart`)**:
+  - **Problem**: Pickup/Sender tab (e.g. `Adesewa`) and Drop-off/Receiver tab (e.g. `DORATHY`) shared the same `trips/{tripId}/messages` collection without filtering, causing messages typed on one tab to bleed into the other.
+  - **Solution**: Added `channel: 'pickup' | 'dropoff'` discriminator to `TripChatMessage`. `messagesStream(tripId, {channel})` strictly filters by channel with backwards compatibility for legacy single-rider messages defaulting to `pickup`.
+  - In `TripChatScreen`: Tab 0 streams `pickup` channel, Tab 1 streams `dropoff` channel with the drop-off recipient phone banner. Typing and sending images strictly binds to `_activeChannel`.
+
+- **2. Live Unread Message Badges on Chat Button & Chat Tabs (`driver_active_trip_card.dart`, `live_trip_screen.dart`, `trip_chat_screen.dart`)**:
+  - Implemented `unreadCountStream({tripId, currentUid, channel})` in `TripChatService` leveraging local `SharedPreferences` last-read timestamps and an in-memory broadcast controller (due to Firestore messages collection having `allow update: if false`).
+  - Active trip sheets for Driver (`DriverActiveTripCard`) and Customer (`_AcceptedDriverSheet`) wrap the `Chat` button with a `StreamBuilder<int>` rendering a high-visibility badge pill when `unreadCount > 0`.
+  - Inside `TripChatScreen`, both tabs display real-time independent unread badges (`_UnreadBadgePill`), and viewing an active tab automatically updates the last-read timestamp via `markChannelRead`.
+
+- **3. Turn-by-Turn Navigation Camera Follow & False Recenter Suppression (`driver_dashboard_screen.dart`, `map_provider.dart`, `osm_map_view.dart`)**:
+  - **Problem**: During active in-progress navigation, programmatic `animateCamera` moves on Google Maps triggered `onCameraMove` after `_programmaticWindow` (1200ms) expired on slower Android frames, falsely marking the move as a user hand gesture (`handleUserGesture`), disconnecting follow mode, and prematurely popping the `Recenter` button.
+  - **Solution**:
+    1. Extended `_programmaticWindow` from 1200ms to 2500ms to ensure complete camera animation transitions on all devices without gesture race conditions.
+    2. Added `isUserTouching` guard in `SeSeMapController` and Google Maps gesture listener so camera updates without active finger-down touch are never classified as user pan gestures.
+    3. Aligned navigation camera parameters across `driver_dashboard_screen.dart` and `map_provider.dart` GPS follow loop to consistent tilt `48.0°` and zoom `17.8`.
+    4. Conditioned Recenter pill bottom margin dynamically above the collapsed sheet (`MediaQuery.sizeOf(context).height * _sheetCollapsedSize + 24`) only when `!_isFollowingUser`.
+
+- **4. Verification**:
+  - `flutter analyze` clean: 0 warnings, 0 errors in `sese_ride`.
+  - 11/11 targeted tests passed (`trip_chat_test.dart`, `driver_presence_service_test.dart`, `driver_overlay_bubble_widget_test.dart`).
+
+
 ## 2026-11-20 — Permission State Synchronization, SYSTEM_ALERT_WINDOW Live Sync & GO ONLINE Pre-Flight Location Enforcement
 
 - **1. Floating Quick-Return Bubble Live Permission Synchronization (`settings_screen.dart`, `driver_presence_service.dart`)**:

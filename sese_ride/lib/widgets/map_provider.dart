@@ -502,9 +502,9 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
         // ignore: discarded_futures
         widget.mapController.followToBottomCenter(
           fix,
-          zoom: 17.0,
+          zoom: 17.8,
           bearing: widget.userBearing,
-          tilt: 38.0,
+          tilt: 48.0,
         );
       } else {
         // ignore: discarded_futures
@@ -518,7 +518,8 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
   /// (recenter / fit / follow animations) are programmatic; anything else is
   /// the user's hand — which frees the camera from the GPS stream.
   void _handleGoogleCameraMove(LatLng center) {
-    if (!widget.mapController.isInProgrammaticWindow) {
+    if (widget.mapController.isUserTouching &&
+        !widget.mapController.isInProgrammaticWindow) {
       widget.mapController.handleUserGesture(
         lat: center.latitude,
         lng: center.longitude,
@@ -1091,7 +1092,8 @@ class _GoogleMapBranchState extends State<_GoogleMapBranch> {
       },
       onCameraMove: (pos) {
         _currentCenter = LatLng(pos.target.latitude, pos.target.longitude);
-        if (!widget.mapController.isInProgrammaticWindow) {
+        if (widget.mapController.isUserTouching &&
+            !widget.mapController.isInProgrammaticWindow) {
           widget.mapController.handleUserGesture(
             lat: pos.target.latitude,
             lng: pos.target.longitude,

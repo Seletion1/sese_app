@@ -80,11 +80,36 @@ class _TripChatScreenState extends State<TripChatScreen>
     super.initState();
     if (_hasReceiver) {
       _tabCtrl = TabController(length: 2, vsync: this);
+      _tabCtrl!.addListener(_onTabChanged);
+      _markActiveTabRead();
+    } else {
+      _chat.markChannelRead(
+        tripId: widget.tripId,
+        channel: 'pickup',
+        currentUid: widget.currentUid,
+      );
     }
+  }
+
+  void _onTabChanged() {
+    if (_tabCtrl != null && !_tabCtrl!.indexIsChanging) {
+      _markActiveTabRead();
+      setState(() {});
+    }
+  }
+
+  void _markActiveTabRead() {
+    final channel = (_hasReceiver && _tabCtrl?.index == 1) ? 'dropoff' : 'pickup';
+    _chat.markChannelRead(
+      tripId: widget.tripId,
+      channel: channel,
+      currentUid: widget.currentUid,
+    );
   }
 
   @override
   void dispose() {
+    _tabCtrl?.removeListener(_onTabChanged);
     _tabCtrl?.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
@@ -102,6 +127,9 @@ class _TripChatScreenState extends State<TripChatScreen>
     });
   }
 
+  String get _activeChannel =>
+      (_hasReceiver && _tabCtrl?.index == 1) ? 'dropoff' : 'pickup';
+
   Future<void> _send() async {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _sending) return;
@@ -113,6 +141,7 @@ class _TripChatScreenState extends State<TripChatScreen>
         senderId: widget.currentUid,
         senderRole: widget.senderRole,
         text: text,
+        channel: _activeChannel,
       );
       _scrollToEnd();
     } on TripChatException catch (e) {
@@ -145,6 +174,7 @@ class _TripChatScreenState extends State<TripChatScreen>
         senderId: widget.currentUid,
         senderRole: widget.senderRole,
         localPath: file.path,
+        channel: _activeChannel,
       );
       _scrollToEnd();
     } on TripChatException catch (e) {
@@ -169,10 +199,10 @@ class _TripChatScreenState extends State<TripChatScreen>
     }
   }
 
-  /// Builds the scrollable chat message list for [widget.tripId].
-  Widget _buildMessageList() {
+  /// Builds the scrollable chat message list for [widget.tripId] on [channel].
+  Widget _buildMessageList([String channel = 'pickup']) {
     return StreamBuilder<List<TripChatMessage>>(
-      stream: _chat.messagesStream(widget.tripId),
+      stream: _chat.messagesStream(widget.tripId, channel: channel),
       builder: (context, snapshot) {
         final messages = snapshot.data ?? const <TripChatMessage>[];
         if (snapshot.connectionState == ConnectionState.waiting &&
@@ -180,14 +210,17 @@ class _TripChatScreenState extends State<TripChatScreen>
           return const SeseListSkeleton(itemCount: 4);
         }
         if (messages.isEmpty) {
-          return const Center(
+          final isDropoff = channel == 'dropoff';
+          return Center(
             child: Padding(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Text(
-                'Say hello — coordinate pickup and drop-off here. '
-                'Photos welcome; voice notes are disabled.',
+                isDropoff
+                    ? 'Say hello to the drop-off receiver — coordinate arrival and delivery details here.'
+                    : 'Say hello — coordinate pickup and drop-off here. '
+                        'Photos welcome; voice notes are disabled.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey),
               ),
             ),
           );
@@ -195,6 +228,14 @@ class _TripChatScreenState extends State<TripChatScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _scrollCtrl.hasClients) {
             _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent);
+          }
+          // Mark channel read if actively viewing this tab
+          if (_activeChannel == channel) {
+            _chat.markChannelRead(
+              tripId: widget.tripId,
+              channel: channel,
+              currentUid: widget.currentUid,
+            );
           }
         });
         return ListView.builder(
@@ -327,16 +368,66 @@ class _TripChatScreenState extends State<TripChatScreen>
             controller: _tabCtrl,
             tabs: [
               Tab(
-                icon: const Icon(Icons.pin_drop_outlined, size: 18),
-                text: widget.peerName.isNotEmpty
-                    ? widget.peerName
-                    : 'Pickup / Booker',
+                child: StreamBuilder<int>(
+                  stream: _chat.unreadCountStream(
+                    tripId: widget.tripId,
+                    currentUid: widget.currentUid,
+                    channel: 'pickup',
+                  ),
+                  builder: (context, snap) {
+                    final unread = snap.data ?? 0;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.pin_drop_outlined, size: 18),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            widget.peerName.isNotEmpty
+                                ? widget.peerName
+                                : 'Pickup / Booker',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (unread > 0) ...[
+                          const SizedBox(width: 6),
+                          _UnreadBadgePill(count: unread),
+                        ],
+                      ],
+                    );
+                  },
+                ),
               ),
               Tab(
-                icon: const Icon(Icons.place_outlined, size: 18),
-                text: widget.receiverName.isNotEmpty
-                    ? widget.receiverName
-                    : 'Drop-off Receiver',
+                child: StreamBuilder<int>(
+                  stream: _chat.unreadCountStream(
+                    tripId: widget.tripId,
+                    currentUid: widget.currentUid,
+                    channel: 'dropoff',
+                  ),
+                  builder: (context, snap) {
+                    final unread = snap.data ?? 0;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.place_outlined, size: 18),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            widget.receiverName.isNotEmpty
+                                ? widget.receiverName
+                                : 'Drop-off Receiver',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (unread > 0) ...[
+                          const SizedBox(width: 6),
+                          _UnreadBadgePill(count: unread),
+                        ],
+                      ],
+                    );
+                  },
+                ),
               ),
             ],
             labelColor: scheme.primary,
@@ -351,9 +442,9 @@ class _TripChatScreenState extends State<TripChatScreen>
                 controller: _tabCtrl,
                 children: [
                   // Tab 0 — Pickup / Booker conversation.
-                  _buildMessageList(),
+                  _buildMessageList('pickup'),
                   // Tab 1 — Drop-off Receiver: show an info banner above the
-                  // shared chat stream so the driver knows who they are
+                  // isolated drop-off chat stream so the driver knows who they are
                   // addressing when the receiver is a different person.
                   Column(
                     children: [
@@ -373,7 +464,7 @@ class _TripChatScreenState extends State<TripChatScreen>
                           ),
                         ),
                       ),
-                      Expanded(child: _buildMessageList()),
+                      Expanded(child: _buildMessageList('dropoff')),
                     ],
                   ),
                 ],
@@ -415,9 +506,36 @@ class _TripChatScreenState extends State<TripChatScreen>
       ),
       body: Column(
         children: [
-          Expanded(child: _buildMessageList()),
+          Expanded(child: _buildMessageList('pickup')),
           _buildInputBar(),
         ],
+      ),
+    );
+  }
+}
+
+class _UnreadBadgePill extends StatelessWidget {
+  final int count;
+  const _UnreadBadgePill({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return const SizedBox.shrink();
+    final text = count > 9 ? '9+' : '$count';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          height: 1.1,
+        ),
       ),
     );
   }

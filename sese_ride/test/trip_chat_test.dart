@@ -12,10 +12,27 @@ class _FakeTripChat extends TripChatService {
   final sent = <String>[];
 
   @override
-  Stream<List<TripChatMessage>> messagesStream(String tripId) =>
+  Stream<List<TripChatMessage>> messagesStream(String tripId,
+      {String? channel}) =>
       Stream.multi((sink) {
-        sink.add(current);
-        final sub = _ctrl.stream.listen(sink.add);
+        final filtered = channel == null
+            ? current
+            : channel == 'dropoff'
+                ? current.where((m) => m.channel == 'dropoff').toList()
+                : current
+                    .where((m) => m.channel == 'pickup' || m.channel.isEmpty)
+                    .toList();
+        sink.add(filtered);
+        final sub = _ctrl.stream.listen((msgs) {
+          final f = channel == null
+              ? msgs
+              : channel == 'dropoff'
+                  ? msgs.where((m) => m.channel == 'dropoff').toList()
+                  : msgs
+                      .where((m) => m.channel == 'pickup' || m.channel.isEmpty)
+                      .toList();
+          sink.add(f);
+        });
         sink.onCancel = sub.cancel;
       });
 
@@ -25,6 +42,7 @@ class _FakeTripChat extends TripChatService {
     required String senderId,
     required String senderRole,
     required String text,
+    String channel = 'pickup',
   }) async {
     sent.add(text);
     current = [
@@ -34,6 +52,7 @@ class _FakeTripChat extends TripChatService {
         senderId: senderId,
         senderRole: senderRole,
         text: text,
+        channel: channel,
       ),
     ];
     _ctrl.add(current);

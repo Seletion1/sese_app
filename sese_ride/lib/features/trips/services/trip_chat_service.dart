@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// One row of `trips/{tripId}/messages/{messageId}`.
 ///
@@ -11,6 +13,9 @@ import 'package:sese_core/sese_core.dart';
 /// customer app until recipients hold accounts), `driver` (assignee),
 /// `support` (hub agent via console). Types: `text` | `image` only —
 /// voice notes are rejected by rules and have no composer anywhere.
+///
+/// Channels: `'pickup'` (conversation with the booker / pickup contact) vs.
+/// `'dropoff'` (conversation with the delivery / drop-off receiver).
 class TripChatMessage {
   final String id;
   final String senderId;
@@ -19,6 +24,7 @@ class TripChatMessage {
   final String text;
   final String imageUrl;
   final DateTime? createdAt;
+  final String channel;
 
   const TripChatMessage({
     required this.id,
@@ -28,6 +34,7 @@ class TripChatMessage {
     this.text = '',
     this.imageUrl = '',
     this.createdAt,
+    this.channel = 'pickup',
   });
 
   bool get isImage => type == 'image' && imageUrl.isNotEmpty;
@@ -51,6 +58,7 @@ class TripChatMessage {
       text: (map['text'] ?? '').toString(),
       imageUrl: (map['imageUrl'] ?? '').toString(),
       createdAt: when,
+      channel: (map['channel'] ?? 'pickup').toString(),
     );
   }
 }
@@ -88,25 +96,144 @@ class TripChatService {
     return db.collection('trips').doc(tripId).collection('messages');
   }
 
-  /// Live message thread, oldest first. Denied reads end as empty.
-  Stream<List<TripChatMessage>> messagesStream(String tripId) {
+  /// In-memory timestamp cache of last read time per (tripId + channel + uid).
+  static final Map<String, int> _lastReadMemoryCache = {};
+
+  /// Global broadcast stream triggered whenever any channel is marked as read.
+  static final StreamController<void> _readUpdatesController =
+      StreamController<void>.broadcast();
+
+  static String _readKey(String tripId, String channel, String uid) =>
+      'trip_chat_last_read_${tripId}_${channel}_$uid';
+
+  /// Returns milliseconds epoch of last read time for the given channel.
+  Future<int> getLastReadTimestamp({
+    required String tripId,
+    required String channel,
+    required String currentUid,
+  }) async {
+    final key = _readKey(tripId, channel, currentUid);
+    if (_lastReadMemoryCache.containsKey(key)) {
+      return _lastReadMemoryCache[key]!;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final val = prefs.getInt(key) ?? 0;
+      _lastReadMemoryCache[key] = val;
+      return val;
+    } catch (_) {
+      return _lastReadMemoryCache[key] ?? 0;
+    }
+  }
+
+  /// Marks a specific chat channel as read up to the current timestamp.
+  Future<void> markChannelRead({
+    required String tripId,
+    required String channel,
+    required String currentUid,
+  }) async {
+    if (tripId.isEmpty || currentUid.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final key = _readKey(tripId, channel, currentUid);
+    _lastReadMemoryCache[key] = now;
+    _readUpdatesController.add(null);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(key, now);
+    } catch (_) {}
+  }
+
+  /// Live message thread, oldest first.
+  ///
+  /// When [channel] is provided, filters messages strictly for that channel:
+  /// - `'dropoff'`: messages where `m.channel == 'dropoff'`
+  /// - `'pickup'`: messages where `m.channel == 'pickup'` or `m.channel.isEmpty`
+  /// - `null`: all messages in the trip
+  Stream<List<TripChatMessage>> messagesStream(String tripId, {String? channel}) {
     final col = _messages(tripId);
     if (col == null) return Stream.value(const <TripChatMessage>[]);
     return col
         .orderBy('timestamp')
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => TripChatMessage.fromMap(d.id, d.data())).toList())
+        .map((snap) {
+          final all = snap.docs
+              .map((d) => TripChatMessage.fromMap(d.id, d.data()))
+              .toList();
+          if (channel == null) return all;
+          if (channel == 'dropoff') {
+            return all.where((m) => m.channel == 'dropoff').toList();
+          }
+          return all.where((m) => m.channel == 'pickup' || m.channel.isEmpty).toList();
+        })
         .handleError((Object _) => const <TripChatMessage>[]);
   }
 
+  /// Reactive unread message count stream for [currentUid].
+  ///
+  /// If [channel] is specified (`'pickup'` or `'dropoff'`), counts only unread
+  /// messages in that channel. If [channel] is null, counts total unread
+  /// messages across all channels.
+  Stream<int> unreadCountStream({
+    required String tripId,
+    required String currentUid,
+    String? channel,
+  }) {
+    if (tripId.isEmpty || currentUid.isEmpty) return Stream.value(0);
+
+    late StreamController<int> controller;
+    StreamSubscription? msgSub;
+    StreamSubscription? readSub;
+    List<TripChatMessage> latestMessages = const [];
+
+    Future<void> recalculate() async {
+      int count = 0;
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      for (final m in latestMessages) {
+        if (m.senderId == currentUid) continue;
+        final ch = m.channel.isEmpty ? 'pickup' : m.channel;
+        final lastRead = await getLastReadTimestamp(
+          tripId: tripId,
+          channel: ch,
+          currentUid: currentUid,
+        );
+        final msgTime = m.createdAt?.millisecondsSinceEpoch ?? nowMs;
+        if (msgTime > lastRead) {
+          count++;
+        }
+      }
+      if (!controller.isClosed) {
+        controller.add(count);
+      }
+    }
+
+    controller = StreamController<int>.broadcast(
+      onListen: () {
+        msgSub = messagesStream(tripId, channel: channel).listen((msgs) {
+          latestMessages = msgs;
+          unawaited(recalculate());
+        });
+        readSub = _readUpdatesController.stream.listen((_) {
+          unawaited(recalculate());
+        });
+      },
+      onCancel: () {
+        msgSub?.cancel();
+        readSub?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
   /// Sends a text message as [senderRole] (`customer` | `recipient` |
-  /// `driver` | `support`). Throws [TripChatException] on failure.
+  /// `driver` | `support`) on [channel] (`pickup` | `dropoff`).
+  /// Throws [TripChatException] on failure.
   Future<void> sendText({
     required String tripId,
     required String senderId,
     required String senderRole,
     required String text,
+    String channel = 'pickup',
   }) async {
     final clean = text.trim();
     if (clean.isEmpty) {
@@ -123,8 +250,11 @@ class TripChatService {
         'senderRole': senderRole,
         'type': 'text',
         'text': clean,
+        'channel': channel,
         'timestamp': FieldValue.serverTimestamp(),
       });
+      // Sending a message marks the sender's channel as read up to now
+      await markChannelRead(tripId: tripId, channel: channel, currentUid: senderId);
     } catch (e) {
       debugPrint('TripChatService.sendText failed: $e');
       throw const TripChatException(
@@ -133,12 +263,13 @@ class TripChatService {
   }
 
   /// Uploads a photo to `trip_media/{tripId}/` and posts it as an image
-  /// message. Returns the download URL.
+  /// message on [channel] (`pickup` | `dropoff`). Returns the download URL.
   Future<String> sendImage({
     required String tripId,
     required String senderId,
     required String senderRole,
     required String localPath,
+    String channel = 'pickup',
   }) async {
     final col = _messages(tripId);
     final bucket = _bucket;
@@ -160,8 +291,11 @@ class TripChatService {
         'type': 'image',
         'text': '',
         'imageUrl': url,
+        'channel': channel,
         'timestamp': FieldValue.serverTimestamp(),
       });
+      // Sending an image marks the sender's channel as read up to now
+      await markChannelRead(tripId: tripId, channel: channel, currentUid: senderId);
       return url;
     } catch (e) {
       debugPrint('TripChatService.sendImage failed: $e');

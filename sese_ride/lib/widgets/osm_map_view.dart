@@ -624,7 +624,11 @@ class SeSeMapController {
   /// gestures (native animations report a stream of moves with no gesture
   /// flag — without the window every recenter would instantly un-follow).
   DateTime? _programmaticUntil;
-  static const _programmaticWindow = Duration(milliseconds: 1200);
+  /// 2 500 ms covers Google Maps' slower animation frames on mid-range
+  /// devices; 1 200 ms was occasionally expired before animateCamera
+  /// finished, letting the next onCameraMove fire as a "user gesture" and
+  /// prematurely unhide the Recenter pill during active navigation.
+  static const _programmaticWindow = Duration(milliseconds: 2500);
 
   void _noteProgrammatic() {
     _programmaticUntil = DateTime.now().add(_programmaticWindow);
@@ -642,6 +646,10 @@ class SeSeMapController {
 
   /// Whether the user is actively touching/panning the map canvas.
   bool get isInteracting => interactionController?.isInteracting ?? false;
+
+  /// Direct touch-state tracking on the map canvas.
+  bool _isUserTouching = false;
+  bool get isUserTouching => _isUserTouching || isInteracting;
 
   /// True while inside a programmatic animation window.
   bool get isInProgrammaticWindow =>
@@ -675,6 +683,7 @@ class SeSeMapController {
 
   /// Called when a pointer down/touch begins on the map canvas.
   void handleInteractionStarted({double? lat, double? lng}) {
+    _isUserTouching = true;
     interactionController?.notifyInteractionStarted(
       currentLat: lat,
       currentLng: lng,
@@ -684,6 +693,7 @@ class SeSeMapController {
 
   /// Called when pointer interaction ends or camera goes idle.
   void handleInteractionEnded() {
+    _isUserTouching = false;
     interactionController?.notifyInteractionEnded();
     onUserInteractionEnded?.call();
   }

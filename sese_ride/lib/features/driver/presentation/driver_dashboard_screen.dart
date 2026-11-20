@@ -664,9 +664,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     if (isNav) {
       _mapController.recenterToBottomCenter(
         _driverPosition,
-        zoom: 17.0,
+        zoom: 17.8,
         bearing: _driverBearing,
-        tilt: 38.0,
+        tilt: 48.0,
       );
     } else {
       _mapController.recenterTo(_driverPosition, 16.5);
@@ -795,9 +795,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             if (isNav) {
               _mapController.followToBottomCenter(
                 newPos,
-                zoom: 17.0,
+                zoom: 17.8,
                 bearing: _driverBearing,
-                tilt: 38.0,
+                tilt: 48.0,
               );
             } else {
               _mapController.followTo(newPos);
@@ -1894,18 +1894,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             final isJustStarted = active.status == TripStatus.inProgress &&
                 _lastTrackedStatus != TripStatus.inProgress;
 
-            if (isNewTrip || isJustStarted) {
+            final isNav = active.status == TripStatus.inProgress ||
+                active.status == TripStatus.driverAccepted ||
+                active.status == TripStatus.driverArriving;
+
+            if (isNewTrip || isJustStarted || isNav) {
               _hasAutoCollapsedForTrip = true;
               _tripStartLocation = _driverPosition;
               _autoCollapseSheetOnActiveTrip();
-              if (active.status == TripStatus.inProgress &&
-                  _driverPosition.latitude != 0.0) {
+              if (isNav && _driverPosition.latitude != 0.0) {
                 _isFollowingUser = true;
                 _mapController.recenterToBottomCenter(
                   _driverPosition,
-                  zoom: 17.0,
+                  zoom: 17.8,
                   bearing: _driverBearing,
-                  tilt: 38.0,
+                  tilt: 48.0,
                 );
               }
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
@@ -2177,13 +2180,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               ),
 
             // Primary Floating Recenter Pill Button (bottom-center):
-            // The sole, standardized recenter control for optimal thumb accessibility.
-            // Retained during map interaction so driver can always snap back.
-            if (!_isFollowingUser || _isMapInteracting)
+            // Shown only when user panning or manual gesture paused live following.
+            if (!_isFollowingUser)
               Positioned(
                 left: 0,
                 right: 0,
-                bottom: active != null ? 240 : 180,
+                bottom: active != null
+                    ? (MediaQuery.sizeOf(context).height * _sheetCollapsedSize + 24)
+                    : 180,
                 child: Center(
                   child: Material(
                     key: const Key('driver_recenter_pill_button'),
