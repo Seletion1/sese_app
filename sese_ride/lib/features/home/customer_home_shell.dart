@@ -524,15 +524,29 @@ class _ActiveTripCardBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color bannerBg = _isSearching
-        ? AppColors.seseGold
-        : Theme.of(context).colorScheme.primaryContainer;
-    final Color bannerTextColor = _isSearching
-        ? Colors.black
-        : Theme.of(context).colorScheme.onPrimaryContainer;
+    final bool isConfirmationPending = trip.isDropoffApprovalPending ||
+        trip.status == TripStatus.pendingCustomerApproval;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final Color bannerBg = isConfirmationPending
+        ? (isDark ? const Color(0xFF451A03) : const Color(0xFFFEF3C7))
+        : _isSearching
+            ? AppColors.seseGold
+            : Theme.of(context).colorScheme.primaryContainer;
+    final Color bannerTextColor = isConfirmationPending
+        ? (isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E))
+        : _isSearching
+            ? Colors.black
+            : Theme.of(context).colorScheme.onPrimaryContainer;
 
     final String statusText;
-    if (trip.status == TripStatus.driverAccepted ||
+    if (isConfirmationPending) {
+      statusText = 'Confirmation Needed • Drop-off approval';
+    } else if (trip.dropoffApprovalStatus == 'EXPIRED') {
+      statusText = 'Confirmation Timed Out • In Progress';
+    } else if (trip.dropoffApprovalStatus == 'REJECTED') {
+      statusText = 'Drop-off Declined • In Progress';
+    } else if (trip.status == TripStatus.driverAccepted ||
         trip.status == TripStatus.driverArriving) {
       statusText = 'Driver is on the way';
     } else if (trip.status == TripStatus.driverArrived) {

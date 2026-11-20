@@ -356,17 +356,22 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         if (confirmed != true) return;
       }
 
-      // Check drop-off geofence if not already customer-approved
+      // 1. When Drop-Off PIN is enabled/required on this delivery, valid PIN verification
+      // acts as recipient authorization and bypasses the distance check entirely.
+      if (trip.serviceType != 'ride' && trip.deliveryPinRequired) {
+        await _askDeliveryPin(trip);
+        return;
+      }
+
+      // 2. When Drop-Off PIN is OFF/disabled or not required:
+      // Enforce the driver location check against drop-off coordinates.
+      // Only when outside the allowed radius (and drop-off approval is not already approved)
+      // should the driver trigger the remote customer confirmation request.
       if (!trip.isDropoffApprovalApproved &&
           trip.dropoffLat != 0 &&
           trip.dropoffLng != 0) {
         final allowed = await _checkDropoffGeofenceOrPrompt(trip);
         if (!allowed) return;
-      }
-
-      if (trip.serviceType != 'ride' && trip.deliveryPinRequired) {
-        await _askDeliveryPin(trip);
-        return;
       }
     }
 
@@ -991,6 +996,39 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: isDark ? Colors.red.shade200 : Colors.red.shade900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerVerificationExpiredBanner(ActiveTrip trip) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      key: const Key('customer_verification_expired_banner'),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF332010) : const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFFF97316),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.timer_off_outlined, color: Color(0xFFF97316), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Drop-off confirmation request timed out. You can re-request confirmation or proceed to the drop-off location.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.orange.shade200 : Colors.orange.shade900,
               ),
             ),
           ),
@@ -2163,7 +2201,9 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
             if (trip.isDropoffApprovalPending)
               _buildCustomerVerificationPendingCard(trip)
             else if (trip.isDropoffApprovalRejected)
-              _buildCustomerVerificationRejectedBanner(),
+              _buildCustomerVerificationRejectedBanner()
+            else if (trip.dropoffApprovalStatus == 'EXPIRED')
+              _buildCustomerVerificationExpiredBanner(trip),
 
             // a. Action Container (Primary Action Slider)
             _SlideToActionButton(

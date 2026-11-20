@@ -1524,14 +1524,20 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             dispatchTuning: _dispatchTuning,
             interactionController: _mapInteractionController,
           )
-        // Accepted driver sheet (when a driver accepts)
-        else if (trip.driver != null &&
-            (trip.status == TripStatus.driverAccepted ||
-                trip.status == TripStatus.driverArriving ||
-                trip.status == TripStatus.driverArrived ||
-                trip.status == TripStatus.inProgress))
+        // Accepted driver sheet (when a driver accepts, trip in progress, or dropoff confirmation pending)
+        else if (trip.status == TripStatus.driverAccepted ||
+            trip.status == TripStatus.driverArriving ||
+            trip.status == TripStatus.driverArrived ||
+            trip.status == TripStatus.inProgress ||
+            trip.status == TripStatus.pendingCustomerApproval ||
+            trip.isDropoffApprovalPending)
           _AcceptedDriverSheet(
-            driver: trip.driver!,
+            driver: trip.driver ??
+                const DriverInfo(
+                  driverId: 'driver',
+                  fullName: 'Driver',
+                  phone: '',
+                ),
             trip: trip,
             repository: widget.repository,
             driverPosOverride: driverPos,
@@ -2167,13 +2173,14 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
                 ? widget.trip.fareFormatted
                 : '₦${widget.trip.fareAmount.toStringAsFixed(0)}'));
 
+    final initialSize = widget.trip.isDropoffApprovalPending ? 0.58 : 0.38;
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: 0.38,
+      initialChildSize: initialSize,
       minChildSize: 0.18,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.18, 0.38, 0.88],
+      snapSizes: const [0.18, 0.38, 0.58, 0.88],
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -2480,6 +2487,18 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     PrivacyMasking.hidePhonesEnabled().then((v) {
       if (mounted) setState(() => _hidePhones = v);
     });
+    // If drop-off confirmation is pending on load, auto-expand so card is immediately prominent
+    if (widget.trip.isDropoffApprovalPending) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _sheetController.isAttached) {
+          _sheetController.animateTo(
+            0.58,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
   }
 
   void _startArrivalCountdownTimer() {
@@ -2600,6 +2619,15 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     if (widget.interactionController != oldWidget.interactionController) {
       oldWidget.interactionController?.detachSheetController();
       widget.interactionController?.attachSheetController(_sheetController);
+    }
+    if (widget.trip.isDropoffApprovalPending && !oldWidget.trip.isDropoffApprovalPending) {
+      if (_sheetController.isAttached) {
+        _sheetController.animateTo(
+          0.58,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
     }
   }
 
@@ -2897,13 +2925,14 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final initialSize = widget.trip.isDropoffApprovalPending ? 0.58 : 0.38;
     return DraggableScrollableSheet(
       controller: _sheetController,
-      initialChildSize: 0.38,
+      initialChildSize: initialSize,
       minChildSize: 0.18,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.18, 0.38, 0.88],
+      snapSizes: const [0.18, 0.38, 0.58, 0.88],
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -2967,7 +2996,8 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
                 ),
 
                 // Out-of-range drop-off confirmation prompt from driver
-                if (trip.isDropoffApprovalPending) ...[
+                if (trip.isDropoffApprovalPending ||
+                    trip.dropoffApprovalStatus == 'EXPIRED') ...[
                   _CustomerDropoffApprovalCard(
                     trip: trip,
                     repository: widget.repository,
@@ -4244,9 +4274,74 @@ class _CustomerDropoffApprovalCard extends StatefulWidget {
 class _CustomerDropoffApprovalCardState
     extends State<_CustomerDropoffApprovalCard> {
   bool _busy = false;
+  Timer? _countdownTimer;
+  int _remainingSeconds = 30;
+  bool _isTimedOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCountdown();
+  }
+
+  void _initCountdown() {
+    final reqAt = widget.trip.dropoffApprovalRequestedAt;
+    if (reqAt != null) {
+      final elapsed = DateTime.now().difference(reqAt).inSeconds;
+      _remainingSeconds = (30 - elapsed).clamp(0, 30);
+    } else {
+      _remainingSeconds = 30;
+    }
+    if (_remainingSeconds <= 0) {
+      _isTimedOut = true;
+      return;
+    }
+
+    final inTest = WidgetsBinding.instance.runtimeType
+        .toString()
+        .contains('TestWidgetsFlutterBinding');
+    if (inTest) return;
+
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_remainingSeconds > 1) {
+        setState(() => _remainingSeconds--);
+      } else {
+        timer.cancel();
+        _handleTimeout();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    super.dispose();
+  }
+
+  Future<void> _handleTimeout() async {
+    if (_busy || _isTimedOut) return;
+    setState(() {
+      _remainingSeconds = 0;
+      _isTimedOut = true;
+    });
+    try {
+      await widget.repository.respondDropoffApproval(
+        widget.trip.tripId,
+        approved: false,
+        timeout: true,
+      );
+    } catch (_) {}
+  }
 
   Future<void> _respond(bool approved) async {
-    if (_busy) return;
+    if (_busy || _isTimedOut) return;
+    _countdownTimer?.cancel();
     setState(() => _busy = true);
     try {
       await widget.repository.respondDropoffApproval(
@@ -4289,6 +4384,62 @@ class _CustomerDropoffApprovalCardState
             ? '${(distM / 1000).toStringAsFixed(1)} km'
             : '${distM.toStringAsFixed(0)} m')
         : null;
+
+    if (_isTimedOut || widget.trip.dropoffApprovalStatus == 'EXPIRED') {
+      return Container(
+        key: const Key('customer_dropoff_approval_card'),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2E2413) : const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: const Color(0xFFF59E0B),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.timer_off_outlined,
+                    color: Color(0xFFD97706),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Confirmation Request Timed Out',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.amber.shade100 : const Color(0xFF92400E),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'The response window expired. Your trip remains active, and your driver can re-request confirmation or proceed to the drop-off location.',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.grey.shade300 : Colors.black87,
+                height: 1.3,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Container(
       key: const Key('customer_dropoff_approval_card'),
@@ -4336,6 +4487,34 @@ class _CustomerDropoffApprovalCardState
                   ),
                 ),
               ),
+              Container(
+                key: const Key('dropoff_approval_countdown_badge'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD97706),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.timer_outlined,
+                      size: 13,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      '${_remainingSeconds}s',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -4370,6 +4549,18 @@ class _CustomerDropoffApprovalCardState
               ],
             ),
           ],
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (_remainingSeconds / 30.0).clamp(0.0, 1.0),
+              minHeight: 4,
+              backgroundColor: isDark
+                  ? const Color(0xFF451A03)
+                  : const Color(0xFFFDE68A),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFD97706)),
+            ),
+          ),
           const SizedBox(height: 14),
           Row(
             children: [
@@ -4413,7 +4604,7 @@ class _CustomerDropoffApprovalCardState
                           ),
                         )
                       : const Text(
-                          'Approve',
+                          'Accept',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.white,

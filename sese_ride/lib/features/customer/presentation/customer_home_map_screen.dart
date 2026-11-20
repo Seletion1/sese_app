@@ -382,42 +382,44 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
     final String statusText;
     final Color badgeColor;
-    switch (trip.status) {
-      case TripStatus.driverAccepted:
-      case TripStatus.driverArriving:
-        statusText = 'Driver En Route';
-        badgeColor = const Color(0xFF2E7D32); // green
-        break;
-      case TripStatus.driverArrived:
-        statusText = 'Driver Arrived';
-        badgeColor = const Color(0xFF2E7D32);
-        break;
-      case TripStatus.inProgress:
-        statusText = 'Trip In Progress';
-        badgeColor = const Color(0xFF1976D2); // blue
-        break;
-      case TripStatus.pendingCustomerApproval:
-        statusText = 'Confirmation Needed';
-        badgeColor = const Color(0xFFD97706);
-        break;
-      case TripStatus.returnedToCustomer:
-      case TripStatus.expired:
-        statusText = 'Order Returned • Tap to recover';
-        badgeColor = const Color(0xFFF59E0B);
-        break;
-      case TripStatus.needsCustomerAction:
-        statusText = 'Action Needed: Boost Fare';
-        badgeColor = Colors.orange.shade800;
-        break;
-      case TripStatus.cancelledWaitingCashSettlement:
-        statusText = 'Trip Cancelled • Cash Due';
-        badgeColor = Colors.red.shade700;
-        break;
-      case TripStatus.searchingDriver:
-      default:
-        statusText = 'Searching for driver...';
-        badgeColor = const Color(0xFFE5A93C); // gold/amber
-        break;
+    if (trip.isDropoffApprovalPending ||
+        trip.status == TripStatus.pendingCustomerApproval) {
+      statusText = 'Confirmation Needed';
+      badgeColor = const Color(0xFFD97706);
+    } else {
+      switch (trip.status) {
+        case TripStatus.driverAccepted:
+        case TripStatus.driverArriving:
+          statusText = 'Driver En Route';
+          badgeColor = const Color(0xFF2E7D32); // green
+          break;
+        case TripStatus.driverArrived:
+          statusText = 'Driver Arrived';
+          badgeColor = const Color(0xFF2E7D32);
+          break;
+        case TripStatus.inProgress:
+          statusText = 'Trip In Progress';
+          badgeColor = const Color(0xFF1976D2); // blue
+          break;
+        case TripStatus.returnedToCustomer:
+        case TripStatus.expired:
+          statusText = 'Order Returned • Tap to recover';
+          badgeColor = const Color(0xFFF59E0B);
+          break;
+        case TripStatus.needsCustomerAction:
+          statusText = 'Action Needed: Boost Fare';
+          badgeColor = Colors.orange.shade800;
+          break;
+        case TripStatus.cancelledWaitingCashSettlement:
+          statusText = 'Trip Cancelled • Cash Due';
+          badgeColor = Colors.red.shade700;
+          break;
+        case TripStatus.searchingDriver:
+        default:
+          statusText = 'Searching for driver...';
+          badgeColor = const Color(0xFFE5A93C); // gold/amber
+          break;
+      }
     }
 
     return Material(

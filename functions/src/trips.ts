@@ -2524,7 +2524,9 @@ export const advanceTripStatus = guardedOnCall(async (request) => {
     }
 
     // ── Drop-off Geofencing Check ───────────────────────────────────────────
-    if (status === "COMPLETED" && data.dropoffApprovalStatus !== "APPROVED") {
+    // Valid delivery PIN verification acts as physical recipient authorization and bypasses distance check.
+    const isPinBypassed = data.deliveryPinVerified === true;
+    if (status === "COMPLETED" && data.dropoffApprovalStatus !== "APPROVED" && !isPinBypassed) {
       const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
       const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
       if (dropoffLat !== 0 && dropoffLng !== 0) {
@@ -4118,39 +4120,9 @@ export const verifyDeliveryPin = guardedOnCall(async (request) => {
     );
   }
 
-  // ── Drop-off Geofencing Check ───────────────────────────────────────────
-  if (data.dropoffApprovalStatus !== "APPROVED") {
-    const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
-    const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
-    if (dropoffLat !== 0 && dropoffLng !== 0) {
-      const driverLat = Number(
-        request.data?.driverLat ??
-        request.data?.lat ??
-        request.data?.latitude ??
-        data.driverLocation?.lat ??
-        data.driverLocation?.latitude ??
-        0
-      );
-      const driverLng = Number(
-        request.data?.driverLng ??
-        request.data?.lng ??
-        request.data?.longitude ??
-        data.driverLocation?.lng ??
-        data.driverLocation?.longitude ??
-        0
-      );
-      if (driverLat !== 0 && driverLng !== 0) {
-        const distM = Math.round(haversineKm(driverLat, driverLng, dropoffLat, dropoffLng) * 1000);
-        const radiusM = await getDropoffRadiusMeters();
-        if (distM > radiusM) {
-          throw new HttpsError(
-            "failed-precondition",
-            `OUT_OF_RANGE: Driver is outside drop-off location (${distM}m away, max allowed is ${radiusM}m). Customer confirmation required.`
-          );
-        }
-      }
-    }
-  }
+  // ── Drop-off Geofencing Bypass on Valid PIN ─────────────────────────────
+  // Valid recipient entry of the secret 4-digit PIN proves physical authorization
+  // at the recipient location, bypassing the distance geofence check.
 
   const batch = db().batch();
   batch.update(ref, {
@@ -5057,6 +5029,7 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
   const customerId = request.auth.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
   const approved = request.data?.approved === true;
+  const isTimeout = request.data?.timeout === true;
 
   if (!tripId) {
     throw new HttpsError("invalid-argument", "tripId is required.");
@@ -5120,9 +5093,11 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
       });
     } else {
       const currentStatus = String(data.status);
+      const newApprovalStatus = isTimeout ? "EXPIRED" : "REJECTED";
+      const reason = isTimeout ? "remote_customer_dropoff_timed_out" : "remote_customer_dropoff_rejected";
       const update: Record<string, unknown> = {
         status: "IN_PROGRESS",
-        dropoffApprovalStatus: "REJECTED",
+        dropoffApprovalStatus: newApprovalStatus,
         dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         statusHistory: admin.firestore.FieldValue.arrayUnion({
@@ -5130,7 +5105,7 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
           to: "IN_PROGRESS",
           actor: customerId,
           role: "customer",
-          reason: "remote_customer_dropoff_rejected",
+          reason,
           timestamp: nowMs(),
         }),
       };
@@ -5186,14 +5161,16 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
       await notifyCustomer(
         driverId,
         tripId,
-        "Drop-off Confirmation Rejected",
-        "Customer declined out-of-range drop-off. Please reach the scheduled drop-off location or contact support.",
-        "dropoff_rejected",
-        { tripId, type: "dropoff_rejected" },
+        isTimeout ? "Drop-off Confirmation Timed Out" : "Drop-off Confirmation Rejected",
+        isTimeout
+          ? "Customer did not respond within the time limit. You can re-request confirmation or proceed to the drop-off location."
+          : "Customer declined out-of-range drop-off. Please reach the scheduled drop-off location or contact support.",
+        isTimeout ? "dropoff_expired" : "dropoff_rejected",
+        { tripId, type: isTimeout ? "dropoff_expired" : "dropoff_rejected" },
         `driver_${driverId}`
       );
     }
-    return { ok: true, approved: false, completed: false };
+    return { ok: true, approved: false, completed: false, expired: isTimeout };
   }
 });
 

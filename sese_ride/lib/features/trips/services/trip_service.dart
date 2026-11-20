@@ -88,9 +88,11 @@ abstract class TripRepository {
 
   /// Customer responds to out-of-range drop-off confirmation request.
   /// If approved, backend completes trip and triggers synchronous settlement.
+  /// If rejected or timed out, keeps trip active in IN_PROGRESS.
   Future<void> respondDropoffApproval(
     String tripId, {
     required bool approved,
+    bool timeout = false,
   }) async {}
 
   /// Live stream of all bids on a trip, ordered newest-first.
@@ -483,10 +485,12 @@ class FirestoreTripRepository implements TripRepository {
   Future<void> respondDropoffApproval(
     String tripId, {
     required bool approved,
+    bool timeout = false,
   }) async {
     await _callWithAuthRetry(() => _fn.httpsCallable('respondDropoffApproval').call({
       'tripId': tripId,
       'approved': approved,
+      'timeout': timeout,
     }));
   }
 

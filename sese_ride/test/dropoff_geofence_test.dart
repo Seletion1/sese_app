@@ -12,12 +12,15 @@ class _FakeTripRepo implements TripRepository {
   bool? lastDropoffApprovalResponse;
   ActiveTrip? activeTrip;
 
+  bool? lastDropoffApprovalTimeout;
+
   _FakeTripRepo({this.activeTrip});
 
   @override
-  Future<void> respondDropoffApproval(String tripId, {required bool approved}) async {
+  Future<void> respondDropoffApproval(String tripId, {required bool approved, bool timeout = false}) async {
     lastDropoffApprovedTripId = tripId;
     lastDropoffApprovalResponse = approved;
+    lastDropoffApprovalTimeout = timeout;
   }
 
   @override
@@ -295,6 +298,83 @@ void main() {
 
       expect(fakeRepo.lastDropoffApprovedTripId, equals('trip_pending_2'));
       expect(fakeRepo.lastDropoffApprovalResponse, isFalse);
+      expect(fakeRepo.lastDropoffApprovalTimeout, isFalse);
+    });
+
+    testWidgets('LiveTripScreen renders sheet and confirmation card for pendingCustomerApproval status without explicit driver object', (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final trip = ActiveTrip.fromMap('trip_pending_3', {
+        'status': 'pending_customer_approval',
+        'customerId': 'cust_1',
+        'customerName': 'Alice',
+        'driverId': 'drv_1',
+        'driverName': 'Bob Driver',
+        'driverPhone': '08012345678',
+        'pickupAddress': 'Pick A',
+        'dropoffAddress': 'Drop B',
+        'dropoffApprovalStatus': 'PENDING',
+        'dropoffApprovalDistanceMeters': 24400.0,
+      });
+
+      final fakeRepo = _FakeTripRepo(activeTrip: trip);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LiveTripScreen(
+              tripId: 'trip_pending_3',
+              repository: fakeRepo,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byKey(const Key('customer_dropoff_approval_card')), findsOneWidget);
+      expect(find.byKey(const Key('dropoff_approval_countdown_badge')), findsOneWidget);
+      expect(find.text('Drop-off Confirmation Required'), findsOneWidget);
+      expect(find.textContaining('24.4 km'), findsOneWidget);
+      expect(find.text('Accept'), findsOneWidget);
+      expect(find.text('Reject'), findsOneWidget);
+    });
+
+    testWidgets('LiveTripScreen renders expired confirmation state cleanly', (tester) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      final trip = ActiveTrip.fromMap('trip_pending_expired', {
+        'status': 'IN_PROGRESS',
+        'customerId': 'cust_1',
+        'customerName': 'Alice',
+        'driverId': 'drv_1',
+        'pickupAddress': 'Pick A',
+        'dropoffAddress': 'Drop B',
+        'dropoffApprovalStatus': 'EXPIRED',
+      });
+
+      final fakeRepo = _FakeTripRepo(activeTrip: trip);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LiveTripScreen(
+              tripId: 'trip_pending_expired',
+              repository: fakeRepo,
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Confirmation Request Timed Out'), findsOneWidget);
     });
   });
 

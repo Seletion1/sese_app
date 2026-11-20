@@ -72,6 +72,35 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Firebase SHA Certificate Sync, `google-services.json` Re-hydration & Production Pre-Flight
+
+- **1. Hub & Ride SHA Certificate Alignment (`Firebase / sese-ride`)**:
+  - Restored missing system debug SHA-1 (`18:08:E2:2E:F7:83:BC:D1:B5:54:14:DA:11:B3:62:9A:DC:4D:E6:A8`) and SHA-256 (`8B:1E:61:35:E5:55:C1:66:34:3C:8F:D7:CB:D8:72:9D:F9:76:CB:90:53:7E:28:8F:3A:17:B5:34:BD:02:EE:91`) onto `sese_hub` (`1:618721373016:android:7d934d8761d319a750932d`) via Firebase CLI.
+  - Confirmed upload keystore SHA-1 (`09:E5:DA:FC:3D:8F:0B:DB:38:72:FF:9A:9E:17:9D:F3:7D:B5:0E:3C`) and SHA-256 (`B4:DF:CD:51:C1:56:FC:FF:8B:AD:3D:93:CA:A9:78:E0:0A:D0:FD:5A:08:4D:06:2F:8E:EB:15:18:86:F3:E9:28`) are fully registered across both `sese_hub` and `sese_ride`.
+  - Re-pulled and hydrated fresh, authoritative `google-services.json` from Firebase for both `sese_hub/android/app/google-services.json` and `sese_ride/android/app/google-services.json`.
+
+- **2. Full Pre-Flight Verification**:
+  - `flutter analyze` in `sese_hub`: **0 issues found**.
+  - `flutter test` in `sese_hub`: **71/71 tests passed**.
+  - `flutter analyze` in `sese_ride`: **0 issues found**.
+  - `flutter test test/dropoff_geofence_test.dart` in `sese_ride`: **10/10 tests passed**.
+  - `functions` build & deployment: Successfully deployed `advanceTripStatus`, `respondDropoffApproval`, and `verifyDeliveryPin` to Cloud Functions.
+  - Held release compilation per user instruction ("when done don't build").
+
+## 2026-11-20 — Drop-off Verification, PIN Bypass, Confirmation Flow & Live Countdown Timeout
+
+- **1. Physical Handover PIN Bypass (`functions/src/trips.ts`)**:
+  - `verifyDeliveryPin`: Removed restrictive out-of-range distance check. Entering the recipient delivery PIN proves physical in-person handover and bypasses drop-off location mismatch checks.
+  - `advanceTripStatus`: Added `data.deliveryPinVerified === true` guard to allow completion without geofence failure when PIN was verified.
+
+- **2. Remote Drop-off Customer UI & Countdown Handling (`live_trip_screen.dart`, `customer_home_shell.dart`, `customer_home_map_screen.dart`)**:
+  - Expanded `_LiveTripBodyState` sheet condition to include `TripStatus.pendingCustomerApproval` and `trip.isDropoffApprovalPending`, preventing empty polyline map states when drop-off approval is requested.
+  - Added live 30-second countdown with visual timer pill and progress bar in `_CustomerDropoffApprovalCard`.
+  - Handled expiration cleanly: if time runs out, dispatches `respondDropoffApproval(approved: false, timeout: true)` transitioning status to `EXPIRED` while keeping trip active in `IN_PROGRESS` with clear customer/driver UI cards.
+
+- **3. Home Shell Synchronization**:
+  - Floating top pill and bottom active trip sheet on `CustomerHomeShell` reflect `'Confirmation Needed'` in amber instead of reverting to `'Searching for driver...'`.
+
 ## 2026-11-20 — Trip Chat Separation (Pickup vs. Dropoff), Live Unread Message Badges & Nav Camera Follow Stability
 
 - **1. Strict Channel Isolation in Trip Chat (`trip_chat_service.dart`, `trip_chat_screen.dart`)**:

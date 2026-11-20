@@ -52,7 +52,7 @@ class _FakeOverlayTripRepo implements TripRepository {
 
   @override
   Future<void> respondDropoffApproval(String tripId,
-      {required bool approved}) async {}
+      {required bool approved, bool timeout = false}) async {}
 
   @override
   Future<void> submitBid(String tripId, double offeredFare,
