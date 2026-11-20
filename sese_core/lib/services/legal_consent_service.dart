@@ -22,7 +22,7 @@ class LegalTermsConfig {
   factory LegalTermsConfig.defaultConfig() => const LegalTermsConfig(
         termsVersion: '2026.11.20',
         termsUrl: 'https://sesetech.com/terms',
-        privacyUrl: 'https://sesetech.com/privacy',
+        privacyUrl: 'https://sesetech.com/PrivacyPolicy',
         accountDeletionUrl: 'https://sesetech.com/delete',
         forceReaccept: false,
       );
@@ -34,7 +34,7 @@ class LegalTermsConfig {
       termsUrl:
           (data['terms_url'] ?? 'https://sesetech.com/terms').toString(),
       privacyUrl:
-          (data['privacy_url'] ?? 'https://sesetech.com/privacy').toString(),
+          (data['privacy_url'] ?? 'https://sesetech.com/PrivacyPolicy').toString(),
       accountDeletionUrl:
           (data['account_deletion_url'] ?? 'https://sesetech.com/delete').toString(),
       forceReaccept: data['force_reaccept'] == true,
