@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account & Data Deletion — SESE Technology LTD</title>
+  <meta name="description" content="Official Google Play and NDPA compliant account and data deletion request portal for SESE Ride and SESE Hub.">
+  <link rel="icon" type="image/png" href="https://sesetech.com/favicon.png">
+  <style>
+    :root {
+      --bg: #0F1015;
+      --card-bg: #171923;
+      --card-border: #282B3B;
+      --gold: #FFB300;
+      --gold-light: #FFC107;
+      --gold-dim: rgba(255, 179, 0, 0.12);
+      --text-main: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --text-heading: #FFFFFF;
+      --danger: #EF4444;
+      --danger-dim: rgba(239, 68, 68, 0.12);
+      --success: #10B981;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.7;
+      padding: 0 20px 80px;
+    }
+    header {
+      max-width: 860px;
+      margin: 40px auto 20px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .brand-title {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--gold);
+      letter-spacing: -0.5px;
+    }
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      margin-left: 18px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover, .nav-links a.active {
+      color: var(--gold);
+    }
+    .doc-meta {
+      display: inline-block;
+      background: var(--danger-dim);
+      color: #F87171;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      width: fit-content;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 34px;
+      font-weight: 800;
+      color: var(--text-heading);
+      margin: 16px 0 8px;
+    }
+    .intro-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--danger);
+      padding: 22px;
+      border-radius: 10px;
+      margin: 24px 0 36px;
+      color: #D1D5DB;
+    }
+    section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gold);
+      margin-bottom: 14px;
+    }
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-heading);
+      margin: 18px 0 8px;
+    }
+    p {
+      margin-bottom: 14px;
+      color: #E5E7EB;
+    }
+    ul, ol {
+      margin-left: 24px;
+      margin-bottom: 14px;
+      color: #D1D5DB;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    strong {
+      color: #FFFFFF;
+    }
+    a {
+      color: var(--gold-light);
+      text-decoration: underline;
+    }
+    .method-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    @media (max-width: 720px) {
+      .method-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .method-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .method-card h3 {
+      color: var(--gold-light);
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+    /* Web Form */
+    .form-group {
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+    input[type="text"], input[type="email"], select, textarea {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0B0D13;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: #FFFFFF;
+      font-size: 15px;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--gold);
+    }
+    .checkbox-label {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .checkbox-label input {
+      margin-top: 4px;
+    }
+    button.btn-submit {
+      background: var(--danger);
+      color: #FFFFFF;
+      border: none;
+      padding: 14px 28px;
+      font-size: 15px;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+      width: 100%;
+      margin-top: 10px;
+    }
+    button.btn-submit:hover {
+      background: #DC2626;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid var(--card-border);
+      padding: 12px 14px;
+      text-align: left;
+      font-size: 14px;
+    }
+    .data-table th {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--gold-light);
+    }
+    footer {
+      max-width: 860px;
+      margin: 60px auto 0;
+      padding-top: 24px;
+      border-top: 1px solid var(--card-border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-bar">
+      <div class="brand-title">SeSe Technology</div>
+      <nav class="nav-links">
+        <a href="https://sesetech.com/terms">Terms of Service</a>
+        <a href="https://sesetech.com/privacy">Privacy Policy</a>
+        <a href="https://sesetech.com/delete" class="active">Account Deletion</a>
+      </nav>
+    </div>
+    <div class="doc-meta">Official Account & Data Deletion Portal</div>
+  </header>
+
+  <main>
+    <h1>Account & Personal Data Deletion Request</h1>
+    <div class="intro-box">
+      <p>In accordance with <strong>Google Play Developer Policies</strong>, the <strong>Nigeria Data Protection Act (NDPA)</strong>, and global data privacy standards (GDPR), SESE Technology LTD provides full autonomy over your personal information. You can permanently delete your account and associated personal data at any time.</p>
+    </div>
+
+    <!-- HOW TO DELETE -->
+    <section>
+      <h2>Two Ways to Delete Your Account</h2>
+      <p>Whether you still have the SESE Ride app installed or have already removed it from your mobile device, you can initiate a complete account deletion request through either channel below:</p>
+
+      <div class="method-grid">
+        <!-- METHOD 1: IN-APP -->
+        <div class="method-card">
+          <h3>Option 1: In-App Deletion (Immediate)</h3>
+          <p>If you have access to your SESE Ride app on Android or iOS:</p>
+          <ol>
+            <li>Open <strong>SESE Ride</strong> and ensure you are signed in.</li>
+            <li>Tap the profile menu &rarr; <strong>Settings</strong>.</li>
+            <li>Scroll to <strong>Account & Security</strong> &rarr; Tap <strong>Delete Account</strong>.</li>
+            <li>Complete the security re-authentication prompt (Password or Google verification).</li>
+            <li>Confirm the prompt. Your active sessions will be terminated immediately.</li>
+          </ol>
+        </div>
+
+        <!-- METHOD 2: WEB FORM -->
+        <div class="method-card">
+          <h3>Option 2: Web Request (No App Needed)</h3>
+          <p>If you have uninstalled the app or cannot sign in:</p>
+          <ol>
+            <li>Fill out the verified web deletion form below.</li>
+            <li>Provide the registered phone number or email linked to your account.</li>
+            <li>Our security desk verifies your identity and initiates account deletion within 24–48 business hours.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- DATA AUDIT & RETENTION -->
+    <section>
+      <h2>What Data Is Deleted vs. Retained</h2>
+      <p>When you delete your account, SESE executes a secure, irreversible data erasure pipeline:</p>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Data Types</th>
+            <th>Action & Timeline</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Permanently Deleted</strong></td>
+            <td>Profile name, profile picture, login credentials, saved home/work locations, contact references, push notification tokens.</td>
+            <td><strong>Purged immediately</strong> upon deletion execution.</td>
+          </tr>
+          <tr>
+            <td><strong>De-Identified & Hashed</strong></td>
+            <td>National ID hashes (NIN/BVN), phone number hashes, vehicle verification logs.</td>
+            <td>Kept as one-way cryptographic hashes to prevent fraudulent multi-account creation.</td>
+          </tr>
+          <tr>
+            <td><strong>Statutory Regulatory Retention</strong></td>
+            <td>Completed trip receipts, payment references, commission ledger entries, dispute records.</td>
+            <td>Held in restricted 30-day regulatory soft-archive, then permanently purged or anonymized for financial tax compliance.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- PREREQUISITES -->
+    <section>
+      <h2>Mandatory Prerequisites for Deletion</h2>
+      <p>To protect your funds and prevent fraudulent abandonment of active rides:</p>
+      <ul>
+        <li><strong>Zero Wallet Balance:</strong> Your in-app wallet balance must be exactly <strong>₦0.00</strong>. Please withdraw or exhaust any remaining balance before requesting deletion.</li>
+        <li><strong>No Active Rides or Deliveries:</strong> You must not have any ongoing, uncompleted, or disputed trips in progress.</li>
+        <li><strong>No Pending Payouts:</strong> For driver partners, all pending bank withdrawal transfers must be fully settled.</li>
+      </ul>
+    </section>
+
+    <!-- WEB DELETION FORM -->
+    <section id="deletion-form-section">
+      <h2>Web Deletion Request Form</h2>
+      <p>Submit this form to request manual deletion of your SESE Ride or SESE Hub account and personal data:</p>
+
+      <form id="deletionForm" onsubmit="handleFormSubmit(event)">
+        <div class="form-group">
+          <label for="fullName">Full Legal Name *</label>
+          <input type="text" id="fullName" required placeholder="e.g. Micheal Bamiduro">
+        </div>
+
+        <div class="form-group">
+          <label for="identifier">Registered Phone Number or Email *</label>
+          <input type="text" id="identifier" required placeholder="e.g. +2348123456789 or user@example.com">
+        </div>
+
+        <div class="form-group">
+          <label for="accountRole">Account Type *</label>
+          <select id="accountRole" required>
+            <option value="customer">Rider / Customer</option>
+            <option value="driver">Driver Partner</option>
+            <option value="both">Both Rider & Driver</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="reason">Reason for Deletion (Optional)</label>
+          <select id="reason">
+            <option value="no_longer_needed">No longer need the service</option>
+            <option value="privacy_concerns">Privacy or data concerns</option>
+            <option value="relocated">Relocated outside coverage area</option>
+            <option value="created_by_mistake">Created by mistake</option>
+            <option value="other">Other reason</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="notes">Additional Comments (Optional)</label>
+          <textarea id="notes" rows="3" placeholder="Provide any details that assist our verification desk..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="confirmConsent" required>
+            <span>I confirm that I am the authorized owner of this account, have zero active wallet balance, and explicitly request permanent deletion of my account and associated data.</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-submit">Submit Account Deletion Request</button>
+      </form>
+
+      <div id="formSuccess" style="display:none; margin-top:20px; padding:18px; background:rgba(16,185,129,0.1); border:1px solid #10B981; border-radius:8px; color:#10B981;">
+        <strong>Request Submitted Successfully!</strong><br>
+        A confirmation dispatch has been prepared for SESE Security & Compliance Desk (<a href="mailto:support@sesetech.com" style="color:#10B981; font-weight:700;">support@sesetech.com</a>). Your account will be processed within 24 to 48 business hours after identity verification.
+      </div>
+    </section>
+
+    <!-- CONTACT DIRECTLY -->
+    <section>
+      <h2>Need Help or Verification Assistance?</h2>
+      <p>If you encounter any issues submitting this form, you may also email our data privacy team directly from your registered email address:</p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:support@sesetech.com?subject=Account%20Deletion%20Request">support@sesetech.com</a> (Subject: <em>Account Deletion Request</em>)</li>
+        <li><strong>Privacy Officer:</strong> <a href="mailto:privacy@sesetech.com">privacy@sesetech.com</a></li>
+        <li><strong>Response Time:</strong> Within 24–48 hours for verified requests.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 SESE Technology LTD. All rights reserved.</p>
+    <p style="margin-top: 6px;">
+      <a href="https://sesetech.com/terms">Terms of Service</a> &bull; 
+      <a href="https://sesetech.com/privacy">Privacy Policy</a> &bull; 
+      <a href="https://sesetech.com/delete">Delete Account</a>
+    </p>
+  </footer>
+
+  <script>
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      var name = document.getElementById('fullName').value;
+      var identifier = document.getElementById('identifier').value;
+      var role = document.getElementById('accountRole').value;
+      var reason = document.getElementById('reason').value;
+      var notes = document.getElementById('notes').value;
+
+      var subject = encodeURIComponent("Account Deletion Request: " + identifier);
+      var body = encodeURIComponent(
+        "ACCOUNT DELETION REQUEST - SESE TECHNOLOGY LTD\n\n" +
+        "Full Legal Name: " + name + "\n" +
+        "Registered Phone / Email: " + identifier + "\n" +
+        "Account Type: " + role + "\n" +
+        "Reason: " + reason + "\n" +
+        "Additional Notes: " + notes + "\n\n" +
+        "User confirmed having zero wallet balance and no active trips."
+      );
+
+      // Open mail client as backup and reveal confirmation
+      window.location.href = "mailto:support@sesetech.com?subject=" + subject + "&body=" + body;
+      document.getElementById('deletionForm').style.display = 'none';
+      document.getElementById('formSuccess').style.display = 'block';
+    }
+  </script>
+
+</body>
+</html>

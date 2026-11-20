@@ -8,30 +8,35 @@ class LegalTermsConfig {
   final String termsVersion;
   final String termsUrl;
   final String privacyUrl;
+  final String accountDeletionUrl;
   final bool forceReaccept;
 
   const LegalTermsConfig({
     required this.termsVersion,
     required this.termsUrl,
     required this.privacyUrl,
+    required this.accountDeletionUrl,
     required this.forceReaccept,
   });
 
   factory LegalTermsConfig.defaultConfig() => const LegalTermsConfig(
-        termsVersion: '2026.10.04',
-        termsUrl: 'https://sesetech.com/terms-of-service',
-        privacyUrl: 'https://sesetech.com/privacy-policy',
+        termsVersion: '2026.11.20',
+        termsUrl: 'https://sesetech.com/terms',
+        privacyUrl: 'https://sesetech.com/privacy',
+        accountDeletionUrl: 'https://sesetech.com/delete',
         forceReaccept: false,
       );
 
   factory LegalTermsConfig.fromMap(Map<String, dynamic>? data) {
     if (data == null) return LegalTermsConfig.defaultConfig();
     return LegalTermsConfig(
-      termsVersion: (data['terms_version'] ?? '2026.10.04').toString(),
+      termsVersion: (data['terms_version'] ?? '2026.11.20').toString(),
       termsUrl:
-          (data['terms_url'] ?? 'https://sesetech.com/terms-of-service').toString(),
+          (data['terms_url'] ?? 'https://sesetech.com/terms').toString(),
       privacyUrl:
-          (data['privacy_url'] ?? 'https://sesetech.com/privacy-policy').toString(),
+          (data['privacy_url'] ?? 'https://sesetech.com/privacy').toString(),
+      accountDeletionUrl:
+          (data['account_deletion_url'] ?? 'https://sesetech.com/delete').toString(),
       forceReaccept: data['force_reaccept'] == true,
     );
   }
@@ -40,6 +45,7 @@ class LegalTermsConfig {
         'terms_version': termsVersion,
         'terms_url': termsUrl,
         'privacy_url': privacyUrl,
+        'account_deletion_url': accountDeletionUrl,
         'force_reaccept': forceReaccept,
       };
 }

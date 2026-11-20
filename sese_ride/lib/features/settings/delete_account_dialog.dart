@@ -353,6 +353,23 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
                         ),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => LegalDocumentViewer.showAccountDeletion(context),
+                          icon: const Icon(Icons.info_outline, size: 14),
+                          label: const Text(
+                            'Read Full Deletion Policy (sesetech.com/delete)',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 24),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

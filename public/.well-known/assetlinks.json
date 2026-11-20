@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.sesetech.sese_ride",
+      "sha256_cert_fingerprints": [
+        "38:C1:3B:27:E7:D9:26:A1:83:F9:5C:0C:65:86:CB:1D:15:E9:23:B5:CF:CB:D0:F4:03:AC:77:11:5C:DF:F5:FA"
+      ]
+    }
+  }
+]

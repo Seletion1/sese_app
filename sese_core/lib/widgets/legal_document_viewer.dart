@@ -38,6 +38,10 @@ class LegalDocumentViewer extends StatelessWidget {
   static Future<void> showPrivacy(BuildContext context, {String? customUrl}) =>
       show(context, LegalDocType.privacy, customUrl: customUrl);
 
+  /// Helper shortcut for Account Deletion policy & request instructions.
+  static Future<void> showAccountDeletion(BuildContext context, {String? customUrl}) =>
+      show(context, LegalDocType.accountDeletion, customUrl: customUrl);
+
   @override
   Widget build(BuildContext context) {
     final title = LegalDocumentContent.titleFor(type);
@@ -87,7 +91,9 @@ class LegalDocumentViewer extends StatelessWidget {
                     Icon(
                       type == LegalDocType.terms
                           ? Icons.description_outlined
-                          : Icons.privacy_tip_outlined,
+                          : (type == LegalDocType.privacy
+                              ? Icons.privacy_tip_outlined
+                              : Icons.person_remove_outlined),
                       color: theme.primaryColor,
                     ),
                     const SizedBox(width: 12),

@@ -133,6 +133,16 @@ class SettingsScreen extends StatelessWidget {
                       'Review how SESE handles, encrypts, and protects your personal and location data.',
                   onTap: () => LegalDocumentViewer.showPrivacy(context),
                 ),
+                const Divider(height: 1),
+                SettingsTile(
+                  tileKey: const Key('settings_account_deletion_policy_tile'),
+                  leading: const Icon(Icons.person_remove_outlined,
+                      color: AppColors.seseGold),
+                  title: 'Account & Data Deletion Policy',
+                  infoDescription:
+                      'Review how your personal data and account are deleted or retained per regulatory compliance (NDPA & Google Play).',
+                  onTap: () => LegalDocumentViewer.showAccountDeletion(context),
+                ),
               ],
             ),
           ),

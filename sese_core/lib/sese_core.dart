@@ -82,6 +82,7 @@ export 'maps/map_config_controller.dart';
 export 'maps/map_interaction_controller.dart';
 export 'maps/recent_locations_repository.dart';
 export 'legal/legal_document_content.dart';
+export 'services/legal_consent_service.dart';
 export 'widgets/legal_document_viewer.dart';
 export 'widgets/legal_auth_disclaimer.dart';
 export 'widgets/prominent_location_disclosure_dialog.dart';
