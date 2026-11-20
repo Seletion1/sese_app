@@ -97,6 +97,8 @@ class _CustomerVerificationScreenState
   bool get _isPending => CustomerVerification.isPending(_status);
   bool get _isRejected => _status == CustomerVerification.rejected;
 
+  Timer? _autoSaveTimer;
+
   @override
   void initState() {
     super.initState();
@@ -112,10 +114,118 @@ class _CustomerVerificationScreenState
     _orgAddress = TextEditingController();
     _idNumber = TextEditingController();
     _service = widget.kycService ?? CustomerKycService();
+
+    // Attach text change listeners for real-time draft persistence
+    _firstName.addListener(_scheduleAutoSave);
+    _lastName.addListener(_scheduleAutoSave);
+    _dob.addListener(_scheduleAutoSave);
+    _address.addListener(_scheduleAutoSave);
+    _occupation.addListener(_scheduleAutoSave);
+    _orgName.addListener(_scheduleAutoSave);
+    _orgAddress.addListener(_scheduleAutoSave);
+    _idNumber.addListener(_scheduleAutoSave);
+
+    // Restore draft from local storage (or recover from Android process death)
+    _restoreDraftAndRecover();
+  }
+
+  Future<void> _restoreDraftAndRecover() async {
+    // 1. Recover lost picker data first if Android destroyed MainActivity
+    try {
+      await FormDraftManager.instance.checkAndRecoverLostData(
+        picker: widget.imagePicker,
+      );
+    } catch (_) {}
+
+    // 2. Load the persistent draft
+    final draft =
+        await FormDraftManager.instance.loadCustomerKycDraft(widget.user.uid);
+    if (!mounted || draft == null) return;
+
+    setState(() {
+      if (draft.firstName.isNotEmpty) _firstName.text = draft.firstName;
+      if (draft.lastName.isNotEmpty) _lastName.text = draft.lastName;
+      if (draft.dob.isNotEmpty) _dob.text = draft.dob;
+      if (draft.gender.isNotEmpty) _gender = draft.gender;
+      if (draft.address.isNotEmpty) _address.text = draft.address;
+      if (draft.occupation.isNotEmpty) _occupation.text = draft.occupation;
+      if (draft.orgName.isNotEmpty) _orgName.text = draft.orgName;
+      if (draft.orgAddress.isNotEmpty) _orgAddress.text = draft.orgAddress;
+      if (draft.idType.isNotEmpty) _idType = draft.idType;
+      if (draft.idNumber.isNotEmpty) _idNumber.text = draft.idNumber;
+
+      if (draft.proofOfAddressPath != null) {
+        _proofOfAddress = XFile(draft.proofOfAddressPath!);
+      }
+      if (draft.idFrontPath != null) {
+        _idFront = XFile(draft.idFrontPath!);
+      }
+      if (draft.idBackPath != null) {
+        _idBack = XFile(draft.idBackPath!);
+      }
+      if (draft.selfiePath != null) {
+        _selfie = XFile(draft.selfiePath!);
+      }
+    });
+
+    if (draft.dob.isNotEmpty ||
+        draft.address.isNotEmpty ||
+        _proofOfAddress != null ||
+        _idFront != null ||
+        _selfie != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Restored your saved verification draft.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  void _scheduleAutoSave() {
+    if (_isLocked || _submitting) return;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 300), _saveDraftNow);
+  }
+
+  Future<void> _saveDraftNow() async {
+    if (!mounted || _isLocked) return;
+    final draft = CustomerKycDraft(
+      firstName: _firstName.text.trim(),
+      lastName: _lastName.text.trim(),
+      dob: _dob.text.trim(),
+      gender: _gender,
+      address: _address.text.trim(),
+      proofOfAddressPath: _proofOfAddress?.path,
+      occupation: _occupation.text.trim(),
+      orgName: _orgName.text.trim(),
+      orgAddress: _orgAddress.text.trim(),
+      idType: _idType,
+      idNumber: _idNumber.text.trim(),
+      idFrontPath: _idFront?.path,
+      idBackPath: _idBack?.path,
+      selfiePath: _selfie?.path,
+      updatedAt: DateTime.now(),
+    );
+    await FormDraftManager.instance
+        .saveCustomerKycDraft(widget.user.uid, draft);
+    await FormDraftManager.instance
+        .setPendingRestoreRoute(widget.user.uid, 'customer_verification');
   }
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
+    _firstName.removeListener(_scheduleAutoSave);
+    _lastName.removeListener(_scheduleAutoSave);
+    _dob.removeListener(_scheduleAutoSave);
+    _address.removeListener(_scheduleAutoSave);
+    _occupation.removeListener(_scheduleAutoSave);
+    _orgName.removeListener(_scheduleAutoSave);
+    _orgAddress.removeListener(_scheduleAutoSave);
+    _idNumber.removeListener(_scheduleAutoSave);
     _firstName.dispose();
     _lastName.dispose();
     _dob.dispose();
@@ -131,6 +241,7 @@ class _CustomerVerificationScreenState
 
   Future<void> _pickFile({
     required bool allowGallery,
+    required String slotKey,
     required ValueChanged<XFile> onPicked,
     String dialogTitle = 'Choose source',
   }) async {
@@ -171,10 +282,24 @@ class _CustomerVerificationScreenState
       await MediaPermissionService.promptIfPermanentlyDenied(context);
       return;
     }
+
+    // Persist current text state before opening camera/gallery
+    await _saveDraftNow();
+
     final file = await ImageCompressionService.pickAndCompressImage(
-        source: source);
-    if (file == null) return;
+      source: source,
+      picker: widget.imagePicker,
+      maxDimension: 1600,
+      quality: 85,
+      preferredCameraDevice:
+          allowGallery ? CameraDevice.rear : CameraDevice.front,
+      targetScreen: 'customer_verification',
+      targetField: slotKey,
+      userId: widget.user.uid,
+    );
+    if (file == null || !mounted) return;
     onPicked(file);
+    await _saveDraftNow();
   }
 
   Future<void> _pickDob() async {
@@ -192,6 +317,7 @@ class _CustomerVerificationScreenState
             '${picked.year.toString().padLeft(4, '0')}-'
             '${picked.month.toString().padLeft(2, '0')}-'
             '${picked.day.toString().padLeft(2, '0')}');
+    _scheduleAutoSave();
   }
 
   // ── Submission ────────────────────────────────────────────────────────────
@@ -223,6 +349,13 @@ class _CustomerVerificationScreenState
         idBack: _idBack,
         selfie: _selfie!,
       );
+
+      // Clean up local draft upon successful verification submission
+      await FormDraftManager.instance
+          .clearCustomerKycDraft(widget.user.uid);
+      await FormDraftManager.instance
+          .clearPendingRestoreRoute(widget.user.uid);
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -247,6 +380,64 @@ class _CustomerVerificationScreenState
     }
   }
 
+  bool _hasProgress() {
+    return _dob.text.isNotEmpty ||
+        _address.text.isNotEmpty ||
+        _proofOfAddress != null ||
+        _idNumber.text.isNotEmpty ||
+        _idFront != null ||
+        _idBack != null ||
+        _selfie != null;
+  }
+
+  Future<bool> _onWillPop() async {
+    if (_isLocked || _submitting || !_hasProgress()) {
+      await FormDraftManager.instance
+          .clearPendingRestoreRoute(widget.user.uid);
+      return true;
+    }
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave Verification?'),
+        content: const Text(
+          'Do you want to save your entered details as a draft to resume later, or discard your progress?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'discard'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Discard Progress'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'cancel'),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, 'save'),
+            child: const Text('Save Draft & Exit'),
+          ),
+        ],
+      ),
+    );
+
+    if (action == 'discard') {
+      await FormDraftManager.instance
+          .clearCustomerKycDraft(widget.user.uid);
+      await FormDraftManager.instance
+          .clearPendingRestoreRoute(widget.user.uid);
+      return true;
+    } else if (action == 'save') {
+      await _saveDraftNow();
+      // Clear auto-restore route so it doesn't force pop-up until user navigates back
+      await FormDraftManager.instance
+          .clearPendingRestoreRoute(widget.user.uid);
+      return true;
+    }
+    return false;
+  }
+
   void _snack(String msg, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -259,9 +450,18 @@ class _CustomerVerificationScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Verify Account')),
-      body: SafeArea(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final shouldPop = await _onWillPop();
+        if (shouldPop && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Verify Account')),
+        body: SafeArea(
         child: Form(
           key: _formKey,
           child: ListView(
@@ -329,7 +529,10 @@ class _CustomerVerificationScreenState
                     .toList(),
                 onChanged: _isLocked
                     ? null
-                    : (v) => setState(() => _gender = v ?? _gender),
+                    : (v) {
+                        setState(() => _gender = v ?? _gender);
+                        _scheduleAutoSave();
+                      },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -351,11 +554,13 @@ class _CustomerVerificationScreenState
                 disabled: _isLocked || _submitting,
                 onPick: () => _pickFile(
                   allowGallery: true,
+                  slotKey: 'proof_of_address',
                   dialogTitle: 'Proof of Address',
                   onPicked: (f) => setState(() => _proofOfAddress = f),
                 ),
                 onRetake: () => _pickFile(
                   allowGallery: true,
+                  slotKey: 'proof_of_address',
                   dialogTitle: 'Proof of Address',
                   onPicked: (f) => setState(() => _proofOfAddress = f),
                 ),
@@ -393,7 +598,10 @@ class _CustomerVerificationScreenState
                     .toList(),
                 onChanged: _isLocked
                     ? null
-                    : (v) => setState(() => _idType = v ?? _idType),
+                    : (v) {
+                        setState(() => _idType = v ?? _idType);
+                        _scheduleAutoSave();
+                      },
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -415,11 +623,13 @@ class _CustomerVerificationScreenState
                     disabled: _isLocked || _submitting,
                     onPick: () => _pickFile(
                       allowGallery: true,
+                      slotKey: 'id_front',
                       dialogTitle: 'ID Front',
                       onPicked: (f) => setState(() => _idFront = f),
                     ),
                     onRetake: () => _pickFile(
                       allowGallery: true,
+                      slotKey: 'id_front',
                       dialogTitle: 'ID Front',
                       onPicked: (f) => setState(() => _idFront = f),
                     ),
@@ -432,11 +642,13 @@ class _CustomerVerificationScreenState
                     disabled: _isLocked || _submitting,
                     onPick: () => _pickFile(
                       allowGallery: true,
+                      slotKey: 'id_back',
                       dialogTitle: 'ID Back',
                       onPicked: (f) => setState(() => _idBack = f),
                     ),
                     onRetake: () => _pickFile(
                       allowGallery: true,
+                      slotKey: 'id_back',
                       dialogTitle: 'ID Back',
                       onPicked: (f) => setState(() => _idBack = f),
                     ),
@@ -456,10 +668,12 @@ class _CustomerVerificationScreenState
                 disabled: _isLocked || _submitting,
                 onPick: () => _pickFile(
                   allowGallery: false,
+                  slotKey: 'live_selfie',
                   onPicked: (f) => setState(() => _selfie = f),
                 ),
                 onRetake: () => _pickFile(
                   allowGallery: false,
+                  slotKey: 'live_selfie',
                   onPicked: (f) => setState(() => _selfie = f),
                 ),
               ),
@@ -490,8 +704,9 @@ class _CustomerVerificationScreenState
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-20 — Android Process-Death KYC Recovery, Persistent Draft Manager & Route Restoration
+
+- **1. FormDraftManager Persistent Draft Service (`sese_core/lib/services/form_draft_manager.dart`)**:
+  - **Problem**: When Android destroys `MainActivity` while the native camera or gallery intent is open under memory pressure, all filled text controllers, dropdown selections, date selections, GPS coordinates, and picked file paths were completely wiped upon app recreation.
+  - **Solution**: Created a centralized singleton `FormDraftManager` providing immutable models `CustomerKycDraft` and `DriverOnboardingDraft`. Automatically persists form state into local storage on every user keystroke/selection (debounced 300ms for text fields, immediate for dropdowns, date pickers, GPS pins, and document pickers).
+  - Cleaned up drafts only upon verified server write success (`submitKyc` / `submitOnboarding`) or explicit user confirmation ("Discard Progress").
+
+- **2. Android `ImagePicker().retrieveLostData()` Recovery & Permanent Cache Storage**:
+  - Implemented `FormDraftManager.checkAndRecoverLostData()` wrapper around `ImagePicker().retrieveLostData()`.
+  - When returning from camera/gallery on Android after an activity kill, the recovered `XFile` is intercepted, copied out of Android's volatile cache directory into permanent app storage (`getApplicationDocumentsDirectory()/kyc_drafts/`), and linked to the active draft.
+  - Pre-flight target registration via `recordPendingPickerTarget(screen, field, userId)` before launching native intents maps the recovered image to the exact slot (`proof_of_address`, `id_front`, `id_back`, `live_selfie`, `profile_photo`, `vehicle_doc`).
+
+- **3. Automatic Route Restoration on Startup & Auth Gate**:
+  - In `CustomerHomeShell.initState()`: Checks for pending restore route (`getPendingRestoreRoute(uid)`). If an unsubmitted customer KYC draft exists, immediately pushes `CustomerVerificationScreen` on top of the home shell with all fields pre-populated.
+  - In `DriverOnboardingScreen`: `initState()` calls `_restoreDraftAndRecover()` to rehydrate form state and lost images seamlessly after activity recreation.
+
+- **4. Strict Biometric Camera-Only Enforcement & Image Scaling**:
+  - Live Selfie across `CustomerVerificationScreen`, `DriverOnboardingScreen`, and `AgentApplicationSheet` strictly enforces `ImageSource.camera` and `preferredCameraDevice: CameraDevice.front`, eliminating gallery bypasses.
+  - Default image picker resolution set to `1600x1600` max dimension with `85%` quality to protect low-RAM Android devices from Out-Of-Memory spikes.
+
+- **5. Comprehensive Verification**:
+  - `flutter analyze` clean: 0 warnings, 0 errors across both `sese_core` and `sese_ride`.
+  - 100% test pass: 172/172 tests passed in `sese_core`, targeted driver profile and presence tests passed in `sese_ride`.
+  - Added full test suite in `sese_core/test/form_draft_manager_test.dart` (7/7 tests passed).
+
 ## 2026-11-20 — Driver Floating Bubble Fix, Profile Photo Permission & Full-Screen Order Improvements
 
 - **1. Floating Quick-Return Bubble — Zombie Overlay Guard (`driver_presence_service.dart`)**:

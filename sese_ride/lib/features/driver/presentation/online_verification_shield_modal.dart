@@ -118,6 +118,11 @@ class _OnlineVerificationShieldModalState
       } else {
         photo = await ImageCompressionService.pickAndCompressImage(
           source: ImageSource.camera,
+          maxDimension: 1600,
+          quality: 85,
+          targetScreen: 'online_verification',
+          targetField: 'shield_snapshot',
+          userId: widget.driverId,
         );
       }
       if (!mounted) return;

@@ -5,9 +5,9 @@ import 'package:sese_core/sese_core.dart';
 
 void main() {
   group('ImageCompressionService Tests', () {
-    test('default constraints match specification (1280x1280, 80% quality)', () {
-      expect(ImageCompressionService.defaultMaxDimension, 1280);
-      expect(ImageCompressionService.defaultQuality, 80);
+    test('default constraints match specification (1600x1600, 85% quality)', () {
+      expect(ImageCompressionService.defaultMaxDimension, 1600);
+      expect(ImageCompressionService.defaultQuality, 85);
     });
 
     test('formatBytes formats file sizes correctly', () {

@@ -206,7 +206,14 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     try {
       final file = await (widget.pickImage != null
           ? widget.pickImage!(source: source)
-          : ImageCompressionService.pickAndCompressImage(source: source));
+          : ImageCompressionService.pickAndCompressImage(
+              source: source,
+              maxDimension: 1600,
+              quality: 85,
+              targetScreen: 'driver_fleet',
+              targetField: slot.key,
+              userId: widget.driverId,
+            ));
       if (file == null || !mounted) return;
       setState(() {
         up.localPath = file.path;

@@ -83,6 +83,7 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
           userId: widget.user.uid,
           userRole: 'customer',
         );
+        _checkAndRestoreKycRoute();
       }
     });
   }
@@ -92,6 +93,24 @@ class _CustomerHomeShellState extends State<CustomerHomeShell> {
     // ignore: discarded_futures
     PushNotificationService.unsubscribe('user_${widget.user.uid}');
     super.dispose();
+  }
+
+  Future<void> _checkAndRestoreKycRoute() async {
+    try {
+      final route = await FormDraftManager.instance
+          .getPendingRestoreRoute(widget.user.uid);
+      if (route == 'customer_verification' && mounted) {
+        final hasDraft = await FormDraftManager.instance
+            .hasCustomerKycDraft(widget.user.uid);
+        if (hasDraft && mounted) {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => CustomerVerificationScreen(user: widget.user),
+            ),
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   void _onTabTapped(int index) {

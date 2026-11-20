@@ -79,14 +79,20 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
 
   Future<void> _pickImage({
     required ImageSource source,
+    required String fieldKey,
     required Function(XFile file) onPicked,
   }) async {
     try {
       final picked = await ImageCompressionService.pickAndCompressImage(
         source: source,
         picker: _picker,
-        maxDimension: 1280,
-        quality: 80,
+        maxDimension: 1600,
+        quality: 85,
+        preferredCameraDevice:
+            fieldKey == 'live_selfie' ? CameraDevice.front : CameraDevice.rear,
+        targetScreen: 'agent_application',
+        targetField: fieldKey,
+        userId: widget.user.uid,
       );
       if (picked != null) {
         setState(() => onPicked(picked));
@@ -402,10 +408,12 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
                 file: _idFile,
                 onTap: () => _pickImage(
                   source: ImageSource.gallery,
+                  fieldKey: 'id_front',
                   onPicked: (f) => _idFile = f,
                 ),
                 onCameraTap: () => _pickImage(
                   source: ImageSource.camera,
+                  fieldKey: 'id_front',
                   onPicked: (f) => _idFile = f,
                 ),
               ),
@@ -419,10 +427,12 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
                 file: _proofOfAddressFile,
                 onTap: () => _pickImage(
                   source: ImageSource.gallery,
+                  fieldKey: 'proof_of_address',
                   onPicked: (f) => _proofOfAddressFile = f,
                 ),
                 onCameraTap: () => _pickImage(
                   source: ImageSource.camera,
+                  fieldKey: 'proof_of_address',
                   onPicked: (f) => _proofOfAddressFile = f,
                 ),
               ),
@@ -438,10 +448,12 @@ class _AgentApplicationSheetState extends State<AgentApplicationSheet> {
                 isCameraOnly: true,
                 onTap: () => _pickImage(
                   source: ImageSource.camera,
+                  fieldKey: 'live_selfie',
                   onPicked: (f) => _liveSelfieFile = f,
                 ),
                 onCameraTap: () => _pickImage(
                   source: ImageSource.camera,
+                  fieldKey: 'live_selfie',
                   onPicked: (f) => _liveSelfieFile = f,
                 ),
               ),

@@ -120,6 +120,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   late final DriverOnboardingService _service;
 
   String _phoneNumberE164 = '';
+  Timer? _autoSaveTimer;
 
   @override
   void initState() {
@@ -143,15 +144,154 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     _kinAddress = TextEditingController();
     _idExpiry = TextEditingController();
     _service = widget.onboardingService ?? DriverOnboardingService();
+
+    // Attach listeners for persistent draft autosaving
+    _firstName.addListener(_scheduleAutoSave);
+    _lastName.addListener(_scheduleAutoSave);
+    _phone.addListener(_scheduleAutoSave);
+    _address.addListener(_scheduleAutoSave);
+    _idNumber.addListener(_scheduleAutoSave);
+    _kinName.addListener(_scheduleAutoSave);
+    _kinRelationship.addListener(_scheduleAutoSave);
+    _kinRelationshipOther.addListener(_scheduleAutoSave);
+    _kinPhone.addListener(_scheduleAutoSave);
+    _kinAddress.addListener(_scheduleAutoSave);
+    _idExpiry.addListener(_scheduleAutoSave);
+
+    // Restore draft and recover from potential Android process death
+    _restoreDraftAndRecover();
   }
 
   late final TextEditingController _kinAddress;
   late final TextEditingController _idExpiry;
   DateTime? _idExpiryDate;
 
+  void _scheduleAutoSave() {
+    if (_submitting) return;
+    _autoSaveTimer?.cancel();
+    _autoSaveTimer = Timer(const Duration(milliseconds: 300), _saveDraftNow);
+  }
+
+  Future<void> _saveDraftNow() async {
+    if (!mounted) return;
+    final draft = DriverOnboardingDraft(
+      firstName: _firstName.text.trim(),
+      lastName: _lastName.text.trim(),
+      phone: _phone.text.trim(),
+      dob: _dob != null
+          ? '${_dob!.year.toString().padLeft(4, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.day.toString().padLeft(2, '0')}'
+          : '',
+      gender: _gender,
+      country: _country,
+      stateOrRegion: _stateOrRegion,
+      address: _address.text.trim(),
+      addressLat: _pin.latitude,
+      addressLng: _pin.longitude,
+      idType: _idType,
+      idNumber: _idNumber.text.trim(),
+      idExpiryDate: _idExpiryDate != null ? _idExpiry.text.trim() : null,
+      kinName: _kinName.text.trim(),
+      kinRelationship: _effectiveKinRelationship,
+      kinRelationshipOther: _kinRelationshipOther.text.trim(),
+      kinPhone: _kinPhone.text.trim(),
+      kinAddress: _kinAddress.text.trim(),
+      idFrontPath: _idFront?.path,
+      idBackPath: _idBack?.path,
+      selfiePath: _selfie?.path,
+      updatedAt: DateTime.now(),
+    );
+    await FormDraftManager.instance
+        .saveDriverOnboardingDraft(widget.user.uid, draft);
+    await FormDraftManager.instance
+        .setPendingRestoreRoute(widget.user.uid, 'driver_onboarding');
+  }
+
+  Future<void> _restoreDraftAndRecover() async {
+    try {
+      await FormDraftManager.instance
+          .checkAndRecoverLostData(picker: widget.imagePicker);
+    } catch (_) {}
+
+    final draft = await FormDraftManager.instance
+        .loadDriverOnboardingDraft(widget.user.uid);
+    if (!mounted || draft == null) return;
+
+    setState(() {
+      if (draft.firstName.isNotEmpty) _firstName.text = draft.firstName;
+      if (draft.lastName.isNotEmpty) _lastName.text = draft.lastName;
+      if (draft.phone.isNotEmpty) _phone.text = draft.phone;
+      if (draft.dob.isNotEmpty) {
+        _dob = DateTime.tryParse(draft.dob);
+      }
+      if (draft.gender.isNotEmpty) _gender = draft.gender;
+      if (draft.country.isNotEmpty) _country = draft.country;
+      if (draft.stateOrRegion != null && draft.stateOrRegion!.isNotEmpty) {
+        _stateOrRegion = draft.stateOrRegion;
+      }
+      if (draft.address.isNotEmpty) _address.text = draft.address;
+      if (draft.addressLat != null && draft.addressLng != null) {
+        _pin = LatLng(draft.addressLat!, draft.addressLng!);
+      }
+      if (draft.idType.isNotEmpty) _idType = draft.idType;
+      if (draft.idNumber.isNotEmpty) _idNumber.text = draft.idNumber;
+      if (draft.idExpiryDate != null && draft.idExpiryDate!.isNotEmpty) {
+        _idExpiry.text = draft.idExpiryDate!;
+        _idExpiryDate = DateTime.tryParse(draft.idExpiryDate!);
+      }
+      if (draft.kinName.isNotEmpty) _kinName.text = draft.kinName;
+      if (draft.kinRelationship.isNotEmpty) {
+        if (_kinRelationshipOptions.contains(draft.kinRelationship)) {
+          _selectedKinRelationship = draft.kinRelationship;
+        } else {
+          _selectedKinRelationship = 'Other';
+          _kinRelationshipOther.text = draft.kinRelationship;
+        }
+      }
+      if (draft.kinPhone.isNotEmpty) _kinPhone.text = draft.kinPhone;
+      if (draft.kinAddress.isNotEmpty) _kinAddress.text = draft.kinAddress;
+
+      if (draft.idFrontPath != null) {
+        _idFront = XFile(draft.idFrontPath!);
+      }
+      if (draft.idBackPath != null) {
+        _idBack = XFile(draft.idBackPath!);
+      }
+      if (draft.selfiePath != null) {
+        _selfie = XFile(draft.selfiePath!);
+      }
+    });
+
+    if (draft.address.isNotEmpty ||
+        _idFront != null ||
+        _selfie != null ||
+        draft.idNumber.isNotEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Restored your saved registration draft.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
     _debounce?.cancel();
+    _firstName.removeListener(_scheduleAutoSave);
+    _lastName.removeListener(_scheduleAutoSave);
+    _phone.removeListener(_scheduleAutoSave);
+    _address.removeListener(_scheduleAutoSave);
+    _idNumber.removeListener(_scheduleAutoSave);
+    _kinName.removeListener(_scheduleAutoSave);
+    _kinRelationship.removeListener(_scheduleAutoSave);
+    _kinRelationshipOther.removeListener(_scheduleAutoSave);
+    _kinPhone.removeListener(_scheduleAutoSave);
+    _kinAddress.removeListener(_scheduleAutoSave);
+    _idExpiry.removeListener(_scheduleAutoSave);
+
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();
@@ -267,9 +407,21 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       await MediaPermissionService.promptIfPermanentlyDenied(context);
       return;
     }
+
+    // Save draft before native intent
+    await _saveDraftNow();
+
     final file = await ImageCompressionService.pickAndCompressImage(
-        source: source);
-    if (file == null) return;
+      source: source,
+      picker: widget.imagePicker,
+      maxDimension: 1600,
+      quality: 85,
+      preferredCameraDevice: CameraDevice.rear,
+      targetScreen: 'driver_onboarding',
+      targetField: isFront ? 'id_front' : 'id_back',
+      userId: widget.user.uid,
+    );
+    if (file == null || !mounted) return;
     setState(() {
       if (isFront) {
         _idFront = file;
@@ -277,6 +429,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
         _idBack = file;
       }
     });
+    await _saveDraftNow();
   }
 
   /// Live selfie is camera-only by policy (no gallery upload) so hub
@@ -290,10 +443,23 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       await MediaPermissionService.promptIfPermanentlyDenied(context);
       return;
     }
+
+    // Save draft before native intent
+    await _saveDraftNow();
+
     final file = await ImageCompressionService.pickAndCompressImage(
-        source: ImageSource.camera);
-    if (file == null) return;
+      source: ImageSource.camera,
+      picker: widget.imagePicker,
+      maxDimension: 1600,
+      quality: 85,
+      preferredCameraDevice: CameraDevice.front,
+      targetScreen: 'driver_onboarding',
+      targetField: 'live_selfie',
+      userId: widget.user.uid,
+    );
+    if (file == null || !mounted) return;
     setState(() => _selfie = file);
+    await _saveDraftNow();
   }
 
   Future<void> _pickIdExpiry() async {
@@ -311,6 +477,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       _idExpiry.text =
           '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
     });
+    _scheduleAutoSave();
   }
 
   // ─── Submit ──────────────────────────────────────────────────────────────
@@ -361,6 +528,13 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
         kinPhone: SesePhoneSanitizer.normalize(_kinPhone.text.trim()),
         kinAddress: _kinAddress.text.trim(),
       );
+
+      // Clean up local draft on successful submission
+      await FormDraftManager.instance
+          .clearDriverOnboardingDraft(widget.user.uid);
+      await FormDraftManager.instance
+          .clearPendingRestoreRoute(widget.user.uid);
+
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -426,7 +600,10 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       firstDate: DateTime(now.year - 100),
       lastDate: now,
     );
-    if (picked != null) setState(() => _dob = picked);
+    if (picked != null) {
+      setState(() => _dob = picked);
+      _scheduleAutoSave();
+    }
   }
 
   Future<void> _handleBackToAuth([BuildContext? ctx]) async {
@@ -456,6 +633,8 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
     );
 
     if (!mounted || choice == null || choice == 'cancel') return;
+    await _saveDraftNow();
+    if (!mounted) return;
 
     if (choice == 'customer') {
       // Module 2: double-confirmation before switching modes (second
@@ -628,8 +807,10 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                                 child: Text(g),
                               ))
                           .toList(),
-                      onChanged: (v) =>
-                          setState(() => _gender = v ?? _gender),
+                      onChanged: (v) {
+                        setState(() => _gender = v ?? _gender);
+                        _scheduleAutoSave();
+                      },
                     ),
                   ),
                 ],
@@ -763,6 +944,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                           _idType =
                               v == 'Nigeria' ? 'NIN' : 'Government Issued ID';
                         });
+                        _scheduleAutoSave();
                       },
                     ),
                   ),
@@ -785,8 +967,10 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                                 ),
                               ))
                           .toList(),
-                      onChanged: (v) =>
-                          setState(() => _idType = v ?? _idType),
+                      onChanged: (v) {
+                        setState(() => _idType = v ?? _idType);
+                        _scheduleAutoSave();
+                      },
                     ),
                   ),
                 ],
@@ -804,7 +988,10 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                   countryCode: iso,
                   value: _stateOrRegion,
                   labelText: 'State / Region',
-                  onChanged: (v) => setState(() => _stateOrRegion = v),
+                  onChanged: (v) {
+                    setState(() => _stateOrRegion = v);
+                    _scheduleAutoSave();
+                  },
                 );
               }),
               const SizedBox(height: 12),
@@ -894,6 +1081,7 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
                     _selectedKinRelationship = v;
                     _kinRelationship.text = v ?? '';
                   });
+                  _scheduleAutoSave();
                 },
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'Please select a relationship' : null,

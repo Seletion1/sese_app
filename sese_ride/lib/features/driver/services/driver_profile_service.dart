@@ -292,6 +292,9 @@ class DriverProfileService {
         : await ImageCompressionService.pickAndCompressImage(
             source: ImageSource.camera,
             preferredCameraDevice: CameraDevice.front,
+            targetScreen: 'driver_profile',
+            targetField: 'profile_photo',
+            userId: uid,
           );
     if (file == null) return null; // user cancelled
 

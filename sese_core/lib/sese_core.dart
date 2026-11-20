@@ -36,6 +36,7 @@ export 'models/vehicle_model.dart';
 export 'models/vehicle_verification_model.dart';
 export 'models/vehicle_catalog.dart';
 export 'services/image_compression_service.dart';
+export 'services/form_draft_manager.dart';
 export 'widgets/document_upload_card.dart';
 export 'widgets/cached_document_thumbnail.dart';
 // Re-export image_picker types so dependents that go through ImageCompressionService
