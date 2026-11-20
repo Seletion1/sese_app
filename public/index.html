@@ -3,194 +3,1372 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SESE Technology LTD — Smart Mobility & Fleet Platform</title>
-  <meta name="description" content="SESE Technology LTD operates on-demand passenger ride-hailing, transparent bidding, courier logistics, and fleet operations.">
-  <link rel="icon" type="image/png" href="https://sesetech.com/favicon.png">
+  <title>SESE TECHNOLOGY LTD | Next-Generation Technology Platforms</title>
+  <meta name="description" content="SESE TECHNOLOGY LTD is a global technology corporation specializing in scalable digital architecture, mission-critical enterprise software solutions, and next-generation technology platforms.">
+  <meta name="keywords" content="SESE TECHNOLOGY LTD, Scalable Digital Architecture, Enterprise Software Solutions, Global Technology Platforms, Distributed Systems, Cloud Architecture">
+  <meta name="author" content="SESE TECHNOLOGY LTD">
+  <meta name="robots" content="index, follow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFB800">
+
+  <!-- OpenGraph Meta Tags for Rich Social & WhatsApp Previews -->
+  <meta property="og:site_name" content="SESE TECHNOLOGY LTD">
+  <meta property="og:title" content="SESE TECHNOLOGY LTD — Global Technology Platforms & Enterprise Architecture">
+  <meta property="og:description" content="Pioneering scalable digital architecture, enterprise software solutions, and global distributed technology platforms.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://sesetech.com/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 500' width='500' height='500' style='background:%23121212'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFC107'/%3E%3Cstop offset='50%25' stop-color='%23FF9800'/%3E%3Cstop offset='100%25' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 180,95 A 190,190 0 1,0 320,95' fill='none' stroke='url(%23g)' stroke-width='16' stroke-linecap='round'/%3E%3Ctext x='250' y='270' font-family='Arial, sans-serif' font-weight='900' font-size='78' fill='%23FFB300' text-anchor='middle'%3ESeSe%3C/text%3E%3Ctext x='250' y='360' font-family='Arial, sans-serif' font-weight='700' font-size='24' fill='%23FFFFFF' text-anchor='middle' letter-spacing='6'%3ETECHNOLOGY LTD%3C/text%3E%3C/svg%3E">
+  <meta property="og:image:type" content="image/svg+xml">
+  <meta property="og:image:width" content="500">
+  <meta property="og:image:height" content="500">
+  <meta property="og:image:alt" content="SESE TECHNOLOGY LTD Official Brand Logo">
+
+  <!-- Twitter Card Tags -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="SESE TECHNOLOGY LTD | Next-Generation Technology Platforms">
+  <meta name="twitter:description" content="Pioneering scalable digital architecture, enterprise software solutions, and global distributed technology platforms.">
+  <meta name="twitter:image" content="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 500' width='500' height='500' style='background:%23121212'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFC107'/%3E%3Cstop offset='50%25' stop-color='%23FF9800'/%3E%3Cstop offset='100%25' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 180,95 A 190,190 0 1,0 320,95' fill='none' stroke='url(%23g)' stroke-width='16' stroke-linecap='round'/%3E%3Ctext x='250' y='270' font-family='Arial, sans-serif' font-weight='900' font-size='78' fill='%23FFB300' text-anchor='middle'%3ESeSe%3C/text%3E%3C/svg%3E">
+
+  <!-- Favicon using official brand vector -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 500'%3E%3Cdefs%3E%3ClinearGradient id='s' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFC107'/%3E%3Cstop offset='50%25' stop-color='%23FF9800'/%3E%3Cstop offset='100%25' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 180,95 A 190,190 0 1,0 320,95' fill='none' stroke='url(%23s)' stroke-width='22' stroke-linecap='round'/%3E%3Ctext x='250' y='275' font-family='Arial, sans-serif' font-weight='900' font-size='82' fill='%23FFB300' text-anchor='middle'%3ESeSe%3C/text%3E%3C/svg%3E">
+
   <style>
+    /* ── Official Sese Brand Tokens ────────────────────────────────────────── */
     :root {
-      --bg: #0F1015;
-      --card-bg: #171923;
-      --card-border: #282B3B;
-      --gold: #FFB300;
-      --gold-light: #FFC107;
-      --text-main: #F3F4F6;
-      --text-muted: #9CA3AF;
-      --text-heading: #FFFFFF;
+      color-scheme: light dark;
+      /* ── Dark mode defaults ── */
+      --darkScaffold: #121212;
+      --darkSurface: #1A1A20;
+      --darkCard: #1E1E24;
+      --seseGold: #FFB800;
+      --seseGoldHover: #FFA000;
+      --seseGoldGlow: rgba(255, 184, 0, 0.22);
+      --seseGoldBorder: rgba(255, 184, 0, 0.28);
+      --seseGoldSoftBg: rgba(255, 184, 0, 0.08);
+
+      --textHeader: #FFFFFF;
+      --textBody: #CCCCCC;
+      --textMuted: #8A8A99;
+
+      --cardBorder: rgba(255, 255, 255, 0.07);
+      --cardBorderHover: rgba(255, 184, 0, 0.35);
+
+      /* Nav glass background */
+      --navBg: rgba(26, 26, 32, 0.88);
+      /* Inquiry card gradient dark end */
+      --inquiryCardEnd: #15151B;
+
+      --containerMax: 1200px;
+      --radiusSm: 8px;
+      --radiusMd: 16px;
+      --radiusLg: 24px;
+      --transitionFast: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      --transitionNormal: 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    * {
+
+    /* ── Light mode overrides ─────────────────────────────────────────────── */
+    @media (prefers-color-scheme: light) {
+      :root {
+        --darkScaffold: #F7F8FA;
+        --darkSurface: #FFFFFF;
+        --darkCard: #FFFFFF;
+        --seseGoldGlow: rgba(255, 184, 0, 0.18);
+        --seseGoldBorder: rgba(255, 160, 0, 0.35);
+        --seseGoldSoftBg: rgba(255, 184, 0, 0.10);
+
+        --textHeader: #121212;
+        --textBody: #333333;
+        --textMuted: #666677;
+
+        --cardBorder: rgba(0, 0, 0, 0.08);
+        --cardBorderHover: rgba(255, 160, 0, 0.45);
+
+        --navBg: rgba(255, 255, 255, 0.90);
+        --inquiryCardEnd: #FFF8E7;
+      }
+    }
+
+    /* ── Reset & Baseline ─────────────────────────────────────────────────── */
+    *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
     }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg);
-      color: var(--text-main);
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--darkScaffold);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px;
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      background-color: var(--darkScaffold);
+      min-height: 100vh;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Background Ambient Gradients */
+    body::before {
+      content: "";
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1000px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(255, 184, 0, 0.07) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+      transition: color var(--transitionFast);
+    }
+
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--seseGold);
+      outline-offset: 3px;
+    }
+
+    /* ── Layout Containers ────────────────────────────────────────────────── */
+    .container {
+      width: 100%;
+      max-width: var(--containerMax);
+      margin-left: auto;
+      margin-right: auto;
+      padding-left: 24px;
+      padding-right: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── Header Navigation ────────────────────────────────────────────────── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--navBg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--cardBorder);
+      transition: border-color var(--transitionFast);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 76px;
+    }
+
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .brand-name {
       display: flex;
       flex-direction: column;
-      min-height: 100vh;
     }
-    header {
-      border-bottom: 1px solid var(--card-border);
-      padding: 24px 20px;
+
+    .brand-name-title {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--textHeader);
+      line-height: 1.2;
     }
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
+
+    .brand-name-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: var(--seseGold);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-link {
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: var(--textBody);
+      transition: color var(--transitionFast);
+    }
+
+    .nav-link:hover {
+      color: var(--seseGold);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    /* ── Buttons & Badges ─────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      padding: 12px 24px;
+      border-radius: var(--radiusSm);
+      transition: all var(--transitionFast);
+      cursor: pointer;
+      border: 1px solid transparent;
+      line-height: 1;
+    }
+
+    .btn-gold {
+      background-color: var(--seseGold);
+      color: #000000;
+      box-shadow: 0 4px 18px var(--seseGoldGlow);
+    }
+
+    .btn-gold:hover {
+      background-color: var(--seseGoldHover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(255, 184, 0, 0.35);
+    }
+
+    .btn-ghost {
+      background: var(--darkSurface);
+      color: var(--textHeader);
+      border-color: var(--cardBorder);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--seseGoldBorder);
+      color: var(--seseGold);
+      transform: translateY(-2px);
+    }
+
+    .badge-gold {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--seseGoldSoftBg);
+      border: 1px solid var(--seseGoldBorder);
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--seseGold);
+      margin-bottom: 20px;
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--seseGold);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--seseGold);
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+
+    /* ── Hero Section & Corporate Card ────────────────────────────────────── */
+    .hero-section {
+      padding: 70px 0 60px;
+      position: relative;
+    }
+
+    .hero-presentation-card {
+      background-color: var(--darkCard);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusLg);
+      padding: 56px 44px;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18), 0 0 80px rgba(255, 184, 0, 0.04);
+      overflow: hidden;
+      transition: border-color var(--transitionNormal);
+    }
+
+    .hero-presentation-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--seseGold), transparent);
+    }
+
+    /* Logo Integration at Top of Card */
+    .card-logo-container {
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      filter: drop-shadow(0 6px 20px rgba(255, 184, 0, 0.18));
+      transition: transform var(--transitionNormal);
+    }
+
+    .card-logo-container:hover {
+      transform: scale(1.04);
+    }
+
+    .card-logo-container svg {
       width: 100%;
+      height: 100%;
+      display: block;
     }
-    .header-content {
+
+    .hero-title {
+      font-size: clamp(2.2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      color: var(--textHeader);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+      max-width: 900px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero-title .highlight {
+      color: var(--seseGold);
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
+      color: var(--textBody);
+      max-width: 800px;
+      margin: 0 auto 36px;
+      font-weight: 400;
+      line-height: 1.6;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    /* Hero Key Metrics Strip */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      padding-top: 36px;
+      border-top: 1px solid var(--cardBorder);
+      margin-top: 12px;
+    }
+
+    .metric-item {
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 1.9rem;
+      font-weight: 800;
+      color: var(--textHeader);
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+
+    .metric-value .accent {
+      color: var(--seseGold);
+    }
+
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--textMuted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+
+    /* ── Sections Common ──────────────────────────────────────────────────── */
+    .section {
+      padding: 80px 0;
+      position: relative;
+    }
+
+    .section-header {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 52px;
+    }
+
+    .section-title {
+      font-size: clamp(1.8rem, 3.5vw, 2.4rem);
+      font-weight: 800;
+      color: var(--textHeader);
+      line-height: 1.25;
+      margin-bottom: 16px;
+      letter-spacing: -0.015em;
+    }
+
+    .section-desc {
+      font-size: 1.05rem;
+      color: var(--textBody);
+      line-height: 1.6;
+    }
+
+    /* ── Strategic Capability Cards (darkCard: #1E1E24) ─────────────────────── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .capability-card {
+      background-color: var(--darkCard);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusMd);
+      padding: 36px 30px;
+      transition: all var(--transitionNormal);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .capability-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--cardBorderHover);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12), 0 0 30px rgba(255, 184, 0, 0.08);
+    }
+
+    .card-icon {
+      width: 52px;
+      height: 52px;
+      background: var(--darkSurface);
+      border: 1px solid var(--seseGoldBorder);
+      border-radius: var(--radiusSm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      color: var(--seseGold);
+    }
+
+    .card-icon svg {
+      width: 26px;
+      height: 26px;
+    }
+
+    .card-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--textHeader);
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+
+    .card-body {
+      font-size: 0.95rem;
+      color: var(--textBody);
+      line-height: 1.65;
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+
+    .card-feature-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-top: 1px solid var(--cardBorder);
+      padding-top: 18px;
+    }
+
+    .card-feature-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.86rem;
+      color: var(--textBody);
+      font-weight: 500;
+    }
+
+    .card-feature-item svg {
+      width: 16px;
+      height: 16px;
+      color: var(--seseGold);
+      flex-shrink: 0;
+    }
+
+    /* ── Architecture Blueprint Section ───────────────────────────────────── */
+    .arch-container {
+      background: var(--darkSurface);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusLg);
+      padding: 48px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    .arch-content h3 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--textHeader);
+      line-height: 1.25;
+      margin-bottom: 20px;
+    }
+
+    .arch-content p {
+      font-size: 1rem;
+      color: var(--textBody);
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+
+    .arch-specs {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .spec-row {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      background: var(--darkCard);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusSm);
+      transition: border-color var(--transitionFast);
+    }
+
+    .spec-row:hover {
+      border-color: var(--seseGoldBorder);
+    }
+
+    .spec-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      background: var(--seseGoldSoftBg);
+      color: var(--seseGold);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+
+    .spec-info h4 {
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: var(--textHeader);
+      margin-bottom: 4px;
+    }
+
+    .spec-info p {
+      font-size: 0.88rem;
+      color: var(--textMuted);
+      line-height: 1.5;
+      margin-bottom: 0;
+    }
+
+    .arch-visual {
+      background: var(--darkCard);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusMd);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .visual-layer {
+      background: var(--darkSurface);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusSm);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all var(--transitionFast);
+    }
+
+    .visual-layer:hover {
+      border-color: var(--seseGoldBorder);
+      transform: translateX(4px);
+    }
+
+    .layer-tag {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      color: var(--seseGold);
+      text-transform: uppercase;
+    }
+
+    .layer-name {
+      font-size: 0.94rem;
+      font-weight: 700;
+      color: var(--textHeader);
+    }
+
+    .layer-status {
+      font-size: 0.76rem;
+      color: var(--textMuted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-indicator {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #00E676;
+    }
+
+    /* ── Governance & Enterprise Assurance ────────────────────────────────── */
+    .governance-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin-top: 40px;
+    }
+
+    .gov-card {
+      background: var(--darkSurface);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusMd);
+      padding: 24px;
+      text-align: center;
+    }
+
+    .gov-card h4 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--textHeader);
+      margin-bottom: 8px;
+    }
+
+    .gov-card p {
+      font-size: 0.84rem;
+      color: var(--textMuted);
+      line-height: 1.5;
+    }
+
+    /* ── Corporate Inquiries Card ─────────────────────────────────────────── */
+    .inquiry-card {
+      background: linear-gradient(135deg, var(--darkCard) 0%, var(--inquiryCardEnd) 100%);
+      border: 1px solid var(--seseGoldBorder);
+      border-radius: var(--radiusLg);
+      padding: 60px 48px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.14);
+    }
+
+    .inquiry-card h3 {
+      font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+      font-weight: 800;
+      color: var(--textHeader);
+      margin-bottom: 16px;
+      letter-spacing: -0.015em;
+    }
+
+    .inquiry-card p {
+      font-size: 1.05rem;
+      color: var(--textBody);
+      max-width: 680px;
+      margin: 0 auto 36px;
+      line-height: 1.6;
+    }
+
+    .inquiry-grid {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 32px;
+      margin-top: 24px;
+      padding-top: 28px;
+      border-top: 1px solid var(--cardBorder);
+    }
+
+    .inquiry-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.95rem;
+      color: var(--textBody);
+    }
+
+    .inquiry-item strong {
+      color: var(--textHeader);
+    }
+
+    .inquiry-item .accent {
+      color: var(--seseGold);
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────────────── */
+    .site-footer {
+      background: var(--darkSurface);
+      border-top: 1px solid var(--cardBorder);
+      padding: 60px 0 36px;
+      margin-top: 80px;
+    }
+
+    .footer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 40px;
+      padding-bottom: 48px;
+      border-bottom: 1px solid var(--cardBorder);
+    }
+
+    .footer-brand {
+      max-width: 360px;
+    }
+
+    .footer-brand p {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: var(--textMuted);
+      line-height: 1.6;
+    }
+
+    .footer-cols {
+      display: flex;
+      gap: 60px;
+      flex-wrap: wrap;
+    }
+
+    .footer-col h5 {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--textHeader);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 16px;
+    }
+
+    .footer-col ul {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .footer-col a {
+      font-size: 0.88rem;
+      color: var(--textMuted);
+      transition: color var(--transitionFast);
+    }
+
+    .footer-col a:hover {
+      color: var(--seseGold);
+    }
+
+    .footer-bottom {
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
       gap: 16px;
+      padding-top: 32px;
+      font-size: 0.82rem;
+      color: var(--textMuted);
     }
-    .logo {
-      font-size: 26px;
-      font-weight: 800;
-      color: var(--gold);
-      letter-spacing: -0.5px;
-    }
-    nav a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 14px;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-    nav a:hover {
-      color: var(--gold);
-    }
-    .hero {
-      padding: 80px 20px;
-      text-align: center;
-    }
-    h1 {
-      font-size: 44px;
-      font-weight: 900;
-      color: var(--text-heading);
-      letter-spacing: -1px;
-      margin-bottom: 16px;
-    }
-    h1 span {
-      color: var(--gold);
-    }
-    .subtitle {
-      font-size: 18px;
-      color: var(--text-muted);
-      max-width: 600px;
-      margin: 0 auto 36px;
-    }
-    .apps-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      margin: 40px auto;
-      max-width: 800px;
-      text-align: left;
-    }
-    @media (max-width: 640px) {
-      .apps-grid {
+
+    /* ── Responsive Queries ───────────────────────────────────────────────── */
+    @media (max-width: 992px) {
+      .cards-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .arch-container {
         grid-template-columns: 1fr;
       }
-      h1 { font-size: 32px; }
+      .metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .governance-strip {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
-    .app-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 28px;
-      transition: transform 0.2s, border-color 0.2s;
+
+    @media (max-width: 768px) {
+      .nav-links {
+        display: none;
+      }
+      .hero-presentation-card {
+        padding: 40px 24px;
+      }
+      .card-logo-container {
+        width: 120px;
+        height: 120px;
+        margin-bottom: 20px;
+      }
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+      .governance-strip {
+        grid-template-columns: 1fr;
+      }
+      .arch-container {
+        padding: 28px 20px;
+      }
+      .inquiry-card {
+        padding: 40px 24px;
+      }
+      .footer-top {
+        flex-direction: column;
+      }
+      .footer-cols {
+        gap: 36px;
+      }
     }
-    .app-card:hover {
-      transform: translateY(-3px);
-      border-color: rgba(255, 179, 0, 0.4);
+
+    @media (max-width: 480px) {
+      .metrics-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .hero-actions {
+        flex-direction: column;
+        width: 100%;
+      }
+      .hero-actions .btn {
+        width: 100%;
+      }
     }
-    .app-card h3 {
-      font-size: 22px;
-      color: #FFFFFF;
-      margin-bottom: 8px;
-    }
-    .app-card p {
-      color: var(--text-muted);
-      font-size: 14px;
-      margin-bottom: 16px;
-    }
-    .tag {
-      display: inline-block;
-      background: rgba(255, 179, 0, 0.1);
-      color: var(--gold-light);
-      font-size: 12px;
-      font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 6px;
-      margin-bottom: 12px;
-    }
-    footer {
-      margin-top: auto;
-      border-top: 1px solid var(--card-border);
-      padding: 30px 20px;
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-    footer a {
-      color: var(--gold-light);
+
+    .footer-bottom-link {
+      font-size: 0.82rem;
+      font-weight: 600;
       text-decoration: none;
-      margin: 0 10px;
+      transition: color var(--transitionFast);
+      color: var(--textMuted);
     }
-    footer a:hover {
-      text-decoration: underline;
-    }
+    .footer-bottom-link:hover { color: var(--seseGold); }
+    .footer-bottom-link--danger { color: #F87171; }
+    .footer-bottom-link--danger:hover { color: #EF4444; }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="container header-content">
-      <div class="logo">SeSe Technology</div>
-      <nav>
-        <a href="https://sesetech.com/terms">Terms</a>
-        <a href="https://sesetech.com/PrivacyPolicy">Privacy</a>
-        <a href="https://sesetech.com/delete">Account Deletion</a>
-      </nav>
-    </div>
-  </header>
-
-  <main class="hero">
+  <!-- Site Header & Global Navigation -->
+  <header class="site-header" role="banner">
     <div class="container">
-      <div class="tag">INTELLIGENT MOBILITY & FLEET MANAGEMENT</div>
-      <h1>Your Ride, Your Price, <span>Your Way.</span></h1>
-      <p class="subtitle">Next-generation on-demand ride-hailing with fair synchronized bidding, wallet escrow security, and integrated courier logistics.</p>
+      <div class="nav-inner">
+        <a href="#top" class="brand-link" aria-label="SESE TECHNOLOGY LTD Home">
+          <div class="brand-mark" aria-hidden="true">
+            <!-- Inline Mini Vector Mark -->
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+              <defs>
+                <linearGradient id="headerSeseGoldArc" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#FFC107" />
+                  <stop offset="50%" stop-color="#FF9800" />
+                  <stop offset="100%" stop-color="#E65100" />
+                </linearGradient>
+              </defs>
+              <path d="M 180,95 A 190,190 0 1,0 320,95"
+                    fill="none"
+                    stroke="url(#headerSeseGoldArc)"
+                    stroke-width="26"
+                    stroke-linecap="round" />
+              <text x="250" y="275"
+                    font-family="Arial, Helvetica, sans-serif"
+                    font-weight="900"
+                    font-size="82"
+                    fill="#FFB300"
+                    text-anchor="middle">SeSe</text>
+            </svg>
+          </div>
+          <div class="brand-name">
+            <span class="brand-name-title">SESE TECHNOLOGY</span>
+            <span class="brand-name-tag">GLOBAL PLATFORMS</span>
+          </div>
+        </a>
 
-      <div class="apps-grid">
-        <div class="app-card">
-          <div class="tag">CUSTOMER & DRIVER APP</div>
-          <h3>SESE Ride</h3>
-          <p>Book passenger rides, counter-bid fares in real-time, order courier delivery, and receive secure wallet-protected payouts.</p>
-        </div>
+        <nav class="site-nav" role="navigation" aria-label="Primary Navigation">
+          <ul class="nav-links">
+            <li><a href="#architecture" class="nav-link">Architecture</a></li>
+            <li><a href="#solutions" class="nav-link">Enterprise Solutions</a></li>
+            <li><a href="#platforms" class="nav-link">Global Platforms</a></li>
+            <li><a href="#governance" class="nav-link">Governance</a></li>
+            <li><a href="#contact" class="nav-link">Contact</a></li>
+          </ul>
+        </nav>
 
-        <div class="app-card">
-          <div class="tag">OPERATIONS & FLEET DESK</div>
-          <h3>SESE Hub</h3>
-          <p>Command-centre operations console for driver partner KYC verification, vehicle approvals, active dispatch monitoring, and weekly payouts.</p>
+        <div class="nav-actions">
+          <a href="#contact" class="btn btn-gold">Corporate Portal</a>
         </div>
       </div>
     </div>
+  </header>
+
+  <!-- Main Content Landmark -->
+  <main id="top" role="main">
+
+    <!-- Hero Section with Central Corporate Presentation Card -->
+    <section class="hero-section" aria-label="Corporate Hero Overview">
+      <div class="container">
+        <div class="hero-presentation-card">
+
+          <!-- 1. Exact Official Vector Logo Embedded Inline at Top of Card -->
+          <div class="card-logo-container" role="img" aria-label="Official SESE Brand Vector Logo">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+              <defs>
+                <linearGradient id="seseGoldArc" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#FFC107" />
+                  <stop offset="50%" stop-color="#FF9800" />
+                  <stop offset="100%" stop-color="#E65100" />
+                </linearGradient>
+              </defs>
+              <!-- Circular Arc Frame with Top Opening -->
+              <path d="M 180,95 A 190,190 0 1,0 320,95"
+                    fill="none"
+                    stroke="url(#seseGoldArc)"
+                    stroke-width="14"
+                    stroke-linecap="round" />
+              <!-- Center SeSe Brand Typography -->
+              <text x="250" y="270"
+                    font-family="Arial, Helvetica, sans-serif"
+                    font-weight="900"
+                    font-size="78"
+                    fill="#FFB300"
+                    text-anchor="middle">SeSe</text>
+            </svg>
+          </div>
+
+          <!-- Corporate Badge -->
+          <div class="badge-gold">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span>Global Technology Platforms</span>
+          </div>
+
+          <!-- Hero Typography -->
+          <h1 class="hero-title">
+            SESE TECHNOLOGY LTD
+            <br>
+            <span class="highlight">Architecting Scalable Digital Ecosystems</span>
+          </h1>
+
+          <p class="hero-subtitle">
+            A next-generation technology enterprise delivering mission-critical digital architecture, high-concurrency enterprise software solutions, and hyper-scalable global technology platforms.
+          </p>
+
+          <!-- Action Buttons -->
+          <div class="hero-actions">
+            <a href="#solutions" class="btn btn-gold">
+              <span>Explore Enterprise Solutions</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="#architecture" class="btn btn-ghost">
+              <span>Digital Architecture Blueprint</span>
+            </a>
+          </div>
+
+          <!-- Hero Metrics Strip -->
+          <div class="metrics-grid">
+            <div class="metric-item">
+              <div class="metric-value">99.999<span class="accent">%</span></div>
+              <div class="metric-label">High-Availability Target</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-value">&lt; 5<span class="accent">ms</span></div>
+              <div class="metric-label">Core Event Ingress</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-value">Multi<span class="accent">-Region</span></div>
+              <div class="metric-label">Distributed Active Fabric</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-value">Tier<span class="accent">-1</span></div>
+              <div class="metric-label">Enterprise Governance</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Core Strategic Pillars Section -->
+    <section id="solutions" class="section" aria-labelledby="solutions-title">
+      <div class="container">
+        <div class="section-header">
+          <div class="badge-gold">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span>Core Pillars</span>
+          </div>
+          <h2 id="solutions-title" class="section-title">Specialized Enterprise Engineering</h2>
+          <p class="section-desc">
+            Engineered to accelerate transformation, empower digital economies, and build the infrastructure that powers tomorrow's global platforms.
+          </p>
+        </div>
+
+        <div class="cards-grid">
+          <!-- Card 1 -->
+          <article class="capability-card">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <h3 class="card-title">Scalable Digital Architecture</h3>
+            <p class="card-body">
+              Distributed, reactive microservice fabrics designed to sustain millions of parallel transactions while eliminating single points of failure across multi-zone infrastructure.
+            </p>
+            <ul class="card-feature-list">
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Zero-downtime elasticity</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Event-driven streaming pipelines</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Deterministic latency management</span>
+              </li>
+            </ul>
+          </article>
+
+          <!-- Card 2 -->
+          <article class="capability-card">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+            <h3 class="card-title">Enterprise Software Solutions</h3>
+            <p class="card-body">
+              End-to-end intelligent software suites tailored for complex organizational operations, multi-tenant governance, automated workflows, and sovereign cryptographic data integrity.
+            </p>
+            <ul class="card-feature-list">
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Mission-critical enterprise workflows</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Multi-tenant isolation &amp; security</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Deep ecosystem integration APIs</span>
+              </li>
+            </ul>
+          </article>
+
+          <!-- Card 3 -->
+          <article class="capability-card">
+            <div class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </div>
+            <h3 class="card-title">Global Technology Platforms</h3>
+            <p class="card-body">
+              Planetary digital platforms that connect cross-border ecosystems, handle continuous data ingestion, orchestrate global APIs, and bridge diverse cloud environments.
+            </p>
+            <ul class="card-feature-list">
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Cross-border digital connectivity</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Multi-cloud distributed runtime</span>
+              </li>
+              <li class="card-feature-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                <span>Automated continuous compliance</span>
+              </li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Digital Architecture Blueprint Section -->
+    <section id="architecture" class="section" aria-labelledby="arch-title">
+      <div class="container">
+        <div class="arch-container">
+          <div class="arch-content">
+            <div class="badge-gold">
+              <span class="badge-dot" aria-hidden="true"></span>
+              <span>Engineering Architecture</span>
+            </div>
+            <h3 id="arch-title">Built for Resilient Distributed Operations</h3>
+            <p>
+              SESE Technology structures enterprise platforms with strict separation of concerns, zero-trust cryptographic boundaries, and distributed state management. Our systems decouple compute from persistence, enabling infinite horizontal scalability without compromising latency.
+            </p>
+
+            <div class="arch-specs">
+              <div class="spec-row">
+                <div class="spec-num">01</div>
+                <div class="spec-info">
+                  <h4>Distributed Message Fabric</h4>
+                  <p>Asynchronous event buses ensuring sub-millisecond dispatch and ordered log replication across geographic clusters.</p>
+                </div>
+              </div>
+
+              <div class="spec-row">
+                <div class="spec-num">02</div>
+                <div class="spec-info">
+                  <h4>Zero-Trust Boundary Enforcement</h4>
+                  <p>Fine-grained attribute-based access control (ABAC) and mutual TLS encryption throughout internal mesh networks.</p>
+                </div>
+              </div>
+
+              <div class="spec-row">
+                <div class="spec-num">03</div>
+                <div class="spec-info">
+                  <h4>Automated State Self-Healing</h4>
+                  <p>Autonomous reconciliation loops and distributed consensus mechanisms that heal partition failures instantaneously.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Visualization Column -->
+          <div class="arch-visual" aria-label="Architecture Topology Stack">
+            <div class="visual-layer">
+              <div>
+                <span class="layer-tag">Tier 1 &bull; Edge</span>
+                <div class="layer-name">Global Anycast Gateway &amp; CDN</div>
+              </div>
+              <div class="layer-status">
+                <span class="status-indicator"></span> Active
+              </div>
+            </div>
+
+            <div class="visual-layer">
+              <div>
+                <span class="layer-tag">Tier 2 &bull; Orchestration</span>
+                <div class="layer-name">Distributed Service Mesh &amp; Event Bus</div>
+              </div>
+              <div class="layer-status">
+                <span class="status-indicator"></span> Synchronized
+              </div>
+            </div>
+
+            <div class="visual-layer">
+              <div>
+                <span class="layer-tag">Tier 3 &bull; Core Logic</span>
+                <div class="layer-name">Enterprise Microservices Cluster</div>
+              </div>
+              <div class="layer-status">
+                <span class="status-indicator"></span> Resilient
+              </div>
+            </div>
+
+            <div class="visual-layer">
+              <div>
+                <span class="layer-tag">Tier 4 &bull; Persistence</span>
+                <div class="layer-name">Multi-Region ACID &amp; State Stores</div>
+              </div>
+              <div class="layer-status">
+                <span class="status-indicator"></span> Replicated
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Governance & Standards Section -->
+    <section id="governance" class="section" aria-labelledby="gov-title">
+      <div class="container">
+        <div class="section-header">
+          <div class="badge-gold">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span>Enterprise Assurance</span>
+          </div>
+          <h2 id="gov-title" class="section-title">Institutional Trust &amp; Global Governance</h2>
+          <p class="section-desc">
+            SESE TECHNOLOGY LTD is committed to the highest standards of data governance, security posture, and regulatory compliance.
+          </p>
+        </div>
+
+        <div class="governance-strip">
+          <div class="gov-card">
+            <h4>Zero Trust Security</h4>
+            <p>End-to-end cryptographic verifications with strictly compartmentalized role permissions.</p>
+          </div>
+          <div class="gov-card">
+            <h4>Global Compliance</h4>
+            <p>Engineered to satisfy stringent international data privacy standards and regional sovereignty mandates.</p>
+          </div>
+          <div class="gov-card">
+            <h4>Continuous Observability</h4>
+            <p>Real-time distributed telemetry, distributed tracing, and automated anomaly mitigation.</p>
+          </div>
+          <div class="gov-card">
+            <h4>Enterprise SLA</h4>
+            <p>Guaranteed uptime, mission-critical response tiers, and dedicated solutions engineering.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contact & Corporate Portal Section -->
+    <section id="contact" class="section" aria-labelledby="contact-title">
+      <div class="container">
+        <div class="inquiry-card">
+          <div class="badge-gold">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span>Institutional Relations</span>
+          </div>
+          <h3 id="contact-title">Partner with SESE TECHNOLOGY LTD</h3>
+          <p>
+            Whether architecting next-generation distributed platforms or implementing high-performance enterprise systems, our engineering leadership collaborates with global institutions and forward-thinking enterprises.
+          </p>
+
+          <a href="mailto:inquiries@sesetech.com" class="btn btn-gold">
+            <span>Initiate Corporate Inquiry</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </a>
+
+          <div class="inquiry-grid">
+            <div class="inquiry-item">
+              <span class="accent">&bull;</span>
+              <span>Official: <strong>SESE TECHNOLOGY LTD</strong></span>
+            </div>
+            <div class="inquiry-item">
+              <span class="accent">&bull;</span>
+              <span>Scope: <strong>Global Technology Platforms</strong></span>
+            </div>
+            <div class="inquiry-item">
+              <span class="accent">&bull;</span>
+              <span>Direct: <strong>inquiries@sesetech.com</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
-  <footer>
+  <!-- Site Footer -->
+  <footer class="site-footer" role="contentinfo">
     <div class="container">
-      <p>&copy; 2026 SESE Technology LTD. All rights reserved.</p>
-      <p style="margin-top: 10px;">
-        <a href="https://sesetech.com/terms">Terms of Service</a>
-        <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a>
-        <a href="https://sesetech.com/delete">Account & Data Deletion</a>
-        <a href="mailto:support@sesetech.com">Support</a>
-      </p>
+      <div class="footer-top">
+        <div class="footer-brand">
+          <div class="brand-link">
+            <div class="brand-mark" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+                <defs>
+                  <linearGradient id="footerSeseGoldArc" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#FFC107" />
+                    <stop offset="50%" stop-color="#FF9800" />
+                    <stop offset="100%" stop-color="#E65100" />
+                  </linearGradient>
+                </defs>
+                <path d="M 180,95 A 190,190 0 1,0 320,95"
+                      fill="none"
+                      stroke="url(#footerSeseGoldArc)"
+                      stroke-width="26"
+                      stroke-linecap="round" />
+                <text x="250" y="275"
+                      font-family="Arial, Helvetica, sans-serif"
+                      font-weight="900"
+                      font-size="82"
+                      fill="#FFB300"
+                      text-anchor="middle">SeSe</text>
+              </svg>
+            </div>
+            <div class="brand-name">
+              <span class="brand-name-title">SESE TECHNOLOGY</span>
+              <span class="brand-name-tag">GLOBAL PLATFORMS</span>
+            </div>
+          </div>
+          <p>
+            SESE TECHNOLOGY LTD is a premier global technology corporation engineering scalable digital architecture, enterprise software solutions, and global platforms.
+          </p>
+        </div>
+
+        <div class="footer-cols">
+          <div class="footer-col">
+            <h5>Platforms</h5>
+            <ul>
+              <li><a href="#solutions">Digital Architecture</a></li>
+              <li><a href="#solutions">Enterprise Solutions</a></li>
+              <li><a href="#platforms">Global Platform Fabric</a></li>
+              <li><a href="#architecture">Distributed Engines</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Governance</h5>
+            <ul>
+              <li><a href="#governance">Security &amp; Zero-Trust</a></li>
+              <li><a href="#governance">Compliance Protocols</a></li>
+              <li><a href="#governance">Enterprise SLA</a></li>
+              <li><a href="#governance">Data Sovereignty</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Corporate</h5>
+            <ul>
+              <li><a href="#top">About SESE</a></li>
+              <li><a href="#contact">Corporate Inquiries</a></li>
+              <li><a href="#contact">Partnerships</a></li>
+              <li><a href="#contact">Investor Relations</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Legal</h5>
+            <ul>
+              <li><a href="https://sesetech.com/terms">Terms of Service</a></li>
+              <li><a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a></li>
+              <li><a href="https://sesetech.com/delete">Account Deletion</a></li>
+              <li><a href="mailto:support@sesetech.com">Support</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          &copy; 2026 SESE TECHNOLOGY LTD. All rights reserved.
+        </div>
+        <div style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;">
+          <a href="https://sesetech.com/terms" class="footer-bottom-link">Terms of Service</a>
+          <a href="https://sesetech.com/PrivacyPolicy" class="footer-bottom-link">Privacy Policy</a>
+          <a href="https://sesetech.com/delete" class="footer-bottom-link footer-bottom-link--danger">Account Deletion</a>
+        </div>
+      </div>
     </div>
   </footer>
 

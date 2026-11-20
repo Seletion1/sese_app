@@ -3,346 +3,302 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Terms of Service — SESE Technology LTD</title>
-  <meta name="description" content="Official Terms of Service and Operational Conditions for SESE Ride and SESE Hub platforms.">
-  <link rel="icon" type="image/png" href="https://sesetech.com/favicon.png">
+  <title>Terms of Service — SESE TECHNOLOGY LTD</title>
+  <meta name="description" content="Official Terms of Service for SESE Ride, SESE Hub and SESE Technology LTD platforms.">
+  <meta name="robots" content="index, follow">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FFB800">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 500'%3E%3Cdefs%3E%3ClinearGradient id='s' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFC107'/%3E%3Cstop offset='100%25' stop-color='%23E65100'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M 180,95 A 190,190 0 1,0 320,95' fill='none' stroke='url(%23s)' stroke-width='22' stroke-linecap='round'/%3E%3Ctext x='250' y='275' font-family='Arial,sans-serif' font-weight='900' font-size='82' fill='%23FFB300' text-anchor='middle'%3ESeSe%3C/text%3E%3C/svg%3E">
   <style>
     :root {
-      --bg: #0F1015;
-      --card-bg: #171923;
-      --card-border: #282B3B;
-      --gold: #FFB300;
-      --gold-light: #FFC107;
-      --gold-dim: rgba(255, 179, 0, 0.12);
-      --text-main: #F3F4F6;
-      --text-muted: #9CA3AF;
-      --text-heading: #FFFFFF;
-      --accent: #E65100;
+      color-scheme: light dark;
+      --bg: #121212; --card: #1E1E24; --surface: #1A1A20;
+      --gold: #FFB800; --gold-dim: rgba(255,184,0,0.12); --gold-border: rgba(255,184,0,0.28);
+      --text: #CCCCCC; --heading: #FFFFFF; --muted: #8A8A99;
+      --border: rgba(255,255,255,0.07); --radius: 12px;
+      --nav-bg: rgba(26,26,32,0.92);
     }
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #F7F8FA; --card: #FFFFFF; --surface: #FFFFFF;
+        --gold-dim: rgba(255,184,0,0.10); --gold-border: rgba(255,160,0,0.35);
+        --text: #333333; --heading: #121212; --muted: #666677;
+        --border: rgba(0,0,0,0.08);
+        --nav-bg: rgba(255,255,255,0.92);
+      }
     }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: var(--bg);
-      color: var(--text-main);
-      line-height: 1.7;
-      padding: 0 20px 80px;
-    }
-    header {
-      max-width: 860px;
-      margin: 40px auto 20px;
-      padding-bottom: 24px;
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .brand-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-    .brand-title {
-      font-size: 28px;
-      font-weight: 800;
-      color: var(--gold);
-      letter-spacing: -0.5px;
-    }
-    .nav-links a {
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 600;
-      margin-left: 18px;
-      transition: color 0.2s;
-    }
-    .nav-links a:hover, .nav-links a.active {
-      color: var(--gold);
-    }
-    .doc-meta {
-      display: inline-block;
-      background: var(--gold-dim);
-      color: var(--gold-light);
-      padding: 4px 12px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 600;
-      width: fit-content;
-      border: 1px solid rgba(255, 179, 0, 0.3);
-    }
-    main {
-      max-width: 860px;
-      margin: 0 auto;
-    }
-    h1 {
-      font-size: 34px;
-      font-weight: 800;
-      color: var(--text-heading);
-      margin: 16px 0 8px;
-    }
-    .intro-box {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-left: 4px solid var(--gold);
-      padding: 20px;
-      border-radius: 10px;
-      margin: 24px 0 36px;
-      color: #D1D5DB;
-    }
-    section {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 28px;
-      margin-bottom: 24px;
-    }
-    h2 {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--gold);
-      margin-bottom: 14px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    h3 {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-heading);
-      margin: 16px 0 8px;
-    }
-    p {
-      margin-bottom: 14px;
-      color: #E5E7EB;
-    }
-    ul, ol {
-      margin-left: 24px;
-      margin-bottom: 14px;
-      color: #D1D5DB;
-    }
-    li {
-      margin-bottom: 8px;
-    }
-    strong {
-      color: #FFFFFF;
-    }
-    a {
-      color: var(--gold-light);
-      text-decoration: underline;
-    }
-    footer {
-      max-width: 860px;
-      margin: 60px auto 0;
-      padding-top: 24px;
-      border-top: 1px solid var(--card-border);
-      text-align: center;
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-    .badge {
-      display: inline-block;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 6px;
-      padding: 2px 8px;
-      font-size: 12px;
-      font-weight: 600;
-      margin-right: 6px;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 16px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+    body { background: var(--bg); min-height: 100vh; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Header */
+    .site-header { position: sticky; top: 0; z-index: 100;
+      background: var(--nav-bg); backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border); }
+    .nav-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between; height: 68px; }
+    .brand { display: flex; align-items: center; gap: 12px; color: var(--heading); font-weight: 800; font-size: 1rem; }
+    .brand svg { width: 36px; height: 36px; }
+    .nav-legal { display: flex; gap: 24px; }
+    .nav-legal a { font-size: 0.88rem; font-weight: 600; color: var(--muted); transition: color 0.2s; }
+    .nav-legal a:hover, .nav-legal a.active { color: var(--gold); text-decoration: none; }
+
+    /* Main layout */
+    .page-wrap { max-width: 860px; margin: 0 auto; padding: 48px 24px 80px; }
+    .page-label { display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold-dim); border: 1px solid var(--gold-border);
+      color: var(--gold); font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 5px 14px; border-radius: 999px; margin-bottom: 20px; }
+    .page-title { font-size: clamp(1.9rem, 4vw, 2.8rem); font-weight: 800;
+      color: var(--heading); line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 12px; }
+    .page-meta { font-size: 0.88rem; color: var(--muted); margin-bottom: 40px; }
+    .page-meta a { color: var(--gold); }
+
+    /* Legal sections */
+    .legal-section { background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px; margin-bottom: 20px;
+      scroll-margin-top: 90px; }
+    .legal-section h2 { font-size: 1.1rem; font-weight: 700; color: var(--gold);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 16px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .legal-section h3 { font-size: 0.98rem; font-weight: 700; color: var(--heading);
+      margin: 20px 0 8px; }
+    .legal-section p { color: var(--text); font-size: 0.95rem; margin-bottom: 14px; line-height: 1.7; }
+    .legal-section ul, .legal-section ol { margin-left: 22px; margin-bottom: 14px; color: var(--text); }
+    .legal-section li { margin-bottom: 8px; font-size: 0.95rem; line-height: 1.65; }
+    .legal-section strong { color: var(--heading); }
+    .legal-section code { background: var(--surface); padding: 2px 6px; border-radius: 4px;
+      font-size: 0.88rem; color: var(--gold); font-family: monospace; }
+
+    /* TOC */
+    .toc { background: var(--surface); border: 1px solid var(--border);
+      border-left: 3px solid var(--gold); border-radius: var(--radius);
+      padding: 24px 28px; margin-bottom: 32px; }
+    .toc h2 { font-size: 0.85rem; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; }
+    .toc ol { margin-left: 20px; }
+    .toc li { margin-bottom: 6px; }
+    .toc a { font-size: 0.9rem; color: var(--text); font-weight: 500; }
+    .toc a:hover { color: var(--gold); text-decoration: none; }
+
+    /* Footer */
+    .site-footer { background: var(--surface); border-top: 1px solid var(--border);
+      padding: 32px 24px; margin-top: 60px; }
+    .footer-inner { max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px; }
+    .footer-copy { font-size: 0.82rem; color: var(--muted); }
+    .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+    .footer-links a { font-size: 0.84rem; color: var(--muted); font-weight: 600; transition: color 0.2s; }
+    .footer-links a:hover { color: var(--gold); text-decoration: none; }
+    .footer-links a.danger { color: #F87171; }
+    .footer-links a.danger:hover { color: #EF4444; }
+
+    @media (max-width: 600px) {
+      .nav-legal { display: none; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
 <body>
 
-  <header>
-    <div class="brand-bar">
-      <div class="brand-title">SeSe Technology</div>
-      <nav class="nav-links">
+  <header class="site-header">
+    <div class="nav-inner">
+      <a href="https://sesetech.com" class="brand" aria-label="SESE Technology home">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" aria-hidden="true">
+          <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FFC107"/><stop offset="50%" stop-color="#FF9800"/><stop offset="100%" stop-color="#E65100"/>
+          </linearGradient></defs>
+          <path d="M 180,95 A 190,190 0 1,0 320,95" fill="none" stroke="url(#lg)" stroke-width="30" stroke-linecap="round"/>
+          <text x="250" y="275" font-family="Arial,sans-serif" font-weight="900" font-size="82" fill="#FFB300" text-anchor="middle">SeSe</text>
+        </svg>
+        <span>SESE TECHNOLOGY</span>
+      </a>
+      <nav class="nav-legal" aria-label="Legal pages">
         <a href="https://sesetech.com/terms" class="active">Terms of Service</a>
         <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a>
         <a href="https://sesetech.com/delete">Account Deletion</a>
+        <a href="https://sesetech.com">← Home</a>
       </nav>
     </div>
-    <div class="doc-meta">Version 2026.11.20 • Effective Immediately</div>
   </header>
 
   <main>
-    <h1>Global Terms of Service</h1>
-    <div class="intro-box">
-      <p><strong>PLEASE READ THESE TERMS CAREFULLY.</strong> By creating an account, downloading, or using the <strong>SESE Ride</strong> app (Rider and Driver modes) or the <strong>SESE Hub</strong> operations console, you enter into a legally binding agreement with <strong>SESE TECHNOLOGY LTD</strong> ("SESE", "Company", "We", "Us"). If you do not agree to these terms, you must not access or use the platform.</p>
+    <div class="page-wrap">
+      <div class="page-label">Legal Document</div>
+      <h1 class="page-title">Terms of Service</h1>
+      <p class="page-meta">
+        SESE TECHNOLOGY LTD &nbsp;•&nbsp; Last Updated: November 20, 2026 &nbsp;•&nbsp;
+        <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a> &nbsp;•&nbsp;
+        <a href="https://sesetech.com/delete">Account Deletion</a>
+      </p>
+
+      <nav class="toc" aria-label="Table of contents">
+        <h2>Contents</h2>
+        <ol>
+          <li><a href="#s1">Acceptance &amp; Governing Agreement</a></li>
+          <li><a href="#s2">Account Registration, KYC &amp; One-Account Policy</a></li>
+          <li><a href="#s3">Ride-Hailing &amp; Synchronized Fare Bidding</a></li>
+          <li><a href="#s4">On-Demand Logistics &amp; Courier Delivery</a></li>
+          <li><a href="#s5">Pricing, Wallet Deduction &amp; Escrow</a></li>
+          <li><a href="#s6">Cancellation Rules, Waiting Fees &amp; In-Progress Lock</a></li>
+          <li><a href="#s7">Cash Remittance &amp; Driver Wallet Rules</a></li>
+          <li><a href="#s8">Driver Daily Streaks &amp; Commissions</a></li>
+          <li><a href="#s9">In-App Calling &amp; Chat Standards</a></li>
+          <li><a href="#s10">Safety, Telemetry &amp; SOS Emergency Tools</a></li>
+          <li><a href="#s11">Driver Presence, Background Operation &amp; Overlay Permissions</a></li>
+          <li><a href="#s12">Independent Contractor Status &amp; Taxes</a></li>
+          <li><a href="#s13">Limitation of Liability</a></li>
+          <li><a href="#s14">Account Deletion &amp; Regulatory Archival</a></li>
+          <li><a href="#s15">Dispute Resolution &amp; Governing Law</a></li>
+          <li><a href="#s16">Contact &amp; Inquiries</a></li>
+        </ol>
+      </nav>
+
+      <div id="s1" class="legal-section">
+        <h2>1. Acceptance &amp; Governing Agreement</h2>
+        <p>By creating an account, downloading, accessing, or using <strong>SESE TECHNOLOGY LTD</strong> ("SESE", "Company", "We", "Us") platforms — including <strong>SESE Ride</strong> (Rider and Driver modes) and <strong>SESE Hub</strong> operations desk — you ("User", "Rider", "Driver", "Partner") agree to be legally bound by these Terms of Service, our <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a>, and our <a href="https://sesetech.com/delete">Account Deletion Policy</a>. If you do not agree, you must immediately cease accessing or using our services.</p>
+      </div>
+
+      <div id="s2" class="legal-section">
+        <h2>2. Account Registration, Identity Verification &amp; One-Account Policy</h2>
+        <h3>2.1 Account Creation Methods</h3>
+        <p>Users may create an account using phone number verification, email and password, or federated OAuth (Google Sign-In). All account credentials are bound to a verified identity.</p>
+        <h3>2.2 Strict One-Person-One-Account Enforcement</h3>
+        <p>Every user or driver is permitted <strong>exactly one account</strong> tied to a verified phone number, government ID, and unique device. SESE normalizes and hashes identity credentials (NIN, BVN, Driver's License) via <strong>SHA-256</strong> to ensure duplicate prevention without storing raw PII. Multiple accounts trigger immediate suspension and automatic fund freeze.</p>
+        <h3>2.3 Driver KYC Requirements</h3>
+        <p>To operate as an independent driver partner, you must complete full KYC verification, including:</p>
+        <ul>
+          <li>Valid, unexpired Driver's License issued by official government authorities.</li>
+          <li>Vehicle Registration, Roadworthiness Certificate, and valid Motor Insurance coverage.</li>
+          <li>Real-time biometric facial liveness verification matching submitted identity documents.</li>
+          <li>Active telephone number and authenticated bank account for earnings disbursement.</li>
+        </ul>
+        <h3>2.4 Anti-Spoofing &amp; Platform Security</h3>
+        <p>GPS spoofing, mock location software, virtual emulators, rooted devices, or modified app binaries are strictly prohibited and result in permanent device bans and fund forfeiture.</p>
+      </div>
+
+      <div id="s3" class="legal-section">
+        <h2>3. Ride-Hailing &amp; Synchronized Fare Bidding</h2>
+        <p>SESE is a technology intermediary platform connecting riders with independent third-party driver partners. SESE does not own vehicles or operate direct transport services.</p>
+        <p>On select routes, SESE provides a transparent <strong>Synchronized Bidding System</strong>: drivers may accept published base fares or submit counter-bids; riders receive real-time bids with live countdown timers and may accept, decline, or counter-offer. Once accepted, the agreed fare is fixed and legally binding for that trip.</p>
+      </div>
+
+      <div id="s4" class="legal-section">
+        <h2>4. On-Demand Logistics &amp; Courier Delivery</h2>
+        <p>Customers sending parcels must ensure items are legally transportable and properly packaged. Strictly prohibited items include illegal narcotics, unregistered firearms, hazardous materials, counterfeit currency, and stolen property. Driver partners have the absolute right to inspect any package exterior and refuse transit on suspicion of prohibited contents.</p>
+        <p>High-value and courier deliveries are secured with an automated <strong>4-digit Delivery PIN</strong> sent directly to the recipient. Drivers must collect and verify this PIN upon delivery before completion is acknowledged on the platform.</p>
+      </div>
+
+      <div id="s5" class="legal-section">
+        <h2>5. Pricing, Immediate Wallet Deduction &amp; Escrow</h2>
+        <p>All fares, commissions, and trip settlement amounts are computed strictly by SESE's authoritative backend servers. Client applications render only verified server-calculated amounts.</p>
+        <p>When a customer books via <strong>Wallet</strong> or <strong>Card</strong>, the full fare is <strong>immediately deducted</strong> and placed into secure server-managed <strong>Escrow</strong> upon booking — preventing balance double-spending. Driver partners are credited earnings <strong>only upon confirmed drop-off completion</strong>. Wallet top-ups are processed via Paystack (PCI-DSS certified). SESE never stores raw card PAN or CVV.</p>
+      </div>
+
+      <div id="s6" class="legal-section">
+        <h2>6. Cancellation Rules, Waiting Fees &amp; In-Progress Cancellation Lock</h2>
+        <p>Riders may cancel free of charge before a driver arrives at the pickup point. If a driver waits beyond the Grace Period (default: <strong>10 minutes</strong>), a Waiting Fee (default: <strong>₦20 per minute</strong>) accrues dynamically and is deducted from escrow.</p>
+        <p>Once a ride starts (status: <code>IN_PROGRESS</code> or <code>pending_customer_approval</code>), <strong>in-app cancellation is strictly locked</strong> for both customer and driver. In genuine emergencies, a SESE Hub Support administrator may cancel and issue a full refund to the customer; driver trip fare is forfeited except for valid waiting fees already accrued.</p>
+      </div>
+
+      <div id="s7" class="legal-section">
+        <h2>7. Cash Remittance &amp; Driver Wallet Rules</h2>
+        <p>Drivers accepting cash fares must remit platform commission promptly. If a driver's wallet balance drops below the minimum operational threshold (default: <strong>₦1,000</strong>), dispatches are automatically paused until commissions are settled via wallet top-up. Persistent non-remittance results in account suspension.</p>
+      </div>
+
+      <div id="s8" class="legal-section">
+        <h2>8. Driver Daily Streaks &amp; Commissions</h2>
+        <p>Eligible drivers who consistently accept direct dispatches maintain daily streaks to unlock reduced commission tiers and milestone bonuses. Declining assigned orders resets streak progression. Public order pool pickups carry standard base commission rates as configured by platform administrators.</p>
+      </div>
+
+      <div id="s9" class="legal-section">
+        <h2>9. In-App Calling &amp; Chat Standards</h2>
+        <ul>
+          <li><strong>In-App Voice Calling:</strong> Powered by WebRTC peer-to-peer encrypted audio with automatic Agora RTC failover. Calls operate without exposing private phone numbers. Provider switchovers occur silently.</li>
+          <li><strong>Trip Chat:</strong> Restricted to text and image attachments only. Voice notes are not permitted in trip chat.</li>
+          <li><strong>Support Chat:</strong> Allows text, images, and voice notes (maximum 5MB). Supported audio formats: AAC, MP3, OGG, Opus, WAV, M4A.</li>
+          <li><strong>Prohibited Conduct:</strong> Abusive language, harassment, discriminatory remarks, solicitation of off-platform transactions, or threats result in immediate account suspension and referral to law enforcement.</li>
+        </ul>
+      </div>
+
+      <div id="s10" class="legal-section">
+        <h2>10. Safety, Telemetry &amp; SOS Emergency Tools</h2>
+        <p>SESE continuously monitors route anomalies, geofence violations, and speed irregularities. An in-app <strong>SOS Panic Button</strong> dispatches live GPS coordinates to saved contacts and SESE Hub safety coordinators. During acute life-safety emergencies, users must contact local law enforcement (112/199) and emergency services directly.</p>
+      </div>
+
+      <div id="s11" class="legal-section">
+        <h2>11. Driver Presence, Background Operation &amp; Overlay Permissions</h2>
+        <ul>
+          <li><strong>Android:</strong> The Driver Quick-Return Bubble (floating overlay) is displayed only when a driver is actively online or has an active trip and the app is backgrounded. This requires <code>SYSTEM_ALERT_WINDOW</code> permission, requested exclusively after an explicit prominent disclosure and consent flow. Drivers may toggle this off at any time in Driver Settings.</li>
+          <li><strong>iOS:</strong> Background presence is maintained via APNs Time-Sensitive notifications and Live Activities. No overlay permissions are requested on iOS, ensuring full Apple App Store Guideline 2.5.1 compliance.</li>
+        </ul>
+      </div>
+
+      <div id="s12" class="legal-section">
+        <h2>12. Independent Contractor Status &amp; Taxes</h2>
+        <p>Driver partners are independent contractors, not employees, agents, or representatives of SESE TECHNOLOGY LTD. Drivers are solely responsible for all tax liabilities, vehicle maintenance, fuel costs, and applicable licensing fees.</p>
+      </div>
+
+      <div id="s13" class="legal-section">
+        <h2>13. Limitation of Liability</h2>
+        <p>SESE's liability for damaged or lost courier goods is capped at the declared transit value or a maximum default of <strong>₦50,000 NGN</strong>, whichever is lower, unless additional transit insurance was purchased. SESE is not liable for consequential, indirect, or punitive damages arising from service unavailability, route deviation, or driver conduct beyond its reasonable control.</p>
+      </div>
+
+      <div id="s14" class="legal-section">
+        <h2>14. Account Deletion &amp; Regulatory Archival</h2>
+        <p>Users may delete their account at any time:</p>
+        <ul>
+          <li><strong>In-App:</strong> Settings → Legal &amp; Compliance → Delete Account (re-authentication required).</li>
+          <li><strong>Web Portal:</strong> <a href="https://sesetech.com/delete">https://sesetech.com/delete</a></li>
+        </ul>
+        <p>Prerequisites: Zero wallet balance, no active trips or deliveries, no pending driver payout requests. After deletion, data is held in a <strong>30-day regulatory soft-archive</strong> for financial audit compliance before permanent PII erasure.</p>
+      </div>
+
+      <div id="s15" class="legal-section">
+        <h2>15. Dispute Resolution &amp; Governing Law</h2>
+        <p>These Terms are governed by the laws of the Federal Republic of Nigeria. Unresolved disputes shall first be escalated to SESE's internal resolution desk (<a href="mailto:legal@sesetech.com">legal@sesetech.com</a>). Disputes not resolved within 30 days shall be submitted to binding arbitration under the Arbitration and Mediation Act, 2023.</p>
+      </div>
+
+      <div id="s16" class="legal-section">
+        <h2>16. Contact &amp; Inquiries</h2>
+        <ul>
+          <li><strong>Legal &amp; Compliance:</strong> <a href="mailto:legal@sesetech.com">legal@sesetech.com</a></li>
+          <li><strong>Customer Support:</strong> <a href="mailto:support@sesetech.com">support@sesetech.com</a></li>
+          <li><strong>Privacy Officer:</strong> <a href="mailto:privacy@sesetech.com">privacy@sesetech.com</a></li>
+          <li><strong>Terms of Service:</strong> <a href="https://sesetech.com/terms">https://sesetech.com/terms</a></li>
+          <li><strong>Privacy Policy:</strong> <a href="https://sesetech.com/PrivacyPolicy">https://sesetech.com/PrivacyPolicy</a></li>
+          <li><strong>Account Deletion:</strong> <a href="https://sesetech.com/delete">https://sesetech.com/delete</a></li>
+        </ul>
+      </div>
     </div>
-
-    <!-- 1. ACCEPTANCE -->
-    <section>
-      <h2>1. Acceptance of Governing Agreement</h2>
-      <p>These Terms of Service ("Terms") govern your access to and use of mobile applications, websites, APIs, and associated technology services operated by SESE Technology LTD. These Terms incorporate by reference our <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a> and <a href="https://sesetech.com/delete">Account & Data Deletion Protocol</a>.</p>
-      <p>Supplemental terms may apply to specific geographical territories, campaigns, or services (such as specialized courier delivery or multi-passenger fleet management). In the event of a conflict, supplemental terms prevail for that specific service.</p>
-    </section>
-
-    <!-- 2. REGISTRATION & KYC -->
-    <section>
-      <h2>2. Account Registration, Identity Verification & Single Account Policy</h2>
-      <h3>2.1 Account Eligibility</h3>
-      <p>You must be at least 18 years of age to establish a personal account. Accounts are strictly personal and non-transferable.</p>
-      <h3>2.2 Strict One-Person-One-Account Enforcement</h3>
-      <p>Every individual user, rider, and driver partner is permitted <strong>exactly one account</strong> on the SESE platform. SESE utilizes SHA-256 cryptographic hashing to deduplicate government identifiers (NIN, BVN, Driver's License, International Passport), phone numbers, and unique device fingerprints. Multiple accounts registered by the same individual will trigger immediate suspension and automatic fund freeze.</p>
-      <h3>2.3 Driver Partner KYC Requirements</h3>
-      <p>To operate as an independent driver partner, you must complete full Know-Your-Customer (KYC) verification, including:</p>
-      <ul>
-        <li>Valid, unexpired Driver's License issued by official government authorities.</li>
-        <li>Vehicle Registration, Roadworthiness Certificate, and valid Motor Insurance coverage.</li>
-        <li>Real-time biometric facial liveness verification matching your submitted identity documents.</li>
-        <li>Active telephone number and authenticated bank account for direct earnings disbursement.</li>
-      </ul>
-    </section>
-
-    <!-- 3. RIDE SERVICES & BIDDING -->
-    <section>
-      <h2>3. Ride-Hailing, Passenger Transport & Synchronized Bidding</h2>
-      <h3>3.1 Technology Intermediary Status</h3>
-      <p>SESE is a technology platform connecting riders seeking passenger transportation with independent third-party driver partners. SESE does not provide transportation services directly, nor does SESE employ driver partners as transportation carriers.</p>
-      <h3>3.2 Synchronized Fare Bidding System</h3>
-      <p>On select routes and service tiers, SESE provides a transparent <strong>Synchronized Bidding System</strong>:</p>
-      <ul>
-        <li>Drivers may accept published base fares or submit a competitive counter-bid.</li>
-        <li>Customers receive real-time bids with live countdown timers and may accept, decline, or make a counter-offer.</li>
-        <li>Once a bid is formally accepted by both parties, the agreed fare is fixed and legally binding for that specific trip.</li>
-      </ul>
-    </section>
-
-    <!-- 4. LOGISTICS & COURIER -->
-    <section>
-      <h2>4. On-Demand Logistics, Courier & Parcel Delivery</h2>
-      <h3>4.1 Delivery Standards & Prohibited Items</h3>
-      <p>Customers sending parcels via SESE delivery must ensure items are legally transportable, properly packaged, and sealed. The following items are strictly prohibited:</p>
-      <ul>
-        <li>Illegal narcotics, prescription drugs without authorized documentation, or psychotropic substances.</li>
-        <li>Unregistered firearms, ammunition, fireworks, weapons, or explosives.</li>
-        <li>Hazardous biological materials, toxic chemicals, or corrosive liquids.</li>
-        <li>Counterfeit currency, stolen property, or contraband.</li>
-        <li>Live animals or human remains.</li>
-      </ul>
-      <p>Driver partners have the absolute right to inspect the exterior of any package and refuse transit if prohibited items or illegal contents are suspected.</p>
-      <h3>4.2 Delivery Verification PIN</h3>
-      <p>High-value and courier deliveries are secured with an automated <strong>4-digit Delivery PIN</strong> delivered directly to the designated recipient. Drivers must collect and verify this PIN upon delivery before completion is acknowledged on the platform.</p>
-    </section>
-
-    <!-- 5. FARES & WALLET ESCROW -->
-    <section>
-      <h2>5. Dynamic Pricing, Wallet Prepayment & Escrow Protection</h2>
-      <h3>5.1 Server-Authoritative Fares</h3>
-      <p>All fares, commissions, and trip settlement amounts are computed strictly by SESE's authoritative backend servers. Client applications render only verified server-calculated amounts.</p>
-      <h3>5.2 Immediate Wallet / Card Deduction & Escrow Hold</h3>
-      <p>When a customer books a ride or delivery utilizing <strong>Wallet</strong> or <strong>Debit/Credit Card</strong>:</p>
-      <ul>
-        <li>The required trip fare is <strong>immediately deducted</strong> from the customer's available balance and placed into secure server-managed <strong>Escrow</strong> upon booking.</li>
-        <li>This immediate lock guarantees funds cannot be double-spent across concurrent ride requests.</li>
-        <li>Driver partners are credited earnings and wallet coverage <strong>only upon official drop-off completion</strong>.</li>
-      </ul>
-    </section>
-
-    <!-- 6. CANCELLATION & WAITING FEES -->
-    <section>
-      <h2>6. Cancellation Rules, Waiting Fees & In-Progress Cancellation Lock</h2>
-      <h3>6.1 Cancellation Prior to Trip Start</h3>
-      <p>Customers may cancel a ride request free of charge before a driver partner has arrived at the pickup location. If a driver partner arrives at the designated pickup and waits beyond the configured <strong>Grace Waiting Window (default: 10 minutes)</strong>, an automated <strong>Waiting Fee (default: ₦20 per minute)</strong> accrues dynamically.</p>
-      <h3>6.2 Strict In-Progress Cancellation Lock</h3>
-      <p>Once a driver partner picks up the passenger or parcel and initiates the ride (status: <code>IN_PROGRESS</code> or <code>pending_customer_approval</code>):</p>
-      <ul>
-        <li><strong>Normal in-app cancellation by either customer or driver is strictly locked.</strong></li>
-        <li>The trip must proceed to completion to ensure verified settlement, passenger safety, and fair compensation.</li>
-      </ul>
-      <h3>6.3 Support-Initiated Emergency Trip Removal</h3>
-      <p>If a ride cannot proceed due to mechanical breakdown, medical emergency, or driver failure to navigate to drop-off, a SESE Hub support administrator may intervene via authorized console actions:</p>
-      <ul>
-        <li>The customer's trip fare is refunded cleanly to their wallet balance.</li>
-        <li>Driver trip fare compensation is forfeited, except where verified pre-departure waiting fees apply.</li>
-      </ul>
-    </section>
-
-    <!-- 7. CASH REMITTANCE -->
-    <section>
-      <h2>7. Cash-on-Delivery (COD) & Driver Commission Remittance</h2>
-      <p>Drivers accepting cash must maintain a positive wallet balance or remit platform commission fees promptly. If a driver's wallet balance drops below the minimum operational threshold (default: ₦1,000), direct dispatches are automatically paused until commissions are settled via online top-up.</p>
-    </section>
-
-    <!-- 8. DRIVER STREAKS -->
-    <section>
-      <h2>8. Driver Daily Streaks, Commission Tiers & Performance</h2>
-      <p>SESE operates an automated <strong>Daily Streak & Commission System</strong>. Verified drivers who consistently accept direct dispatches unlock reduced commission tiers and milestone bonuses. Declining assigned orders or failing verification resets the active streak tier. Public pool orders carry the standard platform commission rate and do not count toward daily streak progression.</p>
-    </section>
-
-    <!-- 9. CALLING & CHAT -->
-    <section>
-      <h2>9. In-App Calling & Communications</h2>
-      <p>SESE provides integrated, privacy-protected in-app voice calling powered by WebRTC P2P audio with automatic Agora RTC failover. Phone numbers are protected through masking.</p>
-      <ul>
-        <li><strong>Trip Chat:</strong> Restricted to text and image attachments for navigational and pickup coordination. Audio recording is disabled in trip chat for compliance.</li>
-        <li><strong>Support Chat:</strong> Allows voice notes (up to 5MB) and media attachments for prompt customer resolution.</li>
-        <li>Harassment, abusive language, discrimination, or off-platform solicitation is strictly prohibited and results in immediate permanent ban.</li>
-      </ul>
-    </section>
-
-    <!-- 10. SAFETY & ANTI-TAMPERING -->
-    <section>
-      <h2>10. Safety, Telemetry, Anti-Spoofing & SOS Tools</h2>
-      <p>To ensure road safety and network integrity, SESE employs automated background hardware attestation, route anomaly detection, and GPS telemetry monitoring. Any use of GPS mock locations, rooted emulators, or tampered binaries results in permanent device banning and legal referral.</p>
-      <p>The in-app <strong>SOS Panic Button</strong> dispatches coordinates to saved emergency contacts and SESE security desks. In acute emergencies, users must always contact local law enforcement authorities directly.</p>
-    </section>
-
-    <!-- 11. INDEPENDENT CONTRACTOR -->
-    <section>
-      <h2>11. Independent Contractor Status & Taxation</h2>
-      <p>Driver partners are independent contractors and not employees, agents, or joint venturers of SESE Technology LTD. Drivers are solely responsible for all tax liabilities, social contributions, and vehicle maintenance costs arising from their earnings.</p>
-    </section>
-
-    <!-- 12. LIABILITY -->
-    <section>
-      <h2>12. Limitation of Liability & Transit Claims</h2>
-      <p>To the maximum extent permitted by applicable law, SESE Technology LTD's total liability for lost or damaged goods during courier transit is strictly capped at the declared value during booking or a maximum default cap of ₦50,000 NGN (or \$50 USD equivalent), whichever is lower, unless extra transit insurance was purchased.</p>
-    </section>
-
-    <!-- 13. ACCOUNT DELETION -->
-    <section>
-      <h2>13. Account Termination & Deletion Rights</h2>
-      <p>Users and driver partners retain the absolute right to delete their account and associated personal data at any time. SESE provides two official deletion channels:</p>
-      <ol>
-        <li><strong>In-App Deletion:</strong> Navigate to <em>Settings → Account Privacy → Delete Account</em>.</li>
-        <li><strong>Web Deletion Portal:</strong> Accessible directly at <a href="https://sesetech.com/delete"><strong>https://sesetech.com/delete</strong></a>.</li>
-      </ol>
-      <p>For financial compliance and fraud prevention, accounts with an active wallet balance or ongoing trips must resolve them before deletion. Deleted accounts undergo a 30-day regulatory archival period before permanent PII purging.</p>
-    </section>
-
-    <!-- 14. DISPUTE RESOLUTION -->
-    <section>
-      <h2>14. Dispute Resolution & Governing Law</h2>
-      <p>These Terms shall be governed by and construed in accordance with the laws of the Federal Republic of Nigeria, without regard to conflict of law principles. Parties agree to submit any unresolved dispute to binding arbitration under the Arbitration and Mediation Act of Nigeria.</p>
-    </section>
-
-    <!-- 15. CONTACT -->
-    <section>
-      <h2>15. Contact & Support Information</h2>
-      <p>If you have questions regarding these Terms of Service or platform rules, contact our legal and support team:</p>
-      <ul>
-        <li><strong>Legal & Compliance:</strong> <a href="mailto:legal@sesetech.com">legal@sesetech.com</a></li>
-        <li><strong>Customer Support:</strong> <a href="mailto:support@sesetech.com">support@sesetech.com</a></li>
-        <li><strong>Official Address:</strong> SESE Technology LTD, Ikorodu, Lagos State, Nigeria.</li>
-      </ul>
-    </section>
   </main>
 
-  <footer>
-    <p>&copy; 2026 SESE Technology LTD. All rights reserved.</p>
-    <p style="margin-top: 6px;">
-      <a href="https://sesetech.com/terms">Terms of Service</a> &bull; 
-      <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a> &bull; 
-      <a href="https://sesetech.com/delete">Delete Account</a>
-    </p>
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span class="footer-copy">&copy; 2026 SESE TECHNOLOGY LTD. All rights reserved.</span>
+      <div class="footer-links">
+        <a href="https://sesetech.com/terms">Terms of Service</a>
+        <a href="https://sesetech.com/PrivacyPolicy">Privacy Policy</a>
+        <a href="https://sesetech.com/delete" class="danger">Account Deletion</a>
+        <a href="https://sesetech.com">Home</a>
+      </div>
+    </div>
   </footer>
 
+  <script>
+    // Smart hash routing — if URL has #sN anchor, scroll into view after load
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.location.hash) {
+        const el = document.querySelector(window.location.hash);
+        if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+      }
+    });
+  </script>
 </body>
 </html>
