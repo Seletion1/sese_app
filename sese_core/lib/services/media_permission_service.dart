@@ -98,14 +98,21 @@ abstract final class MediaPermissionService {
     );
   }
 
-  /// Gallery/photo-library request across API levels: Android 13+ uses the
-  /// granular media permission, older Android falls back to storage, iOS
-  /// uses photos (adding only — the picker never writes).
+  /// Gallery/photo-library request across platforms:
+  ///
+  /// **Android 13+**: The `image_picker` plugin uses the Android system Photo
+  /// Picker (`ACTION_PICK_IMAGES`) which requires **no runtime permission**.
+  /// Requesting `Permission.photos` / `READ_MEDIA_IMAGES` triggers the Google
+  /// Play "photo and video access" policy gate — which rejects non-gallery
+  /// apps. So on Android we skip the permission request entirely and let the
+  /// system picker handle scoped access.
+  ///
+  /// **iOS**: Still requires `Permission.photos` for PHPicker access.
   static Future<PermissionStatus> _galleryRequest() async {
     if (defaultTargetPlatform == TargetPlatform.android) {
-      var status = await Permission.photos.request();
-      if (status.isGranted || status.isPermanentlyDenied) return status;
-      return Permission.storage.request();
+      // The Android system Photo Picker needs zero permissions.
+      // Return granted so callers proceed to open the picker.
+      return PermissionStatus.granted;
     }
     return Permission.photos.request();
   }

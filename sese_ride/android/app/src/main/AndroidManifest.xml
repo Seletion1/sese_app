@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Map tiles, geocoding, directions, Firebase (required in release;
          debug/profile manifests also declare it for the Flutter tool). -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -13,13 +14,13 @@
          book is never uploaded, stored, or transmitted. Disclosed via
          ContactsDisclosureDialog BEFORE the OS permission prompt. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- Camera + photo library for document upload, KYC selfies, the live
-         plate snapshot, and chat attachments. Requested at runtime via
-         MediaPermissionService BEFORE any picker opens. -->
+    <!-- Camera for KYC selfies, live plate snapshot, and chat attachments.
+         Gallery/photo library access uses the Android system Photo Picker
+         which needs zero permissions — explicitly block any third-party merge. -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <!-- Background GPS for the online driver session: lets the OS keep
          delivering fixes to the live-trip marker and dispatch heartbeats
          while the app is minimized. Requested best-effort at go-online

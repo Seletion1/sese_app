@@ -2,7 +2,7 @@ name: sese_ride
 description: "SeSe Ride Customer & Driver Application."
 publish_to: 'none'
 
-version: 1.0.8+9
+version: 1.0.9+10
 
 environment:
   sdk: ^3.13.2
