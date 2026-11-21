@@ -72,6 +72,19 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-21 — Google Play Console Media Permission Audit & Declaration Resolution (`sese_hub`)
+
+- **1. Release Manifest & Bundle Verification (`processReleaseManifest`, `manifest-merger-blame-report`)**:
+  - Investigated merged release manifest (`sese_hub/build/app/intermediates/merged_manifests/release/processReleaseManifest/universal/AndroidManifest.xml`) and manifest merger blame report.
+  - Confirmed `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`, `READ_MEDIA_VISUAL_USER_SELECTED`, `READ_EXTERNAL_STORAGE`, and `WRITE_EXTERNAL_STORAGE` are **100% absent** from both the merged release manifest and the compiled release app bundle (`app-release.aab`).
+  - Manifest merger report confirmed zero plugins are injecting broad media permissions; all `tools:node="remove"` directives are in place.
+  - Verified image selection uses only native Android camera and system photo picker (`ACTION_PICK_IMAGES`), and remote documents/images are rendered strictly via authenticated cloud storage URLs without requesting local gallery permissions.
+
+- **2. Root Cause of Google Play Console "Go to declaration" Error**:
+  - The Google Play Console error *"All developers requesting access to the photo and video permissions are required to tell Google Play about the core functionality of their app. Go to declaration."* is an account-level App Content policy declaration gate triggered when an earlier closed-testing bundle historically had media permissions.
+  - Resolved by navigating to **Policy and programs > App content > Photo and video permissions** (or clicking the direct **"Go to declaration"** link in the error banner), selecting **"No, this app does not request access to photo or video permissions"**, and saving.
+  - Version in `sese_hub/pubspec.yaml` staged at `1.0.8+9`, making the next execution of `./release_android.sh` cleanly bump to `1.0.9+10`.
+
 ## 2026-11-21 — Google Play Console SHA Certificates & `google-services.json` Full Sync
 
 - **1. App Signing SHA-1 & SHA-256 Registration & Digital Asset Links**:
