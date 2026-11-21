@@ -72,6 +72,26 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-21 — Dynamic Map & API Key Management and Startup Credential Injection (`sese_hub`, `sese_ride`)
+
+- **1. Sese Hub Map & API Key Management (`sese_hub`)**:
+  - Implemented dedicated `MapApiKeyConfigScreen` in `sese_hub/lib/features/settings/map_api_key_config_screen.dart` persisted to Firestore under `system_config/api_keys`.
+  - Added form inputs for:
+    - Active Map Provider toggle: Google Maps (`google`) vs Mapbox (`mapbox`).
+    - Google Maps API Keys: Android API Key (`google_maps.android_key`), iOS API Key (`google_maps.ios_key`), Web API Key (`google_maps.web_key`).
+    - Mapbox Access Tokens: Android Access Token (`mapbox.android_token`), iOS Access Token (`mapbox.ios_token`), Web Access Token (`mapbox.web_token`).
+  - Added "Save Configuration" button with validation preventing accidental saving of completely blank credentials or empty keys for the active provider. Included secret masking toggles with eye-icon visibility switches.
+  - Linked the management screen into `HubSettingsScreen` (`Map & API Key Management` tile) and provided an inline "Save Configuration" button and full-screen shortcut in `GlobalConfigScreen._buildApiKeysCard()`.
+  - Added automated widget test suite in `sese_hub/test/map_api_key_config_test.dart` (100% pass).
+
+- **2. Dynamic Startup Fetcher & Platform-Specific Injection (`sese_ride`)**:
+  - Updated startup sequence in `sese_ride/lib/main.dart` (`_initDynamicMapCredentials()`):
+    - Fetches `system_config/api_keys` via `ApiKeysService.fetchApiKeys()` with a 4-second timeout.
+    - If `active_map_provider == 'google'`: Injects `google_maps.android_key` via `MethodChannel` (`injectGoogleMapsApiKey`) on Android and passes `google_maps.ios_key` via `MethodChannel` (`provideGMSServicesApiKey`) to `GMSServices.provideAPIKey()` on iOS.
+    - If `active_map_provider == 'mapbox'`: Passes `mapbox.android_token` or `mapbox.ios_token` via `initializeMapbox`.
+    - Fallback / Safety: On timeout, offline state, or fetch errors, falls back gracefully to build-time environment variables (`GOOGLE_MAPS_API_KEY`) and default `GlobalMapConfig` to prevent crashes or blank maps.
+  - Implemented native `com.sesetech.sese_ride/map_credentials` handlers in `MainActivity.kt` (Android metadata & `MapsInitializer`) and `AppDelegate.swift` (iOS `GMSServices.provideAPIKey`).
+
 ## 2026-11-21 — Google Play Console Compliance: Background & FGS Location Stripped (`sese_ride` 1.0.12+13)
 
 - **1. Background & Foreground Service Location Elimination (`sese_ride`)**:

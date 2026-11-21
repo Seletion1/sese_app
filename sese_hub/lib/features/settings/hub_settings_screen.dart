@@ -9,6 +9,7 @@ import '../dashboard/presentation/hub_dashboard_screen.dart'
 import '../dashboard/services/hub_route_persistence.dart';
 import '../dashboard/services/view_mode_controller.dart';
 import 'calling_config_screen.dart';
+import 'map_api_key_config_screen.dart';
 
 /// Dedicated Settings screen for `sese_hub` staff.
 ///
@@ -271,6 +272,30 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => const CallingConfigScreen(),
+                  ),
+                ).then((_) {
+                  HubRoutePersistence.saveSubRoute('settings');
+                });
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // ── 6. Map & API Key Management ──────────────────────────────────────
+          _SectionHeader('Map & API Key Management'),
+          Card(
+            child: SettingsTile(
+              tileKey: const Key('hub_settings_map_api_keys_tile'),
+              leading: const Icon(Icons.map_outlined),
+              title: 'Map & API Key Management',
+              infoDescription:
+                  'Manage dynamic API keys and access tokens for Google Maps and Mapbox across Android, iOS, and Web.',
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                HubRoutePersistence.saveSubRoute('map_api_keys');
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MapApiKeyConfigScreen(),
                   ),
                 ).then((_) {
                   HubRoutePersistence.saveSubRoute('settings');

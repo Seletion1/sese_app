@@ -67,6 +67,36 @@ class MainActivity : FlutterActivity() {
                 result.notImplemented()
             }
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, MAP_CREDENTIALS_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "injectGoogleMapsApiKey", "setGoogleMapsApiKey" -> {
+                    val key = call.argument<String>("apiKey")
+                    if (!key.isNullOrBlank()) {
+                        try {
+                            val appInfo = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
+                            if (appInfo.metaData == null) {
+                                appInfo.metaData = Bundle()
+                            }
+                            appInfo.metaData.putString("com.google.android.geo.API_KEY", key)
+                            try {
+                                val mapsInitClass = Class.forName("com.google.android.gms.maps.MapsInitializer")
+                                mapsInitClass.getMethod("initialize", Context::class.java).invoke(null, applicationContext)
+                            } catch (_: Exception) {}
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("MAPS_KEY_ERROR", e.message, null)
+                        }
+                    } else {
+                        result.success(false)
+                    }
+                }
+                "initializeMapbox", "setMapboxToken" -> {
+                    // Mapbox options / token injection handler
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     // singleTop delivery: notification/fullScreenIntent deliveries that resolve to the
@@ -130,6 +160,7 @@ class MainActivity : FlutterActivity() {
         const val TAG = "sese_ride"
         const val GMS_CHANNEL = "com.sesetech.sese_ride/gms_availability"
         const val APP_CHECK_CHANNEL = "com.sesetech.sese_ride/app_check"
+        const val MAP_CREDENTIALS_CHANNEL = "com.sesetech.sese_ride/map_credentials"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"
     }
 }

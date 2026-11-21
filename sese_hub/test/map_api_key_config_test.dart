@@ -1,0 +1,130 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sese_core/sese_core.dart';
+import 'package:sese_hub/features/settings/map_api_key_config_screen.dart';
+
+class _FakeApiKeysService extends ApiKeysService {
+  ApiKeysConfig config;
+  bool saveCalled = false;
+
+  _FakeApiKeysService([this.config = const ApiKeysConfig()]);
+
+  @override
+  Future<ApiKeysConfig> fetchApiKeys() async => config;
+
+  @override
+  Future<void> saveApiKeys(ApiKeysConfig newConfig) async {
+    saveCalled = true;
+    config = newConfig;
+  }
+}
+
+void main() {
+  testWidgets('MapApiKeyConfigScreen renders all form fields and controls', (tester) async {
+    tester.view.physicalSize = const Size(1280, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final fakeService = _FakeApiKeysService(
+      const ApiKeysConfig(
+        activeMapProvider: 'google',
+        googleAndroidKey: 'AIzaFakeAndroidKey',
+        googleIosKey: 'AIzaFakeIosKey',
+        googleWebKey: 'AIzaFakeWebKey',
+        mapboxAndroidToken: 'pk.fakeAndroidToken',
+        mapboxIosToken: 'pk.fakeIosToken',
+        mapboxWebToken: 'pk.fakeWebToken',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MapApiKeyConfigScreen(apiKeysService: fakeService),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify Title & Top Actions
+    expect(find.text('Map & API Key Management'), findsOneWidget);
+    expect(find.byKey(const Key('map_api_keys_save_button')), findsOneWidget);
+
+    // Verify Form Input Fields
+    expect(find.byKey(const Key('input_google_maps_android_key')), findsOneWidget);
+    expect(find.byKey(const Key('input_google_maps_ios_key')), findsOneWidget);
+    expect(find.byKey(const Key('input_google_maps_web_key')), findsOneWidget);
+
+    expect(find.byKey(const Key('input_mapbox_android_token')), findsOneWidget);
+    expect(find.byKey(const Key('input_mapbox_ios_token')), findsOneWidget);
+    expect(find.byKey(const Key('input_mapbox_web_token')), findsOneWidget);
+
+    // Verify Provider Selection options
+    expect(find.text('Google Maps'), findsOneWidget);
+    expect(find.text('Mapbox'), findsOneWidget);
+  });
+
+  testWidgets('Validation blocks saving when all credentials are empty', (tester) async {
+    final fakeService = _FakeApiKeysService(
+      const ApiKeysConfig(
+        activeMapProvider: 'google',
+        googleAndroidKey: '',
+        googleIosKey: '',
+        googleWebKey: '',
+        mapboxAndroidToken: '',
+        mapboxIosToken: '',
+        mapboxWebToken: '',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MapApiKeyConfigScreen(apiKeysService: fakeService),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Attempt save with empty keys
+    await tester.tap(find.byKey(const Key('map_api_keys_save_button')));
+    await tester.pumpAndSettle();
+
+    expect(fakeService.saveCalled, isFalse);
+    expect(
+      find.text('Cannot save empty configuration. Please provide at least one valid API key or token.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Successfully saves configuration and updates Firestore service', (tester) async {
+    final fakeService = _FakeApiKeysService(
+      const ApiKeysConfig(
+        activeMapProvider: 'google',
+        googleAndroidKey: 'AIzaInitialAndroid',
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MapApiKeyConfigScreen(apiKeysService: fakeService),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Enter updated key
+    await tester.enterText(
+      find.byKey(const Key('input_google_maps_android_key')),
+      'AIzaUpdatedAndroidKey123',
+    );
+
+    await tester.tap(find.byKey(const Key('map_api_keys_save_button')));
+    await tester.pumpAndSettle();
+
+    expect(fakeService.saveCalled, isTrue);
+    expect(fakeService.config.googleAndroidKey, 'AIzaUpdatedAndroidKey123');
+    expect(find.text('Map & API Key configuration saved successfully!'), findsOneWidget);
+  });
+}

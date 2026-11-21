@@ -4,6 +4,7 @@ import 'package:sese_core/sese_core.dart';
 import '../services/system_config_service.dart';
 import '../../dashboard/presentation/hub_module_shell.dart';
 import '../../staff/services/hub_access_service.dart';
+import '../../settings/map_api_key_config_screen.dart';
 
 class GlobalConfigScreen extends StatefulWidget {
   final SystemConfigService configService;
@@ -3117,10 +3118,131 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                 txtField(_mapboxWebTokenCtrl, 'Web Access Token', 'mapbox.web_token'),
               ],
             ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  key: const Key('global_config_save_api_keys_btn'),
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_rounded, size: 16),
+                  label: Text(_saving ? 'Saving...' : 'Save Configuration'),
+                  onPressed: _saving ? null : _saveApiKeysConfigOnly,
+                ),
+                OutlinedButton.icon(
+                  key: const Key('global_config_open_api_keys_screen_btn'),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                  label: const Text('Open Dedicated Management Screen'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const MapApiKeyConfigScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _saveApiKeysConfigOnly() async {
+    final newApiKeys = ApiKeysConfig(
+      activeMapProvider: _apiKeysActiveProvider,
+      googleAndroidKey: _googleAndroidKeyCtrl.text.trim(),
+      googleIosKey: _googleIosKeyCtrl.text.trim(),
+      googleWebKey: _googleWebKeyCtrl.text.trim(),
+      mapboxAndroidToken: _mapboxAndroidTokenCtrl.text.trim(),
+      mapboxIosToken: _mapboxIosTokenCtrl.text.trim(),
+      mapboxWebToken: _mapboxWebTokenCtrl.text.trim(),
+    );
+
+    final allGoogleEmpty = newApiKeys.googleAndroidKey.isEmpty &&
+        newApiKeys.googleIosKey.isEmpty &&
+        newApiKeys.googleWebKey.isEmpty;
+    final allMapboxEmpty = newApiKeys.mapboxAndroidToken.isEmpty &&
+        newApiKeys.mapboxIosToken.isEmpty &&
+        newApiKeys.mapboxWebToken.isEmpty;
+
+    if (allGoogleEmpty && allMapboxEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cannot save empty configuration. Please provide at least one valid API key or token.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (newApiKeys.isGoogle && allGoogleEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Google Maps is active, but all Google API keys are empty. Provide at least one key before saving.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (newApiKeys.isMapbox && allMapboxEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Mapbox is active, but all Mapbox access tokens are empty. Provide at least one token before saving.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await ApiKeysService().saveApiKeys(newApiKeys);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Map & API Key Configuration saved successfully to system_config/api_keys!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save API keys: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   /// 8. Vehicle recommendation thresholds: distance bands for the Smart

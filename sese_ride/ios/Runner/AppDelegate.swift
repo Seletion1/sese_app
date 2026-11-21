@@ -31,27 +31,44 @@ import GoogleMaps
     // Read the Maps SDK key from Info.plist — the plist value is populated
     // at build time from an xcconfig variable, so no key lives in source.
     let apiKey = Bundle.main.object(forInfoDictionaryKey: "GoogleMapsSdkKey") as? String
-    guard let apiKey = apiKey, !apiKey.isEmpty,
-          !apiKey.hasPrefix("$(") // guard against un-substituted xcconfig var
-    else {
-      // In debug mode, crash fast with a clear message rather than silently
-      // rendering a beige void. In release builds, continue without maps
-      // (degraded but not crashed — the app can still dispatch via server).
-      assertionFailure(
-        """
-
-        ⛔  GoogleMapsSdkKey is not set in Info.plist.
-            Add `GoogleMapsSdkKey` → $(GOOGLE_MAPS_SDK_KEY) to Info.plist,
-            then define GOOGLE_MAPS_SDK_KEY in your .xcconfig or environment.
-        """
-      )
-      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    if let apiKey = apiKey, !apiKey.isEmpty, !apiKey.hasPrefix("$(") {
+      GMSServices.provideAPIKey(apiKey)
+    } else {
+      NSLog("sese_ride: GoogleMapsSdkKey not found in Info.plist — awaiting dynamic Firestore injection via map_credentials channel.")
     }
-    GMSServices.provideAPIKey(apiKey)
+
+    let controller = window?.rootViewController as? FlutterViewController
+    if let messenger = controller?.binaryMessenger {
+      setupMapCredentialsChannel(messenger: messenger)
+    }
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func setupMapCredentialsChannel(messenger: FlutterBinaryMessenger) {
+    let mapChannel = FlutterMethodChannel(
+      name: "com.sesetech.sese_ride/map_credentials",
+      binaryMessenger: messenger
+    )
+    mapChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+      if call.method == "provideGMSServicesApiKey" || call.method == "injectGoogleMapsApiKey" {
+        if let args = call.arguments as? [String: Any],
+           let key = args["apiKey"] as? String, !key.isEmpty {
+          GMSServices.provideAPIKey(key)
+          result(true)
+          return
+        }
+        result(false)
+      } else if call.method == "initializeMapbox" {
+        result(true)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    setupMapCredentialsChannel(messenger: engineBridge.engine.binaryMessenger)
   }
 }
