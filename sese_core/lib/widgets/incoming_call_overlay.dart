@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/app_sound_service.dart';
 import '../services/call/call_service_manager.dart';
 import '../services/call/i_call_service.dart';
+import '../services/push_notification_service.dart';
 import 'in_app_call_screen.dart';
 
 /// Global overlay widget that listens to [CallServiceManager.incomingCallStream]
@@ -67,11 +68,18 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
           setState(() => _incomingSession = session);
           _startRingtone();
           _startExpiryTimer(session);
+          unawaited(PushNotificationService.showIncomingCallNotification(
+            callId: session.callId,
+            callerId: session.callerId,
+            callerName: session.callerName,
+            callerAvatar: session.callerAvatar,
+          ));
         }
       } else {
         if (_incomingSession != null) {
           _stopRingtone();
           _expiryTimer?.cancel();
+          unawaited(PushNotificationService.cancelIncomingCallNotification());
           setState(() => _incomingSession = null);
         }
       }
@@ -117,6 +125,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _handledCallIds.add(session.callId);
     _stopRingtone();
     _expiryTimer?.cancel();
+    unawaited(PushNotificationService.cancelIncomingCallNotification());
     setState(() => _incomingSession = null);
 
     final navState = widget.navKey?.currentState ??
@@ -149,6 +158,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _handledCallIds.add(session.callId);
     _stopRingtone();
     _expiryTimer?.cancel();
+    unawaited(PushNotificationService.cancelIncomingCallNotification());
     setState(() => _incomingSession = null);
     // ignore: discarded_futures
     _callManager.rejectCall(session.callId, reason: 'declined_from_overlay');
@@ -159,6 +169,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _stopRingtone();
     _expiryTimer?.cancel();
     _incomingSub?.cancel();
+    unawaited(PushNotificationService.cancelIncomingCallNotification());
     super.dispose();
   }
 

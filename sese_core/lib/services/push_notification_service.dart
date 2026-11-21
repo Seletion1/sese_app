@@ -33,6 +33,9 @@ class PushChannels {
   /// `sendTargetedBroadcast` payload (`channel_id` + `FLUTTER_NOTIFICATION_CLICK`).
   static const broadcast = 'sese_high_priority_alerts';
 
+  /// In-app VoIP audio calls: heads-up alert with caller name, Accept & Decline actions.
+  static const calls = 'sese_calls';
+
   /// Raw resource name (res/raw/sese_alert_chime.wav, no extension).
   static const alertSound = 'sese_alert_chime';
 }
@@ -175,6 +178,17 @@ class PushNotificationService {
     enableVibration: true,
   );
 
+  /// High-priority heads-up channel for incoming VoIP calls with action buttons.
+  static const _callChannel = AndroidNotificationChannel(
+    PushChannels.calls,
+    'Incoming calls',
+    description: 'High-priority heads-up alerts for incoming voice calls',
+    importance: Importance.max,
+    playSound: true,
+    sound: RawResourceAndroidNotificationSound(PushChannels.alertSound),
+    enableVibration: true,
+  );
+
   /// Stream broadcasting data payloads received via foreground FCM messages.
   static final StreamController<Map<String, String>> onMessageDataStream =
       StreamController<Map<String, String>>.broadcast();
@@ -212,7 +226,7 @@ class PushNotificationService {
         settings: InitializationSettings(
             android: androidSettings, iOS: iosSettings),
         onDidReceiveNotificationResponse: (response) {
-          _handleTap(response.payload);
+          _handleTap(response.payload, actionId: response.actionId);
         },
       );
       final android = _local.resolvePlatformSpecificImplementation<
@@ -223,6 +237,7 @@ class PushNotificationService {
         _systemChannel,
         _driverOnlineChannel,
         _broadcastChannel,
+        _callChannel,
       ]) {
         await android?.createNotificationChannel(c);
       }
@@ -407,9 +422,12 @@ class PushNotificationService {
     return out;
   }
 
-  static void _handleTap(String? payload) {
+  static void _handleTap(String? payload, {String? actionId}) {
     final data = _dataOf(payload);
     if (data.isEmpty) return;
+    if (actionId != null && actionId.isNotEmpty) {
+      data['actionId'] = actionId;
+    }
     try {
       _onTap?.call(data);
     } catch (e) {
@@ -422,7 +440,9 @@ class PushNotificationService {
       'tier_ping',
       'marketplace_broadcast',
     };
-    if (offerTypes.contains(type)) {
+    if (offerTypes.contains(type) &&
+        actionId != 'decline' &&
+        actionId != 'decline_order') {
       incomingOfferNotifier.value = data;
     }
     try {
@@ -432,6 +452,9 @@ class PushNotificationService {
 
   static String _channelFor(Map<String, dynamic> data) {
     final type = (data['type'] ?? '').toString();
+    if (type == 'incoming_call' || type == 'call' || type == 'voip_call') {
+      return PushChannels.calls;
+    }
     if (type == 'broadcast' ||
         (data['channel'] ?? '').toString() == PushChannels.broadcast) {
       return PushChannels.broadcast;
@@ -460,14 +483,12 @@ class PushNotificationService {
     return PushChannels.system;
   }
 
-  /// Renders a [RemoteMessage] as a high-priority local notification with
-  /// full-screen intent for order alerts (WhatsApp-style call notification).
+  /// Renders a [RemoteMessage] as a high-priority heads-up notification with
+  /// action buttons (Open/Accept & Decline) compliant with targetSdk 36 and Google Play policies.
   ///
-  /// For driver order pings (`trip_offer`, `direct_ping`, `tier_ping`,
-  /// `marketplace_broadcast`), this triggers an immediate fullScreenIntent
-  /// notification (`category: AndroidNotificationCategory.call`,
-  /// `importance: Importance.max`, `fullScreenIntent: true`) that wakes the
-  /// device screen and launches the main `IncomingOfferSheet` UI.
+  /// USE_FULL_SCREEN_INTENT is stripped to comply with Google Play Console declarations.
+  /// Heads-up notifications with action buttons (showsUserInterface: true) reliably bring
+  /// the app to the foreground on user interaction without background activity launch blocks.
   static Future<void> showFromMessage(RemoteMessage message) async {
     try {
       final data = Map<String, dynamic>.from(message.data);
@@ -481,10 +502,42 @@ class PushNotificationService {
       final body = message.notification?.body ??
           (data['body'] ?? 'You have a new update.').toString();
       final channel = _channelFor(data);
-      final fullScreen = channel == PushChannels.orders ||
-          (data['fullScreen'] ?? '').toString() == 'true';
+      final isCall = channel == PushChannels.calls;
+      final isOrder = channel == PushChannels.orders;
       final isBroadcast = channel == PushChannels.broadcast;
       final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      final List<AndroidNotificationAction>? actions;
+      if (isCall) {
+        actions = const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'accept_call',
+            'Accept',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'decline_call',
+            'Decline',
+            cancelNotification: true,
+          ),
+        ];
+      } else if (isOrder) {
+        actions = const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'open_order',
+            'Open Order',
+            showsUserInterface: true,
+          ),
+          AndroidNotificationAction(
+            'decline_order',
+            'Decline',
+            cancelNotification: true,
+          ),
+        ];
+      } else {
+        actions = null;
+      }
+
       await _local.show(
         id: id,
         title: title,
@@ -492,14 +545,16 @@ class PushNotificationService {
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             channel,
-            channel == PushChannels.orders
-                ? 'Order alerts'
-                : channel == PushChannels.chat
-                    ? 'Chat messages'
-                    : isBroadcast
-                        ? 'Announcements'
-                        : 'System announcements',
-            importance: channel == PushChannels.orders || isBroadcast
+            isCall
+                ? 'Incoming calls'
+                : isOrder
+                    ? 'Order alerts'
+                    : channel == PushChannels.chat
+                        ? 'Chat messages'
+                        : isBroadcast
+                            ? 'Announcements'
+                            : 'System announcements',
+            importance: (isCall || isOrder || isBroadcast)
                 ? Importance.max
                 : Importance.high,
             priority: Priority.high,
@@ -510,32 +565,19 @@ class PushNotificationService {
                 ? null
                 : const RawResourceAndroidNotificationSound(
                     PushChannels.alertSound),
-            fullScreenIntent: fullScreen,
-            category: channel == PushChannels.orders
+            fullScreenIntent: false,
+            category: (isCall || isOrder)
                 ? AndroidNotificationCategory.call
                 : AndroidNotificationCategory.message,
             visibility: NotificationVisibility.public,
             enableVibration: true,
-            vibrationPattern: channel == PushChannels.orders
+            vibrationPattern: (isCall || isOrder)
                 ? Int64List.fromList([0, 1000, 500, 1000, 500, 1000])
                 : null,
-            audioAttributesUsage: channel == PushChannels.orders
+            audioAttributesUsage: (isCall || isOrder)
                 ? AudioAttributesUsage.notificationRingtone
                 : AudioAttributesUsage.notification,
-            actions: channel == PushChannels.orders
-                ? const <AndroidNotificationAction>[
-                    AndroidNotificationAction(
-                      'accept',
-                      'ACCEPT',
-                      showsUserInterface: true,
-                    ),
-                    AndroidNotificationAction(
-                      'decline',
-                      'DECLINE',
-                      cancelNotification: true,
-                    ),
-                  ]
-                : null,
+            actions: actions,
           ),
           iOS: const DarwinNotificationDetails(
             presentAlert: true,
@@ -548,6 +590,88 @@ class PushNotificationService {
       );
     } catch (e) {
       debugPrint('PushNotificationService showFromMessage failed: $e');
+    }
+  }
+
+  static const int _incomingCallNotificationId = 888001;
+
+  /// Displays a high-priority heads-up notification for an incoming in-app voice call
+  /// with caller name and Accept / Decline action buttons.
+  ///
+  /// Fully compliant with targetSdk 36 and Google Play Console policies without
+  /// requesting `USE_FULL_SCREEN_INTENT`.
+  static Future<void> showIncomingCallNotification({
+    required String callId,
+    required String callerId,
+    required String callerName,
+    String? callerAvatar,
+  }) async {
+    try {
+      final payloadData = {
+        'type': 'incoming_call',
+        'callId': callId,
+        'callerId': callerId,
+        'callerName': callerName,
+        if (callerAvatar != null && callerAvatar.isNotEmpty)
+          'callerAvatar': callerAvatar,
+      };
+      final payload = payloadData.entries
+          .map((e) =>
+              '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+          .join('&');
+
+      await _local.show(
+        id: _incomingCallNotificationId,
+        title: callerName.isNotEmpty ? callerName : 'Incoming Call',
+        body: 'Incoming audio call...',
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            PushChannels.calls,
+            'Incoming calls',
+            channelDescription:
+                'High-priority heads-up alerts for incoming voice calls',
+            importance: Importance.max,
+            priority: Priority.high,
+            playSound: true,
+            sound: RawResourceAndroidNotificationSound(PushChannels.alertSound),
+            fullScreenIntent: false,
+            category: AndroidNotificationCategory.call,
+            visibility: NotificationVisibility.public,
+            enableVibration: true,
+            audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+            actions: <AndroidNotificationAction>[
+              AndroidNotificationAction(
+                'accept_call',
+                'Accept',
+                showsUserInterface: true,
+              ),
+              AndroidNotificationAction(
+                'decline_call',
+                'Decline',
+                cancelNotification: true,
+              ),
+            ],
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
+            interruptionLevel: InterruptionLevel.timeSensitive,
+          ),
+        ),
+        payload: payload,
+      );
+    } catch (e) {
+      debugPrint('PushNotificationService showIncomingCallNotification failed: $e');
+    }
+  }
+
+  /// Cancels any active incoming-call heads-up notification.
+  static Future<void> cancelIncomingCallNotification() async {
+    try {
+      await _local.cancel(id: _incomingCallNotificationId);
+    } catch (e) {
+      debugPrint('PushNotificationService cancelIncomingCallNotification failed: $e');
     }
   }
 

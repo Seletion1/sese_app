@@ -42,18 +42,20 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: payload persist failed (non-fatal): $e');
     }
 
-    // 2. Fire the native high-priority full-screen intent notification as audible
-    //    alert & lock-screen banner.
+    // 2. Fire the native high-priority heads-up notification with audible
+    //    chime and Open Order / Decline action buttons.
     try {
       await PushNotificationService.showFromMessage(message);
       debugPrint(
-          'driverBackgroundHandler: launched fullScreenIntent notification for trip ${message.data['tripId']}');
+          'driverBackgroundHandler: launched heads-up notification for trip ${message.data['tripId']}');
     } catch (e) {
       debugPrint(
-          'driverBackgroundHandler: showFromMessage fullScreenIntent failed: $e');
+          'driverBackgroundHandler: showFromMessage heads-up alert failed: $e');
     }
 
-    // 3. Immediately launch MainActivity to the foreground over any active app or home screen!
+    // 3. Best-effort bring MainActivity to foreground if SYSTEM_ALERT_WINDOW is active (e.g. driver bubble).
+    // On Android 10+ / targetSdk 36, background launches without user touch are blocked by OS policy;
+    // the heads-up notification with action buttons (showsUserInterface: true) is the primary reliable trigger.
     try {
       final brought = await AppLauncher().bringToForeground(
         extras: {

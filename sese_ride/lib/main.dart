@@ -193,15 +193,57 @@ Future<String> _resolveInstalledVersion() async {
 }
 
 /// Routes notification taps to in-app destinations.
-///
-/// The unified "SeSe Driver Active" ongoing notification carries
-/// Routes notification taps to in-app destinations.
 Future<void> _handlePushTap(Map<String, String> data) async {
   debugPrint('sese_ride push tap: $data');
   final type = (data['type'] ?? '').toString();
+  final actionId = (data['actionId'] ?? '').toString();
+
+  // Handle explicit notification action button clicks
+  if (actionId == 'decline_order' || actionId == 'decline') {
+    debugPrint('sese_ride: driver declined order from notification banner.');
+    return;
+  }
+
+  if (actionId == 'decline_call') {
+    debugPrint('sese_ride: user declined call from notification banner.');
+    final callId = data['callId'] ?? '';
+    if (callId.isNotEmpty) {
+      unawaited(CallServiceManager.instance.rejectCall(callId, reason: 'declined_from_notification'));
+    }
+    return;
+  }
+
   if (type == 'foreground_request') {
     debugPrint('sese_ride: online-alert tap — app restored to foreground.');
     unawaited(AppLauncher().bringToForeground());
+    return;
+  }
+
+  if (type == 'incoming_call' || type == 'call' || type == 'voip_call') {
+    debugPrint('sese_ride: incoming call tap ($type) — opening call screen.');
+    final callId = data['callId'] ?? '';
+    final callerId = data['callerId'] ?? '';
+    final callerName = data['callerName'] ?? 'Caller';
+    final callerAvatar = data['callerAvatar'];
+
+    if (callId.isNotEmpty) {
+      unawaited(CallServiceManager.instance.answerCall(callId));
+
+      final navState = IncomingCallOverlay.navigatorKey.currentState;
+      if (navState != null) {
+        navState.push(
+          MaterialPageRoute(
+            builder: (_) => InAppCallScreen(
+              callId: callId,
+              targetUserId: callerId,
+              targetUserName: callerName,
+              targetUserAvatar: callerAvatar,
+              isIncoming: true,
+            ),
+          ),
+        );
+      }
+    }
     return;
   }
 

@@ -5,6 +5,7 @@ void main() {
   group('Push channels', () {
     test('channel ids and sound resource are stable', () {
       expect(PushChannels.orders, 'sese_orders');
+      expect(PushChannels.calls, 'sese_calls');
       expect(PushChannels.chat, 'sese_chat');
       expect(PushChannels.system, 'sese_system');
       expect(PushChannels.driverOnline, 'sese_driver_online');
@@ -20,6 +21,12 @@ void main() {
       expect(await PushNotificationService.token(), isNull);
       await PushNotificationService.subscribe('user_x');
       await PushNotificationService.unsubscribe('user_x');
+      await PushNotificationService.showIncomingCallNotification(
+        callId: 'call_123',
+        callerId: 'user_caller',
+        callerName: 'Test Caller',
+      );
+      await PushNotificationService.cancelIncomingCallNotification();
       // Token registration is best-effort: empty uid and missing Firebase
       // resolve to no-ops, never throws.
       await PushNotificationService.registerToken(uid: '');
