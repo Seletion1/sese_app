@@ -51,14 +51,28 @@ abstract final class MediaPermissionService {
     }
   }
 
-  /// Best-effort background-location access for the online driver session
-  /// (keeps the OS delivering GPS fixes while the app is minimized so the
-  /// live-trip marker and dispatch heartbeats keep flowing).
+  /// Best-effort background-location access for the online driver session.
   ///
-  /// Returns true when background fixes may flow. Never blocks go-online:
-  /// foreground fixes still work when this is false.
+  /// **Android**: Returns `false` immediately without requesting
+  /// `ACCESS_BACKGROUND_LOCATION`. Google Play policy requires a burdensome
+  /// background-location declaration form; foreground-only GPS (`whileInUse`)
+  /// is sufficient — the OS delivers fixes whenever the app is active and the
+  /// overlay bubble keeps it foreground during active trips.
+  ///
+  /// **iOS**: Still requests `locationAlways` for continuous background fixes
+  /// on Apple platforms where the policy overhead does not apply.
+  ///
+  /// Never blocks go-online: foreground fixes work reliably without this.
   static Future<bool> ensureBackgroundLocation() async {
     try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        // Background location deliberately skipped on Android: no
+        // ACCESS_BACKGROUND_LOCATION is declared in the manifest (stripped via
+        // tools:node="remove") to avoid a Google Play policy declaration gate.
+        // Foreground-only location is sufficient for active-trip GPS tracking.
+        return false;
+      }
+      // iOS: standard locationAlways upgrade path.
       final current = await Permission.locationWhenInUse.status;
       if (!current.isGranted) return false;
       final always = await Permission.locationAlways.request();

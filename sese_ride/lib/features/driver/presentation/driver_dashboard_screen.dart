@@ -924,8 +924,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// 1. Verifies location service (GPS hardware toggle) is enabled.
   /// 2. Verifies foreground location permission (`ACCESS_FINE_LOCATION`). If denied,
   ///    shows prominent foreground disclosure and requests permission.
-  /// 3. If foreground is granted and background tracking is needed (`locationAlways`),
-  ///    presents prominent background location disclosure and requests `locationAlways`.
+  ///
+  /// Background location (`locationAlways` / `ACCESS_BACKGROUND_LOCATION`) is NOT
+  /// requested here: Google Play policy requires a burdensome declaration form for
+  /// background location. Foreground-only GPS (`whileInUse`) is sufficient — the OS
+  /// delivers fixes whenever the driver has the app open or in the overlay bubble,
+  /// and the app refreshes the GPS stream on `AppLifecycleState.resumed`.
   /// 4. Logs diagnostic details in debug mode.
   Future<bool> _ensureLocationPermissionsAndServices({
     bool promptSettingsIfDenied = true,
@@ -1062,58 +1066,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         return false;
       }
 
-      // 3. Check background location permission (`locationAlways`) on Android
-      if (!kIsWeb && Platform.isAndroid) {
-        final alwaysStatus = await Permission.locationAlways.status;
-        if (kDebugMode) {
-          debugPrint('DriverDashboard: Live locationAlways status: $alwaysStatus');
-        }
-
-        if (!alwaysStatus.isGranted) {
-          if (!mounted) return false;
-          // Present the prominent in-app background location disclosure first
-          final bgConsented = await ProminentLocationDisclosureDialog.show(
-            context,
-            userId: widget.driverId,
-          );
-          if (bgConsented) {
-            final newAlwaysStatus = await Permission.locationAlways.request();
-            if (kDebugMode) {
-              debugPrint('DriverDashboard: locationAlways request result: $newAlwaysStatus');
-            }
-            if (newAlwaysStatus.isPermanentlyDenied && mounted && promptSettingsIfDenied) {
-              final openSettings = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Row(
-                    children: [
-                      Icon(Icons.location_on_outlined, color: Colors.orange),
-                      SizedBox(width: 8),
-                      Text('Background Location'),
-                    ],
-                  ),
-                  content: const Text(
-                    'To receive incoming trip requests while using Google Maps or while the screen is locked, SESE needs background location access.\n\nPlease set Location permission to "Allow all the time" in App Settings.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('Continue Without'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('Open Settings'),
-                    ),
-                  ],
-                ),
-              );
-              if (openSettings == true) {
-                await openAppSettings();
-              }
-            }
-          }
-        }
-      }
+      // Location permission is granted (whileInUse or always). Background location
+      // (locationAlways / ACCESS_BACKGROUND_LOCATION) is intentionally not requested:
+      // Google Play policy requires a declaration form for background location that
+      // is not applicable to this use case. Foreground GPS is sufficient — the OS
+      // delivers fixes whenever the app is active and the overlay bubble keeps it
+      // in the foreground during active trips.
 
       if (kDebugMode) {
         debugPrint(

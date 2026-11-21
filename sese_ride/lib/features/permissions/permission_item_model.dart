@@ -56,15 +56,11 @@ class PermissionItem {
         permission: Permission.locationWhenInUse,
         isMandatory: true,
       ),
-      PermissionItem(
-        id: 'background_location',
-        title: 'Background Location',
-        description:
-            'Required to maintain live tracking, stream telemetry, and keep receiving order dispatches while the app is in the background.',
-        icon: Icons.explore_rounded,
-        permission: Permission.locationAlways,
-        isMandatory: true,
-      ),
+      // Background location (locationAlways / ACCESS_BACKGROUND_LOCATION) is
+      // intentionally omitted: Google Play policy requires a burdensome declaration
+      // form for background location. Foreground-only GPS (whileInUse) is
+      // sufficient — the OS delivers fixes when the driver has the app open or
+      // when the overlay bubble keeps it in the foreground during active trips.
       PermissionItem(
         id: 'notifications',
         title: 'Notifications',

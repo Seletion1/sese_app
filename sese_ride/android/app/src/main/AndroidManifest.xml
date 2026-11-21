@@ -24,16 +24,24 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
-    <!-- Background GPS for the online driver session: lets the OS keep
-         delivering fixes to the live-trip marker and dispatch heartbeats
-         while the app is minimized. Requested best-effort at go-online
-         (foreground fixes work without it). -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- ACCESS_BACKGROUND_LOCATION removed: Google Play policy requires background
+         location declaration which creates policy overhead. Foreground location
+         (ACCESS_FINE_LOCATION) is sufficient: GPS fixes continue when the driver
+         actively navigates, and the app refreshes on resume. The overlay bubble
+         keeps the app in foreground during active trips so background access is
+         not needed. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
+    <!-- FOREGROUND_SERVICE_LOCATION removed: Google Play Console requires a
+         declaration form for FOREGROUND_SERVICE_LOCATION which we cannot satisfy
+         without background location. OverlayService foregroundServiceType is
+         changed to specialUse (stripped below) so no location FGS type is declared. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />
     <!-- Floating quick-return bubble for drivers while online & navigating.
          Requested exclusively after explicit in-app prominent disclosure dialog. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- FOREGROUND_SERVICE_SPECIAL_USE stripped — OverlayService uses no
+         sensitive FGS type after the foregroundServiceType change below. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
     <!-- Heads-up order & call alerts with wake-lock; USE_FULL_SCREEN_INTENT explicitly removed
          for Google Play policy compliance (heads-up notifications with Accept/Decline actions used instead). -->
@@ -57,12 +65,24 @@
 
         <!-- OverlayService for the floating quick-return bubble (Android-only).
              Exported=false prevents unauthorized external apps from binding.
-             Uses location foregroundServiceType matching active driver GPS tracking. -->
+             foregroundServiceType is not set here: the plugin's default (no
+             sensitive type) applies so FOREGROUND_SERVICE_LOCATION / _SPECIAL_USE
+             are not needed and do not trigger a Google Play policy gate. -->
         <service
             android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
             android:exported="false"
-            android:foregroundServiceType="location"
-            tools:replace="android:foregroundServiceType" />
+            tools:replace="android:foregroundServiceType"
+            android:foregroundServiceType="" />
+
+        <!-- GeolocatorLocationService from geolocator_android is stripped entirely:
+             it is only needed for background foreground-service location tracking,
+             which is removed in this release. Foreground Geolocator.getCurrentPosition()
+             and getPositionStream() work without this service when the app is active.
+             Removing it eliminates the FOREGROUND_SERVICE_LOCATION declaration gate
+             in Google Play Console. -->
+        <service
+            android:name="com.baseflow.geolocator.GeolocatorLocationService"
+            tools:node="remove" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

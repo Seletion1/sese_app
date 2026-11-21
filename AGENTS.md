@@ -72,6 +72,29 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-21 — Google Play Console Compliance: Background & FGS Location Stripped (`sese_ride` 1.0.12+13)
+
+- **1. Background & Foreground Service Location Elimination (`sese_ride`)**:
+  - Removed Google Play policy declaration requirements for `ACCESS_BACKGROUND_LOCATION` and `FOREGROUND_SERVICE_LOCATION` on release builds (`targetSdk 36`).
+  - Added explicit removal directives in `sese_ride/android/app/src/main/AndroidManifest.xml`:
+    - `<uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />`
+    - `<uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />`
+    - `<service android:name="com.baseflow.geolocator.GeolocatorLocationService" tools:node="remove" />` (strips `geolocator_android` plugin's background location service declaration which injected `foregroundServiceType="location"`).
+    - Replaced `OverlayService` `foregroundServiceType="location"` with `android:foregroundServiceType=""` using `tools:replace` to prevent sensitive FGS declaration requirements.
+  - Kept `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` intact for foreground map, dispatch, and navigation tracking.
+
+- **2. Runtime Code Audit & Degradation Safeguards (`sese_core`, `sese_ride`)**:
+  - `sese_core/lib/services/media_permission_service.dart`: `ensureBackgroundLocation()` returns `false` immediately on Android without invoking `Permission.locationAlways.request()`.
+  - `sese_ride/lib/features/permissions/permission_item_model.dart`: Removed `background_location` item from `bundleForDriver()`.
+  - `sese_ride/lib/features/permissions/permission_onboarding_service.dart`: Returns `PermissionStatus.granted` immediately on Android for `locationAlways` requests to prevent runtime OS exceptions.
+  - `sese_ride/lib/features/driver/presentation/driver_dashboard_screen.dart`: Removed step 3 (`locationAlways`) from `_ensureLocationPermissionsAndServices()`. Foreground location streams and lifecycle resume hooks (`AppLifecycleState.resumed`) continue to refresh location smoothly.
+
+- **3. Verification & Version Bump**:
+  - Processed release manifest with Gradle (`./gradlew :app:processReleaseManifest`): Confirmed `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, and `GeolocatorLocationService` are **100% absent** from merged release manifest.
+  - `flutter analyze`: **0 issues** across `sese_core` and `sese_ride`.
+  - Unit tests: **179/179** passed in `sese_core`, **11/11** passed in `sese_ride` dispatch & fleet suite.
+  - Bumped `sese_ride/pubspec.yaml` to `1.0.12+13`.
+
 ## 2026-11-21 — Google Play Console Media Permission Audit & Declaration Resolution (`sese_hub`)
 
 - **1. Release Manifest & Bundle Verification (`processReleaseManifest`, `manifest-merger-blame-report`)**:

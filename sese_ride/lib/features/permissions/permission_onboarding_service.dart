@@ -119,7 +119,13 @@ class PermissionOnboardingService {
     }
     try {
       if (item.permission == Permission.locationAlways) {
-        // Android/iOS requirement: foreground location must be granted before/with background location.
+        // On Android: ACCESS_BACKGROUND_LOCATION is stripped via tools:node="remove"
+        // to avoid a Google Play policy declaration gate. Return granted immediately
+        // so the onboarding flow proceeds; foreground-only GPS is sufficient.
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          return PermissionStatus.granted;
+        }
+        // iOS: foreground location must be granted before background.
         final fgStatus = await Permission.locationWhenInUse.status;
         if (!fgStatus.isGranted) {
           final fgReq = await Permission.locationWhenInUse.request();
