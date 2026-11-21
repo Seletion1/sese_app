@@ -74,9 +74,11 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 ## 2026-11-21 — Google Play Console SHA Certificates & `google-services.json` Full Sync
 
-- **1. App Signing SHA-1 & SHA-256 Registration**:
+- **1. App Signing SHA-1 & SHA-256 Registration & Digital Asset Links**:
   - Registered the missing Google Play App Signing key certificates (`57:08:D5:23:00:F8:5A:55:C9:4F:19:D3:F2:79:64:8D:0B:81:2A:09`, `3E:8D:5B:1E:D6:49:E6:86:77:E1:30:DD:08:76:E9:DC:F7:19:8B:C2`, `75:B3:F0:3C:3D:E2:5E:DA:10:2D:36:B7:F9:7E:7F:5E:26:5F:BD:67`) and SHA-256 fingerprints (`F0:48:ED...`, `B1:FB:CE...`, `68:E3:BF...`) directly to Firebase for both `sese_hub` (`1:618721373016:android:7d934d8761d319a750932d`) and `sese_ride` (`1:618721373016:android:9fb16cb52c1804c550932d`).
   - Re-pulled and hydrated fresh, authoritative `google-services.json` configuration files across both apps. This ensures Google Play Services authenticates Google Sign-In and OAuth requests without `ApiException: 10` (Developer Error) across both local debug builds and Google Play distributed bundles.
+  - Updated `public/.well-known/assetlinks.json` with all Play App Signing and release SHA-256 fingerprints for `com.sesetech.sese_ride` and `com.sesetech.sese_hub`, deployed live via Firebase Hosting to `https://sese-ride.web.app/.well-known/assetlinks.json`.
+  - Bumped `sese_ride` version to `1.0.11+12`.
 
 ## 2026-11-21 — Google OAuth Web Client ID Synchronization & Hub Auth Error Handling
 

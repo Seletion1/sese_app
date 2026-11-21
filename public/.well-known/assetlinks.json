@@ -5,7 +5,25 @@
       "namespace": "android_app",
       "package_name": "com.sesetech.sese_ride",
       "sha256_cert_fingerprints": [
-        "38:C1:3B:27:E7:D9:26:A1:83:F9:5C:0C:65:86:CB:1D:15:E9:23:B5:CF:CB:D0:F4:03:AC:77:11:5C:DF:F5:FA"
+        "38:C1:3B:27:E7:D9:26:A1:83:F9:5C:0C:65:86:CB:1D:15:E9:23:B5:CF:CB:D0:F4:03:AC:77:11:5C:DF:F5:FA",
+        "C0:29:4A:93:0C:F4:27:92:F8:B2:1C:11:D4:F4:9E:81:A4:1C:33:89:73:1E:6D:AA:66:39:31:B8:3C:A4:BF:44",
+        "19:3D:AD:DE:A5:23:8E:77:30:58:04:A6:6C:C2:6B:4F:AB:87:57:A6:7E:B8:10:C2:37:4B:54:A5:2D:4D:0A:0A",
+        "B4:DF:CD:51:C1:56:FC:FF:8B:AD:3D:93:CA:A9:78:E0:0A:D0:FD:5A:08:4D:06:2F:8E:EB:15:18:86:F3:E9:28",
+        "8B:1E:61:35:E5:55:C1:66:34:3C:8F:D7:CB:D8:72:9D:F9:76:CB:90:53:7E:28:8F:3A:17:B5:34:BD:02:EE:91"
+      ]
+    }
+  },
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.sesetech.sese_hub",
+      "sha256_cert_fingerprints": [
+        "68:E3:BF:C0:6F:78:82:F3:34:AB:A2:83:89:DB:41:16:23:45:29:5E:F9:36:A8:7A:F2:FA:D2:46:04:95:96:F5",
+        "F0:48:ED:82:02:1B:C3:EE:2E:B1:CB:E3:F6:6E:4C:E6:EC:1C:DB:1D:10:B8:72:A1:15:8C:7F:6B:AE:BE:BE:68",
+        "B1:FB:CE:08:78:49:4A:2B:6B:15:81:3D:DC:28:54:98:07:15:87:1D:DA:A7:BE:97:4F:FD:D8:2C:BC:5D:B6:B5",
+        "B4:DF:CD:51:C1:56:FC:FF:8B:AD:3D:93:CA:A9:78:E0:0A:D0:FD:5A:08:4D:06:2F:8E:EB:15:18:86:F3:E9:28",
+        "8B:1E:61:35:E5:55:C1:66:34:3C:8F:D7:CB:D8:72:9D:F9:76:CB:90:53:7E:28:8F:3A:17:B5:34:BD:02:EE:91"
       ]
     }
   }
