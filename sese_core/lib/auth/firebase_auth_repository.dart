@@ -27,7 +27,7 @@ class FirebaseAuthRepository implements AuthRepository {
   /// Default Web OAuth Client ID associated with the `sese-ride` Firebase project.
   /// Required by Google Play Services on Android to return an OpenID Connect `idToken`.
   static const String defaultServerClientId =
-      '618721373016-m544iaqof5f8rss97282imlno0bhgbl7.apps.googleusercontent.com';
+      '618721373016-qdc6er01skjqubo6edrqpn9d6gcjr778.apps.googleusercontent.com';
 
   final fb.FirebaseAuth? _authExplicit;
   final FirebaseFirestore? _firestoreExplicit;

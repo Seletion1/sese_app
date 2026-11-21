@@ -133,7 +133,7 @@ class _LoginPageState extends State<LoginPage> {
     } on FirebaseAuthException catch (e) {
       debugPrint('LoginPage: FirebaseAuthException during Google sign-in: ${e.code} - ${e.message}');
       if (e.code != 'google-sign-in-cancelled') {
-        _showError(_authErrorMessage(e.code));
+        _showError(_authErrorMessage(e.code, e.message));
       }
     } catch (e, stack) {
       debugPrint('LoginPage: Unexpected error during Google sign-in: $e\n$stack');
@@ -174,7 +174,7 @@ class _LoginPageState extends State<LoginPage> {
     return 'Google sign-in failed. Please try again.';
   }
 
-  String _authErrorMessage(String code) {
+  String _authErrorMessage(String code, [String? fallbackMessage]) {
     switch (code) {
       case 'user-not-found':
         return 'No account found with this email.';
@@ -203,8 +203,14 @@ class _LoginPageState extends State<LoginPage> {
         return 'Please enter a valid email address.';
       case 'channel-error':
         return 'Unable to connect to authentication service. Please check your credentials and internet connection.';
+      case 'google-sign-in-failed':
+        return fallbackMessage ?? 'Google sign-in failed. Please verify Google Play Services and try again.';
+      case 'google-id-token-missing':
+        return fallbackMessage ?? 'Google returned no security token. Please verify app registration and try again.';
       default:
-        return 'Sign-in failed. Please verify your credentials and try again.';
+        return (fallbackMessage != null && fallbackMessage.isNotEmpty)
+            ? fallbackMessage
+            : 'Sign-in failed. Please verify your credentials and try again.';
     }
   }
 

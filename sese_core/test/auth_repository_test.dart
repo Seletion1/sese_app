@@ -9,7 +9,7 @@ void main() {
     test('exposes defaultServerClientId matching Firebase Web OAuth client ID', () {
       expect(
         FirebaseAuthRepository.defaultServerClientId,
-        '618721373016-m544iaqof5f8rss97282imlno0bhgbl7.apps.googleusercontent.com',
+        '618721373016-qdc6er01skjqubo6edrqpn9d6gcjr778.apps.googleusercontent.com',
       );
     });
 
