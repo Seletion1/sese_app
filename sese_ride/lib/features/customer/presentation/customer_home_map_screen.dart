@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../../widgets/map_provider.dart';
 import '../../notifications/notification_inbox_screen.dart';
+import '../../permissions/feature_permission_service.dart';
 import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
@@ -166,6 +168,29 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
     }
   }
 
+  /// Contextual Just-In-Time recenter handler. If location permission was
+  /// skipped during onboarding, prompts the user contextually before recentering.
+  Future<void> _handleRecenterTap() async {
+    final status = await Permission.locationWhenInUse.status;
+    if (!status.isGranted && !status.isLimited) {
+      if (!mounted) return;
+      final granted = await FeaturePermissionService.ensureLocation(
+        context: context,
+        featureName: 'My Location',
+        rationale:
+            'SeSe needs location access to center the map where you are and show nearby drivers and routes.',
+      );
+      if (granted) {
+        await _resolvePosition();
+      }
+    } else {
+      if (_position.latitude == 6.5244 && _position.longitude == 3.3792) {
+        await _resolvePosition();
+      }
+    }
+    _mapController.recenterTo(_position, 16.0);
+  }
+
   void _openBooking(
       {required int modeIndex, required String title, bool isReceiving = false}) {
     // Every card opens a focused page without the mode toggle:
@@ -222,8 +247,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
               // Re-engages GPS follow AND snaps back (bare move() would
               // track once without restoring follow state).
               userLocation: _position,
-              onRecenterTap: () =>
-                  _mapController.recenterTo(_position, 16.0),
+              onRecenterTap: _handleRecenterTap,
               markers: const [],
             ),
           ),

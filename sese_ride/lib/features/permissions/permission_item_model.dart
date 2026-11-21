@@ -72,11 +72,11 @@ class PermissionItem {
       ),
       PermissionItem(
         id: 'photos_storage',
-        title: 'Photos & Storage',
+        title: 'Camera & Documents',
         description:
-            'Required to upload vehicle documents, profile verification photos, and inspect vehicle state.',
-        icon: Icons.photo_library_rounded,
-        permission: Permission.photos,
+            'Required to capture vehicle inspection photos, profile verification, and document scans.',
+        icon: Icons.camera_alt_rounded,
+        permission: Permission.camera,
         isMandatory: true,
       ),
     ];

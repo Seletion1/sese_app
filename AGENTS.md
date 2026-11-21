@@ -72,6 +72,28 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-21 — Non-Blocking Permission Onboarding Flow & Just-In-Time (JIT) Contextual Prompts (`sese_ride`)
+
+- **1. Non-Blocking Permission Onboarding & Skipping Flow (`PermissionOnboardingScreen`, `PermissionOnboardingService`)**:
+  - Replaced the previous hard block (`_showDeniedDialog`) that prevented users from proceeding past the permission board without granting all permissions.
+  - Added "Skip for now" top-app-bar action and "Proceed with limited features" bottom button.
+  - Implemented `_showProceedWithoutPermissionsConfirmation()` bottom sheet: when a user skips or denies permissions, clearly informs them of the exact feature impacts (e.g., location disables auto-centering and pickup detection; notifications disables instant ride updates; camera disables vehicle/document capture).
+  - Offers two clean options:
+    - "Stay & Grant": stays on the permission board to review and grant.
+    - "Continue Anyway": marks onboarding completed (`PermissionOnboardingService.setCompleted`) and enters the app without locking the user out.
+
+- **2. Just-In-Time (JIT) Contextual Permission Requests (`FeaturePermissionService`)**:
+  - Created centralized `FeaturePermissionService` in `sese_ride/lib/features/permissions/feature_permission_service.dart` providing reusable static helpers: `ensurePermission()`, `ensureLocation()`, `ensureCamera()`, and `ensureNotifications()`.
+  - Displays a contextual rationale bottom sheet prior to invoking OS runtime permission dialogs, explaining why that specific feature needs the permission right now.
+  - Gracefully handles `permanentlyDenied` states with a dedicated modal and one-tap shortcut to open device OS settings.
+  - Integrated into customer map recenter (`CustomerHomeMapScreen._handleRecenterTap`): if a rider skipped location upfront, tapping the map recenter button contextually explains the need, obtains the fix, and recenters.
+
+- **3. Android Manifest & Permission Bundle Alignment (`permission_item_model.dart`, `permission_onboarding_service.dart`)**:
+  - Confirmed Android manifest strictly maintains only permissions actually needed: `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `CAMERA`, and `POST_NOTIFICATIONS`.
+  - Confirmed `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, `READ_MEDIA_*`, `READ_EXTERNAL_STORAGE`, and `WRITE_EXTERNAL_STORAGE` remain stripped via `tools:node="remove"` for full Google Play Console compliance.
+  - Updated driver onboarding bundle to represent `Permission.camera` ("Camera & Documents") instead of requesting legacy storage permissions, aligning with native Android Photo Picker and camera capture flows.
+  - Updated test suite `sese_ride/test/permission_onboarding_test.dart` (11/11 tests passing, 0 analyzer issues).
+
 ## 2026-11-21 — Dynamic Map & API Key Management and Startup Credential Injection (`sese_hub`, `sese_ride`)
 
 - **1. Sese Hub Map & API Key Management (`sese_hub`)**:

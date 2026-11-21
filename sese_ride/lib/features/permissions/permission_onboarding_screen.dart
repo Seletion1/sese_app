@@ -122,63 +122,225 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
       );
       if (mounted) widget.onCompleted();
     } else {
-      _showDeniedDialog(result.permanentlyDeniedItems);
+      _showProceedWithoutPermissionsConfirmation();
     }
   }
 
-  void _showDeniedDialog(List<PermissionItem> permanentlyDenied) {
-    final missingNames = _bundleItems
-        .where((item) => item.isMandatory && !_isGranted(_statuses[item.id]))
-        .map((item) => item.title)
-        .join(', ');
+  /// Displays a non-blocking confirmation bottom sheet when the user chooses
+  /// to skip or proceed without granting all permissions.
+  Future<void> _showProceedWithoutPermissionsConfirmation() async {
+    final ungranted = _bundleItems
+        .where((item) => !_isGranted(_statuses[item.id]))
+        .toList();
 
-    showDialog<void>(
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
-          children: [
-            Icon(Icons.security_rounded, color: _seseGold, size: 28),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Permission Required',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        content: Text(
-          'SeSe requires $missingNames to ensure safe, accurate, and seamless operations.\n\n'
-          'Please enable them in your device settings to continue.',
-          style: const TextStyle(fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(
-              'Not Now',
-              style: TextStyle(color: Theme.of(context).disabledColor),
-            ),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _seseGold,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              PermissionOnboardingService.openSettings();
-            },
-            child: const Text(
-              'Open Settings',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.amber,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Proceed with Limited Features?',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Some permissions are not yet enabled',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'You can explore SeSe now without granting all permissions. However, the following features may be limited until enabled:',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  height: 1.4,
+                  color: theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.8),
+                ),
+              ),
+              const SizedBox(height: 14),
+              ...ungranted.map((item) {
+                String effectDescription;
+                switch (item.id) {
+                  case 'location':
+                  case 'precise_location':
+                    effectDescription =
+                        'Live map centering, pickup auto-detection, and navigation.';
+                    break;
+                  case 'notifications':
+                    effectDescription =
+                        'Instant ride requests, message notifications, and arrival alerts.';
+                    break;
+                  case 'photos_storage':
+                    effectDescription =
+                        'Capturing vehicle inspection photos and profile documents.';
+                    break;
+                  default:
+                    effectDescription = item.description;
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2, right: 10),
+                        child: Icon(
+                          item.icon,
+                          size: 18,
+                          color: _seseGold,
+                        ),
+                      ),
+                      Expanded(
+                        child: RichText(
+                          text: TextSpan(
+                            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                            children: [
+                              TextSpan(
+                                text: '${item.title}: ',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              TextSpan(
+                                text: effectDescription,
+                                style: TextStyle(
+                                  color: theme.textTheme.bodyMedium?.color
+                                      ?.withValues(alpha: 0.75),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _seseGold.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _seseGold.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded,
+                        size: 20, color: _seseGold),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'You can grant these at any time when using those features, or in your device settings.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontSize: 12,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      key: const Key('stay_and_grant_button'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Stay & Grant'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      key: const Key('confirm_proceed_without_permissions'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _seseGold,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        await PermissionOnboardingService.setCompleted(
+                          userId: widget.user.uid,
+                          role: widget.role,
+                        );
+                        if (mounted) widget.onCompleted();
+                      },
+                      child: const Text(
+                        'Continue Anyway',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -195,6 +357,25 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
 
     return Scaffold(
       key: const Key('permission_onboarding_screen'),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: [
+          TextButton(
+            key: const Key('skip_permissions_button'),
+            onPressed: _showProceedWithoutPermissionsConfirmation,
+            child: Text(
+              'Skip for now',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: SafeArea(
         child: (_isLoading && !isTest)
             ? const Center(
@@ -314,40 +495,61 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
                         ),
                       ],
                     ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        key: const Key('grant_permissions_button'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _seseGold,
-                          foregroundColor: Colors.black,
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton(
+                            key: const Key('grant_permissions_button'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _seseGold,
+                              foregroundColor: Colors.black,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: _isRequesting ? null : _handleGrantPermissions,
+                            child: _isRequesting
+                                ? const SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                : Text(
+                                    _areAllMandatoryGranted
+                                        ? 'Continue'
+                                        : 'Grant Permissions',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
                           ),
                         ),
-                        onPressed: _isRequesting ? null : _handleGrantPermissions,
-                        child: _isRequesting
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.black,
-                                ),
-                              )
-                            : Text(
-                                _areAllMandatoryGranted
-                                    ? 'Continue'
-                                    : 'Grant Permissions',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.2,
-                                ),
+                        if (!_areAllMandatoryGranted) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                            key: const Key('proceed_without_all_button'),
+                            onPressed: _showProceedWithoutPermissionsConfirmation,
+                            child: Text(
+                              'Proceed with limited features',
+                              style: TextStyle(
+                                color: theme.textTheme.bodyMedium?.color
+                                    ?.withValues(alpha: 0.7),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
                               ),
-                      ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],

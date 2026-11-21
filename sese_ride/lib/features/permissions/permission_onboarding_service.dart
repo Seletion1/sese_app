@@ -141,16 +141,17 @@ class PermissionOnboardingService {
         return await Permission.notification.status;
       }
 
+      if (item.permission == Permission.camera) {
+        return await Permission.camera.request();
+      }
+
       if (item.permission == Permission.photos) {
-        final photoStatus = await Permission.photos.request();
-        if (photoStatus.isGranted || photoStatus.isLimited) {
-          return photoStatus;
-        }
         if (defaultTargetPlatform == TargetPlatform.android) {
-          final storageStatus = await Permission.storage.request();
-          if (storageStatus.isGranted) return storageStatus;
+          // On Android: gallery selection uses system Photo Picker (no runtime permission).
+          // For taking pictures, Camera permission is used.
+          return await Permission.camera.request();
         }
-        return photoStatus;
+        return await Permission.photos.request();
       }
 
       return await item.permission.request();
@@ -209,13 +210,17 @@ class PermissionOnboardingService {
       return PermissionStatus.denied;
     }
     try {
+      if (item.permission == Permission.camera) {
+        return await Permission.camera.status;
+      }
       if (item.permission == Permission.photos) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          // On Android: gallery selection uses system Photo Picker (no runtime permission).
+          // Fall back to camera status for capturing photos.
+          return await Permission.camera.status;
+        }
         final status = await Permission.photos.status;
         if (status.isGranted || status.isLimited) return status;
-        if (defaultTargetPlatform == TargetPlatform.android) {
-          final storageStatus = await Permission.storage.status;
-          if (storageStatus.isGranted) return storageStatus;
-        }
         return status;
       }
       return await item.permission.status;
