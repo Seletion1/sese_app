@@ -39,6 +39,14 @@
           }
         },
         {
+          "client_id": "618721373016-s405k12gvmtabfsu7sfrqqgppdnfg1i4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_hub",
+            "certificate_hash": "5708d52300f85a55c94f19d3f279648d0b812a09"
+          }
+        },
+        {
           "client_id": "618721373016-u3dl9fqbom7grjknub0fltdglguu3v56.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
@@ -104,6 +112,30 @@
           "android_info": {
             "package_name": "com.sesetech.sese_ride",
             "certificate_hash": "8acb50c63b7af6c966d762f9f9cf04d90e6e67d0"
+          }
+        },
+        {
+          "client_id": "618721373016-ka549tqnbo67rq2qrj86779igl1bnrko.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "5708d52300f85a55c94f19d3f279648d0b812a09"
+          }
+        },
+        {
+          "client_id": "618721373016-kkop54bj1ou1nr9ek8iab4n9nt56orvh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "75b3f03c3de25eda102d36b7f97e7f5e265fbd67"
+          }
+        },
+        {
+          "client_id": "618721373016-sb00lofusnsld0jjbvheq8cfjds1524m.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.sesetech.sese_ride",
+            "certificate_hash": "3e8d5b1ed649e68677e130dd0876e9dcf7198bc2"
           }
         },
         {
