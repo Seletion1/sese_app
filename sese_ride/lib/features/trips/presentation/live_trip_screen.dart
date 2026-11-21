@@ -1479,11 +1479,17 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
             mapContext: MapContext.realtimeTracking,
             mapController: _mapController,
             interactionController: _mapInteractionController,
-            onInteractionStarted: () =>
+            onInteractionStarted: () {
+              // When drop-off approval is pending, lock sheet open and avoid collapsing map into immersive mode
+              if (!trip.isDropoffApprovalPending &&
+                  trip.status != TripStatus.pendingCustomerApproval &&
+                  trip.dropoffApprovalStatus != 'EXPIRED') {
                 _mapInteractionController.notifyInteractionStarted(
-              currentLat: focus.latitude,
-              currentLng: focus.longitude,
-            ),
+                  currentLat: focus.latitude,
+                  currentLng: focus.longitude,
+                );
+              }
+            },
             onInteractionEnded: () =>
                 _mapInteractionController.notifyInteractionEnded(),
             initialCenter: focus,
@@ -1499,9 +1505,13 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
           right: 16,
-          bottom: _mapInteractionController.isImmersive
-              ? 50
-              : (_isSearching ? 240 : 220),
+          bottom: (trip.isDropoffApprovalPending ||
+                  trip.status == TripStatus.pendingCustomerApproval ||
+                  trip.dropoffApprovalStatus == 'EXPIRED')
+              ? 340
+              : (_mapInteractionController.isImmersive
+                  ? 50
+                  : (_isSearching ? 240 : 220)),
           child: MapRecenterButton(
             key: const Key('live_trip_recenter'),
             icon: Icons.fit_screen,
@@ -2173,14 +2183,24 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
                 ? widget.trip.fareFormatted
                 : '₦${widget.trip.fareAmount.toStringAsFixed(0)}'));
 
-    final initialSize = widget.trip.isDropoffApprovalPending ? 0.58 : 0.38;
+    final isApprovalPending = widget.trip.isDropoffApprovalPending ||
+        widget.trip.status == TripStatus.pendingCustomerApproval;
+    final isExpired = widget.trip.dropoffApprovalStatus == 'EXPIRED';
+    final hasApprovalPrompt = isApprovalPending || isExpired;
+
+    final initialSize = hasApprovalPrompt ? 0.58 : 0.38;
+    final minSize = hasApprovalPrompt ? 0.52 : 0.18;
+    final snapSizes = hasApprovalPrompt
+        ? const [0.52, 0.68, 0.88]
+        : const [0.18, 0.38, 0.58, 0.88];
+
     return DraggableScrollableSheet(
       controller: _sheetController,
       initialChildSize: initialSize,
-      minChildSize: 0.18,
+      minChildSize: minSize,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.18, 0.38, 0.58, 0.88],
+      snapSizes: snapSizes,
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(
@@ -2488,7 +2508,10 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
       if (mounted) setState(() => _hidePhones = v);
     });
     // If drop-off confirmation is pending on load, auto-expand so card is immediately prominent
-    if (widget.trip.isDropoffApprovalPending) {
+    final isApprovalPending = widget.trip.isDropoffApprovalPending ||
+        widget.trip.status == TripStatus.pendingCustomerApproval ||
+        widget.trip.dropoffApprovalStatus == 'EXPIRED';
+    if (isApprovalPending) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _sheetController.isAttached) {
           _sheetController.animateTo(
@@ -2620,7 +2643,14 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
       oldWidget.interactionController?.detachSheetController();
       widget.interactionController?.attachSheetController(_sheetController);
     }
-    if (widget.trip.isDropoffApprovalPending && !oldWidget.trip.isDropoffApprovalPending) {
+    final wasPending = oldWidget.trip.isDropoffApprovalPending ||
+        oldWidget.trip.status == TripStatus.pendingCustomerApproval ||
+        oldWidget.trip.dropoffApprovalStatus == 'EXPIRED';
+    final isNowPending = widget.trip.isDropoffApprovalPending ||
+        widget.trip.status == TripStatus.pendingCustomerApproval ||
+        widget.trip.dropoffApprovalStatus == 'EXPIRED';
+
+    if (isNowPending && !wasPending) {
       if (_sheetController.isAttached) {
         _sheetController.animateTo(
           0.58,
@@ -2925,14 +2955,24 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
     final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final initialSize = widget.trip.isDropoffApprovalPending ? 0.58 : 0.38;
+    final isApprovalPending = widget.trip.isDropoffApprovalPending ||
+        widget.trip.status == TripStatus.pendingCustomerApproval;
+    final isExpired = widget.trip.dropoffApprovalStatus == 'EXPIRED';
+    final hasApprovalPrompt = isApprovalPending || isExpired;
+
+    final initialSize = hasApprovalPrompt ? 0.58 : 0.38;
+    final minSize = hasApprovalPrompt ? 0.52 : 0.18;
+    final snapSizes = hasApprovalPrompt
+        ? const [0.52, 0.68, 0.88]
+        : const [0.18, 0.38, 0.58, 0.88];
+
     return DraggableScrollableSheet(
       controller: _sheetController,
       initialChildSize: initialSize,
-      minChildSize: 0.18,
+      minChildSize: minSize,
       maxChildSize: 0.88,
       snap: true,
-      snapSizes: const [0.18, 0.38, 0.58, 0.88],
+      snapSizes: snapSizes,
       builder: (context, scrollController) {
         return Container(
           decoration: BoxDecoration(

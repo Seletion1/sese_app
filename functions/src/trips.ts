@@ -4957,6 +4957,8 @@ export const requestDropoffApproval = guardedOnCall(async (request) => {
   await ref.update({
     status: "pending_customer_approval",
     dropoffApprovalStatus: "PENDING",
+    dropOffConfirmationStatus: "PENDING",
+    pendingDropOffConfirmation: true,
     dropoffApprovalRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
     dropoffApprovalDriverLocation: { lat: driverLat, lng: driverLng },
     dropoffApprovalDistanceMeters: distanceM,
@@ -5065,6 +5067,8 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
       const currentStatus = String(data.status);
       const update: Record<string, unknown> = {
         dropoffApprovalStatus: "APPROVED",
+        dropOffConfirmationStatus: "accepted",
+        pendingDropOffConfirmation: false,
         dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
         status: "COMPLETED",
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -5094,10 +5098,13 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
     } else {
       const currentStatus = String(data.status);
       const newApprovalStatus = isTimeout ? "EXPIRED" : "REJECTED";
+      const dropOffConfirmationStatus = isTimeout ? "expired" : "rejected";
       const reason = isTimeout ? "remote_customer_dropoff_timed_out" : "remote_customer_dropoff_rejected";
       const update: Record<string, unknown> = {
         status: "IN_PROGRESS",
         dropoffApprovalStatus: newApprovalStatus,
+        dropOffConfirmationStatus,
+        pendingDropOffConfirmation: false,
         dropoffApprovalRespondedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         statusHistory: admin.firestore.FieldValue.arrayUnion({
@@ -5198,6 +5205,8 @@ export const cancelDropoffApprovalRequest = guardedOnCall(async (request) => {
     await ref.update({
       status: "IN_PROGRESS",
       dropoffApprovalStatus: null,
+      dropOffConfirmationStatus: "none",
+      pendingDropOffConfirmation: false,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {

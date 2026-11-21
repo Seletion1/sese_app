@@ -72,6 +72,24 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-21 — Google Play Media Permissions Elimination (`tools:node="remove"`), `sese_hub` Version 1.0.7+8 & Customer Confirmation Sheet Lock
+
+- **1. Google Play Console Media & Storage Removal (`sese_hub`, `sese_ride`)**:
+  - Removed Google Play policy violation for `READ_MEDIA_IMAGES` / `READ_MEDIA_VIDEO` declarations on closed testing bundle 7 (1.0.6).
+  - Explicitly stripped all photo, video, audio, and external storage permissions via `tools:node="remove"` in `sese_hub/android/app/src/main/AndroidManifest.xml` and `sese_ride/android/app/src/main/AndroidManifest.xml` (`READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`, `READ_MEDIA_VISUAL_USER_SELECTED`, `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`). Third-party plugins cannot merge them back in.
+  - Bumped `sese_hub` to version `1.0.7+8` for fresh Google Play Closed Testing upload.
+
+- **2. Customer Confirmation Sheet Lock & Map Immersive Protection (`live_trip_screen.dart`, `trip_models.dart`, `trips.ts`)**:
+  - **Problem**: In customer Live Trip screen, touching the map or auto-fit camera triggered `MapInteractionController.notifyInteractionStarted()`, which entered immersive mode and animated the bottom sheet to `minChildSize: 0.18`. This collapsed the sheet completely off-screen, hiding the Accept/Reject drop-off confirmation card and countdown timer behind a bare polyline map.
+  - **Solution**:
+    1. In `_LiveTripBody`: Guarded `onInteractionStarted` so map touch does NOT trigger immersive mode or collapse the sheet when `isDropoffApprovalPending` or status is `pendingCustomerApproval`.
+    2. Dynamic Sheet Bounds: When confirmation is pending or expired, `minChildSize` is locked to `0.52`, `initialChildSize` is `0.58`, and `snapSizes` are `[0.52, 0.68, 0.88]`, making it impossible for the confirmation card to be hidden or scrolled out of view.
+    3. Added field alias support in `ActiveTrip.fromMap`: recognizes `dropoffApprovalStatus`, `dropOffConfirmationStatus`, `dropoffConfirmationStatus`, `pendingDropOffConfirmation`, `dropOffPinEnabled`, and `hasDropOffPin`.
+    4. Cloud Functions: Synchronized `dropOffConfirmationStatus` ('pending' | 'accepted' | 'rejected' | 'expired' | 'none') and `pendingDropOffConfirmation` alongside `dropoffApprovalStatus` across `requestDropoffApproval`, `respondDropoffApproval`, and `cancelDropoffApprovalRequest`.
+  - Deployed `advanceTripStatus`, `respondDropoffApproval`, `requestDropoffApproval`, `cancelDropoffApprovalRequest`, and `verifyDeliveryPin` to Cloud Functions.
+  - Verification: 10/10 drop-off geofence tests passed, 71/71 `sese_hub` tests passed, analysis clean across all packages.
+
+
 ## 2026-11-20 — Firebase SHA Certificate Sync, `google-services.json` Re-hydration & Production Pre-Flight
 
 - **1. Hub & Ride SHA Certificate Alignment (`Firebase / sese-ride`)**:

@@ -916,7 +916,10 @@ class ActiveTrip {
       deliveryPin: null,
       deliveryPinRequired: map['deliveryPinRequired'] == true ||
           map['order']?['deliveryPinRequired'] == true ||
-          map['forceDeliveryPinSystemWide'] == true,
+          map['forceDeliveryPinSystemWide'] == true ||
+          map['dropOffPinEnabled'] == true ||
+          map['hasDropOffPin'] == true ||
+          (map['pinCode'] != null && map['pinCode'].toString().trim().isNotEmpty),
       deliveryPinVerified: map['deliveryPinVerified'] == true ||
           map['deliveryPinSkipped'] == true,
       enableWaitingTimeBilling: map['enableWaitingTimeBilling'] != false,
@@ -952,11 +955,29 @@ class ActiveTrip {
               .toList(),
       attemptedDriverIds: stringList(map['attemptedDriverIds']),
       hasActiveBids: map['hasActiveBids'] == true,
-      dropoffApprovalStatus: (map['dropoffApprovalStatus'] ?? '').toString(),
-      dropoffApprovalRequestedAt: dateOf(map['dropoffApprovalRequestedAt']),
-      dropoffApprovalDistanceMeters:
-          n(map['dropoffApprovalDistanceMeters'])?.toDouble() ?? 0.0,
-      dropoffApprovalReason: (map['dropoffApprovalReason'] ?? '').toString(),
+      dropoffApprovalStatus: (map['dropoffApprovalStatus'] ??
+              map['dropOffConfirmationStatus'] ??
+              map['dropoffConfirmationStatus'] ??
+              (map['pendingDropOffConfirmation'] == true ||
+                      map['pendingDropoffConfirmation'] == true
+                  ? 'PENDING'
+                  : ''))
+          .toString()
+          .trim()
+          .toUpperCase(),
+      dropoffApprovalRequestedAt: dateOf(map['dropoffApprovalRequestedAt'] ??
+          map['dropOffConfirmationRequestedAt'] ??
+          map['dropoffConfirmationRequestedAt']),
+      dropoffApprovalDistanceMeters: n(map['dropoffApprovalDistanceMeters'] ??
+              map['dropOffConfirmationDistanceMeters'] ??
+              map['dropoffConfirmationDistanceMeters'])
+          ?.toDouble() ??
+          0.0,
+      dropoffApprovalReason: (map['dropoffApprovalReason'] ??
+              map['dropOffConfirmationReason'] ??
+              map['dropoffConfirmationReason'] ??
+              '')
+          .toString(),
       broadcastFare: n(map['broadcast_fare'])?.toDouble() ??
           n(map['broadcastFare'])?.toDouble() ??
           n(map['paymentBreakdown']?['broadcast_fare'])?.toDouble() ??
