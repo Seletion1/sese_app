@@ -44,8 +44,11 @@ class DriverPresenceService {
   @visibleForTesting
   bool forceUnsupported = false;
 
-  bool get isAndroidOverlaySupported =>
-      !forceUnsupported && !kIsWeb && Platform.isAndroid;
+  /// Android overlay windows require `FOREGROUND_SERVICE` and `SYSTEM_ALERT_WINDOW`,
+  /// which create Google Play declaration policy barriers and runtime crashes
+  /// on Android 14+ (targetSdk 36). Background presence is handled cleanly
+  /// via high-priority heads-up notifications with zero overlay dependencies.
+  bool get isAndroidOverlaySupported => false;
 
   bool get isIos => !forceUnsupported && !kIsWeb && Platform.isIOS;
 

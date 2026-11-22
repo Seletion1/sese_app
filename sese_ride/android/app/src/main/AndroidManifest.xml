@@ -36,12 +36,12 @@
          without background location. OverlayService foregroundServiceType is
          changed to specialUse (stripped below) so no location FGS type is declared. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />
-    <!-- Floating quick-return bubble for drivers while online & navigating.
-         Requested exclusively after explicit in-app prominent disclosure dialog. -->
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- FOREGROUND_SERVICE_SPECIAL_USE stripped — OverlayService uses no
-         sensitive FGS type after the foregroundServiceType change below. -->
+    <!-- Floating quick-return bubble / OverlayService stripped to eliminate
+         Google Play Foreground Service declaration requirements and avoid
+         Android 14+ MissingForegroundServiceTypeException runtime crashes.
+         Driver notifications are delivered via high-priority heads-up alerts. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
     <!-- Heads-up order & call alerts with wake-lock; USE_FULL_SCREEN_INTENT explicitly removed
          for Google Play policy compliance (heads-up notifications with Accept/Decline actions used instead). -->
@@ -63,16 +63,12 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="sese_orders" />
 
-        <!-- OverlayService for the floating quick-return bubble (Android-only).
-             Exported=false prevents unauthorized external apps from binding.
-             foregroundServiceType is not set here: the plugin's default (no
-             sensitive type) applies so FOREGROUND_SERVICE_LOCATION / _SPECIAL_USE
-             are not needed and do not trigger a Google Play policy gate. -->
+        <!-- OverlayService stripped: eliminating it removes the FOREGROUND_SERVICE
+             permission merged by flutter_overlay_window, guaranteeing zero
+             Foreground Service declaration gates in Google Play Console. -->
         <service
             android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
-            android:exported="false"
-            tools:replace="android:foregroundServiceType"
-            android:foregroundServiceType="" />
+            tools:node="remove" />
 
         <!-- GeolocatorLocationService from geolocator_android is stripped entirely:
              it is only needed for background foreground-service location tracking,

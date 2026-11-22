@@ -72,6 +72,31 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Google Play Console Permission Audit & Zero-Declaration Hardening (`sese_ride` 1.0.12+14, `sese_hub` 1.0.9+10)
+
+- **1. Analysis of Historical Play Store Release Errors & Permission Denials**:
+  - Image 1 (Release 12 / 1.0.11): Flagged undeclared Sensitive Permissions (`ACCESS_BACKGROUND_LOCATION`) and Foreground Service (`FOREGROUND_SERVICE`).
+  - Image 2 (Release 9 / 1.0.8 for SeseHub): Flagged Photo and video permission declaration requirement (`READ_MEDIA_*`). Resolved by selecting "No, this app does not request access to photo or video permissions" in Play Console App Content.
+  - Image 3 (Release 12 / 1.0.11 Sensitive Permissions Detail): Required YouTube video proof and justification form for `android.permission.ACCESS_BACKGROUND_LOCATION`.
+  - Images 4 & 5 (Releases 10 / 1.0.9 & 7 / 1.0.6): Flagged 4 errors: Sensitive permissions, Foreground Service, Full-screen intent (`USE_FULL_SCREEN_INTENT`), and Photo/video permissions (`READ_MEDIA_*`).
+
+- **2. Full Resolution Across `sese_ride` & `sese_hub`**:
+  - **Background Location Stripped**: `ACCESS_BACKGROUND_LOCATION`, `FOREGROUND_SERVICE_LOCATION`, and `GeolocatorLocationService` removed with `tools:node="remove"`. Eliminates Image 1 Sensitive Location error and Image 3 declaration/video requirement.
+  - **Foreground Service & Overlay Window Stripped (`sese_ride`)**:
+    - Removed `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, and `SYSTEM_ALERT_WINDOW` using `tools:node="remove"`.
+    - Removed `flutter.overlay.window.flutter_overlay_window.OverlayService` using `tools:node="remove"`.
+    - Set `DriverPresenceService.isAndroidOverlaySupported => false;` to rely purely on high-priority heads-up push notifications with Accept/Decline action buttons (matching iOS architecture).
+    - Prevents Android 14+ (Target SDK 36) runtime `MissingForegroundServiceTypeException` and permanently eliminates the Foreground Service declaration gate (Image 1 Error 2).
+  - **Full-Screen Intent Stripped**: `USE_FULL_SCREEN_INTENT` removed with `tools:node="remove"`; replaced with heads-up notifications.
+  - **Storage & Media Stripped**: All `READ_MEDIA_*` and `*EXTERNAL_STORAGE` permissions stripped with `tools:node="remove"`; Android system Photo Picker used exclusively with zero permission overhead.
+  - **Advertising ID Stripped**: `AD_ID` and `ACCESS_ADSERVICES_*` removed with `tools:node="remove"`.
+  - Version bumps: `sese_ride` to `1.0.12+14`, `sese_hub` to `1.0.9+10`.
+
+- **3. Verification**:
+  - `sese_ride`: 0 analyzer issues; 31/31 unit & widget tests passed (`driver_presence_service_test.dart`, `permission_onboarding_test.dart`, `review_contact_phones_test.dart`).
+  - `sese_hub`: 0 analyzer issues; 74/74 unit & widget tests passed.
+  - `sese_core`: 0 analyzer issues; 186/186 unit & widget tests passed.
+
 ## 2026-11-22 — Sese Hub Navigation Redesign: Scrollable Bottom Bar, Stationary Profile Button & Sub-List Navigation (`sese_hub`)
 
 - **1. Horizontally Scrollable Sections & Pinned Stationary Profile Button (`HubDashboardScreen`)**:
