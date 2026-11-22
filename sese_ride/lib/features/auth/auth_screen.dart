@@ -65,7 +65,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
 
   bool _obscurePassword = true;
-  String? _referredBy;
 
   static const Color _seseGold = AppColors.seseGold;
 
@@ -935,8 +934,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       ReferralInputWidget(
                         referralService:
                             const ReferralService(),
-                        onResolved: (id) =>
-                            _referredBy = id,
+                        // Referral attribution is server-minted post-verification;
+                        // a typed code is only validated here, never stored.
+                        onResolved: (_) {},
                       ),
                       const SizedBox(height: 12),
                     ],
