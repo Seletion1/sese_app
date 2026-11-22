@@ -32,6 +32,15 @@ class DriverProfile {
   final bool isVehicleVerified;
   final bool canGoOnline;
 
+  /// Per-field review map written by hub. Keys are field IDs
+  /// (e.g. `homeAddress`, `licenseNo`, `idFront`). Empty when no review
+  /// has been submitted yet.
+  final Map<String, FieldReviewStatus> fieldReviewStatus;
+
+  /// Overall rejection reason from the hub when [verificationStatus] is
+  /// `rejected`. Empty when not rejected or no reason provided.
+  final String profileRejectionReason;
+
   const DriverProfile({
     required this.uid,
     this.fullName = '',
@@ -49,6 +58,8 @@ class DriverProfile {
     this.isProfileVerified = false,
     this.isVehicleVerified = false,
     this.canGoOnline = false,
+    this.fieldReviewStatus = const {},
+    this.profileRejectionReason = '',
   });
 
   factory DriverProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -92,6 +103,24 @@ class DriverProfile {
       isProfileVerified: map['isProfileVerified'] == true,
       isVehicleVerified: map['isVehicleVerified'] == true,
       canGoOnline: map['canGoOnline'] == true,
+      fieldReviewStatus: () {
+        final raw = map['fieldReviewStatus'];
+        if (raw is Map) {
+          return Map.fromEntries(
+            raw.entries
+                .whereType<MapEntry<String, dynamic>>()
+                .where((e) => e.value is Map)
+                .map((e) => MapEntry(
+                      e.key,
+                      FieldReviewStatus.fromMap(
+                          Map<String, dynamic>.from(e.value as Map)),
+                    )),
+          );
+        }
+        return const <String, FieldReviewStatus>{};
+      }(),
+      profileRejectionReason:
+          (map[DriverVerification.fieldProfileRejectionReason] ?? '').toString(),
     );
   }
 
@@ -268,6 +297,69 @@ class DriverProfileService {
       throw const DriverProfileException(
         'save-failed',
         'Could not save document expiry dates. Check your connection.',
+      );
+    }
+  }
+
+  /// Updates a single rejected field value and sets overall verificationStatus
+  /// back to `pending` while preserving `approved` field statuses in the
+  /// fieldReviewStatus map (only clearing the resubmitted field's entry).
+  ///
+  /// Call this for each individual field the driver edits (homeAddress,
+  /// licenseNo, initialVehicleType). After all edits, call [resubmitProfile].
+  Future<void> updateRejectedField(
+    String uid,
+    String fieldId,
+    dynamic newValue,
+  ) async {
+    final db = _db;
+    if (db == null || uid.isEmpty) {
+      throw const DriverProfileException(
+        'unavailable',
+        'Profile service unavailable. Try again.',
+      );
+    }
+    try {
+      await db.collection('drivers').doc(uid).update({
+        fieldId: newValue,
+        // Remove just this field from the fieldReviewStatus map so the hub
+        // sees it as fresh when re-reviewing.
+        '${DriverVerification.fieldReviewStatus}.$fieldId':
+            FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('DriverProfileService.updateRejectedField error: $e');
+      throw const DriverProfileException(
+        'save-failed',
+        'Could not save your change. Check your connection.',
+      );
+    }
+  }
+
+  /// Marks the driver profile as re-submitted for hub review after the driver
+  /// has corrected rejected fields. Sets verificationStatus back to `pending`
+  /// and `isPendingReview` to true.
+  Future<void> resubmitProfile(String uid) async {
+    final db = _db;
+    if (db == null || uid.isEmpty) {
+      throw const DriverProfileException(
+        'unavailable',
+        'Profile service unavailable. Try again.',
+      );
+    }
+    try {
+      await db.collection('drivers').doc(uid).update({
+        DriverVerification.fieldStatus: DriverVerification.pending,
+        'isPendingReview': true,
+        DriverVerification.fieldProfileRejectionReason: FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('DriverProfileService.resubmitProfile error: $e');
+      throw const DriverProfileException(
+        'save-failed',
+        'Could not submit your profile. Check your connection.',
       );
     }
   }

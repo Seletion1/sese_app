@@ -72,6 +72,44 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Granular Driver KYC & Vehicle Per-Item Review, Smart Lock/Unlock & Resubmission Flow (`sese_ride`, `sese_hub`, `sese_core`)
+
+- **1. Granular Per-Item Review & Schema Alignment (`FieldReviewStatus`, `sese_core`, `sese_hub`)**:
+  - Implemented `FieldReviewStatus` model (`sese_core/lib/models/field_review_status.dart`) storing `status` (`'approved'`, `'rejected'`, `'pending'`), optional `reason`, and `reviewedAt`.
+  - Added `fieldReviewStatus` and `profileRejectionReason` to `DriverVerification` constants and `DriverProfile`.
+  - Updated `VehicleModel` with `rejectionReason: String?`, `fieldReviewStatus: Map<String, FieldReviewStatus>`, and `isRejected` boolean getter.
+  - Implemented granular per-field audit interface in `sese_hub/lib/features/verification/presentation/driver_profile_approvals_tab.dart`:
+    - Staff/agents can review each field/document (`homeAddress`, `licenseNo`, `idFront`, `idBack`, `vehicleType`) individually.
+    - Each field provides instant "Approve (✓)" and "Reject (✗)" toggles; selecting Reject immediately requires an inline explanatory rejection reason.
+    - "Submit Field Review" computes overall decision: if any field is rejected, updates overall `verificationStatus: 'rejected'`, writes `profileRejectionReason` and persists `fieldReviewStatus` map in Firestore. If all fields are approved, updates overall `verificationStatus: 'approved'`.
+    - Added Quick Approve and Quick Reject shortcuts for streamlined workflows.
+
+- **2. Smart Field Unlocking, Rejection Callouts & Resubmission CTA (`sese_ride`)**:
+  - Replaced unconditionally locked `_ReadOnlyField` in `DriverProfileScreen` with dynamic `_VerificationField` widget:
+    - Renders status badges: Approved (green check + locked), Rejected (red badge + red rejection reason box + Edit button), Pending Review (amber badge + locked), or Not provided (unlocked if rejected).
+    - Read-only system fields (`Driver ID`, `Member Since`, `Email`, `Full Name`) remain strictly protected.
+    - Injected red top callout box when `verificationStatus == 'rejected'` highlighting the primary rejection reason and directing the driver to fix rejected fields.
+    - Added bottom "Resubmit Profile" action button (gold primary CTA) shown only when profile is rejected: resets `verificationStatus` to `'pending'`, `isPendingReview: true`, and clears overall rejection reason.
+    - `DriverProfileService.updateRejectedField()` performs atomic field updates and removes only that field from `fieldReviewStatus` without wiping out previously approved fields.
+  - Updated `VerificationBanner` on Driver Home with an actionable red rejection banner variant.
+
+- **3. Vehicle Rejection & Resubmission Workflow (`sese_ride`)**:
+  - In `DriverFleetScreen`, rejected vehicles show a red 'Rejected' chip and an explicit rejection reason callout box.
+  - Added 'Edit & Resubmit' CTA on rejected vehicle cards opening `VehicleRegistrationForm` in edit/resubmit mode with existing vehicle details and documents pre-filled.
+  - Updated `VehicleRegistrationForm` to accept `existingVehicle: VehicleModel?` and call `DriverFleetService.resubmitVehicle()`, resetting status to `'pending'` and clearing rejection reason.
+
+- **4. Dispatch & Online Guard Enforcement (`sese_ride`)**:
+  - Hardened `DriverDashboardScreen._ensureGoOnlineReady()`: prevents drivers with rejected or unverified KYC/vehicle profiles from going online or receiving dispatches.
+  - Surfaces a clear rejection modal dialog with the specific reason from SeseHub and provides a direct, one-tap navigation shortcut to Driver Profile or Vehicle Management to resolve issues.
+
+- **5. Firebase Absent Graceful Degradation (`sese_core`)**:
+  - Updated `AdminApplicationService` with safe Firestore/Storage fallbacks to prevent `[core/no-app]` crashes during widget testing without an active Firebase app.
+
+- **6. Verification**:
+  - `sese_core`: 0 analyzer issues, 100% tests passed (179/179).
+  - `sese_hub`: 0 analyzer issues, 100% tests passed (74/74).
+  - `sese_ride`: 0 analyzer issues, 100% tests passed (`driver_profile_test`, `vehicle_registration_form_test`, dispatch & fleet tests).
+
 ## 2026-11-21 — Non-Blocking Permission Onboarding Flow & Just-In-Time (JIT) Contextual Prompts (`sese_ride`)
 
 - **1. Non-Blocking Permission Onboarding & Skipping Flow (`PermissionOnboardingScreen`, `PermissionOnboardingService`)**:

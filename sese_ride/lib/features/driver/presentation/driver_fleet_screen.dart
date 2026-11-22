@@ -163,6 +163,33 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
     await _onVehicleRegistered(registered);
   }
 
+  /// Opens the registration form prefilled to edit and resubmit a rejected vehicle.
+  Future<void> _openEditVehicleSheet(VehicleModel vehicle) async {
+    final updated = await showModalBottomSheet<VehicleModel>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AddVehicleSheet(
+        fleetService: widget.fleetService,
+        driverId: widget.driverId,
+        config: widget.config,
+        pickImage: widget.pickImage,
+        uploadDocument: widget.uploadDocument,
+        vehicle: vehicle,
+      ),
+    );
+    if (updated != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vehicle updated and resubmitted for verification.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _loadFleet();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && _vehicles.isEmpty) {
@@ -319,6 +346,9 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
   }
 
   Widget _buildVehicleCard(VehicleModel vehicle) {
+    final isRejected = vehicle.isRejected;
+    final isApproved = vehicle.isApproved;
+
     return Card(
       elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
@@ -330,14 +360,20 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: vehicle.isApproved
+                  backgroundColor: isApproved
                       ? Colors.green.shade100
-                      : Colors.orange.shade100,
+                      : isRejected
+                          ? Colors.red.shade100
+                          : Colors.orange.shade100,
                   child: Icon(
                     vehicle.category == VehicleCategory.car
                         ? Icons.directions_car
                         : Icons.two_wheeler,
-                    color: vehicle.isApproved ? Colors.green.shade800 : Colors.orange.shade800,
+                    color: isApproved
+                        ? Colors.green.shade800
+                        : isRejected
+                            ? Colors.red.shade800
+                            : Colors.orange.shade800,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -360,20 +396,51 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
                   label: Text(
                     vehicle.verificationStatus.displayName,
                     style: TextStyle(
-                      color: vehicle.isApproved
+                      color: isApproved
                           ? Colors.green.shade900
-                          : Colors.orange.shade900,
+                          : isRejected
+                              ? Colors.red.shade900
+                              : Colors.orange.shade900,
                       fontWeight: FontWeight.bold,
                       fontSize: 11,
                     ),
                   ),
-                  backgroundColor: vehicle.isApproved
+                  backgroundColor: isApproved
                       ? Colors.green.shade50
-                      : Colors.orange.shade50,
+                      : isRejected
+                          ? Colors.red.shade50
+                          : Colors.orange.shade50,
                   side: BorderSide.none,
                 ),
               ],
             ),
+            if (isRejected && (vehicle.rejectionReason?.isNotEmpty == true)) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.error_outline,
+                        size: 16, color: Colors.red.shade700),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Rejection reason: ${vehicle.rejectionReason}',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.red.shade900),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (vehicle.category == VehicleCategory.car && vehicle.tier != null) ...[
               const SizedBox(height: 8),
               Row(
@@ -397,23 +464,48 @@ class _DriverFleetScreenState extends State<DriverFleetScreen> {
             Row(
               children: [
                 Icon(
-                  vehicle.isApproved ? Icons.check_circle : Icons.lock_clock,
+                  isApproved
+                      ? Icons.check_circle
+                      : isRejected
+                          ? Icons.error_outline
+                          : Icons.lock_clock,
                   size: 16,
-                  color: vehicle.isApproved ? Colors.green : Colors.orange,
+                  color: isApproved
+                      ? Colors.green
+                      : isRejected
+                          ? Colors.red
+                          : Colors.orange,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    vehicle.isApproved
+                    isApproved
                         ? 'Eligible for session dispatch.'
-                        : 'Pending verification: orders unavailable',
+                        : isRejected
+                            ? 'Vehicle rejected: orders unavailable'
+                            : 'Pending verification: orders unavailable',
                     style: TextStyle(
                       fontSize: 12,
-                      color: vehicle.isApproved ? Colors.green.shade800 : Colors.brown,
-                      fontStyle: vehicle.isApproved ? FontStyle.normal : FontStyle.italic,
+                      color: isApproved
+                          ? Colors.green.shade800
+                          : isRejected
+                              ? Colors.red.shade800
+                              : Colors.brown,
+                      fontStyle: isApproved ? FontStyle.normal : FontStyle.italic,
                     ),
                   ),
                 ),
+                if (isRejected)
+                  TextButton.icon(
+                    key: Key('edit_vehicle_${vehicle.id}'),
+                    icon: const Icon(Icons.edit, size: 14),
+                    label: const Text('Edit & Resubmit'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.seseGold,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    onPressed: () => _openEditVehicleSheet(vehicle),
+                  ),
               ],
             ),
           ],
@@ -438,6 +530,7 @@ class _AddVehicleSheet extends StatelessWidget {
     required String docType,
     required String localPath,
   })? uploadDocument;
+  final VehicleModel? vehicle;
 
   const _AddVehicleSheet({
     required this.fleetService,
@@ -445,6 +538,7 @@ class _AddVehicleSheet extends StatelessWidget {
     this.config,
     this.pickImage,
     this.uploadDocument,
+    this.vehicle,
   });
 
   @override
@@ -488,6 +582,7 @@ class _AddVehicleSheet extends StatelessWidget {
                     config: config,
                     pickImage: pickImage,
                     uploadDocument: uploadDocument,
+                    existingVehicle: vehicle,
                     // Pop with the vehicle so the caller refreshes the list
                     // only on a real submission, never on a dismissal.
                     onRegistered: (vehicle) =>

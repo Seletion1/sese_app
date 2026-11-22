@@ -126,6 +126,94 @@ void main() {
           find.byKey(const Key('phone_edit_button')));
       expect(button.onPressed, isNull);
     });
+
+    testWidgets('rejected profile unlocks rejected fields and shows resubmit button',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DriverProfileScreen(
+            user: driverUser(),
+            profileService: _ProfileServiceStub(
+              DriverProfile(
+                uid: 'driver_1',
+                fullName: 'Test Driver',
+                email: 'driver@test.co',
+                homeAddress: 'Old Address',
+                licenseNo: 'LIC-12345',
+                initialVehicleType: 'Car',
+                verificationStatus: DriverVerification.rejected,
+                profileRejectionReason: 'Address vague and license photo blurry',
+                fieldReviewStatus: {
+                  'homeAddress': FieldReviewStatus.rejected('Address vague'),
+                  'licenseNo': FieldReviewStatus.rejected('License photo blurry'),
+                },
+              ),
+            ),
+            streakService: _IdleStreakStub(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Overall rejection callout and reason
+      expect(find.text('Profile Rejected'), findsOneWidget);
+      expect(find.text('Address vague and license photo blurry'), findsOneWidget);
+      expect(find.text('Correct the highlighted fields below, then tap Resubmit Profile.'), findsOneWidget);
+
+      // Resubmit button visible
+      expect(find.byKey(const Key('resubmit_profile_button')), findsOneWidget);
+
+      // Per-field rejection reasons displayed
+      expect(find.text('Reason: Address vague'), findsOneWidget);
+      expect(find.text('Reason: License photo blurry'), findsOneWidget);
+
+      // System field (Driver ID) remains locked
+      expect(find.text('Driver ID'), findsOneWidget);
+      expect(find.byIcon(Icons.lock_outline), findsWidgets);
+    });
+
+    testWidgets('approved fields show approved badge and lock icon',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DriverProfileScreen(
+            user: driverUser(),
+            profileService: _ProfileServiceStub(
+              const DriverProfile(
+                uid: 'driver_1',
+                fullName: 'Test Driver',
+                email: 'driver@test.co',
+                homeAddress: 'Verified St, Lagos',
+                verificationStatus: DriverVerification.approved,
+                isProfileVerified: true,
+                fieldReviewStatus: {
+                  'homeAddress': FieldReviewStatus.approved,
+                },
+              ),
+            ),
+            streakService: _IdleStreakStub(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Approved'), findsOneWidget);
+      expect(find.byKey(const Key('resubmit_profile_button')), findsNothing);
+    });
   });
 
   group('Driver menu profile card', () {

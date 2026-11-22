@@ -254,157 +254,448 @@ class _DriverProfileApprovalsTabState
             final name = (data['fullName'] ?? '').toString().isNotEmpty
                 ? data['fullName'].toString()
                 : doc.id;
-            final status =
-                (data[DriverVerification.fieldStatus] ?? '').toString();
-            final kin = data['emergencyContact'] is Map
-                ? Map<String, dynamic>.from(data['emergencyContact'] as Map)
-                : <String, dynamic>{};
-            return Card(
-              key: Key('driver_profile_${doc.id}'),
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: Theme.of(context)
-                              .colorScheme
-                              .primaryContainer,
-                          child: Text(
-                            name.isNotEmpty ? name[0].toUpperCase() : 'D',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16)),
-                              Text(
-                                '${data['phoneNumber'] ?? ''} • ${data['email'] ?? ''}',
-                                style: const TextStyle(
-                                    color: Colors.grey, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Chip(
-                          label: Text(status),
-                          backgroundColor: Colors.orange.shade100,
-                          labelStyle: TextStyle(
-                              color: Colors.orange.shade900, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    _fact('Address', '${data['homeAddress'] ?? ''}'),
-                    _fact('Date of Birth', '${data['dateOfBirth'] ?? ''}'),
-                    _fact('Gender', '${data['gender'] ?? ''}'),
-                    _fact(
-                        'ID',
-                        '${data['idType'] ?? ''}: '
-                        '${data['idNumber'] ?? ''}'),
-                    if ((data['idExpiryDate'] ?? '').toString().isNotEmpty)
-                      _fact('ID Expiry', '${data['idExpiryDate']}'),
-                    _fact(
-                        'Next of Kin',
-                        '${kin['name'] ?? ''} '
-                        '(${kin['relationship'] ?? ''}) • '
-                        '${kin['phone'] ?? ''}'),
-                    if ((kin['address'] ?? '').toString().isNotEmpty)
-                      _fact('Kin Address', '${kin['address']}'),
-                    const SizedBox(height: 8),
-                    HubUserWalletCard(userId: doc.id, firestore: _db),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if ((data['idFrontUrl'] ?? '').toString().isNotEmpty)
-                          CachedDocumentThumbnailChip(
-                            imageUrl: data['idFrontUrl'].toString(),
-                            label: 'ID Front',
-                            fallbackIcon: Icons.badge_outlined,
-                          ),
-                        if ((data['idBackUrl'] ?? '').toString().isNotEmpty)
-                          CachedDocumentThumbnailChip(
-                            imageUrl: data['idBackUrl'].toString(),
-                            label: 'ID Back',
-                            fallbackIcon: Icons.badge_outlined,
-                          ),
-                        if ((data['selfieUrl'] ?? '').toString().isNotEmpty)
-                          CachedDocumentThumbnailChip(
-                            imageUrl: data['selfieUrl'].toString(),
-                            label: 'Live Selfie',
-                            fallbackIcon: Icons.photo_camera_outlined,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _reject(doc.id, name),
-                            style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red.shade700),
-                            child: const Text('Reject'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: () => _approve(doc.id, name),
-                            style: FilledButton.styleFrom(
-                                backgroundColor: Colors.green.shade700),
-                            child: const Text('Approve Profile'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            return _DriverProfileCard(
+              key: Key('driver_profile_card_${doc.id}'),
+              driverId: doc.id,
+              data: data,
+              firestore: _db,
+              onRecomputeCanGoOnline: _recomputeCanGoOnline,
+              onQuickApprove: () => _approve(doc.id, name),
+              onQuickReject: () => _reject(doc.id, name),
             );
           },
         );
       },
     );
   }
+}
 
-  Widget _fact(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 110,
-            child: Text(label,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+/// Local state holder for a single field's hub review decision.
+class _FieldDecision {
+  final String status; // 'approved' | 'rejected'
+  final String reason; // required when rejected
+  const _FieldDecision({required this.status, this.reason = ''});
+  bool get isApproved => status == 'approved';
+  bool get isRejected => status == 'rejected';
+}
+
+/// Stateful card representing one driver pending profile review.
+///
+/// Renders per-field approve/reject toggles for identity fields and
+/// document thumbnails, then submits a consolidated `fieldReviewStatus`
+/// map to Firestore with an overall `verificationStatus` derived from
+/// the individual decisions.
+class _DriverProfileCard extends StatefulWidget {
+  final String driverId;
+  final Map<String, dynamic> data;
+  final FirebaseFirestore firestore;
+  final Future<void> Function(String driverId) onRecomputeCanGoOnline;
+  final VoidCallback? onQuickApprove;
+  final VoidCallback? onQuickReject;
+
+  const _DriverProfileCard({
+    super.key,
+    required this.driverId,
+    required this.data,
+    required this.firestore,
+    required this.onRecomputeCanGoOnline,
+    this.onQuickApprove,
+    this.onQuickReject,
+  });
+
+  @override
+  State<_DriverProfileCard> createState() => _DriverProfileCardState();
+}
+
+class _DriverProfileCardState extends State<_DriverProfileCard> {
+  /// Map of fieldId → current decision for this review session.
+  final Map<String, _FieldDecision> _decisions = {};
+
+  /// Text controllers for rejection reasons; keyed by fieldId.
+  final Map<String, TextEditingController> _reasonControllers = {};
+
+  bool _submitting = false;
+
+  @override
+  void dispose() {
+    for (final c in _reasonControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  TextEditingController _reasonCtrl(String fieldId) {
+    return _reasonControllers.putIfAbsent(
+        fieldId, () => TextEditingController());
+  }
+
+  void _decide(String fieldId, String status) {
+    setState(() {
+      _decisions[fieldId] =
+          _FieldDecision(status: status, reason: _reasonCtrl(fieldId).text.trim());
+    });
+  }
+
+  Future<void> _submitReview() async {
+    if (_submitting) return;
+    // Build fieldReviewStatus map from current decisions
+    final Map<String, Map<String, dynamic>> fieldReviewStatus = {};
+    for (final entry in _decisions.entries) {
+      final reason = entry.value.isRejected
+          ? _reasonCtrl(entry.key).text.trim()
+          : null;
+      if (entry.value.isRejected && (reason == null || reason.isEmpty)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Please provide a rejection reason for "${entry.key}".'),
+            backgroundColor: Colors.red.shade700,
           ),
-          Expanded(
-            child: Text(value.isEmpty ? '—' : value,
-                style: const TextStyle(fontSize: 12)),
+        );
+        return;
+      }
+      fieldReviewStatus[entry.key] = {
+        'status': entry.value.status,
+        if (reason != null && reason.isNotEmpty) 'reason': reason,
+      };
+    }
+
+    final anyRejected =
+        _decisions.values.any((d) => d.isRejected);
+    final allKeyFieldsApproved = ['homeAddress', 'idFront', 'selfie']
+        .every((f) => _decisions[f]?.isApproved == true);
+
+    String overallStatus;
+    bool isProfileVerified;
+    if (anyRejected) {
+      overallStatus = DriverVerification.rejected;
+      isProfileVerified = false;
+    } else if (allKeyFieldsApproved && _decisions.isNotEmpty) {
+      overallStatus = DriverVerification.approved;
+      isProfileVerified = true;
+    } else {
+      overallStatus = DriverVerification.pending;
+      isProfileVerified = false;
+    }
+
+    final rejectedSummary = _decisions.entries
+        .where((e) => e.value.isRejected)
+        .map((e) {
+          final reason = _reasonCtrl(e.key).text.trim();
+          return '${e.key}: $reason';
+        })
+        .join('; ');
+
+    setState(() => _submitting = true);
+    try {
+      final update = <String, dynamic>{
+        DriverVerification.fieldReviewStatus: fieldReviewStatus,
+        DriverVerification.fieldStatus: overallStatus,
+        DriverVerification.fieldProfileVerified: isProfileVerified,
+        'isPendingReview': false,
+        'isActive': isProfileVerified,
+      };
+      if (overallStatus == DriverVerification.approved) {
+        update['profileApprovedAt'] = DateTime.now().toIso8601String();
+        update['profileStatus'] = 'approved';
+      } else if (overallStatus == DriverVerification.rejected) {
+        update[DriverVerification.fieldProfileRejectionReason] = rejectedSummary;
+        update['profileStatus'] = 'rejected';
+      }
+      await widget.firestore.collection('drivers').doc(widget.driverId).set(
+            update,
+            SetOptions(merge: true),
+          );
+      await widget.onRecomputeCanGoOnline(widget.driverId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Review submitted: $overallStatus'),
+          backgroundColor: overallStatus == DriverVerification.approved
+              ? Colors.green.shade800
+              : Colors.red.shade800,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error submitting review: $e'),
+          backgroundColor: Colors.red.shade800,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Widget _fieldReviewRow(String fieldId, String label, String value) {
+    final decision = _decisions[fieldId];
+    final isApproved = decision?.isApproved == true;
+    final isRejected = decision?.isRejected == true;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 12)),
+                  Text(value.isEmpty ? '—' : value,
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+            // Approve toggle
+            GestureDetector(
+              key: Key('approve_${fieldId}_${widget.driverId}'),
+              onTap: () => _decide(fieldId, 'approved'),
+              child: Container(
+                margin: const EdgeInsets.only(left: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isApproved
+                      ? Colors.green.shade600
+                      : Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.green.shade300),
+                ),
+                child: Text('✓',
+                    style: TextStyle(
+                        color: isApproved ? Colors.white : Colors.green.shade700,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ),
+            ),
+            // Reject toggle
+            GestureDetector(
+              key: Key('reject_${fieldId}_${widget.driverId}'),
+              onTap: () => _decide(fieldId, 'rejected'),
+              child: Container(
+                margin: const EdgeInsets.only(left: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color:
+                      isRejected ? Colors.red.shade600 : Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.red.shade300),
+                ),
+                child: Text('✗',
+                    style: TextStyle(
+                        color:
+                            isRejected ? Colors.white : Colors.red.shade700,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13)),
+              ),
+            ),
+          ],
+        ),
+        if (isRejected) ...[
+          const SizedBox(height: 4),
+          TextField(
+            controller: _reasonCtrl(fieldId),
+            decoration: InputDecoration(
+              hintText: 'Rejection reason for $label (required)',
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              isDense: true,
+              border: const OutlineInputBorder(),
+            ),
+            style: const TextStyle(fontSize: 12),
+            onChanged: (v) {
+              _decisions[fieldId] =
+                  _FieldDecision(status: 'rejected', reason: v.trim());
+            },
           ),
         ],
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = widget.data;
+    final name = (data['fullName'] ?? '').toString().isNotEmpty
+        ? data['fullName'].toString()
+        : widget.driverId;
+    final status =
+        (data[DriverVerification.fieldStatus] ?? '').toString();
+    final kin = data['emergencyContact'] is Map
+        ? Map<String, dynamic>.from(data['emergencyContact'] as Map)
+        : <String, dynamic>{};
+
+    return Card(
+      key: Key('driver_profile_${widget.driverId}'),
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header row
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor:
+                      Theme.of(context).colorScheme.primaryContainer,
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : 'D',
+                    style:
+                        const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16)),
+                      Text(
+                        '${data['phoneNumber'] ?? ''} • ${data['email'] ?? ''}',
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Chip(
+                  label: Text(status),
+                  backgroundColor: Colors.orange.shade100,
+                  labelStyle: TextStyle(
+                      color: Colors.orange.shade900, fontSize: 11),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text('Per-Field Review',
+                style: TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 13)),
+            const Divider(),
+            _fieldReviewRow('homeAddress', 'Address',
+                '${data['homeAddress'] ?? ''}'),
+            _fieldReviewRow('dateOfBirth', 'Date of Birth',
+                '${data['dateOfBirth'] ?? ''}'),
+            _fieldReviewRow(
+                'gender', 'Gender', '${data['gender'] ?? ''}'),
+            _fieldReviewRow(
+                'id',
+                'ID',
+                '${data['idType'] ?? ''}: '
+                    '${data['idNumber'] ?? ''}'),
+            if ((data['idExpiryDate'] ?? '').toString().isNotEmpty)
+              _fieldReviewRow('idExpiry', 'ID Expiry',
+                  '${data['idExpiryDate']}'),
+            _fieldReviewRow(
+                'emergencyContact',
+                'Next of Kin',
+                '${kin['name'] ?? ''} '
+                    '(${kin['relationship'] ?? ''}) • '
+                    '${kin['phone'] ?? ''}'),
+            if ((kin['address'] ?? '').toString().isNotEmpty)
+              _fieldReviewRow('kinAddress', 'Kin Address',
+                  '${kin['address']}'),
+            const SizedBox(height: 8),
+            HubUserWalletCard(
+                userId: widget.driverId, firestore: widget.firestore),
+            const SizedBox(height: 8),
+            // Document thumbnail chips with per-field approve/reject
+            if ((data['idFrontUrl'] ?? '').toString().isNotEmpty) ...[
+              _fieldReviewRow('idFront', 'ID Front', ''),
+              CachedDocumentThumbnailChip(
+                imageUrl: data['idFrontUrl'].toString(),
+                label: 'ID Front',
+                fallbackIcon: Icons.badge_outlined,
+              ),
+              const SizedBox(height: 6),
+            ],
+            if ((data['idBackUrl'] ?? '').toString().isNotEmpty) ...[
+              _fieldReviewRow('idBack', 'ID Back', ''),
+              CachedDocumentThumbnailChip(
+                imageUrl: data['idBackUrl'].toString(),
+                label: 'ID Back',
+                fallbackIcon: Icons.badge_outlined,
+              ),
+              const SizedBox(height: 6),
+            ],
+            if ((data['selfieUrl'] ?? '').toString().isNotEmpty) ...[
+              _fieldReviewRow('selfie', 'Live Selfie', ''),
+              CachedDocumentThumbnailChip(
+                imageUrl: data['selfieUrl'].toString(),
+                label: 'Live Selfie',
+                fallbackIcon: Icons.photo_camera_outlined,
+              ),
+              const SizedBox(height: 6),
+            ],
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                key: Key('submit_review_${widget.driverId}'),
+                icon: _submitting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white),
+                      )
+                    : const Icon(Icons.rate_review_outlined),
+                label: Text(_submitting
+                    ? 'Submitting…'
+                    : 'Submit Field Review'),
+                onPressed: _submitting ? null : _submitReview,
+              ),
+            ),
+            if (widget.onQuickApprove != null || widget.onQuickReject != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (widget.onQuickReject != null)
+                    Expanded(
+                      child: OutlinedButton(
+                        key: Key('quick_reject_${widget.driverId}'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red.shade700,
+                        ),
+                        onPressed: _submitting ? null : widget.onQuickReject,
+                        child: const Text('Quick Reject'),
+                      ),
+                    ),
+                  if (widget.onQuickReject != null && widget.onQuickApprove != null)
+                    const SizedBox(width: 8),
+                  if (widget.onQuickApprove != null)
+                    Expanded(
+                      child: OutlinedButton(
+                        key: Key('quick_approve_${widget.driverId}'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.green.shade700,
+                        ),
+                        onPressed: _submitting ? null : widget.onQuickApprove,
+                        child: const Text('Quick Approve'),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _DriverProfileRejectionDialog extends StatefulWidget {
-  final String name;
-
+class _DriverProfileRejectionDialog extends StatefulWidget {  final String name;
   const _DriverProfileRejectionDialog({required this.name});
 
   @override

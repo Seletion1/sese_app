@@ -27,6 +27,7 @@ export 'services/admin_application_service.dart';
 export 'models/pricing_config.dart';
 export 'models/driver_streak_state.dart';
 export 'models/driver_verification.dart';
+export 'models/field_review_status.dart';
 export 'models/trip_estimate.dart';
 export 'models/user_model.dart';
 export 'models/user_role.dart';

@@ -42,6 +42,9 @@ class VehicleRegistrationForm extends StatefulWidget {
 
   final void Function(VehicleModel vehicle)? onRegistered;
 
+  /// Optional existing vehicle to edit and resubmit after administrative rejection.
+  final VehicleModel? existingVehicle;
+
   const VehicleRegistrationForm({
     super.key,
     required this.fleetService,
@@ -50,6 +53,7 @@ class VehicleRegistrationForm extends StatefulWidget {
     this.pickImage,
     this.uploadDocument,
     this.onRegistered,
+    this.existingVehicle,
   });
 
   @override
@@ -127,6 +131,55 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
       if (up == null || up.url == null || up.uploading) return false;
     }
     return true;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final ev = widget.existingVehicle;
+    if (ev != null) {
+      _category = ev.category;
+      final groupMakes = catalogMakes[catalogGroupFor(ev.category)] ?? [];
+      if (groupMakes.contains(ev.make)) {
+        _make = ev.make;
+      } else {
+        _make = otherOption;
+        _makeCustomCtrl.text = ev.make;
+      }
+
+      final models = catalogModels[ev.make] ?? [];
+      if (models.contains(ev.model)) {
+        _model = ev.model;
+      } else {
+        _model = otherOption;
+        _modelCustomCtrl.text = ev.model;
+      }
+
+      if (catalogColors.contains(ev.color)) {
+        _color = ev.color;
+      } else {
+        _color = otherOption;
+        _colorCustomCtrl.text = ev.color;
+      }
+
+      final years = catalogYears();
+      if (years.contains(ev.year)) {
+        _year = ev.year;
+      } else {
+        _year = null;
+        _yearOther = true;
+        _yearCustomCtrl.text = ev.year.toString();
+      }
+
+      _plateCtrl.text = ev.licensePlate;
+
+      for (final slot in _req.slots) {
+        final docUrl = ev.documents[slot.label] ?? ev.documents[slot.key];
+        if (docUrl != null && docUrl.isNotEmpty) {
+          _uploads[slot.key] = _SlotUpload()..url = docUrl;
+        }
+      }
+    }
   }
 
   @override
@@ -252,23 +305,44 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
     if (!canSubmit) return;
     setState(() => _submitting = true);
     try {
-      final vehicle = await widget.fleetService.registerVehicle(
-        driverId: widget.driverId,
-        category: _category,
-        make: effectiveMake,
-        model: effectiveModel,
-        year: effectiveYear!,
-        licensePlate: _plateCtrl.text.trim().toUpperCase(),
-        color: effectiveColor,
-        documents: {
-          for (final slot in _req.slots) slot.label: _uploads[slot.key]!.url!,
-        },
-        thresholds:
-            widget.config?.carTierThresholds ?? const CarTierThresholds(),
-      );
+      final VehicleModel vehicle;
+      if (widget.existingVehicle != null) {
+        vehicle = await widget.fleetService.resubmitVehicle(
+          driverId: widget.driverId,
+          vehicleId: widget.existingVehicle!.id,
+          category: _category,
+          make: effectiveMake,
+          model: effectiveModel,
+          year: effectiveYear!,
+          licensePlate: _plateCtrl.text.trim().toUpperCase(),
+          color: effectiveColor,
+          documents: {
+            for (final slot in _req.slots) slot.label: _uploads[slot.key]!.url!,
+          },
+          thresholds:
+              widget.config?.carTierThresholds ?? const CarTierThresholds(),
+        );
+      } else {
+        vehicle = await widget.fleetService.registerVehicle(
+          driverId: widget.driverId,
+          category: _category,
+          make: effectiveMake,
+          model: effectiveModel,
+          year: effectiveYear!,
+          licensePlate: _plateCtrl.text.trim().toUpperCase(),
+          color: effectiveColor,
+          documents: {
+            for (final slot in _req.slots) slot.label: _uploads[slot.key]!.url!,
+          },
+          thresholds:
+              widget.config?.carTierThresholds ?? const CarTierThresholds(),
+        );
+      }
       if (!mounted) return;
       widget.onRegistered?.call(vehicle);
-      _reset();
+      if (widget.existingVehicle == null) {
+        _reset();
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -293,21 +367,67 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
   @override
   Widget build(BuildContext context) {
     final previewTier = _previewCarTier();
+    final isEditing = widget.existingVehicle != null;
+    final rejectionReason = widget.existingVehicle?.rejectionReason;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Register New Vehicle to Fleet',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              isEditing
+                  ? 'Update & Resubmit Vehicle'
+                  : 'Register New Vehicle to Fleet',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'All newly registered vehicles will undergo administrative verification.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+            Text(
+              isEditing
+                  ? 'Update any rejected or incomplete details and documents below, then resubmit for review.'
+                  : 'All newly registered vehicles will undergo administrative verification.',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
             ),
+            if (isEditing && rejectionReason != null && rejectionReason.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.error_outline,
+                            size: 16, color: Colors.red.shade700),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Rejection Reason',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      rejectionReason,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.red.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             DropdownButtonFormField<VehicleCategory>(
               initialValue: _category,
@@ -494,17 +614,25 @@ class VehicleRegistrationFormState extends State<VehicleRegistrationForm> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : const Icon(Icons.add_circle_outline),
-              label: const Text('Register Vehicle to Fleet'),
+                  : Icon(isEditing
+                      ? Icons.send_outlined
+                      : Icons.add_circle_outline),
+              label: Text(isEditing
+                  ? (_submitting
+                      ? 'Resubmitting…'
+                      : 'Resubmit Vehicle for Verification')
+                  : 'Register Vehicle to Fleet'),
               style: FilledButton.styleFrom(padding: const EdgeInsets.all(16)),
             ),
             if (!canSubmit && !_submitting)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
                 child: Text(
-                  'Complete every field and required upload to enable registration.',
+                  isEditing
+                      ? 'Verify all fields and required document uploads to enable resubmission.'
+                      : 'Complete every field and required upload to enable registration.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
                 ),
               ),
           ],

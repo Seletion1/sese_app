@@ -22,6 +22,13 @@ abstract final class DriverVerification {
   static const String fieldVehicleVerified = 'isVehicleVerified';
   static const String fieldCanGoOnline = 'canGoOnline';
 
+  /// Firestore field holding the per-field review status map written by hub.
+  /// `Map<fieldId, {status, reason}>`.
+  static const String fieldReviewStatus = 'fieldReviewStatus';
+
+  /// Overall rejection reason written by hub when profile is rejected.
+  static const String fieldProfileRejectionReason = 'profileRejectionReason';
+
   /// Returns true if a driver document represents an active pending profile
   /// awaiting hub manual document audit (not already approved or rejected).
   static bool isPendingDriverKycDoc(Map<String, dynamic> data) {

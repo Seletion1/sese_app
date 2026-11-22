@@ -141,6 +141,131 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
     }
   }
 
+  /// Opens a bottom-sheet text editor to correct a rejected text field,
+  /// immediately saving the new value to Firestore.
+  Future<void> _editField({
+    required DriverProfile profile,
+    required String fieldId,
+    required String label,
+    required String initialValue,
+  }) async {
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _TextFieldEditorSheet(
+        label: label,
+        initialValue: initialValue,
+        onSave: (newValue) => _profiles.updateRejectedField(
+          profile.uid,
+          fieldId,
+          newValue,
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label updated.')),
+      );
+    }
+  }
+
+  /// Opens a dropdown sheet to correct the vehicle type when rejected.
+  Future<void> _editVehicleType({
+    required DriverProfile profile,
+  }) async {
+    final vehicleTypes = ['Motorcycle', 'Car', 'Van', 'Truck', 'Bicycle'];
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Select Vehicle Type',
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16)),
+            ),
+            ...vehicleTypes.map((type) => ListTile(
+                  title: Text(type),
+                  trailing: profile.initialVehicleType == type
+                      ? const Icon(Icons.check, color: Colors.green)
+                      : null,
+                  onTap: () => Navigator.of(ctx).pop(type),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked != null && mounted) {
+      try {
+        await _profiles.updateRejectedField(
+          profile.uid,
+          'initialVehicleType',
+          picked,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Vehicle type updated.')),
+          );
+        }
+      } on DriverProfileException catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(e.userMessage)));
+        }
+      }
+    }
+  }
+
+  /// Sets verificationStatus back to `pending` for hub re-review after the
+  /// driver has corrected all rejected fields.
+  Future<void> _resubmitProfile(DriverProfile profile) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Resubmit for review?'),
+        content: const Text(
+            'Your profile will be sent back to the verification team. '
+            'Please ensure all rejected fields have been corrected.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Resubmit'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _profiles.resubmitProfile(profile.uid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Profile resubmitted! Our team will review it shortly.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } on DriverProfileException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.userMessage)));
+    }
+  }
+
   void _openAgentWorkflow({String address = ''}) {
     showModalBottomSheet<void>(
       context: context,
@@ -275,12 +400,21 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     label: 'Email',
                     value: email.isEmpty ? '—' : email,
                   ),
-                  _ReadOnlyField(
+                  _VerificationField(
                     icon: Icons.home_outlined,
                     label: 'Home / Residential Address',
                     value: address,
-                  ),
-                  _PhoneField(
+                    fieldStatus: profile?.fieldReviewStatus['homeAddress'],
+                    onEdit: profile?.verificationStatus ==
+                            DriverVerification.rejected
+                        ? () => _editField(
+                            profile: profile!,
+                            fieldId: 'homeAddress',
+                            label: 'Home / Residential Address',
+                            initialValue: profile.homeAddress,
+                          )
+                        : null,
+                  ),                  _PhoneField(
                     phone: phone.isEmpty ? '—' : phone,
                     tripBlocked: hasActiveTrip,
                     onEdit: () => _editPhone(
@@ -295,30 +429,118 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
+                  // Show a rejection callout when overall status is rejected
+                  if (profile?.verificationStatus ==
+                      DriverVerification.rejected) ...[
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.error_outline,
+                                  color: Colors.red.shade700, size: 18),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Profile Rejected',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red.shade700,
+                                    fontSize: 13),
+                              ),
+                            ],
+                          ),
+                          if (profile?.profileRejectionReason.isNotEmpty ==
+                              true) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              profile!.profileRejectionReason,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade800),
+                            ),
+                          ],
+                          const SizedBox(height: 4),
+                          Text(
+                            'Correct the highlighted fields below, then tap Resubmit Profile.',
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.red.shade700),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Verification Status — always locked (system field)
                   _ReadOnlyField(
                     icon: Icons.verified_outlined,
                     label: 'Verification Status',
-                    value: (profile?.verificationStatus.isNotEmpty ==
-                            true)
+                    value: (profile?.verificationStatus.isNotEmpty == true)
                         ? profile!.verificationStatus
                         : 'PENDING',
                   ),
-                  _ReadOnlyField(
+                  // Driver's License No — editable when rejected/not provided
+                  _VerificationField(
                     icon: Icons.badge_outlined,
                     label: "Driver's License No",
                     value: (profile?.licenseNo.isNotEmpty == true)
                         ? profile!.licenseNo
                         : '—',
+                    fieldStatus: profile?.fieldReviewStatus['licenseNo'],
+                    onEdit: profile?.verificationStatus ==
+                            DriverVerification.rejected
+                        ? () => _editField(
+                            profile: profile!,
+                            fieldId: 'licenseNo',
+                            label: "Driver's License No",
+                            initialValue: profile.licenseNo,
+                          )
+                        : null,
                   ),
-                  _ReadOnlyField(
+                  // Registered Vehicle Type — editable when rejected/not provided
+                  _VerificationField(
                     icon: Icons.directions_car_outlined,
                     label: 'Registered Vehicle Type',
                     value:
-                        (profile?.initialVehicleType.isNotEmpty ==
-                                true)
+                        (profile?.initialVehicleType.isNotEmpty == true)
                             ? profile!.initialVehicleType
                             : '—',
+                    fieldStatus:
+                        profile?.fieldReviewStatus['initialVehicleType'],
+                    onEdit: profile?.verificationStatus ==
+                            DriverVerification.rejected
+                        ? () => _editVehicleType(
+                            profile: profile!,
+                          )
+                        : null,
                   ),
+                  // Resubmit button — only shown when status is rejected
+                  if (profile?.verificationStatus ==
+                      DriverVerification.rejected) ...[
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        key: const Key('resubmit_profile_button'),
+                        icon: const Icon(Icons.send_outlined),
+                        label: const Text('Resubmit Profile'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.seseGold,
+                          foregroundColor: Colors.black,
+                        ),
+                        onPressed: () => _resubmitProfile(profile!),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   _ReadOnlyField(
                     icon: Icons.calendar_month_outlined,
                     label: 'Member Since',
@@ -548,6 +770,184 @@ class _ReadOnlyField extends StatelessWidget {
   }
 }
 
+/// Verification-aware field row for driver profile Registration Details.
+///
+/// Renders a lock icon when approved or system-locked, an edit icon when
+/// rejected or unsubmitted (and [onEdit] is provided), plus a coloured badge
+/// showing the field's review status.
+///
+/// When [fieldStatus] is `rejected`, the rejection reason is shown in an amber
+/// container below the value so the driver knows what to fix.
+class _VerificationField extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  /// Null = always locked (system read-only, e.g. Driver ID, Member Since).
+  final FieldReviewStatus? fieldStatus;
+
+  /// Called when the driver taps the edit icon/button.
+  /// If null the field is always locked regardless of status.
+  final VoidCallback? onEdit;
+
+  const _VerificationField({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.fieldStatus,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isRejected = fieldStatus?.isRejected == true;
+    final isApproved = fieldStatus?.isApproved == true;
+    final isPending = fieldStatus?.isPending == true;
+    final canEdit = onEdit != null && !isApproved;
+
+    Widget trailing;
+    if (isApproved) {
+      trailing = const Icon(Icons.check_circle, size: 20, color: Colors.green);
+    } else if (isRejected && canEdit) {
+      trailing = IconButton(
+        key: Key('edit_${label.replaceAll(' ', '_').toLowerCase()}'),
+        icon: const Icon(Icons.edit_outlined, size: 20),
+        color: Colors.orange.shade700,
+        tooltip: 'Tap to fix',
+        onPressed: onEdit,
+      );
+    } else if (isPending) {
+      trailing = Icon(Icons.hourglass_top_outlined,
+          size: 18, color: Colors.orange.shade700);
+    } else if (canEdit) {
+      // Not submitted / empty — show edit button
+      trailing = IconButton(
+        key: Key('edit_${label.replaceAll(' ', '_').toLowerCase()}'),
+        icon: const Icon(Icons.edit_outlined, size: 20),
+        color: scheme.primary,
+        tooltip: 'Add $label',
+        onPressed: onEdit,
+      );
+    } else {
+      trailing =
+          Icon(Icons.lock_outline, size: 18, color: scheme.onSurfaceVariant);
+    }
+
+    Widget? statusChip;
+    if (isApproved) {
+      statusChip = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade200),
+        ),
+        child: Text('Approved',
+            style: TextStyle(
+                fontSize: 10,
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.w600)),
+      );
+    } else if (isRejected) {
+      statusChip = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Text('Rejected',
+            style: TextStyle(
+                fontSize: 10,
+                color: Colors.red.shade700,
+                fontWeight: FontWeight.w600)),
+      );
+    } else if (isPending) {
+      statusChip = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Text('Pending',
+            style: TextStyle(
+                fontSize: 10,
+                color: Colors.orange.shade700,
+                fontWeight: FontWeight.w600)),
+      );
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: scheme.primary, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            label,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                          if (statusChip != null) ...[
+                            const SizedBox(width: 6),
+                            statusChip,
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        value.isEmpty ? '—' : value,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyLarge
+                            ?.copyWith(color: scheme.onSurface),
+                      ),
+                    ],
+                  ),
+                ),
+                trailing,
+              ],
+            ),
+            if (isRejected && (fieldStatus?.reason?.isNotEmpty == true)) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Text(
+                  'Reason: ${fieldStatus!.reason}',
+                  style: TextStyle(
+                      fontSize: 12, color: Colors.orange.shade800),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Phone row with a guarded Edit button.
 class _PhoneField extends StatelessWidget {
   final String phone;
@@ -696,6 +1096,108 @@ class _PhoneEditorSheetState extends State<_PhoneEditorSheet> {
 // ---------------------------------------------------------------------------
 // Expiry date picker row
 // ---------------------------------------------------------------------------
+
+/// Generic text field editor sheet for correcting a single rejected field.
+class _TextFieldEditorSheet extends StatefulWidget {
+  final String label;
+  final String initialValue;
+  final Future<void> Function(String newValue) onSave;
+
+  const _TextFieldEditorSheet({
+    required this.label,
+    required this.initialValue,
+    required this.onSave,
+  });
+
+  @override
+  State<_TextFieldEditorSheet> createState() => _TextFieldEditorSheetState();
+}
+
+class _TextFieldEditorSheetState extends State<_TextFieldEditorSheet> {
+  late final TextEditingController _ctrl =
+      TextEditingController(text: widget.initialValue);
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final val = _ctrl.text.trim();
+    if (val.isEmpty) {
+      setState(() => _error = 'Please enter a value.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(val);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on DriverProfileException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.userMessage;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'Could not save. Check your connection.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Update ${widget.label}',
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ctrl,
+              enabled: !_saving,
+              decoration: InputDecoration(
+                labelText: widget.label,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!,
+                  style: TextStyle(
+                      color: Colors.red.shade800, fontSize: 12)),
+            ],
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: _saving ? null : _save,
+              child: Text(_saving ? 'Saving…' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Tappable Card that shows the current expiry date for one compliance
 /// document and opens a [showDatePicker] modal to update it.

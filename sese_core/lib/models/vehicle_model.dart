@@ -1,3 +1,4 @@
+import 'field_review_status.dart';
 import 'vehicle_category.dart';
 import 'package:sese_core/utils/safe_json.dart';
 
@@ -18,6 +19,8 @@ class VehicleModel {
   final VehicleLifecycleStatus lifecycleStatus;
   final bool isActiveSelected;
   final bool isDeletionRequested;
+  final String? rejectionReason;
+  final Map<String, FieldReviewStatus> fieldReviewStatus;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -36,6 +39,8 @@ class VehicleModel {
     this.lifecycleStatus = VehicleLifecycleStatus.active,
     this.isActiveSelected = false,
     this.isDeletionRequested = false,
+    this.rejectionReason,
+    this.fieldReviewStatus = const {},
     required this.createdAt,
     required this.updatedAt,
   });
@@ -44,6 +49,10 @@ class VehicleModel {
   /// can ever receive orders or be selected to go online.
   bool get isApproved =>
       verificationStatus == VehicleVerificationStatus.approved;
+
+  /// Returns true when this vehicle has been rejected by operations/hub.
+  bool get isRejected =>
+      verificationStatus == VehicleVerificationStatus.rejected;
 
   /// User friendly vehicle summary, e.g. "2018 Toyota Corolla (ABC-123-XY)"
   String get displayTitle =>
@@ -65,6 +74,10 @@ class VehicleModel {
       'lifecycleStatus': lifecycleStatus.toDbString(),
       'isActiveSelected': isActiveSelected,
       'is_deletion_requested': isDeletionRequested,
+      if (rejectionReason != null) 'rejectionReason': rejectionReason,
+      if (fieldReviewStatus.isNotEmpty)
+        'fieldReviewStatus':
+            fieldReviewStatus.map((k, v) => MapEntry(k, v.toMap())),
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -107,6 +120,23 @@ class VehicleModel {
       ),
       isActiveSelected: map['isActiveSelected'] == true,
       isDeletionRequested: map['is_deletion_requested'] == true,
+      rejectionReason: map['rejectionReason']?.toString(),
+      fieldReviewStatus: () {
+        final raw = map['fieldReviewStatus'];
+        if (raw is Map) {
+          return Map.fromEntries(
+            raw.entries
+                .whereType<MapEntry<String, dynamic>>()
+                .where((e) => e.value is Map)
+                .map((e) => MapEntry(
+                      e.key,
+                      FieldReviewStatus.fromMap(
+                          Map<String, dynamic>.from(e.value as Map)),
+                    )),
+          );
+        }
+        return const <String, FieldReviewStatus>{};
+      }(),
       createdAt: _parseDateTime(map['createdAt']),
       updatedAt: _parseDateTime(map['updatedAt']),
     );
@@ -139,6 +169,8 @@ class VehicleModel {
     VehicleLifecycleStatus? lifecycleStatus,
     bool? isActiveSelected,
     bool? isDeletionRequested,
+    String? rejectionReason,
+    Map<String, FieldReviewStatus>? fieldReviewStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -157,6 +189,8 @@ class VehicleModel {
       lifecycleStatus: lifecycleStatus ?? this.lifecycleStatus,
       isActiveSelected: isActiveSelected ?? this.isActiveSelected,
       isDeletionRequested: isDeletionRequested ?? this.isDeletionRequested,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+      fieldReviewStatus: fieldReviewStatus ?? this.fieldReviewStatus,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

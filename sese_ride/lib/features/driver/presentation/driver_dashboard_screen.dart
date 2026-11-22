@@ -23,6 +23,7 @@ import '../services/driver_streak_service.dart';
 import '../services/navigation_launcher_service.dart';
 import '../services/driver_presence_service.dart';
 import 'driver_fleet_screen.dart';
+import 'driver_profile_screen.dart';
 import 'online_verification_shield_modal.dart';
 import 'widgets/driver_active_trip_card.dart';
 import 'widgets/incoming_offer_sheet.dart';
@@ -35,6 +36,18 @@ import '../../payments/payment_service.dart';
 import '../../wallet/earnings_screen.dart';
 import '../../wallet/earnings_service.dart';
 import 'widgets/verification_banner.dart';
+
+class _ProfileVerificationCheck {
+  final bool isVerified;
+  final bool isRejected;
+  final String rejectionReason;
+
+  const _ProfileVerificationCheck({
+    required this.isVerified,
+    this.isRejected = false,
+    this.rejectionReason = '',
+  });
+}
 
 class DriverDashboardScreen extends StatefulWidget {
   final DriverFleetService fleetService;
@@ -1317,9 +1330,43 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     // A null read (offline / unavailable) falls through to the vehicle
     // guard below; the Cloud Functions `goOnline` handshake remains the
     // authoritative enforcement point.
-    final profileOk = await _checkProfileVerified();
+    final profileCheck = await _checkProfileVerified();
     if (!mounted) return;
-    if (profileOk == false) {
+    if (profileCheck != null && !profileCheck.isVerified) {
+      if (profileCheck.isRejected) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.red),
+                SizedBox(width: 8),
+                Text('Profile Rejected'),
+              ],
+            ),
+            content: Text(
+              profileCheck.rejectionReason.isNotEmpty
+                  ? 'Your profile verification was rejected: "${profileCheck.rejectionReason}".\n\nPlease update the rejected items in your Driver Profile and resubmit.'
+                  : 'Your profile verification was rejected. Please review highlighted items in Driver Profile, make corrections, and resubmit.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _openDriverProfile();
+                },
+                child: const Text('Driver Profile'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -1387,17 +1434,48 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _goOnlineWithVerifiedProfile();
   }
 
+  void _openDriverProfile() {
+    final user = widget.user ??
+        AppUser(
+          uid: widget.driverId,
+          fullName: 'Driver',
+          email: '',
+          phoneNumber: '',
+          createdAt: DateTime.now(),
+          role: UserRole.driver,
+        );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DriverProfileScreen(user: user),
+      ),
+    );
+  }
+
   /// Reads the hub profile flag. Returns null when the read itself is
   /// unavailable (offline / uninitialized) so the caller falls through to
   /// the vehicle guard; the server handshake enforces authoritatively.
-  Future<bool?> _checkProfileVerified() async {
+  Future<_ProfileVerificationCheck?> _checkProfileVerified() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('drivers')
           .doc(widget.driverId)
           .get();
       if (!doc.exists) return null;
-      return doc.data()?[DriverVerification.fieldProfileVerified] == true;
+      final data = doc.data();
+      final isVerified =
+          data?[DriverVerification.fieldProfileVerified] == true;
+      final status = (data?[DriverVerification.fieldStatus] ?? '')
+          .toString()
+          .toLowerCase();
+      final isRejected = status == DriverVerification.rejected;
+      final reason =
+          (data?[DriverVerification.fieldProfileRejectionReason] ?? '')
+              .toString();
+      return _ProfileVerificationCheck(
+        isVerified: isVerified,
+        isRejected: isRejected,
+        rejectionReason: reason,
+      );
     } catch (_) {
       return null;
     }
@@ -1461,12 +1539,32 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final verifiedVehicles = _fleet.where((v) => v.isApproved).toList();
 
     if (verifiedVehicles.isEmpty) {
+      final anyRejected = _fleet.any((v) => v.isRejected);
+      final rejectedVehicle =
+          anyRejected ? _fleet.firstWhere((v) => v.isRejected) : null;
+      final reason = rejectedVehicle?.rejectionReason;
+
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Account Verification Required'),
-          content: const Text(
-            'Register and verify your vehicle to go online and receive orders.',
+          title: Row(
+            children: [
+              Icon(
+                anyRejected ? Icons.error_outline : Icons.car_repair,
+                color: anyRejected ? Colors.red : Colors.orange,
+              ),
+              const SizedBox(width: 8),
+              Text(anyRejected
+                  ? 'Vehicle Rejected'
+                  : 'Account Verification Required'),
+            ],
+          ),
+          content: Text(
+            anyRejected
+                ? (reason != null && reason.isNotEmpty
+                    ? 'Your vehicle "${rejectedVehicle!.displayTitle}" was rejected: "$reason".\n\nPlease update your vehicle documents in Fleet & Vehicles and resubmit.'
+                    : 'Your vehicle "${rejectedVehicle!.displayTitle}" was rejected. Please review feedback in Fleet & Vehicles, make corrections, and resubmit.')
+                : 'Register and verify your vehicle to go online and receive orders.',
           ),
           actions: [
             TextButton(
@@ -1478,7 +1576,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 Navigator.pop(ctx);
                 _openFleetManagement();
               },
-              child: const Text('Manage Fleet'),
+              child: const Text('Fleet & Vehicles'),
             ),
           ],
         ),

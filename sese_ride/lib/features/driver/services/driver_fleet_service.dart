@@ -267,6 +267,74 @@ class DriverFleetService {
     return vehicle;
   }
 
+  /// Updates and resubmits an existing vehicle that was rejected by hub.
+  /// Sets verification status back to PENDING and clears rejection reason.
+  Future<VehicleModel> resubmitVehicle({
+    required String driverId,
+    required String vehicleId,
+    required VehicleCategory category,
+    required String make,
+    required String model,
+    required int year,
+    required String licensePlate,
+    required String color,
+    required Map<String, String> documents,
+    CarTierThresholds thresholds = const CarTierThresholds(),
+  }) async {
+    final classifier = VehicleTierClassifier(thresholds);
+    final rideTier =
+        classifier.classify(category: category, manufactureYear: year);
+
+    final updated = VehicleModel(
+      id: vehicleId,
+      driverId: driverId,
+      category: category,
+      tier: rideTier,
+      make: make,
+      model: model,
+      year: year,
+      licensePlate: licensePlate,
+      color: color,
+      documents: documents,
+      verificationStatus: VehicleVerificationStatus.pending,
+      lifecycleStatus: VehicleLifecycleStatus.active,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final col = _driverVehiclesCollection(driverId);
+    if (col != null) {
+      try {
+        await col.doc(vehicleId).set({
+          ...updated.toMap(),
+          'verificationStatus':
+              VehicleVerificationStatus.pending.toDbString(),
+          'isVerified': false,
+          'status': 'pending',
+          'rejectionReason': FieldValue.delete(),
+          'updatedAt': DateTime.now().toIso8601String(),
+        }, SetOptions(merge: true));
+
+        await _db?.collection('drivers').doc(driverId).set({
+          'vehicleStatus': 'pending_verification',
+          'isPendingReview': true,
+          'updatedAt': DateTime.now().toIso8601String(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('DriverFleetService.resubmitVehicle Firestore error: $e');
+      }
+    } else {
+      final index =
+          _offlineTestVehicles.indexWhere((v) => v.id == vehicleId);
+      if (index >= 0) {
+        _offlineTestVehicles[index] = updated;
+      } else {
+        _offlineTestVehicles.add(updated);
+      }
+    }
+    return updated;
+  }
+
   /// Sets one vehicle as activeSelected: true and unselects others for this driver.
   ///
   /// Offline-Only Guard: Throws if [isOnline] is true — vehicle switching is

@@ -8,22 +8,42 @@ import 'package:sese_core/services/image_compression_service.dart';
 /// Service managing Agent ("Become an Admin / Work With Us") submissions,
 /// storage uploads, device fingerprinting, and hub approval workflows.
 class AdminApplicationService {
-  final FirebaseFirestore _firestore;
-  final FirebaseStorage _storage;
+  final FirebaseFirestore? _customFirestore;
+  final FirebaseStorage? _customStorage;
 
   AdminApplicationService({
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+  })  : _customFirestore = firestore,
+        _customStorage = storage;
 
-  CollectionReference<Map<String, dynamic>> get _collection =>
-      _firestore.collection('admin_applications');
+  FirebaseFirestore? get _db {
+    if (_customFirestore != null) return _customFirestore;
+    try {
+      return FirebaseFirestore.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  FirebaseStorage? get _bucket {
+    if (_customStorage != null) return _customStorage;
+    try {
+      return FirebaseStorage.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  CollectionReference<Map<String, dynamic>>? get _collection =>
+      _db?.collection('admin_applications');
 
   /// Streams the application status for a given user [uid].
   Stream<AdminApplication?> applicationStream(String uid) {
     if (uid.isEmpty) return Stream.value(null);
-    return _collection.doc(uid).snapshots().map((snap) {
+    final col = _collection;
+    if (col == null) return Stream.value(null);
+    return col.doc(uid).snapshots().map((snap) {
       if (!snap.exists || snap.data() == null) return null;
       return AdminApplication.fromMap(snap.id, snap.data()!);
     });
@@ -31,7 +51,9 @@ class AdminApplicationService {
 
   /// Streams all applications for sese_hub administrative review.
   Stream<List<AdminApplication>> allApplicationsStream() {
-    return _collection
+    final col = _collection;
+    if (col == null) return Stream.value(const []);
+    return col
         .orderBy('submittedAt', descending: true)
         .snapshots()
         .map((snap) {
@@ -48,7 +70,11 @@ class AdminApplicationService {
     required String fileName,
     required dynamic fileData, // File or Uint8List
   }) async {
-    final ref = _storage.ref().child('admin_applications/$uid/$fileName');
+    final storage = _bucket;
+    if (storage == null) {
+      throw StateError('Firebase Storage is not available.');
+    }
+    final ref = storage.ref().child('admin_applications/$uid/$fileName');
     final metadata = SettableMetadata(contentType: 'image/jpeg');
 
     Uint8List rawBytes;
@@ -125,7 +151,9 @@ class AdminApplicationService {
       updatedAt: now,
     );
 
-    await _collection.doc(uid).set(app.toMap(), SetOptions(merge: true));
+    final col = _collection;
+    if (col == null) throw StateError('Firestore is not available.');
+    await col.doc(uid).set(app.toMap(), SetOptions(merge: true));
     return app;
   }
 
@@ -138,8 +166,12 @@ class AdminApplicationService {
     final cleanEmail = email.trim().toLowerCase();
     final now = DateTime.now();
 
+    final col = _collection;
+    final db = _db;
+    if (col == null || db == null) throw StateError('Firestore is not available.');
+
     // 1. Update application status
-    await _collection.doc(uid).update({
+    await col.doc(uid).update({
       'status': 'approved',
       'reviewedBy': reviewerEmail,
       'reviewedAt': now.toIso8601String(),
@@ -147,7 +179,7 @@ class AdminApplicationService {
     });
 
     // 2. Ensure candidate email is present and active in `hub_staff`
-    final staffRef = _firestore.collection('hub_staff').doc(cleanEmail);
+    final staffRef = db.collection('hub_staff').doc(cleanEmail);
     final staffSnap = await staffRef.get();
 
     final defaultPermissions = [
@@ -178,7 +210,7 @@ class AdminApplicationService {
 
     // 3. Update user profile role tag
     try {
-      await _firestore.collection('users').doc(uid).set({
+      await db.collection('users').doc(uid).set({
         'isAgent': true,
       }, SetOptions(merge: true));
     } catch (e) {
@@ -193,7 +225,9 @@ class AdminApplicationService {
     required String reason,
   }) async {
     final now = DateTime.now();
-    await _collection.doc(uid).update({
+    final col = _collection;
+    if (col == null) throw StateError('Firestore is not available.');
+    await col.doc(uid).update({
       'status': 'rejected',
       'rejectionReason': reason,
       'reviewedBy': reviewerEmail,
@@ -208,8 +242,10 @@ class AdminApplicationService {
     required String provisionerEmail,
     List<String>? permissions,
   }) async {
+    final db = _db;
+    if (db == null) throw StateError('Firestore is not available.');
     final clean = candidateEmail.trim().toLowerCase();
-    final staffRef = _firestore.collection('hub_staff').doc(clean);
+    final staffRef = db.collection('hub_staff').doc(clean);
     final defaultPerms = permissions ?? [
       'user_onboarding',
       'document_review',

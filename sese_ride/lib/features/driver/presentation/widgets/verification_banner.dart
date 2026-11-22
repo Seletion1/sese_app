@@ -40,17 +40,119 @@ class _VerificationBannerState extends State<VerificationBanner> {
             (data[DriverVerification.fieldStatus] ?? '').toString().toLowerCase();
         final profileVerified =
             data[DriverVerification.fieldProfileVerified] == true;
-        final pending = status == DriverVerification.pending ||
+        final isRejected = status == DriverVerification.rejected;
+        final isPending = status == DriverVerification.pending ||
             status == DriverVerification.pendingOnboarding ||
-            !profileVerified;
-        final approved =
+            (!profileVerified && !isRejected);
+        final isApproved =
             status == DriverVerification.approved && profileVerified;
-        if (!pending || approved) return const SizedBox.shrink();
+        if (isApproved || (!isRejected && !isPending)) {
+          return const SizedBox.shrink();
+        }
+
         final theme = Theme.of(context);
         final isDark = theme.brightness == Brightness.dark;
+
+        if (isRejected) {
+          final bannerBg = isDark
+              ? theme.colorScheme.errorContainer.withValues(alpha: 0.6)
+              : Colors.red.shade50;
+          final textColor =
+              isDark ? theme.colorScheme.onErrorContainer : Colors.red.shade900;
+          final iconColor =
+              isDark ? theme.colorScheme.error : Colors.red.shade700;
+          final rejectionReason =
+              (data[DriverVerification.fieldProfileRejectionReason] ?? '')
+                  .toString();
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Material(
+              color: bannerBg,
+              elevation: 1,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                key: const Key('driver_rejection_banner'),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: bannerBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.error_outline,
+                        color: iconColor, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Profile Rejected',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                            ),
+                          ),
+                          if (rejectionReason.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              rejectionReason,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: textColor.withValues(alpha: 0.85),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          const SizedBox(height: 2),
+                          Text(
+                            'Go to Driver Profile → fix highlighted fields → Resubmit.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: textColor.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: () => setState(() => _isDismissed = true),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Icon(
+                          Icons.close,
+                          size: 18,
+                          color: textColor.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+
+        // Pending / pending_onboarding banner (existing amber design)
         final bannerBg = isDark
             ? theme.colorScheme.surfaceContainerHighest
-            : const Color(0xFFFFF8E1); // Soft alert yellow
+            : const Color(0xFFFFF8E1);
         final textColor =
             isDark ? theme.colorScheme.onSurface : const Color(0xFF5D4037);
         final iconColor = isDark ? Colors.amber : const Color(0xFFF57C00);
