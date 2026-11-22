@@ -173,7 +173,7 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 | `flutter analyze sese_core` | ✔ **0 issues** (re-run) |
 | `flutter analyze sese_ride` | ✔ **0 issues** (final re-run — confirms F13/F14 fixes) |
 | `flutter analyze sese_hub` | ✔ **0 issues** |
-| `flutter test` sese_core | ✔ **186/186 pass** (rerun incl. referral/sese_core suite) |
+| `flutter test` sese_core | ✔ **186/186 pass** (rerun: DispatchTuning + referral_service + auth suites) |
 | `flutter test` sese_ride targeted | pre-existing failures documented earlier (dispatch drift, `ErrorWidget.builder` assertion, etc.) — NOT introduced here; owner flagged for a stabilization pass |
 | `flutter test` sese_hub | ✔ 74/74 passing earlier — re-verify |
 | Rules query provability audit | ✔ all queries still provable |
