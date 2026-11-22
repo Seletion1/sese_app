@@ -395,9 +395,12 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Live Wallet Card
+              // Live Wallet Card (strictly isolated to customer role and sequential ID)
               HubUserWalletCard(
                 userId: customerId,
+                role: 'customer',
+                sequentialId: (data['sequentialId'] ?? '').toString(),
+                targetLabel: 'Customer Wallet • ${(data['sequentialId'] ?? '').toString().isNotEmpty ? data['sequentialId'] : 'SC'}',
                 firestore: widget.firestore,
               ),
               const SizedBox(height: 16),

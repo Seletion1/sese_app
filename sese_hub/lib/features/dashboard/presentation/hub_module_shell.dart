@@ -242,10 +242,83 @@ class _HubModuleShellState extends State<HubModuleShell> {
   Widget build(BuildContext context) {
     final visible = _visible;
     final index = visible.isEmpty ? 0 : _index.clamp(0, visible.length - 1);
+    final isWide = MediaQuery.of(context).size.width >= 900;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
-        actions: widget.actions,
+        actions: [
+          if (isWide && visible.length > 1)
+            PopupMenuButton<int>(
+              key: const Key('hub_module_section_dropdown'),
+              tooltip: 'Switch Section (${visible[index].title})',
+              icon: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(visible[index].icon, size: 16),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 160),
+                      child: Text(
+                        visible[index].title,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if ((_sectionCounts[index] ?? 0) > 0) ...[
+                      const SizedBox(width: 6),
+                      Badge(
+                        label: Text('${_sectionCounts[index]}'),
+                        backgroundColor: Colors.red.shade700,
+                      ),
+                    ],
+                    const SizedBox(width: 2),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
+                ),
+              ),
+              initialValue: index,
+              onSelected: (i) => _selectSection(i, visible[i].id),
+              itemBuilder: (ctx) => [
+                for (int i = 0; i < visible.length; i++)
+                  PopupMenuItem<int>(
+                    value: i,
+                    child: Row(
+                      children: [
+                        Icon(
+                          visible[i].icon,
+                          size: 18,
+                          color: i == index ? const Color(0xFFE2B714) : null,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            visible[i].title,
+                            style: TextStyle(
+                              fontWeight: i == index ? FontWeight.bold : FontWeight.normal,
+                              color: i == index ? const Color(0xFFE2B714) : null,
+                            ),
+                          ),
+                        ),
+                        if ((_sectionCounts[i] ?? 0) > 0) ...[
+                          const SizedBox(width: 6),
+                          Badge(
+                            label: Text('${_sectionCounts[i]}'),
+                            backgroundColor: Colors.red.shade700,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          if (widget.actions != null) ...widget.actions!,
+        ],
         automaticallyImplyLeading: false,
       ),
       body: visible.isEmpty

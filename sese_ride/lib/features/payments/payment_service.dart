@@ -414,9 +414,13 @@ class PaymentService {
   PaymentsBackend get _ops => _backend ?? _FunctionsPaymentsBackend();
 
   /// Live wallet balance in kobo with instant local cache fallback.
-  Stream<int> walletBalanceKoboStream(String uid) {
-    final cachedBal =
-        LocalCacheService.instance.getInt('wallet_balance_kobo_$uid') ?? 0;
+  /// When [role] is supplied ('driver' or 'customer'), reads the dedicated
+  /// role balance if populated before falling back to mainWalletBalance.
+  Stream<int> walletBalanceKoboStream(String uid, {String? role}) {
+    final cacheKey = role != null
+        ? 'wallet_balance_kobo_${uid}_$role'
+        : 'wallet_balance_kobo_$uid';
+    final cachedBal = LocalCacheService.instance.getInt(cacheKey) ?? 0;
     final db = _db;
     if (db == null || uid.isEmpty) return Stream.value(cachedBal);
     return db
@@ -426,22 +430,28 @@ class PaymentService {
         .map((doc) {
           final data = doc.data();
           num? balKobo;
-          if (data?['mainWalletBalance'] is num) {
+          if (role == 'driver' && data?['driverBalance'] is num) {
+            balKobo = (data!['driverBalance'] as num) * 100;
+          } else if (role == 'customer' && data?['customerBalance'] is num) {
+            balKobo = (data!['customerBalance'] as num) * 100;
+          } else if (data?['mainWalletBalance'] is num) {
             balKobo = (data!['mainWalletBalance'] as num) * 100;
           } else if (data?['balance'] is num) {
             balKobo = data!['balance'] as num;
           }
           final bal = (balKobo ?? cachedBal).round();
-          LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
+          LocalCacheService.instance.setInt(cacheKey, bal);
           return bal;
         })
         .handleError((Object _) => cachedBal);
   }
 
   /// On-demand live wallet balance fetch in kobo.
-  Future<int> fetchWalletBalanceKobo(String uid) async {
-    final cachedBal =
-        LocalCacheService.instance.getInt('wallet_balance_kobo_$uid') ?? 0;
+  Future<int> fetchWalletBalanceKobo(String uid, {String? role}) async {
+    final cacheKey = role != null
+        ? 'wallet_balance_kobo_${uid}_$role'
+        : 'wallet_balance_kobo_$uid';
+    final cachedBal = LocalCacheService.instance.getInt(cacheKey) ?? 0;
     final db = _db;
     if (db == null || uid.isEmpty) return cachedBal;
     try {
@@ -449,13 +459,17 @@ class PaymentService {
       final data = doc.data();
       if (data == null) return cachedBal;
       num? balKobo;
-      if (data['mainWalletBalance'] is num) {
+      if (role == 'driver' && data['driverBalance'] is num) {
+        balKobo = (data['driverBalance'] as num) * 100;
+      } else if (role == 'customer' && data['customerBalance'] is num) {
+        balKobo = (data['customerBalance'] as num) * 100;
+      } else if (data['mainWalletBalance'] is num) {
         balKobo = (data['mainWalletBalance'] as num) * 100;
       } else if (data['balance'] is num) {
         balKobo = data['balance'] as num;
       }
       final bal = (balKobo ?? cachedBal).round();
-      LocalCacheService.instance.setInt('wallet_balance_kobo_$uid', bal);
+      LocalCacheService.instance.setInt(cacheKey, bal);
       return bal;
     } catch (_) {
       return cachedBal;
@@ -509,9 +523,21 @@ class PaymentService {
               .map((d) => WalletTransaction.fromMap(d.id, d.data()))
               .toList();
           if (role == 'customer') {
-            return all.where((t) => t.isCustomerFacing).take(limit).toList();
+            return all
+                .where((t) =>
+                    t.isCustomerFacing &&
+                    t.role != 'driver' &&
+                    t.role != 'hub')
+                .take(limit)
+                .toList();
           } else if (role == 'driver') {
-            return all.where((t) => t.isDriverFacing).take(limit).toList();
+            return all
+                .where((t) =>
+                    t.isDriverFacing &&
+                    t.role != 'customer' &&
+                    t.role != 'hub')
+                .take(limit)
+                .toList();
           }
           return all.take(limit).toList();
         })

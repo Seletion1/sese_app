@@ -14,6 +14,7 @@ import '../../trips/presentation/active_rides_console_screen.dart';
 import '../../onboarding/presentation/admin_user_onboarding_screen.dart';
 import '../services/hub_pending_counts_service.dart';
 import '../services/hub_route_persistence.dart';
+import '../services/view_mode_controller.dart';
 import '../../../widgets/hub_badge.dart';
 import 'hub_module_shell.dart' show HubModuleContext, HubTabScope;
 import 'hub_user_wallet_card.dart';
@@ -283,7 +284,12 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
           staffEmail: widget.user?.email ?? '',
         );
       case HubTab.profile:
-        return _ProfilePage(user: widget.user, onSignOut: _confirmSignOut);
+        return _ProfilePage(
+          user: widget.user,
+          staffRole: widget.staffRole,
+          permissions: widget.permissions,
+          onSignOut: _confirmSignOut,
+        );
     }
   }
 
@@ -446,28 +452,31 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         ? allTabs.indexOf(_activeTab)
         : 0;
     return Scaffold(
-      body: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: safeIndex,
-            onDestinationSelected: (i) => _onTabSelected(allTabs[i]),
-            labelType: NavigationRailLabelType.all,
-            leading: _RailProfileHeader(
-              user: widget.user,
-              firstName: _firstName,
-              consoleTitle: _consoleTitle,
+      body: SafeArea(
+        child: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: safeIndex,
+              onDestinationSelected: (i) => _onTabSelected(allTabs[i]),
+              labelType: NavigationRailLabelType.all,
+              leading: _RailProfileHeader(
+                user: widget.user,
+                firstName: _firstName,
+                consoleTitle: _consoleTitle,
+              ),
+              destinations: [
+                for (final t in allTabs)
+                  NavigationRailDestination(
+                    icon: _buildTabIcon(t, selected: false),
+                    selectedIcon: _buildTabIcon(t, selected: true),
+                    label: Text(_labelFor(t)),
+                  ),
+              ],
             ),
-            destinations: [
-              for (final t in allTabs)
-                NavigationRailDestination(
-                  icon: _buildTabIcon(t, selected: false),
-                  selectedIcon: _buildTabIcon(t, selected: true),
-                  label: Text(_labelFor(t)),
-                ),
-            ],
-          ),
-          Expanded(child: stackBody),
-        ],
+            const VerticalDivider(thickness: 1, width: 1),
+            Expanded(child: stackBody),
+          ],
+        ),
       ),
     );
   }
@@ -1209,6 +1218,21 @@ class _RailProfileHeader extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),
+          const SizedBox(height: 6),
+          ValueListenableBuilder<HubViewMode>(
+            valueListenable: ViewModeController.instance,
+            builder: (context, mode, _) {
+              if (mode == HubViewMode.desktop) {
+                return IconButton(
+                  key: const Key('rail_switch_to_mobile_btn'),
+                  icon: const Icon(Icons.phone_android, size: 16, color: Color(0xFFE2B714)),
+                  tooltip: 'Switch to Mobile View',
+                  onPressed: () => ViewModeController.instance.setViewMode(HubViewMode.auto),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
         ],
       ),
     );
@@ -1219,15 +1243,49 @@ class _RailProfileHeader extends StatelessWidget {
 /// navigation bar, not a side panel.
 class _ProfilePage extends StatelessWidget {
   final AppUser? user;
+  final UserRole staffRole;
+  final List<String> permissions;
   final VoidCallback onSignOut;
 
-  const _ProfilePage({required this.user, required this.onSignOut});
+  const _ProfilePage({
+    required this.user,
+    this.staffRole = UserRole.agent,
+    this.permissions = const [],
+    required this.onSignOut,
+  });
 
   @override
   Widget build(BuildContext context) {
     final u = user;
+    final seq = u?.sequentialId ?? '';
+    final staffSeqId = seq.startsWith('SH') ? seq : 'SH0001';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          ValueListenableBuilder<HubViewMode>(
+            valueListenable: ViewModeController.instance,
+            builder: (context, mode, _) {
+              if (mode == HubViewMode.desktop) {
+                return TextButton.icon(
+                  key: const Key('profile_switch_to_mobile_btn'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFE2B714),
+                  ),
+                  icon: const Icon(Icons.phone_android, size: 18),
+                  label: const Text(
+                    'Mobile View',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () => ViewModeController.instance.setViewMode(HubViewMode.auto),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         // 16px outer gutters keep the card edge-to-edge on phones; the
         // 480 cap only centers it on wide screens.
@@ -1238,10 +1296,6 @@ class _ProfilePage extends StatelessWidget {
             child: Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                // Center keeps the avatar/name block centered; the card
-                // itself already spans the gutter width via Center +
-                // ConstrainedBox(maxWidth: 480), so no stretch is needed
-                // here (stretch would left-align the fixed-size avatar).
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1273,10 +1327,79 @@ class _ProfilePage extends StatelessWidget {
                       Text(u.email,
                           style: TextStyle(
                               color: Colors.grey.shade600, fontSize: 13)),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          Chip(
+                            avatar: const Icon(Icons.badge_outlined,
+                                size: 16, color: Color(0xFFE2B714)),
+                            label: Text(
+                              'Staff ID: $staffSeqId',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                          ),
+                          Chip(
+                            avatar: const Icon(Icons.shield_outlined,
+                                size: 16, color: Colors.blue),
+                            label: Text(
+                              'Role: ${staffRole.name.toUpperCase()}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 12),
+                            ),
+                            backgroundColor: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                          ),
+                        ],
+                      ),
                       const SizedBox(height: 16),
-                      HubUserWalletCard(userId: u.uid),
+                      HubUserWalletCard(
+                        userId: u.uid,
+                        role: 'hub',
+                        sequentialId: staffSeqId,
+                        targetLabel: 'Staff Ledger • $staffSeqId',
+                      ),
                     ],
                     const SizedBox(height: 24),
+                    ValueListenableBuilder<HubViewMode>(
+                      valueListenable: ViewModeController.instance,
+                      builder: (context, currentMode, _) {
+                        return ListTile(
+                          key: const Key('hub_view_mode_tile'),
+                          leading: const Icon(Icons.desktop_windows_outlined),
+                          title: const Text('Layout View Mode'),
+                          subtitle: Text(currentMode.label),
+                          trailing: DropdownButton<HubViewMode>(
+                            value: currentMode,
+                            underline: const SizedBox.shrink(),
+                            items: HubViewMode.values
+                                .map(
+                                  (m) => DropdownMenuItem(
+                                    value: m,
+                                    child: Text(
+                                      m.label,
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) {
+                                ViewModeController.instance.setViewMode(val);
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
                     ValueListenableBuilder<ThemeMode>(
                       valueListenable: ThemeController.instance,
                       builder: (context, mode, _) {

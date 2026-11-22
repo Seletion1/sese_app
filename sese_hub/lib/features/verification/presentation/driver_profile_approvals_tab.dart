@@ -632,7 +632,12 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
                   '${kin['address']}'),
             const SizedBox(height: 8),
             HubUserWalletCard(
-                userId: widget.driverId, firestore: widget.firestore),
+              userId: widget.driverId,
+              role: 'driver',
+              sequentialId: (data['sequentialId'] ?? '').toString(),
+              targetLabel: 'Driver Wallet • ${(data['sequentialId'] ?? '').toString().isNotEmpty ? data['sequentialId'] : 'SD'}',
+              firestore: widget.firestore,
+            ),
             const SizedBox(height: 8),
             // Document thumbnail chips with per-field approve/reject
             if ((data['idFrontUrl'] ?? '').toString().isNotEmpty) ...[

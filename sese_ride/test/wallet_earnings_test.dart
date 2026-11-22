@@ -21,7 +21,7 @@ class _FakePayments extends PaymentService {
   });
 
   @override
-  Stream<int> walletBalanceKoboStream(String uid) =>
+  Stream<int> walletBalanceKoboStream(String uid, {String? role}) =>
       Stream.value(balanceKobo);
 
   @override

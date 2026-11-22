@@ -684,6 +684,7 @@ export async function handleTripCompletion(
         {
           balance: admin.firestore.FieldValue.increment(-commissionDebitKobo),
           mainWalletBalance: admin.firestore.FieldValue.increment(-commissionDebitNaira),
+          driverBalance: admin.firestore.FieldValue.increment(-commissionDebitNaira),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }

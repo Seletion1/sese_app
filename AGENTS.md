@@ -72,6 +72,26 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Strict Wallet Ledger Isolation by Role (`SC...`/`SD...`/`SH...`) & Desktop Mode Phone Responsiveness (`sese_hub`, `sese_ride`, `functions`)
+
+- **1. Desktop View Mode Phone Recovery & Status Bar Overlap Resolution (`sese_hub`)**:
+  - *Always-Accessible Switch to Mobile View*: In `AdaptiveViewWrapper`, added a top slate banner with a prominent "Switch to Mobile View" button and a fixed, screen-anchored `FloatingActionButton.extended` ("Mobile View") with gold accent (`#E2B714`) at the bottom-right. Phone users on forced 1280px desktop mode can escape back to normal touch view with 1 tap at all times without panning/zooming.
+  - *AppBar Actions & Layout Mode Tiles*: Added direct `Switch to Mobile View` button in `_ProfilePage` AppBar actions when in desktop mode, plus full `Layout View Mode` selector tile in `_ProfilePage` and `HubSettingsScreen` with 1-tap buttons for `Mobile / Normal` and `Desktop (1280px)`.
+  - *Status Bar & Clock Overlap Fix*: Wrapped wide rail layout and `_ProfilePage` in `SafeArea` to prevent headers and titles from colliding with physical camera notches or status bar clocks.
+  - *Wide/Desktop Section Sub-Lists*: In `HubModuleShell`, added a responsive `PopupMenuButton` in the AppBar when `isWide && visible.length > 1` allowing staff in Desktop mode to switch between module sub-sections without needing mobile bottom bars.
+
+- **2. Strict Role-Isolated Wallets & Transaction Ledgers (`sese_hub`, `sese_ride`, `functions`)**:
+  - *Cross-Role Ledger Leak Elimination*: When a single user email/phone possesses multiple roles (Customer `SC...`, Driver `SD...`, Hub Staff `SH...`), driver trip operations (`platform_commission`, `recovered_debt_debit`, `trip_escrow_hold`, `trip_escrow_refund`) previously leaked into the Hub staff profile because `HubUserWalletCard` queried `wallets/{uid}` without role filtering.
+  - *Hub Staff Ledger (`SH...`)*: `HubUserWalletCard` updated to accept `role`, `sequentialId`, and `targetLabel`. For `hub` / `staff` (`SH...`), only staff records (`staff_disbursement`, `staff_stipend`, `admin_adjustment`) are displayed. Driver commission debts and trip escrows are strictly excluded. The balance stream defaults to `0.0` if no separate staff balance exists, preventing negative driver commission balances (`₦ -310.50`) from tainting Hub staff identity.
+  - *Inspection Panel Role Scoping*: Updated `CustomerManagementScreen`, `CustomerApprovalsTab`, and `DriverProfileApprovalsTab` to explicitly pass `role: 'customer'` (`SC...`) or `role: 'driver'` (`SD...`), rendering target-labeled cards (`Customer Wallet • SC0001`, `Driver Wallet • SD0001`).
+  - *Client Stream Role Hardening (`sese_ride`)*: Enhanced `PaymentService.walletBalanceKoboStream()` and `walletHistoryStream()` to support `{String? role}` and filter out opposing role items (`t.role != 'driver' && t.role != 'hub'`).
+  - *Backend Schema Alignment (`functions`)*: In `trips.ts` and `driverStreak.ts`, updated escrow locks and commission debits to stamp `driverBalance` and `customerBalance` alongside `mainWalletBalance`.
+
+- **3. Verification**:
+  - `functions`: 164/164 unit tests passed; all 82 Gen-2 endpoints validated; deployed to Firebase.
+  - `sese_hub`: 0 analyzer issues; all 37 targeted test suites & 8/8 RBAC tests passed.
+  - `sese_ride`: 0 analyzer issues; 20/20 wallet & earnings tests passed.
+
 ## 2026-11-22 — Atomic Sequential ID Counter Isolation & Driver "Go Online" Session Recovery (`functions`, `sese_ride`, `sese_hub`, `firestore.rules`)
 
 - **1. Root-Cause Analysis: Duplicate Sequential IDs (`SD0001` on Multiple Drivers)**:

@@ -161,32 +161,70 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
             child: ValueListenableBuilder<HubViewMode>(
               valueListenable: ViewModeController.instance,
               builder: (context, currentMode, _) {
-                return SettingsTile(
-                  tileKey: const Key('hub_settings_view_mode_tile'),
-                  leading: const Icon(Icons.desktop_windows_outlined),
-                  title: 'Desktop View Mode',
-                  infoDescription:
-                      'Switch between Auto (System Default), Mobile View, or Desktop View ("Request Desktop Site" with 1280px viewport and pinch-to-zoom).',
-                  trailing: DropdownButton<HubViewMode>(
-                    value: currentMode,
-                    underline: const SizedBox.shrink(),
-                    items: HubViewMode.values
-                        .map(
-                          (m) => DropdownMenuItem(
-                            value: m,
-                            child: Text(
-                              m.label,
-                              style: const TextStyle(fontSize: 13),
+                return Column(
+                  children: [
+                    SettingsTile(
+                      tileKey: const Key('hub_settings_view_mode_tile'),
+                      leading: const Icon(Icons.desktop_windows_outlined),
+                      title: 'Layout View Mode',
+                      infoDescription:
+                          'Switch between Auto (System Default), Mobile View, or Desktop View ("Request Desktop Site" with 1280px viewport and pinch-to-zoom).',
+                      trailing: DropdownButton<HubViewMode>(
+                        value: currentMode,
+                        underline: const SizedBox.shrink(),
+                        items: HubViewMode.values
+                            .map(
+                              (m) => DropdownMenuItem(
+                                value: m,
+                                child: Text(
+                                  m.label,
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            ViewModeController.instance.setViewMode(val);
+                          }
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('switch_to_mobile_settings_btn'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: currentMode == HubViewMode.auto || currentMode == HubViewMode.mobile
+                                    ? const Color(0xFFE2B714)
+                                    : null,
+                              ),
+                              icon: const Icon(Icons.phone_android, size: 16),
+                              label: const Text('Mobile / Normal'),
+                              onPressed: () => ViewModeController.instance.setViewMode(HubViewMode.auto),
                             ),
                           ),
-                        )
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        ViewModeController.instance.setViewMode(val);
-                      }
-                    },
-                  ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('switch_to_desktop_settings_btn'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: currentMode == HubViewMode.desktop
+                                    ? const Color(0xFFE2B714)
+                                    : null,
+                              ),
+                              icon: const Icon(Icons.desktop_windows, size: 16),
+                              label: const Text('Desktop (1280px)'),
+                              onPressed: () => ViewModeController.instance.setViewMode(HubViewMode.desktop),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 );
               },
             ),

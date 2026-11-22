@@ -304,6 +304,9 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
                     HubUserWalletCard(
                       key: Key('customer_wallet_${doc.id}'),
                       userId: doc.id,
+                      role: 'customer',
+                      sequentialId: (data['sequentialId'] ?? '').toString(),
+                      targetLabel: 'Customer Wallet • ${(data['sequentialId'] ?? '').toString().isNotEmpty ? data['sequentialId'] : 'SC'}',
                       firestore: _db,
                     ),
 

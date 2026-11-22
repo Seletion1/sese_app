@@ -1240,6 +1240,7 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
           {
             mainWalletBalance: admin.firestore.FieldValue.increment(-actualCoverage),
             balance: admin.firestore.FieldValue.increment(-actualCoverageKobo),
+            customerBalance: admin.firestore.FieldValue.increment(-actualCoverage),
             escrowBalance: admin.firestore.FieldValue.increment(actualCoverage),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
