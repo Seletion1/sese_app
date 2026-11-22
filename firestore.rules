@@ -556,7 +556,8 @@ service cloud.firestore {
               'verificationStatus', 'isVerified', 'isProfileVerified',
               'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'completedTrips', 'safetyBlocked',
-              'status', 'isSuspended', 'streak', 'currentLevel', 'currentStep'
+              'status', 'isSuspended', 'streak', 'currentLevel', 'currentStep',
+              'sequentialId', 'referralCode', 'referralId'
             ]);
       }
 
@@ -564,14 +565,15 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isOwner(userId) || isHubStaff() || isAdminAuthClaim() || isSuperAdmin() || isOperationsAdmin() || isAgent()
       );
-      // On creation, driver cannot pre-seed approved verification or inflated trip stats
+      // On creation, driver cannot pre-seed approved verification, sequential ID, or referral ID
       allow create: if isAuthenticated() && request.auth.uid == userId && isNotSuspended() &&
         (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['isProfileVerified']) || request.resource.data.isProfileVerified == false) &&
         (!request.resource.data.keys().hasAny(['isVehicleVerified']) || request.resource.data.isVehicleVerified == false) &&
         (!request.resource.data.keys().hasAny(['canGoOnline']) || request.resource.data.canGoOnline == false) &&
-        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0);
+        (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId']));
       // Owner may update their profile, but cannot self-approve verification or alter safety/ratings
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidDriverProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
@@ -709,7 +711,8 @@ service cloud.firestore {
               'outstandingNegativeBalance', 'cancelStats', 'rating',
               'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'balance', 'mainWalletBalance',
-              'verificationStatus', 'customerVerificationStatus', 'isVerified'
+              'verificationStatus', 'customerVerificationStatus', 'isVerified',
+              'sequentialId', 'referralCode', 'referralId'
             ]);
       }
 
@@ -717,7 +720,7 @@ service cloud.firestore {
       // (which contain PII: phone, email, KYC flags). Other authenticated users
       // must use the /public sub-collection for limited safe projections.
       allow read: if isOwner(userId) || isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
-      // On creation, users cannot pre-seed debt, un-suspended state bypass, or elevated role
+      // On creation, users cannot pre-seed debt, un-suspended state bypass, elevated role, sequential ID, or referral ID
       allow create: if isAuthenticated() && request.auth.uid == userId &&
         (!request.resource.data.keys().hasAny(['isSuspended']) || request.resource.data.isSuspended == false) &&
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
@@ -726,7 +729,8 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['customerVerificationStatus']) || request.resource.data.customerVerificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
-        (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance']));
+        (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance'])) &&
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
@@ -1443,6 +1447,15 @@ service cloud.firestore {
     // entirely. Any authenticated user may read so that the onboarding
     // ReferralInputWidget can validate a code before signup completes.
     match /referral_codes/{code} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // ===== SEQUENTIAL USER ID LOOKUP INDEX =====
+    // `unique_sequential_ids/{SEQ_ID}`: uniqueness index preventing 2 users
+    // from claiming the same sequential user ID (e.g. "SC0001", "SD0001").
+    // Server-only write via Cloud Functions atomic transaction.
+    match /unique_sequential_ids/{seqId} {
       allow read: if isAuthenticated();
       allow write: if false;
     }

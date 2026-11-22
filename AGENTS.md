@@ -72,6 +72,39 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Sequential Role-Based User IDs (`SC...` / `SD...`), Verification-Gated Referral IDs & Dynamic Commission Distribution (`functions`, `sese_core`, `sese_ride`, `sese_hub`)
+
+- **1. Sequential Role-Based User IDs (`SC...` / `SD...`) & Concurrency Protection (`functions`, `sese_core`)**:
+  - Implemented transactional sequential human-readable user ID generation:
+    - Customer format: `SC` + zero-padded sequential number starting at `0001` (e.g. `SC0001`, `SC0002`... growing naturally to 5+ digits `SC10000` without truncation or capping).
+    - Driver format: `SD` + zero-padded sequential number starting at `0001` (e.g. `SD0001`, `SD0002`... growing naturally to 5+ digits `SD10000`).
+    - `system_config/user_counters` atomically increments role counters (`lastCustomerNumber`, `lastDriverNumber`) inside a Firestore transaction.
+    - Added `unique_sequential_ids/{id}` reservation documents to enforce absolute global uniqueness and prevent race conditions or collisions during high-concurrency signups.
+    - Security rules in `firestore.rules` forbid client-side tampering of `sequentialId`, `referralCode`, and `referralId`.
+  - Added retroactive backfill callable function (`backfillSequentialIds`) and standalone script (`functions/scripts/backfill-sequential-and-referral-ids.js`) ordering existing users by registration timestamp (`createdAt` ascending) from oldest to newest.
+
+- **2. Verification-Gated & Immutable Phone-Based Referral ID Generation (`functions`, `sese_core`)**:
+  - `referralId` / `referralCode` remains null/empty for unverified users. Removed premature client-side generation from `FirebaseAuthRepository.signUpWithEmail`.
+  - Generation occurs strictly server-side when both conditions are met: (a) profile `verificationStatus == 'approved'`, and (b) valid phone number is present.
+  - Formula: First initial of first name + First initial of last name + Last 4 digits of phone number (e.g., `MB1592`). Falls back safely to `SE` prefix for single names, or padded phone digits.
+  - Collision resistance: Appends incremental suffixes (`MB15921`, `MB15922`) when duplicates occur.
+  - Immutability: Once issued, referral IDs never change even if the user updates their phone number or profile details later.
+
+- **3. Dynamic Referral Commission Architecture (`functions`, `sese_hub`)**:
+  - Automatically queries dynamic commission configuration from `system_config/referral_settings` (`platformBaseCommissionRate`, `userReferralCommissionRate`, `driverReferrerRate`, `fixedReferralBonusNaira`).
+  - Automatically credits referrer wallet balances and generates audit trail entries in `wallet_transactions` and `referral_earnings` upon qualifying first completed trip.
+
+- **4. UI & Presentation Integration (`sese_ride`, `sese_hub`)**:
+  - `sese_ride`: Added read-only `Sequential Driver ID` in Driver Profile and `Customer ID (Sequential)` in Customer Profile Details. Updated Referral Hub to clearly indicate "Pending Verification" until approval.
+  - `sese_hub`: Displayed sequential ID chips and full referral IDs across Driver Management, Customer Management, and Verification Approval queues (`driver_profile_approvals_tab`, `customer_approvals_tab`).
+
+- **5. Verification & Stability**:
+  - `functions`: 159/159 tests passed, 82 Gen-2 endpoints validated, deployed to Firebase.
+  - `firestore.rules`: Successfully validated and deployed.
+  - `sese_core`: 0 analyzer issues, 186/186 tests passed.
+  - `sese_hub`: 0 analyzer issues, 74/74 tests passed.
+  - `sese_ride`: 0 analyzer issues, 100% tests passed.
+
 ## 2026-11-22 — Granular Driver KYC & Vehicle Per-Item Review, Smart Lock/Unlock & Resubmission Flow (`sese_ride`, `sese_hub`, `sese_core`)
 
 - **1. Granular Per-Item Review & Schema Alignment (`FieldReviewStatus`, `sese_core`, `sese_hub`)**:

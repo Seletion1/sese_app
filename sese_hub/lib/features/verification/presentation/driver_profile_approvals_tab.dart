@@ -557,10 +557,35 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16)),
+                          ),
+                          if ((data['sequentialId'] ?? '').toString().isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.blue.shade300),
+                              ),
+                              child: Text(
+                                (data['sequentialId'] ?? '').toString(),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.blue.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                       Text(
                         '${data['phoneNumber'] ?? ''} • ${data['email'] ?? ''}',
                         style: const TextStyle(

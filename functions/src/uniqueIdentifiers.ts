@@ -30,6 +30,7 @@ import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { _generateAndSaveReferralCode } from "./verification";
+import { _assignSequentialId } from "./sequentialIds";
 
 const db = () => admin.firestore();
 
@@ -568,6 +569,12 @@ export const registerUser = guardedOnCall<RegisterUserData>(async (request) => {
       );
     }
   });
+
+  try {
+    await _assignSequentialId(uid, "customer");
+  } catch (err) {
+    console.warn(`registerUser: sequential ID assignment failed for ${uid}:`, err);
+  }
 
   try {
     await _generateAndSaveReferralCode(uid, "users");

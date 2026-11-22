@@ -668,22 +668,15 @@ class FirebaseAuthRepository implements AuthRepository {
           isDriver ? DriverVerification.pendingOnboarding : '',
     );
 
-    // Generate and secure custom referral ID on registration.
-    final referralCode = await generateAndSecureReferralCode(
-      firestore: firestore,
-      uid: firebaseUser.uid,
-      fullName: fullName,
-      phoneNumber: phoneNumber,
-      isDriver: isDriver,
-    );
+    // Note: Per fintech compliance rules, referral IDs are strictly
+    // verification-gated on the backend (Cloud Function verification review).
+    // They remain empty on registration until the user/driver profile is approved.
 
     // Write profile document to the appropriate Firestore collection.
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
         'authProviders': ['password'],
-        if (referralCode != null && referralCode.isNotEmpty)
-          'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -704,8 +697,6 @@ class FirebaseAuthRepository implements AuthRepository {
           .set({
         ...appUser.toMap(),
         'authProviders': ['password'],
-        if (referralCode != null && referralCode.isNotEmpty)
-          'referralCode': referralCode,
         if (referredBy != null && referredBy.isNotEmpty)
           'referredBy': referredBy,
         if (referredBy != null && referredBy.isNotEmpty)
@@ -721,9 +712,9 @@ class FirebaseAuthRepository implements AuthRepository {
 
   /// Generates and secures a unique referral ID upon user/driver registration.
   ///
-  /// Format Rule: First Initial + Last Initial + Last 4 phone digits (e.g., MB1592).
-  /// Collision Handling: Incrementally appends counter (MB15921, MB15922, MB15923, ...)
-  /// until a unique slot is secured in `referral_codes/{CODE}`.
+  /// Deprecated: Referral IDs are generated strictly server-side by the
+  /// [_generateAndSaveReferralCode] Cloud Function once the profile is verified.
+  @Deprecated('Use server-side verification-gated referral code generation.')
   Future<String?> generateAndSecureReferralCode({
     required FirebaseFirestore firestore,
     required String uid,

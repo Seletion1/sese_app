@@ -101,13 +101,23 @@ class ReferralHubScreen extends StatelessWidget {
                           style: TextStyle(color: Colors.grey)),
                       const SizedBox(height: 4),
                       Text(
-                        code.isEmpty ? '…' : code,
-                        style: const TextStyle(
-                          fontSize: 36,
+                        code.isEmpty ? 'Pending Verification' : code,
+                        style: TextStyle(
+                          fontSize: code.isEmpty ? 22 : 36,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: 2,
+                          letterSpacing: code.isEmpty ? 0 : 2,
+                          color: code.isEmpty ? Colors.amber[800] : null,
                         ),
                       ),
+                      if (code.isEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Your unique referral code is generated automatically once your account and phone number are verified.',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey[600],
+                              ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       Row(
                         children: [

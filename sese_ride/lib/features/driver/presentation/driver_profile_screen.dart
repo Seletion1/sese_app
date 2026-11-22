@@ -559,6 +559,15 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         ? '${widget.user.uid.substring(0, 12)}…'
                         : widget.user.uid,
                   ),
+                  _ReadOnlyField(
+                    icon: Icons.tag,
+                    label: 'Sequential Driver ID',
+                    value: profile?.sequentialId.isNotEmpty == true
+                        ? profile!.sequentialId
+                        : (widget.user.sequentialId.isNotEmpty
+                            ? widget.user.sequentialId
+                            : 'Pending'),
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'Document Expiry Dates',

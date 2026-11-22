@@ -23,6 +23,17 @@ class AppUser {
   final int totalRatingSum;
   final int totalRatingCount;
 
+  /// The human-readable sequential customer ID assigned at registration
+  /// (e.g. "SC0001"). Empty string until the Cloud Function assigns it.
+  /// This is a display-only identifier — the Firebase Auth UID is never changed.
+  final String sequentialId;
+
+  /// The verified referral code (e.g. "MB1592").
+  /// Empty string until the user's profile is approved AND they have a phone
+  /// number. Generated server-side by [_generateAndSaveReferralCode] after
+  /// the hub reviews and approves the KYC submission.
+  final String referralCode;
+
   AppUser({
     required this.uid,
     required this.fullName,
@@ -36,6 +47,8 @@ class AppUser {
     this.averageRating = 5.0,
     this.totalRatingSum = 0,
     this.totalRatingCount = 0,
+    this.sequentialId = '',
+    this.referralCode = '',
   });
 
   /// Drivers are created pending — require admin approval in sese_hub.
@@ -59,6 +72,8 @@ class AppUser {
       'averageRating': averageRating,
       'totalRatingSum': totalRatingSum,
       'totalRatingCount': totalRatingCount,
+      'sequentialId': sequentialId,
+      'referralCode': referralCode,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {
@@ -82,6 +97,8 @@ class AppUser {
       averageRating: safeNum(map['averageRating'])?.toDouble() ?? 5.0,
       totalRatingSum: safeNum(map['totalRatingSum'])?.toInt() ?? 0,
       totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
+      sequentialId: (map['sequentialId'] ?? '').toString(),
+      referralCode: (map['referralCode'] ?? '').toString(),
     );
   }
 
@@ -110,6 +127,8 @@ class AppUser {
     double? averageRating,
     int? totalRatingSum,
     int? totalRatingCount,
+    String? sequentialId,
+    String? referralCode,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -124,6 +143,8 @@ class AppUser {
       averageRating: averageRating ?? this.averageRating,
       totalRatingSum: totalRatingSum ?? this.totalRatingSum,
       totalRatingCount: totalRatingCount ?? this.totalRatingCount,
+      sequentialId: sequentialId ?? this.sequentialId,
+      referralCode: referralCode ?? this.referralCode,
     );
   }
 }

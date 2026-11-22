@@ -375,6 +375,10 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                       const SizedBox(height: 10),
+                      if ((data['sequentialId'] ?? '').toString().isNotEmpty)
+                        _detailRow(Icons.tag, 'Sequential Customer ID', (data['sequentialId'] ?? '').toString()),
+                      if ((data['referralCode'] ?? data['referralId'] ?? '').toString().isNotEmpty)
+                        _detailRow(Icons.card_giftcard, 'Referral ID', (data['referralCode'] ?? data['referralId'] ?? '').toString()),
                       _detailRow(Icons.phone, 'Phone Number', phone, action: () async {
                         final uri = Uri(scheme: 'tel', path: phone);
                         if (await canLaunchUrl(uri)) await launchUrl(uri);
@@ -767,6 +771,25 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
                             if (isVerified) ...[
                               const SizedBox(width: 4),
                               const Icon(Icons.verified, size: 16, color: Colors.blue),
+                            ],
+                            if ((data['sequentialId'] ?? '').toString().isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.shade50,
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.blue.shade300),
+                                ),
+                                child: Text(
+                                  (data['sequentialId'] ?? '').toString(),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue.shade800,
+                                  ),
+                                ),
+                              ),
                             ],
                             if (isSuspended) ...[
                               const SizedBox(width: 6),

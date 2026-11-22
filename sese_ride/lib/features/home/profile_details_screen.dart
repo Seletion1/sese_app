@@ -350,6 +350,21 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
             ),
           ),
 
+        // ── Account Identifiers ──────────────────────────────────────────
+        _sectionHeader('Account Identifiers'),
+        TextFormField(
+          initialValue: widget.user.sequentialId.isNotEmpty ? widget.user.sequentialId : 'Pending',
+          decoration: const InputDecoration(
+            labelText: 'Customer ID (Sequential)',
+            prefixIcon: Icon(Icons.tag),
+            suffixIcon: Icon(Icons.lock_outline, size: 18),
+            border: OutlineInputBorder(),
+          ),
+          readOnly: true,
+          enabled: false,
+        ),
+        const SizedBox(height: 16),
+
         // ── Personal Info ────────────────────────────────────────────────
         _sectionHeader('Personal Information'),
         _lockedField(

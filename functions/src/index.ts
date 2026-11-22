@@ -138,7 +138,11 @@ export {
   onDriverVehicleVerified,
   onUserCreated,
   onDriverCreated,
+  onUserUpdated,
+  onDriverUpdated,
 } from "./verification";
+
+export { backfillSequentialIds } from "./sequentialIds";
 
 export {
   lookupAccountForOnboarding,

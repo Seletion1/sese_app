@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { guardedOnCall } from "./accountGuard";
+import { _assignSequentialId } from "./sequentialIds";
 
 const db = () => admin.firestore();
 
@@ -38,16 +39,34 @@ async function _generateAndSaveReferralCode(
     return null;
   }
   const profileData = profileSnap.data() ?? {};
-  const existingCode = String(profileData.referralCode ?? "").trim();
+
+  // Verification gate: only generate referral code for verified users/drivers
+  const isVerified =
+    profileData?.isProfileVerified === true ||
+    profileData?.verificationStatus === "approved" ||
+    profileData?.verificationStatus === "verified" ||
+    profileData?.isVerifiedCustomer === true;
+  if (!isVerified) {
+    console.log(`[Referral] Skipping referral code for ${userId}: not yet verified.`);
+    return null;
+  }
+
+  const existingCode = String(profileData.referralCode ?? profileData.referralId ?? "").trim();
 
   const rawPhone = String(
     profileData.phoneNumberE164 ?? profileData.phoneNumber ?? profileData.phone ?? ""
   ).trim();
   const digits = rawPhone.replace(/\D/g, "");
-  const hasValidPhoneDigits = digits.length >= 4;
 
-  // If a valid referral code already exists (and is not a "0000" placeholder when valid phone digits exist), retain it
-  if (existingCode && (!existingCode.endsWith("0000") || !hasValidPhoneDigits)) {
+  // Require a phone number on the account before assigning referral ID
+  if (!rawPhone || digits.length === 0) {
+    console.log(`[Referral] Skipping referral code for ${userId}: no phone number on record.`);
+    return null;
+  }
+
+  // Immutability Rule: If a valid referral code already exists (not a placeholder ending in 0000),
+  // retain it permanently even if the user updates/changes their phone number later.
+  if (existingCode && !existingCode.endsWith("0000")) {
     return existingCode;
   }
 
@@ -94,17 +113,22 @@ async function _generateAndSaveReferralCode(
 
         tx.set(codeRef, {
           referrerId: userId,
+          referralCode: candidate,
+          referralId: candidate,
           collection,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        tx.update(profileRef, { referralCode: candidate });
+        tx.update(profileRef, {
+          referralCode: candidate,
+          referralId: candidate,
+        });
 
         // Dual-role sync across users and drivers collections
         const altCollection = collection === "users" ? "drivers" : "users";
         const altRef = firestore.collection(altCollection).doc(userId);
         const altSnap = await tx.get(altRef);
         if (altSnap.exists) {
-          tx.set(altRef, { referralCode: candidate }, { merge: true });
+          tx.set(altRef, { referralCode: candidate, referralId: candidate }, { merge: true });
         }
 
         // Clean up retired placeholder code (e.g. XX0000) if upgrading
@@ -151,11 +175,15 @@ export const onUserCreated = onDocumentCreated(
   "users/{userId}",
   async (event) => {
     const userId = event.params.userId;
+    // Assign a human-readable sequential customer ID (e.g. "SC0001")
+    // immediately on registration, before any verification review.
     try {
-      await _generateAndSaveReferralCode(userId, "users");
+      await _assignSequentialId(userId, "customer");
     } catch (err) {
-      console.warn(`onUserCreated referral code generation failed for ${userId}:`, err);
+      console.warn(`onUserCreated sequential ID assignment failed for ${userId}:`, err);
     }
+    // Referral code is NOT generated here — it is deferred until the
+    // customer's profile is verified (see _generateAndSaveReferralCode gate).
   }
 );
 
@@ -168,11 +196,15 @@ export const onDriverCreated = onDocumentCreated(
   "drivers/{driverId}",
   async (event) => {
     const driverId = event.params.driverId;
+    // Assign a human-readable sequential driver ID (e.g. "SD0001")
+    // immediately on registration, before any verification review.
     try {
-      await _generateAndSaveReferralCode(driverId, "drivers");
+      await _assignSequentialId(driverId, "driver");
     } catch (err) {
-      console.warn(`onDriverCreated referral code generation failed for ${driverId}:`, err);
+      console.warn(`onDriverCreated sequential ID assignment failed for ${driverId}:`, err);
     }
+    // Referral code is NOT generated here — it is deferred until the
+    // driver's profile is verified (see _generateAndSaveReferralCode gate).
   }
 );
 
@@ -197,10 +229,21 @@ export const onUserUpdated = onDocumentUpdated(
       after.phoneNumberE164 ?? after.phoneNumber ?? after.phone ?? ""
     ).trim();
 
+    // Immutability guard: if a real (non-placeholder) referral code already
+    // exists on the before-state or after-state, never attempt to regenerate it.
+    const beforeCode = String(before.referralCode ?? before.referralId ?? "").trim();
+    if (beforeCode && !beforeCode.endsWith("0000")) {
+      return;
+    }
+    const afterCode = String(after.referralCode ?? after.referralId ?? "").trim();
+    if (afterCode && !afterCode.endsWith("0000")) {
+      return;
+    }
+
     if (
       beforePhone !== afterPhone ||
-      !after.referralCode ||
-      String(after.referralCode).endsWith("0000")
+      !afterCode ||
+      afterCode.endsWith("0000")
     ) {
       try {
         await _generateAndSaveReferralCode(userId, "users");
@@ -235,10 +278,21 @@ export const onDriverUpdated = onDocumentUpdated(
       after.phone ?? after.phoneNumberE164 ?? after.phoneNumber ?? ""
     ).trim();
 
+    // Immutability guard: if a real (non-placeholder) referral code already
+    // exists on the before-state or after-state, never attempt to regenerate it.
+    const beforeCode = String(before.referralCode ?? before.referralId ?? "").trim();
+    if (beforeCode && !beforeCode.endsWith("0000")) {
+      return;
+    }
+    const afterCode = String(after.referralCode ?? after.referralId ?? "").trim();
+    if (afterCode && !afterCode.endsWith("0000")) {
+      return;
+    }
+
     if (
       beforePhone !== afterPhone ||
-      !after.referralCode ||
-      String(after.referralCode).endsWith("0000")
+      !afterCode ||
+      afterCode.endsWith("0000")
     ) {
       try {
         await _generateAndSaveReferralCode(driverId, "drivers");
