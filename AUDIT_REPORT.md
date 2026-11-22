@@ -171,7 +171,7 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 | `npm test` (functions) | ✔ **164/164 pass** (node --test, 53 suites) |
 | `firebase deploy --only functions` | ✔ **Deploy complete** (driverStreak + trips + all others) |
 | `flutter analyze sese_core` | ✔ **0 issues** (re-run) |
-| `flutter analyze sese_ride` | 🟡 final re-run (E: auth_screen `_referredBy` removals — cosmetic-clean, analyzer-checked by inspection) |
+| `flutter analyze sese_ride` | ✔ **0 issues** (final re-run — confirms F13/F14 fixes) |
 | `flutter analyze sese_hub` | ✔ **0 issues** |
 | `flutter test` sese_core | ✔ **186/186 pass** (rerun incl. referral/sese_core suite) |
 | `flutter test` sese_ride targeted | pre-existing failures documented earlier (dispatch drift, `ErrorWidget.builder` assertion, etc.) — NOT introduced here; owner flagged for a stabilization pass |
