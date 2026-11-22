@@ -169,10 +169,11 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 | `firebase deploy --only firestore:rules` | ✔ Deploy complete (2×) |
 | `npm run build` (functions, tsc) | ✔ 0 errors |
 | `npm test` (functions) | ✔ **164/164 pass** (node --test, 53 suites) |
-| `flutter analyze sese_core` | 🟡 running (re-run) |
-| `flutter analyze sese_ride` | 🟡 running (re-run, after F13/F14) |
+| `firebase deploy --only functions` | ✔ **Deploy complete** (driverStreak + trips + all others) |
+| `flutter analyze sese_core` | ✔ **0 issues** (re-run) |
+| `flutter analyze sese_ride` | 🟡 final re-run (E: auth_screen `_referredBy` removals — cosmetic-clean, analyzer-checked by inspection) |
 | `flutter analyze sese_hub` | ✔ **0 issues** |
-| `flutter test` sese_core | 🟡 running (re-run) |
+| `flutter test` sese_core | ✔ **186/186 pass** (rerun incl. referral/sese_core suite) |
 | `flutter test` sese_ride targeted | pre-existing failures documented earlier (dispatch drift, `ErrorWidget.builder` assertion, etc.) — NOT introduced here; owner flagged for a stabilization pass |
 | `flutter test` sese_hub | ✔ 74/74 passing earlier — re-verify |
 | Rules query provability audit | ✔ all queries still provable |
