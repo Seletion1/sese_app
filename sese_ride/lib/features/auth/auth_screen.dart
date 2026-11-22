@@ -598,11 +598,16 @@ class _AuthScreenState extends State<AuthScreen> {
       default:
         if (message != null &&
             message.trim().isNotEmpty &&
-            !message.contains('channel-error') &&
-            !message.contains('PlatformException')) {
-          return message;
+            !message.toLowerCase().contains('com.sesetech') &&
+            !message.toLowerCase().contains('requests from this android client') &&
+            !message.toLowerCase().contains('channel-error') &&
+            !message.toLowerCase().contains('platformexception') &&
+            !message.toLowerCase().contains('exception') &&
+            !message.contains('{') &&
+            !message.contains(']')) {
+          return message.trim();
         }
-        return 'Authentication failed. Please verify your credentials and try again.';
+        return 'Authentication failed. Please verify your details and try again.';
     }
   }
 

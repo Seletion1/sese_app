@@ -553,20 +553,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         : '—',
                   ),
                   _ReadOnlyField(
-                    icon: Icons.fingerprint_outlined,
-                    label: 'Driver ID',
-                    value: widget.user.uid.length > 12
-                        ? '${widget.user.uid.substring(0, 12)}…'
-                        : widget.user.uid,
-                  ),
-                  _ReadOnlyField(
                     icon: Icons.tag,
-                    label: 'Sequential Driver ID',
+                    label: 'Driver ID',
                     value: profile?.sequentialId.isNotEmpty == true
                         ? profile!.sequentialId
-                        : (widget.user.sequentialId.isNotEmpty
+                        : (widget.user.sequentialId.isNotEmpty == true
                             ? widget.user.sequentialId
-                            : 'Pending'),
+                            : 'SD0001'),
                   ),
                   const SizedBox(height: 16),
                   Text(

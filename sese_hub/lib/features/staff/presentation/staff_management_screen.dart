@@ -146,6 +146,16 @@ class _StaffRow extends StatelessWidget {
               spacing: 6,
               runSpacing: 4,
               children: [
+                if (record.sequentialId.isNotEmpty)
+                  Chip(
+                    avatar: const Icon(Icons.tag, size: 14),
+                    label: Text(
+                      record.sequentialId,
+                      style: const TextStyle(
+                          fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 Chip(
                   label: Text(
                     role == UserRole.superRole

@@ -157,7 +157,15 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
       final result = await fn.httpsCallable('goOnline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
-      throw DriverStatusException(e.code, e.message ?? 'Online request denied.');
+      final code = e.code.toLowerCase();
+      final msg = (e.message ?? '').trim();
+      if (code == 'unauthenticated' || msg.toLowerCase() == 'unauthenticated' || msg.contains('unauthenticated')) {
+        throw const DriverStatusException(
+          'unauthenticated',
+          'Session expired. Please sign in again to go online.',
+        );
+      }
+      throw DriverStatusException(e.code, msg.isEmpty ? 'Online request denied.' : msg);
     }
   }
 
@@ -183,7 +191,15 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
       final result = await fn.httpsCallable('goOffline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
-      throw DriverStatusException(e.code, e.message ?? 'Offline request denied.');
+      final code = e.code.toLowerCase();
+      final msg = (e.message ?? '').trim();
+      if (code == 'unauthenticated' || msg.toLowerCase() == 'unauthenticated' || msg.contains('unauthenticated')) {
+        throw const DriverStatusException(
+          'unauthenticated',
+          'Session expired. Please sign in again.',
+        );
+      }
+      throw DriverStatusException(e.code, msg.isEmpty ? 'Offline request denied.' : msg);
     }
   }
 }
@@ -221,7 +237,14 @@ class DriverStatusService {
     }
     try {
       final auth = _authExplicit ?? fb.FirebaseAuth.instance;
-      return await auth.currentUser?.getIdToken();
+      final currentUser = auth.currentUser;
+      if (currentUser == null) return null;
+      try {
+        return await currentUser.getIdToken(true);
+      } catch (e) {
+        debugPrint('DriverStatusService: getIdToken(true) failed, using cached token: $e');
+        return await currentUser.getIdToken(false);
+      }
     } catch (e) {
       debugPrint('DriverStatusService: getIdToken error: $e');
       return null;
@@ -263,7 +286,7 @@ class DriverStatusService {
     if (idToken == null || idToken.isEmpty) {
       throw const DriverStatusException(
         'unauthenticated',
-        'Sign in again to verify your session.',
+        'Session expired. Please sign in again to go online.',
       );
     }
     final data = await _backend.callGoOnline(

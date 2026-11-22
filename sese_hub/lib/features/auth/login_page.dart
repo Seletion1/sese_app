@@ -145,17 +145,12 @@ class _LoginPageState extends State<LoginPage> {
 
   /// Maps raw Google Sign-In failures (thrown as generic exceptions carrying
   /// `ApiException: <code>`) to actionable user messages.
-  ///
-  /// - 10 (DEVELOPER_ERROR): signing cert / package / OAuth client mismatch.
-  /// - 7 (NETWORK_ERROR): Play Services couldn't reach Google — retry.
-  /// - 12500: OAuth consent / account state problem.
-  /// - 12501: user cancelled the account picker.
   String _mapGoogleSignInError(Object e) {
     final text = e.toString();
-    if (text.contains('ApiException: 10')) {
-      return 'Google sign-in blocked: this app build is not '
-          'registered. Reinstall the app from a fresh build and '
-          'ensure its signing certificate is added in your account configuration.';
+    if (text.contains('com.sesetech') ||
+        text.contains('Requests from this Android client') ||
+        text.contains('ApiException: 10')) {
+      return 'Google sign-in is currently unavailable. Please verify your internet connection or try email sign-in.';
     }
     if (text.contains('ApiException: 7') ||
         text.contains('network_error')) {
@@ -204,13 +199,22 @@ class _LoginPageState extends State<LoginPage> {
       case 'channel-error':
         return 'Unable to connect to authentication service. Please check your credentials and internet connection.';
       case 'google-sign-in-failed':
-        return fallbackMessage ?? 'Google sign-in failed. Please verify Google Play Services and try again.';
+        return 'Google sign-in failed. Please verify Google Play Services and try again.';
       case 'google-id-token-missing':
-        return fallbackMessage ?? 'Google returned no security token. Please verify app registration and try again.';
+        return 'Google returned no security token. Please verify app registration and try again.';
       default:
-        return (fallbackMessage != null && fallbackMessage.isNotEmpty)
-            ? fallbackMessage
-            : 'Sign-in failed. Please verify your credentials and try again.';
+        if (fallbackMessage != null &&
+            fallbackMessage.isNotEmpty &&
+            !fallbackMessage.toLowerCase().contains('com.sesetech') &&
+            !fallbackMessage.toLowerCase().contains('requests from this android client') &&
+            !fallbackMessage.toLowerCase().contains('internal error') &&
+            !fallbackMessage.toLowerCase().contains('exception') &&
+            !fallbackMessage.toLowerCase().contains('unauthenticated') &&
+            !fallbackMessage.contains('{') &&
+            !fallbackMessage.contains(']')) {
+          return fallbackMessage;
+        }
+        return 'Sign-in failed. Please verify your credentials and try again.';
     }
   }
 

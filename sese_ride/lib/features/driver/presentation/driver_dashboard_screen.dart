@@ -1729,8 +1729,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       }
     } on DriverStatusException catch (e) {
       if (!mounted) return;
+      final rawMsg = e.message.trim();
+      final userMsg = (e.code == 'unauthenticated' ||
+              rawMsg.toLowerCase() == 'unauthenticated' ||
+              rawMsg.contains('com.sesetech') ||
+              rawMsg.contains('Exception:'))
+          ? 'Session expired. Please sign in again to go online.'
+          : rawMsg;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message)),
+        SnackBar(content: Text(userMsg)),
       );
     } finally {
       if (mounted) setState(() => _syncing = false);

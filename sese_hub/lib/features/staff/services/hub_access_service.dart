@@ -291,6 +291,7 @@ class HubStaffRecord {
   final List<String> assignedPermissions;
   final String assignedBy;
   final bool active;
+  final String sequentialId;
 
   /// Normalized jurisdiction scope (`global` or e.g. `NG`).
   final String countryScope;
@@ -302,6 +303,7 @@ class HubStaffRecord {
     this.assignedPermissions = const [],
     this.assignedBy = '',
     this.active = true,
+    this.sequentialId = '',
     this.countryScope = countryScopeGlobal,
   });
 
@@ -319,6 +321,7 @@ class HubStaffRecord {
           : const [],
       assignedBy: (map['assignedBy'] ?? '').toString(),
       active: map['active'] != false,
+      sequentialId: (map['sequentialId'] ?? '').toString(),
       countryScope: normalizeCountryScope(
         (map['countryScope'] ?? map['country_scope'] ?? map['country'])
             ?.toString(),
@@ -333,6 +336,7 @@ class HubStaffRecord {
         'assignedPermissions': assignedPermissions,
         'assignedBy': assignedBy,
         'active': active,
+        'sequentialId': sequentialId,
         'countryScope': countryScope,
       };
 }

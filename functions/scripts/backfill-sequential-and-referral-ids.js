@@ -16,7 +16,9 @@
 const admin = require("firebase-admin");
 
 if (!admin.apps.length) {
-  admin.initializeApp();
+  admin.initializeApp({
+    projectId: "sese-ride",
+  });
 }
 
 const db = admin.firestore();
@@ -24,7 +26,7 @@ const COUNTERS_DOC = "system_config/user_counters";
 const isDryRun = process.argv.includes("--dry-run");
 
 function formatSequentialId(role, n) {
-  const prefix = role === "customer" ? "SC" : "SD";
+  const prefix = role === "customer" ? "SC" : (role === "staff" || role === "hub" ? "SH" : "SD");
   return prefix + String(n).padStart(4, "0");
 }
 
@@ -67,15 +69,17 @@ async function runBackfill() {
   const countersRef = db.doc(COUNTERS_DOC);
   let customerCount = 0;
   let driverCount = 0;
+  let staffCount = 0;
 
   const counterSnap = await countersRef.get();
   if (counterSnap.exists) {
     const data = counterSnap.data() || {};
     customerCount = typeof data.customerCount === "number" ? data.customerCount : 0;
     driverCount = typeof data.driverCount === "number" ? data.driverCount : 0;
+    staffCount = typeof data.staffCount === "number" ? data.staffCount : 0;
   }
 
-  console.log(`[Backfill] Current counters: customerCount=${customerCount}, driverCount=${driverCount}`);
+  console.log(`[Backfill] Current counters: customerCount=${customerCount}, driverCount=${driverCount}, staffCount=${staffCount}`);
 
   // ── 1. Customers ───────────────────────────────────────────────────────────
   console.log("[Backfill] Fetching customers ordered by createdAt asc...");
@@ -227,10 +231,48 @@ async function runBackfill() {
     await countersRef.set({ driverCount }, { merge: true });
   }
 
+  // ── 3. Hub Staff ───────────────────────────────────────────────────────────
+  console.log("[Backfill] Fetching hub staff...");
+  const staffSnap = await db.collection("hub_staff").get();
+  console.log(`[Backfill] Found ${staffSnap.docs.length} hub staff records.`);
+
+  let staffSeqAssigned = 0;
+
+  for (const doc of staffSnap.docs) {
+    const data = doc.data() || {};
+    const existingSeq = data.sequentialId;
+    const updates = {};
+
+    if (!existingSeq || !existingSeq.startsWith("SH")) {
+      staffCount++;
+      const newSeqId = formatSequentialId("staff", staffCount);
+      updates.sequentialId = newSeqId;
+      staffSeqAssigned++;
+      if (!isDryRun) {
+        await db.collection("unique_sequential_ids").doc(newSeqId).set({
+          ownerUid: doc.id,
+          role: "staff",
+          sequentialId: newSeqId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+      console.log(`  Assigning ${newSeqId} to hub staff ${doc.id} (${data.name || data.email || 'Unnamed'})`);
+    }
+
+    if (Object.keys(updates).length > 0 && !isDryRun) {
+      await doc.ref.update(updates);
+    }
+  }
+
+  if (!isDryRun && staffSeqAssigned > 0) {
+    await countersRef.set({ staffCount }, { merge: true });
+  }
+
   console.log("\n[Backfill] Summary:");
   console.log(`  Customers: ${customerSeqAssigned} sequential IDs assigned, ${customerRefAssigned} referral IDs generated.`);
   console.log(`  Drivers:   ${driverSeqAssigned} sequential IDs assigned, ${driverRefAssigned} referral IDs generated.`);
-  console.log(`  Final counter doc: customerCount=${customerCount}, driverCount=${driverCount}`);
+  console.log(`  Hub Staff: ${staffSeqAssigned} sequential IDs assigned.`);
+  console.log(`  Final counter doc: customerCount=${customerCount}, driverCount=${driverCount}, staffCount=${staffCount}`);
   console.log("[Backfill] Completed successfully.");
 }
 
