@@ -7204,3 +7204,19 @@ Added **Step 6** to the existing `sweepTripPings` scheduled Cloud Function (runs
 
 
 
+
+## 2026-11-23 — Production Readiness Audit & Referral Anti-Spoofing Hardening (`firestore.rules`, `functions`, `sese_core`, `sese_ride`, `sese_hub`)
+
+Full end-to-end audit performed: static rule-by-rule review of `firestore.rules`/`storage.rules`, all `functions/src/*` money/ID paths, Flutter screens. Findings and fixes (details in `AUDIT_REPORT.md`):
+
+1. **CRITICAL — `firestore.rules` didn't compile**: `match /counters/{counterId}` called undefined `isHubStaffOrAdmin()` (function name typo, added after its call site). All rules were un-deployable — fixes ship via `firebase deploy --only firestore:rules` (deployed, dry-run compiles).
+2. **CRITICAL — Referral commission anti-spoofing hole**: `processReferralCommissions` read `referredBy` / `referred_by_code` / `referrerId` from `users`/`drivers` — but **nothing server-side ever wrote `referredBy`** (only legacy client-side). Any user could claim a referrer link and receive commissions. Fixed:
+   - Banned `referredBy`, `referred_by_code`, `referrerId`, `referralSignupAt` on `users`/`drivers` (create + update + creates).
+   - `driverStreak.ts` now reads only server-minted `referralCode`/`referralId` (written by verified `_generateAndSaveReferralCode`); self-referral guard retained.
+   - Removed client `referredBy` writes (`FirebaseAuthRepository.registerWithReferral`, `auth_screen.dart`).
+   - `ReferralService` Refer & Earn reads now resolve via `referral_codes/{CODE}` mirror (rules-compliant).
+3. **ID leak — Driver Profile screen showed the customer `SC…` ID as the Driver ID** when the driver doc lacked `sequentialId` (`driver_profile_screen.dart` fallback to `widget.user.sequentialId`). Removed.
+4. **ID leak — `hub_user_wallet_card.dart` hardcoded `'SH0001'`** empty-state. `_displayId()` → `'—'`.
+5. **Rules audit (F8/F9)**: money/escrow/payout/trips/payout_requests/private-auth/hub_staff all remain server-authoritative; residual notes in `AUDIT_REPORT.md` (road_incidents writes, referral_codes public read, active_trips route_history append).
+6. **Functions fixes**: `reassignTrip` stale-read race now wrapped in `runTransaction` (verified).
+7. Verification: `tsc` clean; `npm test` **164/164 pass**; `flutter analyze` **0 issues** (`sese_core`, `sese_ride`, `sese_hub`); `firestore.rules` dry-run compile OK. Emulator attack suite documented as next step in `AUDIT_REPORT.md`.

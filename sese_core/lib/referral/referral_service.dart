@@ -231,18 +231,13 @@ class ReferralService {
   Stream<List<Map<String, dynamic>>> _referredDocsStream(
       FirebaseFirestore db, String referrerId) async* {
     yield await _fetchAll(db, referrerId);
-    // Live updates: re-emit when any referee doc or earnings row changes.
-    yield* Stream.fromFutures(
-      [
-        db.collection('referral_codes').doc(referrerId.toUpperCase()).snapshots(),
-        db
-            .collection('referral_earnings')
-            .where('referrerId', isEqualTo: referrerId)
-            .snapshots(),
-      ],
-    ).asyncMap((_) => _fetchAll(db, referrerId)).handleError(
-          (Object _) => const <Map<String, dynamic>>[],
-        );
+    // Live updates: re-emit when the referee's referral_codes doc changes.
+    yield* db
+        .collection('referral_codes')
+        .doc(referrerId.toUpperCase())
+        .snapshots()
+        .asyncMap((_) => _fetchAll(db, referrerId))
+        .handleError((Object _) => const <Map<String, dynamic>>[]);
   }
 
   /// Resolves the referee docs (`users`/`drivers`) for [referrerId].
