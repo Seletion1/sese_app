@@ -4042,7 +4042,29 @@ async function handleReassignTrip(request: { auth?: { uid: string }; data?: any 
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  await tripRef.update(updatePayload);
+  // Race-safe re-check + update inside a transaction: the trip may have been
+  // cancelled or reassigned between the caller's read and this update —
+  // must not resurrect terminal trips or overwrite newer state.
+  const fareAmount = await db().runTransaction(async (tx) => {
+    const snap = await tx.get(tripRef);
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Trip not found.");
+    }
+    const current = snap.data()!;
+    const currentCustomerId = String(
+      current.customerId ??
+        current.userId ??
+        (current.customer && typeof current.customer === "object"
+          ? current.customer.uid
+          : "") ??
+        ""
+    );
+    if (currentCustomerId && currentCustomerId !== customerId) {
+      throw new HttpsError("permission-denied", "Not your trip.");
+    }
+    tx.update(tripRef, updatePayload);
+    return Number(current.fareAmount ?? fareUpdate.fareAmount ?? 0);
+  });
 
   // Instantly trigger sequential dispatch router from Step 1!
   const fresh = (await tripRef.get()).data()!;
@@ -4051,7 +4073,7 @@ async function handleReassignTrip(request: { auth?: { uid: string }; data?: any 
   return {
     ok: true,
     status: "SEARCHING_DRIVER",
-    fareAmount: fresh.fareAmount,
+    fareAmount,
     reassigned: true,
   };
 }

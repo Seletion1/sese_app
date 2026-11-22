@@ -466,7 +466,10 @@ class _AuthScreenState extends State<AuthScreen> {
                 ? password
                 : 'OAuth-Registered-User-123!',
             role: _controller.selectedRole,
-            referredBy: _referredBy,
+            // Referral attribution is server-minted post-verification;
+            // no client-side claim is accepted (see
+            // firebase_auth_repository.dart + firestore.rules).
+            referredBy: null,
           );
         } else {
           appUser = await _auth.register(

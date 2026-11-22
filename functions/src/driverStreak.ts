@@ -1868,7 +1868,12 @@ async function processReferralCommissions(
       const driverSnap = await db().collection("drivers").doc(driverId).get();
       if (driverSnap.exists) {
         const dData = driverSnap.data()!;
-        const referrerId = String(dData.referredBy ?? dData.referred_by_code ?? dData.referrerId ?? "");
+        // Referral attribution is strictly server-minted: only the
+        // `referralCode` / `referralId` fields written by
+        // `_generateAndSaveReferralCode` (verified + phone-gated) count.
+        // `referredBy` is banned client-side on users/drivers (see
+        // firestore.rules) so it cannot be spoofed by a client.
+        const referrerId = String(dData.referralCode ?? dData.referralId ?? dData.referredBy ?? "");
         if (referrerId && referrerId !== driverId) {
           const refereeName = String(dData.fullName ?? driverName ?? "Driver");
           const signupTs = dData.referralSignupAt ?? dData.createdAt;
@@ -1886,7 +1891,9 @@ async function processReferralCommissions(
       const customerSnap = await db().collection("users").doc(customerId).get();
       if (customerSnap.exists) {
         const cData = customerSnap.data()!;
-        const referrerId = String(cData.referredBy ?? cData.referred_by_code ?? cData.referrerId ?? "");
+        // Referral attribution is strictly server-minted (see driver path
+        // above — `referredBy` and `referralSignupAt` are client-banned).
+        const referrerId = String(cData.referralCode ?? cData.referralId ?? cData.referredBy ?? "");
         if (referrerId && referrerId !== customerId) {
           const refereeName = String(cData.fullName ?? cData.displayName ?? "Customer");
           const signupTs = cData.referralSignupAt ?? cData.createdAt;

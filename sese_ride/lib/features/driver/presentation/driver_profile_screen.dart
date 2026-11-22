@@ -555,11 +555,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                   _ReadOnlyField(
                     icon: Icons.tag,
                     label: 'Driver ID',
+                    // Strict role isolation: the driver ID lives ONLY on the
+                    // driver profile. The signed-in AppUser is a customer
+                    // profile doc, so its SC id must never be displayed here
+                    // as a driver ID.
                     value: profile?.sequentialId.isNotEmpty == true
                         ? profile!.sequentialId
-                        : (widget.user.sequentialId.startsWith('SD')
-                            ? widget.user.sequentialId
-                            : '—'),
+                        : '—',
                   ),
                   const SizedBox(height: 16),
                   Text(

@@ -557,7 +557,12 @@ service cloud.firestore {
               'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'completedTrips', 'safetyBlocked',
               'status', 'isSuspended', 'streak', 'currentLevel', 'currentStep',
-              'sequentialId', 'referralCode', 'referralId'
+              'sequentialId', 'referralCode', 'referralId',
+              // Referral attribution is server-minted exclusively by the
+              // verification-gated `_generateAndSaveReferralCode` flow — a
+              // client claiming a referrer or a signup timestamp is spoofed
+              // money (see driverStreak `processReferralCommissions`).
+              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt'
             ]);
       }
 
@@ -573,7 +578,7 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['isVehicleVerified']) || request.resource.data.isVehicleVerified == false) &&
         (!request.resource.data.keys().hasAny(['canGoOnline']) || request.resource.data.canGoOnline == false) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
-        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId']));
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt']));
       // Owner may update their profile, but cannot self-approve verification or alter safety/ratings
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidDriverProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
@@ -712,7 +717,10 @@ service cloud.firestore {
               'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'balance', 'mainWalletBalance',
               'verificationStatus', 'customerVerificationStatus', 'isVerified',
-              'sequentialId', 'referralCode', 'referralId'
+              'sequentialId', 'referralCode', 'referralId',
+              // Referral attribution is server-minted exclusively — see the
+              // note on `drivers` above.
+              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt'
             ]);
       }
 
@@ -730,7 +738,7 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['customerVerificationStatus']) || request.resource.data.customerVerificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance'])) &&
-        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId']));
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
@@ -814,13 +822,29 @@ service cloud.firestore {
 
     // Hub staff qualification records. The primary owner is the only account
     // allowed to provision, change roles, assign scopes, or deactivate staff.
+    // SH sequential IDs are server-minted exclusively (Admin SDK from
+    // `backfillSequentialIds` or `_assignSequentialId`). Clients cannot
+    // seed, edit, or delete them — mirrors the users/drivers sequential-ID
+    // bans (`sequentialId`, `referredBy`, `referralSignupAt`).
+    function isHubStaffSequentialIdSafe() {
+      return !('sequentialId' in request.resource.data)
+        ? (resource == null || !('sequentialId' in resource.data))
+        : (
+            request.resource.data.sequentialId is string &&
+            (
+              (resource == null && request.resource.data.sequentialId == '') ||
+              (resource != null && request.resource.data.sequentialId == resource.data.get('sequentialId', ''))
+            )
+          );
+    }
     match /hub_staff/{staffEmail} {
       allow read: if isPrimaryHubOwner() ||
         (isAuthenticated() && request.auth.token.email != null &&
          request.auth.token.email.lower() == staffEmail.lower());
       allow create, update: if isPrimaryHubOwner() &&
         request.resource.data.email.lower() == staffEmail.lower() &&
-        request.resource.data.role in ['Super', 'Admin', 'Agent'];
+        request.resource.data.role in ['Super', 'Admin', 'Agent'] &&
+        isHubStaffSequentialIdSafe();
       allow delete: if isPrimaryHubOwner();
     }
 
@@ -1465,7 +1489,7 @@ service cloud.firestore {
     // Dedicated role-based counters for customer, driver, and staff sequential IDs.
     // Read: authenticated staff or admin. Write: strictly server-authoritative via Cloud Functions transaction.
     match /counters/{counterId} {
-      allow read: if isHubStaffOrAdmin();
+      allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
       allow write: if false;
     }
 

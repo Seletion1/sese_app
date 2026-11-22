@@ -220,73 +220,59 @@ class ReferralService {
     }).handleError((Object _) => const <ReferredUserEntry>[]);
   }
 
-  /// Merges `/users` + `/drivers` docs where `referredBy == referrerId`.
+  /// Merges `/users` + `/drivers` docs referred by [referrerId].
+  ///
+  /// Reads are server-minted only: `referral_codes/{CODE}` is public
+  /// readable (`firestore.rules`), and the referee docs are read by UID
+  /// (owner-readable). Legacy `referredBy` collection queries are
+  /// intentionally NOT issued any more — they are client-banned
+  /// (`firestore.rules` bans the field on `users`/`drivers`) and would be
+  /// silently empty anyway.
   Stream<List<Map<String, dynamic>>> _referredDocsStream(
       FirebaseFirestore db, String referrerId) async* {
-    List<Map<String, dynamic>> users = [];
-    List<Map<String, dynamic>> drivers = [];
-    try {
-      final u = await db
-          .collection('users')
-          .where('referredBy', isEqualTo: referrerId)
-          .get();
-      users = u.docs.map((d) {
-        final m = Map<String, dynamic>.from(d.data());
-        m['uid'] = d.id;
-        return m;
-      }).toList();
-    } catch (e) {
-      debugPrint('ReferralService users read: $e');
-    }
-    try {
-      final dr = await db
-          .collection('drivers')
-          .where('referredBy', isEqualTo: referrerId)
-          .get();
-      drivers = dr.docs.map((d) {
-        final m = Map<String, dynamic>.from(d.data());
-        m['uid'] = d.id;
-        return m;
-      }).toList();
-    } catch (e) {
-      debugPrint('ReferralService drivers read: $e');
-    }
-    yield [...users, ...drivers];
-    // Live updates: re-emit on either collection changing.
-    yield* db
-        .collection('users')
-        .where('referredBy', isEqualTo: referrerId)
-        .snapshots()
-        .asyncMap((_) async {
-      return _fetchAll(db, referrerId);
-    }).handleError((Object _) => const <Map<String, dynamic>>[]);
+    yield await _fetchAll(db, referrerId);
+    // Live updates: re-emit when any referee doc or earnings row changes.
+    yield* Stream.fromFutures(
+      [
+        db.collection('referral_codes').doc(referrerId.toUpperCase()).snapshots(),
+        db
+            .collection('referral_earnings')
+            .where('referrerId', isEqualTo: referrerId)
+            .snapshots(),
+      ],
+    ).asyncMap((_) => _fetchAll(db, referrerId)).handleError(
+          (Object _) => const <Map<String, dynamic>>[],
+        );
   }
 
+  /// Resolves the referee docs (`users`/`drivers`) for [referrerId].
   Future<List<Map<String, dynamic>>> _fetchAll(
       FirebaseFirestore db, String referrerId) async {
+    // Resolve the referee UID through the public referral_codes mirror.
+    String refereeUid = '';
     final out = <Map<String, dynamic>>[];
     try {
-      final u = await db
-          .collection('users')
-          .where('referredBy', isEqualTo: referrerId)
+      final codeSnap = await db
+          .collection('referral_codes')
+          .doc(referrerId.toUpperCase())
           .get();
-      for (final d in u.docs) {
-        final m = Map<String, dynamic>.from(d.data());
-        m['uid'] = d.id;
-        out.add(m);
-      }
+      refereeUid = (codeSnap.data()?['referrerId'] ?? '').toString();
     } catch (_) {}
-    try {
-      final dr = await db
-          .collection('drivers')
-          .where('referredBy', isEqualTo: referrerId)
-          .get();
-      for (final d in dr.docs) {
-        final m = Map<String, dynamic>.from(d.data());
-        m['uid'] = d.id;
-        out.add(m);
+
+    if (refereeUid.isNotEmpty) {
+      // A dual-role referee may be in either `users` or `drivers` — probe
+      // both; owner reads are allowed by the security rules.
+      for (final col in ['users', 'drivers']) {
+        try {
+          final snap = await db.collection(col).doc(refereeUid).get();
+          if (snap.exists) {
+            final m = Map<String, dynamic>.from(snap.data()!);
+            m['uid'] = refereeUid;
+            out.add(m);
+          }
+        } catch (_) {}
       }
-    } catch (_) {}
+    }
     return out;
   }
 

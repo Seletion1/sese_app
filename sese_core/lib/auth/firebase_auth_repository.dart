@@ -673,14 +673,16 @@ class FirebaseAuthRepository implements AuthRepository {
     // They remain empty on registration until the user/driver profile is approved.
 
     // Write profile document to the appropriate Firestore collection.
+    //
+    // Referral attribution is NOT stored on the client: `referredBy` /
+    // `referralSignupAt` are server-minted fields and are banned from all
+    // client writes by `firestore.rules`. Referral codes are generated
+    // server-side once the profile is verified + phone-gated
+    // (`verification.ts:_generateAndSaveReferralCode`).
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
         'authProviders': ['password'],
-        if (referredBy != null && referredBy.isNotEmpty)
-          'referredBy': referredBy,
-        if (referredBy != null && referredBy.isNotEmpty)
-          'referralSignupAt': now.toIso8601String(),
         DriverVerification.fieldStatus:
             DriverVerification.pendingOnboarding,
         DriverVerification.fieldProfileVerified: false,
@@ -697,10 +699,6 @@ class FirebaseAuthRepository implements AuthRepository {
           .set({
         ...appUser.toMap(),
         'authProviders': ['password'],
-        if (referredBy != null && referredBy.isNotEmpty)
-          'referredBy': referredBy,
-        if (referredBy != null && referredBy.isNotEmpty)
-          'referralSignupAt': now.toIso8601String(),
       });
     }
 

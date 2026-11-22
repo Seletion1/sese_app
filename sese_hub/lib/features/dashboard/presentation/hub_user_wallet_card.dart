@@ -28,6 +28,10 @@ class HubUserWalletCard extends StatelessWidget {
     this.firestore,
   });
 
+  /// Sequential IDs are server-minted per-role; empty IDs must render as a
+  /// neutral placeholder, never a guessed literal ("SH0001"-style fakes).
+  static String _displayId(String? id) => (id ?? '').trim().isEmpty ? '—' : id!;
+
   FirebaseFirestore? get _db {
     try {
       return firestore ?? FirebaseFirestore.instance;
@@ -324,11 +328,11 @@ class HubUserWalletCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Text(
               effRole == 'hub'
-                  ? 'No staff ledger transactions recorded for ${sequentialId ?? 'SH0001'}.'
+                  ? 'No staff ledger transactions recorded for ${_displayId(sequentialId)}.'
                   : effRole == 'driver'
-                      ? 'No driver transactions recorded for ${sequentialId ?? 'Driver'}.'
+                      ? 'No driver transactions recorded for ${_displayId(sequentialId)}.'
                       : effRole == 'customer'
-                          ? 'No customer transactions recorded for ${sequentialId ?? 'Customer'}.'
+                          ? 'No customer transactions recorded for ${_displayId(sequentialId)}.'
                           : 'No wallet transactions recorded.',
               style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
