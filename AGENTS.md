@@ -72,6 +72,32 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Sese Hub Navigation Redesign: Scrollable Bottom Bar, Stationary Profile Button & Sub-List Navigation (`sese_hub`)
+
+- **1. Horizontally Scrollable Sections & Pinned Stationary Profile Button (`HubDashboardScreen`)**:
+  - Replaced the rigid 4-slot bottom navigation bar (`Fleet & Security`, `Active Rides`, `Dynamic Config`, `More`) with a hybrid architecture:
+    - Left scrollable pane: `SingleChildScrollView(scrollDirection: Axis.horizontal)` hosting all granted module tabs as `_HubSectionButton`s with gold pill selection highlights, icons, notification badges, and titles. Sections scroll smoothly left and right without label clipping or crowding.
+    - Right pinned pane: Fixed-width (76dp) stationary `_HubPinnedProfileButton` separated by a subtle vertical divider. Never scrolls with section tabs. Renders user avatar with gold ring border, unread badge stream, and "Profile" label.
+  - Sized bottom bar container height to 74dp with responsive vertical padding (3dp) and typography (10.5sp) to prevent `RenderFlex` overflow warnings across all device viewports.
+
+- **2. Removal of Top-Left Hamburger Menu (`≡`) (`HubModuleShell`, `HubDashboardScreen`)**:
+  - Set `automaticallyImplyLeading: false` on `HubModuleShell.AppBar` and removed nested `drawer:` from module sub-scaffolds to prevent Flutter's framework from automatically rendering a leading hamburger icon (`≡`).
+  - Cleared header space for module titles and action buttons.
+
+- **3. Section Sub-Lists Opened via Pinned Profile & Direct Profile Settings on Avatar (`_HubProfileAndSectionDrawer`)**:
+  - Tapping the stationary `Profile` bottom bar button opens `_HubProfileAndSectionDrawer` on `HubDashboardScreen.Scaffold`:
+    - Top Admin Profile Header displays current staff identity (`UserAvatar`, name, role). Single-tap directly on the profile avatar or profile card immediately opens Profile Settings (`HubSettingsScreen`).
+    - Section Sub-Lists: When inside a multi-section module (e.g. `Fleet & Security` with `Pending Vehicle Registrations`, `Driver Directory & Tracking`, `Customer Directory & Lookup`, `Driver KYC Approvals`, `Customer KYC Approvals`, `Pre-Online Live Camera Audit Logs`, and `Dispatch Queue Inspector`), the drawer displays those sub-items with active item checkmarks and live pending badges.
+    - Selecting any sub-section immediately activates it and dismisses the drawer.
+    - All Modules & Management: Quick module jumps, "Profile Settings", "Theme / Appearance", and "Sign Out" actions.
+
+- **4. Decoupled Context Communication & Stream Safety (`HubTabScope`, `HubModuleContext`)**:
+  - Introduced `HubTabScope` InheritedWidget carrying `ValueNotifier<HubModuleContext?>` for zero-rebuild context forwarding from child modules mounted inside `IndexedStack` to the parent drawer.
+  - Passed pre-aggregated integer badge counts (`sectionCounts: Map<int, int>`) from `HubModuleShell` to avoid multi-listener errors on single-subscription badge streams (`Stream has already been listened to`).
+
+- **5. Verification & Tests**:
+  - `sese_hub`: 0 analyzer issues, 74/74 unit & widget tests passed (`hub_rbac_test.dart`, `hub_access_test.dart`, `vehicle_approvals_test.dart`, `global_config_test.dart`, `map_api_key_config_test.dart`, `hub_pending_counts_test.dart`).
+
 ## 2026-11-22 — Sequential Role-Based User IDs (`SC...` / `SD...`), Verification-Gated Referral IDs & Dynamic Commission Distribution (`functions`, `sese_core`, `sese_ride`, `sese_hub`)
 
 - **1. Sequential Role-Based User IDs (`SC...` / `SD...`) & Concurrency Protection (`functions`, `sese_core`)**:

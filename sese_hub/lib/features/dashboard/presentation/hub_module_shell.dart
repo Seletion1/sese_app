@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../widgets/hub_badge.dart';
+import '../../staff/services/hub_access_service.dart' show HubTab;
 
 /// One sub-section inside a Hub module: title + icon + content + the
 /// permission code required to see it (null = no extra gate beyond the
@@ -29,6 +29,46 @@ class HubModuleSection {
     this.permission,
     this.badgeStream,
   });
+}
+
+/// Context snapshot of a mounted [HubModuleShell] communicating its sub-sections,
+/// active index, and switch action up to [HubDashboardScreen] without coupling.
+class HubModuleContext {
+  final String title;
+  final List<HubModuleSection> sections;
+  final int selectedIndex;
+  final void Function(int index, String sectionId) onSelectSection;
+  final Map<int, int> sectionCounts;
+
+  const HubModuleContext({
+    required this.title,
+    required this.sections,
+    required this.selectedIndex,
+    required this.onSelectSection,
+    this.sectionCounts = const {},
+  });
+}
+
+/// InheritedWidget providing a [ValueNotifier] where child [HubModuleShell]s
+/// register their sub-sections for the parent [HubDashboardScreen] Profile drawer.
+class HubTabScope extends InheritedWidget {
+  final HubTab tab;
+  final ValueNotifier<HubModuleContext?> notifier;
+
+  const HubTabScope({
+    super.key,
+    required this.tab,
+    required this.notifier,
+    required super.child,
+  });
+
+  static HubTabScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<HubTabScope>();
+  }
+
+  @override
+  bool updateShouldNotify(HubTabScope oldWidget) =>
+      tab != oldWidget.tab || notifier != oldWidget.notifier;
 }
 
 /// Single-section module shell for sese_hub: only ONE sub-section renders
@@ -102,6 +142,7 @@ class _HubModuleShellState extends State<HubModuleShell> {
         final sub = stream.listen((count) {
           if (!mounted) return;
           _sectionCounts[sectionIndex] = count;
+          _updateParentScope();
           if (!_userHasSelectedSection) {
             final currentIndex = _index.clamp(0, visible.length - 1);
             final currentCount = _sectionCounts[currentIndex] ?? 0;
@@ -143,6 +184,7 @@ class _HubModuleShellState extends State<HubModuleShell> {
         final found = visible.indexWhere((s) => s.id == savedId);
         if (found != -1 && found != _index) {
           setState(() => _index = found);
+          _updateParentScope();
         }
       }
     } catch (_) {}
@@ -151,9 +193,16 @@ class _HubModuleShellState extends State<HubModuleShell> {
   void _selectSection(int i, String sectionId) {
     _userHasSelectedSection = true;
     setState(() => _index = i);
+    _updateParentScope();
     SharedPreferences.getInstance().then((prefs) {
       prefs.setString(_prefKey, sectionId);
     }).catchError((_) {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateParentScope();
   }
 
   @override
@@ -166,6 +215,21 @@ class _HubModuleShellState extends State<HubModuleShell> {
     if (oldWidget.sections != widget.sections) {
       _listenToSectionBadges();
     }
+    _updateParentScope();
+  }
+
+  void _updateParentScope() {
+    final scope = HubTabScope.maybeOf(context);
+    if (scope == null) return;
+    final visible = _visible;
+    final index = visible.isEmpty ? 0 : _index.clamp(0, visible.length - 1);
+    scope.notifier.value = HubModuleContext(
+      title: widget.title,
+      sections: visible,
+      selectedIndex: index,
+      onSelectSection: _selectSection,
+      sectionCounts: Map<int, int>.unmodifiable(_sectionCounts),
+    );
   }
 
   List<HubModuleSection> get _visible {
@@ -182,83 +246,8 @@ class _HubModuleShellState extends State<HubModuleShell> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: widget.actions,
+        automaticallyImplyLeading: false,
       ),
-      drawer: visible.isEmpty
-          ? null
-          : Drawer(
-              child: SafeArea(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-                      child: Text(
-                        widget.title,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleSmall
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: ListView.builder(
-                        itemCount: visible.length,
-                        itemBuilder: (_, i) {
-                          final s = visible[i];
-                          final selected = i == index;
-                          return ListTile(
-                            key: Key('hub_section_${s.id}'),
-                            leading: Icon(
-                              s.icon,
-                              color: selected
-                                  ? Theme.of(context).colorScheme.primary
-                                  : null,
-                            ),
-                            title: Text(
-                              s.title,
-                              style: TextStyle(
-                                fontWeight: selected
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                            selected: selected,
-                            selectedTileColor: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: 0.08),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (s.badgeStream != null)
-                                  HubCountBadge.stream(
-                                    stream: s.badgeStream!,
-                                  ),
-                                if (selected) ...[
-                                  const SizedBox(width: 8),
-                                  Icon(
-                                    Icons.check_circle,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .primary,
-                                    size: 20,
-                                  ),
-                                ],
-                              ],
-                            ),
-                            onTap: () {
-                              Navigator.of(context).pop();
-                              _selectSection(i, s.id);
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
       body: visible.isEmpty
           ? const Center(
               child: Padding(

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_hub/features/config/services/system_config_service.dart';
 import 'package:sese_hub/features/dashboard/presentation/hub_dashboard_screen.dart';
+import 'package:sese_hub/features/settings/hub_settings_screen.dart';
 import 'package:sese_hub/features/staff/presentation/staff_management_screen.dart';
 import 'package:sese_hub/features/staff/services/hub_access_service.dart';
 
@@ -105,26 +106,34 @@ void main() {
     });
 
     testWidgets(
-        'owner sees first 3 tabs in bottom bar; Config and Staff accessible via More',
+        'owner sees section buttons in scrollable bar and pinned Profile button',
         (tester) async {
       await pumpShell(tester, role: UserRole.superRole, isOwner: true);
 
-      // Owner has module tabs. The first 3 module tabs (Active Rides, Fleet, Onboarding)
-      // occupy the bottom bar; Support, Payouts, Config, Staff spill into the More sheet.
+      // Owner sees module tabs in the horizontally scrollable bottom bar.
       expect(find.text('Active Rides'), findsOneWidget);
       expect(find.text('Fleet & Security'), findsOneWidget);
       expect(find.text('User Onboarding'), findsOneWidget);
+      expect(find.text('Dynamic Config'), findsOneWidget);
 
-      // More button is always present when overflow tabs exist.
-      expect(find.text('More'), findsOneWidget);
+      // Stationary pinned Profile button is present.
+      expect(find.text('Profile'), findsOneWidget);
+      expect(find.byKey(const Key('hub_nav_more')), findsOneWidget);
 
-      // Open the More sheet and verify overflow tabs are accessible.
-      await tester.tap(find.text('More'));
+      // Verify no top-left hamburger menu icon is in the app bar.
+      expect(find.byIcon(Icons.menu), findsNothing);
+
+      // Open the Profile drawer and verify shortcuts and settings are accessible.
+      await tester.tap(find.byKey(const Key('hub_nav_more')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Support Inbox'), findsOneWidget);
-      expect(find.text('Dynamic Config'), findsOneWidget);
-      expect(find.text('Staff'), findsOneWidget);
+      expect(find.text('Profile Settings'), findsOneWidget);
+      expect(
+          find.descendant(
+              of: find.byType(Drawer), matching: find.text('Staff')),
+          findsOneWidget);
+      expect(find.text('Theme / Appearance'), findsOneWidget);
+      expect(find.text('Sign Out'), findsOneWidget);
     });
 
     testWidgets('permission-less staffer collapses to profile, logout in profile',
@@ -140,21 +149,38 @@ void main() {
       expect(find.text('Sign Out'), findsWidgets);
     });
 
-    testWidgets('tapping a More tab promotes it to the bottom bar',
+    testWidgets('tapping pinned Profile button opens section sub-list and avatar opens Settings',
         (tester) async {
-      // Owner: fleet, support, payouts in bar; config, staff in More.
+      // Owner with Fleet permission:
       await pumpShell(tester, role: UserRole.superRole, isOwner: true);
 
-      // Open More and tap Dynamic Config.
-      await tester.tap(find.text('More'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Dynamic Config'));
+      // Switch to Fleet & Security section
+      await tester.tap(find.text('Fleet & Security'));
       await tester.pumpAndSettle();
 
-      // Dynamic Config should now be in the bottom bar (LRU-promoted).
-      expect(find.text('Dynamic Config'), findsOneWidget);
-      // The bar now has Dynamic Config as one of its 3 module slots.
-      expect(find.byKey(const Key('hub_navigation_bar')), findsOneWidget);
+      // Top-left hamburger icon must NOT be present
+      expect(find.byIcon(Icons.menu), findsNothing);
+
+      // Tap pinned Profile button to open Profile & Section sub-list panel
+      await tester.tap(find.byKey(const Key('hub_nav_more')));
+      await tester.pumpAndSettle();
+
+      // The drawer shows the sub-sections for Fleet Verification
+      expect(
+          find.descendant(
+              of: find.byType(Drawer),
+              matching: find.text('Fleet Verification & Security Pipeline Desk')),
+          findsOneWidget);
+      expect(find.text('Pending Vehicle Registrations'), findsOneWidget);
+      expect(find.text('Driver KYC Approvals'), findsOneWidget);
+
+      // Tapping the avatar inside the drawer opens Profile Settings
+      expect(find.byKey(const Key('hub_profile_avatar_tap')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('hub_profile_avatar_tap')));
+      await tester.pumpAndSettle();
+
+      // Settings screen should now be pushed on top
+      expect(find.byType(HubSettingsScreen), findsOneWidget);
     });
   });
 }

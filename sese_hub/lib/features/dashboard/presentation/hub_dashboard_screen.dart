@@ -15,6 +15,7 @@ import '../../onboarding/presentation/admin_user_onboarding_screen.dart';
 import '../services/hub_pending_counts_service.dart';
 import '../services/hub_route_persistence.dart';
 import '../../../widgets/hub_badge.dart';
+import 'hub_module_shell.dart' show HubModuleContext, HubTabScope;
 import 'hub_user_wallet_card.dart';
 
 /// Unified permission-gated hub shell. Mounted ONLY after [HubAccessService]
@@ -78,6 +79,16 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
   /// Cache of instantiated screen widgets keeping state warm across tab switches.
   final Map<HubTab, Widget> _screenCache = {};
 
+  /// Per-tab sub-section context notifiers registered by child [HubModuleShell]s.
+  final Map<HubTab, ValueNotifier<HubModuleContext?>> _moduleNotifiers = {};
+
+  ValueNotifier<HubModuleContext?> _notifierFor(HubTab tab) {
+    return _moduleNotifiers.putIfAbsent(
+      tab,
+      () => ValueNotifier<HubModuleContext?>(null),
+    );
+  }
+
   final _auth = FirebaseAuthRepository(isHubApp: true);
   StreamSubscription? _networkReconnectSub;
 
@@ -117,6 +128,9 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
 
   @override
   void dispose() {
+    for (final notifier in _moduleNotifiers.values) {
+      notifier.dispose();
+    }
     _networkReconnectSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -208,14 +222,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         permissions: widget.permissions,
       );
 
-  /// Module tabs NOT currently in [_recentTabs]. These appear in the More menu.
-  List<HubTab> get _moreTabs {
-    final recent = _recentTabs.toSet();
-    return _allTabs
-        .where((t) => t != HubTab.profile && !recent.contains(t))
-        .toList();
-  }
-
   String get _consoleTitle {
     switch (widget.staffRole) {
       case UserRole.superRole:
@@ -289,7 +295,11 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
       index: activeIndex >= 0 ? activeIndex : 0,
       children: allTabs.map((t) {
         if (_screenCache.containsKey(t)) {
-          return _screenCache[t]!;
+          return HubTabScope(
+            tab: t,
+            notifier: _notifierFor(t),
+            child: _screenCache[t]!,
+          );
         }
         return const SizedBox.shrink();
       }).toList(),
@@ -319,8 +329,22 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
 
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  /// Open the right-side navigation drawer.
-  void _openMoreMenu() {
+  /// Opens [HubSettingsScreen] (Profile, Notifications, Appearance, Security, Config).
+  void _openSettings() {
+    HubRoutePersistence.saveSubRoute('settings');
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => HubSettingsScreen(
+          configService: widget.configService,
+        ),
+      ),
+    ).then((_) {
+      HubRoutePersistence.saveSubRoute(null);
+    });
+  }
+
+  /// Open the right-side profile and section sub-list drawer.
+  void _openProfileOrSubListMenu() {
     _scaffoldKey.currentState?.openEndDrawer();
   }
 
@@ -417,35 +441,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
     );
   }
 
-  Widget _buildMoreIcon({required bool selected}) {
-    final avatarOrIcon = widget.user != null
-        ? UserAvatar(
-            displayName: widget.user!.fullName,
-            photoUrl: widget.user!.photoUrl,
-            radius: 12,
-          )
-        : Icon(selected ? Icons.grid_view : Icons.grid_view_outlined);
-
-    final overflowStreams = _moreTabs
-        .map((t) => _streamForTab(t))
-        .whereType<Stream<int>>()
-        .toList();
-    if (overflowStreams.isEmpty) return avatarOrIcon;
-
-    return StreamBuilder<int>(
-      stream: HubPendingCountsService.combineStreams(overflowStreams),
-      builder: (context, snapshot) {
-        final count = snapshot.data ?? 0;
-        if (count <= 0) return avatarOrIcon;
-        return Badge(
-          label: Text(count > 99 ? '99+' : '$count'),
-          backgroundColor: Colors.red.shade700,
-          child: avatarOrIcon,
-        );
-      },
-    );
-  }
-
   Widget _buildWideLayout(List<HubTab> allTabs, Widget stackBody) {
     final safeIndex = allTabs.contains(_activeTab)
         ? allTabs.indexOf(_activeTab)
@@ -478,81 +473,104 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
   }
 
   Widget _buildMobileLayout(Widget stackBody) {
-    // Bottom bar always has _recentTabs (up to 3) + "More" (always last).
-    final bottomTabs = _recentTabs.toList();
-    final moreSelected = !bottomTabs.contains(_activeTab) &&
-        _activeTab != HubTab.profile;
-    // Profile is accessed via the More sheet's avatar tap.
-    final profileSelected = _activeTab == HubTab.profile;
+    final moduleTabs = _allTabs.where((t) => t != HubTab.profile).toList();
+    final isProfileSelected = _activeTab == HubTab.profile;
 
-    // Bottom bar index:
-    //   0..(bottomTabs.length-1) → recent module tabs
-    //   bottomTabs.length        → "More" / Profile avatar
-    int selectedIndex;
-    if (profileSelected || moreSelected) {
-      selectedIndex = bottomTabs.length; // More selected
-    } else {
-      final i = bottomTabs.indexOf(_activeTab);
-      selectedIndex = i >= 0 ? i : 0;
-    }
+    final overflowStreams = moduleTabs
+        .map((t) => _streamForTab(t))
+        .whereType<Stream<int>>()
+        .toList();
+    final Stream<int>? profileBadgeStream = overflowStreams.isNotEmpty
+        ? HubPendingCountsService.combineStreams(overflowStreams)
+        : null;
 
-    // Clamp: NavigationBar needs >= 2 destinations.
-    final destinations = <NavigationDestination>[
-      for (final t in bottomTabs)
-        NavigationDestination(
-          key: Key('hub_nav_${t.name}'),
-          icon: _buildTabIcon(t, selected: false),
-          selectedIcon: _buildTabIcon(t, selected: true),
-          label: _labelFor(t),
-        ),
-      // The "More" destination carries the user's avatar and label.
-      NavigationDestination(
-        key: const Key('hub_nav_more'),
-        icon: _buildMoreIcon(selected: false),
-        selectedIcon: _buildMoreIcon(selected: true),
-        label: 'More',
-      ),
-    ];
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
       key: _scaffoldKey,
-      endDrawer: _MoreMenuSheet(
+      endDrawer: _HubProfileAndSectionDrawer(
         user: widget.user,
         firstName: _firstName,
         consoleTitle: _consoleTitle,
-        moreTabs: _moreTabs,
-        recentTabs: _recentTabs,
         allTabs: _allTabs,
+        activeTab: _activeTab,
+        activeModuleNotifier: _notifierFor(_activeTab),
         configService: widget.configService,
         onTabSelected: _onTabSelected,
         onSignOut: _confirmSignOut,
-        onOpenSettings: () {
-          HubRoutePersistence.saveSubRoute('settings');
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => HubSettingsScreen(
-                configService: widget.configService,
-              ),
-            ),
-          ).then((_) {
-            HubRoutePersistence.saveSubRoute(null);
-          });
-        },
+        onOpenSettings: _openSettings,
       ),
       body: stackBody,
-      bottomNavigationBar: NavigationBar(
-        key: const Key('hub_navigation_bar'),
-        selectedIndex: selectedIndex,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        onDestinationSelected: (i) {
-          if (i == bottomTabs.length) {
-            // More / avatar tapped.
-            _openMoreMenu();
-          } else {
-            _onTabSelected(bottomTabs[i]);
-          }
-        },
-        destinations: destinations,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          key: const Key('hub_navigation_bar'),
+          height: 74,
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border(
+              top: BorderSide(
+                color: scheme.outlineVariant.withValues(alpha: 0.35),
+                width: 1,
+              ),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 4,
+                offset: const Offset(0, -1),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. Horizontally Scrollable Section Buttons
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final t in moduleTabs)
+                        _HubSectionButton(
+                          key: Key('hub_nav_${t.name}'),
+                          tab: t,
+                          isSelected: _activeTab == t,
+                          icon: _buildTabIcon(t, selected: _activeTab == t),
+                          label: _labelFor(t),
+                          onTap: () => _onTabSelected(t),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Vertical subtle divider between scrollable sections and pinned Profile
+              Container(
+                height: 38,
+                width: 1,
+                color: scheme.outlineVariant.withValues(alpha: 0.3),
+              ),
+
+              // 2. Stationary / Pinned Profile Button (does NOT scroll)
+              SizedBox(
+                width: 76,
+                child: _HubPinnedProfileButton(
+                  key: const Key('hub_nav_more'),
+                  user: widget.user,
+                  isSelected: isProfileSelected,
+                  badgeStream: profileBadgeStream,
+                  onTap: _openProfileOrSubListMenu,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -604,39 +622,216 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
   }
 }
 
-/// Full-screen "More" bottom sheet listing all overflow + profile options.
-/// Mirrors the customer/driver app drawer aesthetic with sections.
-class _MoreMenuSheet extends StatelessWidget {
+/// Horizontally scrollable section button widget for the mobile bottom bar.
+class _HubSectionButton extends StatelessWidget {
+  final HubTab tab;
+  final bool isSelected;
+  final Widget icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _HubSectionButton({
+    super.key,
+    required this.tab,
+    required this.isSelected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final primaryColor = scheme.primary;
+
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+          margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? primaryColor.withValues(alpha: 0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected
+                ? Border.all(
+                    color: primaryColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  )
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? primaryColor.withValues(alpha: 0.18)
+                      : Colors.transparent,
+                  shape: BoxShape.circle,
+                ),
+                child: icon,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? primaryColor : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Stationary / pinned Profile button on the right side of the bottom bar.
+class _HubPinnedProfileButton extends StatelessWidget {
+  final AppUser? user;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final Stream<int>? badgeStream;
+
+  const _HubPinnedProfileButton({
+    super.key,
+    required this.user,
+    required this.isSelected,
+    required this.onTap,
+    this.badgeStream,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final primaryColor = scheme.primary;
+
+    Widget buildBaseAvatar() => user != null
+        ? UserAvatar(
+            displayName: user!.fullName,
+            photoUrl: user!.photoUrl,
+            radius: 12,
+          )
+        : Icon(
+            isSelected ? Icons.person : Icons.person_outline,
+            size: 20,
+            color: isSelected ? primaryColor : scheme.onSurfaceVariant,
+          );
+
+    final Widget avatarWidget = badgeStream != null
+        ? StreamBuilder<int>(
+            stream: badgeStream,
+            builder: (context, snapshot) {
+              final count = snapshot.data ?? 0;
+              final base = buildBaseAvatar();
+              if (count <= 0) return base;
+              return Badge(
+                label: Text(count > 99 ? '99+' : '$count'),
+                backgroundColor: Colors.red.shade700,
+                child: base,
+              );
+            },
+          )
+        : buildBaseAvatar();
+
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: 'Profile',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? primaryColor.withValues(alpha: 0.14)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected
+                ? Border.all(
+                    color: primaryColor.withValues(alpha: 0.35),
+                    width: 1.2,
+                  )
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(1.5),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected
+                        ? primaryColor
+                        : scheme.outlineVariant.withValues(alpha: 0.6),
+                    width: 1.4,
+                  ),
+                ),
+                child: avatarWidget,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Profile',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected ? primaryColor : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Unified Profile & Section Sub-List drawer.
+///
+/// Combines the staff profile header (where tapping the avatar opens Profile Settings),
+/// any active section's sub-list items (e.g. KYC approvals, vehicle registrations),
+/// navigation shortcuts for all modules, and system actions (Settings, Theme, Sign Out).
+class _HubProfileAndSectionDrawer extends StatelessWidget {
   final AppUser? user;
   final String firstName;
   final String consoleTitle;
-
-  /// Tabs that appear only in this More sheet (not already in the 3 bottom slots).
-  final List<HubTab> moreTabs;
-
-  /// Tabs currently in the 3 bottom slots. Shown in a secondary "Recent"
-  /// section so the user can still reach them from this sheet.
-  final List<HubTab> recentTabs;
-
-  /// All tabs the user may see (for RBAC-consistent display).
   final List<HubTab> allTabs;
-
+  final HubTab activeTab;
+  final ValueNotifier<HubModuleContext?> activeModuleNotifier;
   final ValueChanged<HubTab> onTabSelected;
   final VoidCallback onSignOut;
-
-  /// Opens [HubSettingsScreen] (Notifications, Appearance, Security, Config).
   final VoidCallback onOpenSettings;
-
-  /// Required so [HubSettingsScreen] can construct [GlobalConfigScreen].
   final SystemConfigService configService;
 
-  const _MoreMenuSheet({
+  const _HubProfileAndSectionDrawer({
     required this.user,
     required this.firstName,
     required this.consoleTitle,
-    required this.moreTabs,
-    required this.recentTabs,
     required this.allTabs,
+    required this.activeTab,
+    required this.activeModuleNotifier,
     required this.onTabSelected,
     required this.onSignOut,
     required this.onOpenSettings,
@@ -645,139 +840,272 @@ class _MoreMenuSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final overflowTabs = moreTabs;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Drawer(
       child: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.zero,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Profile header ──────────────────────────────────────────────
-              InkWell(
-                key: const Key('hub_more_profile_tile'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onTabSelected(HubTab.profile);
-                },
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: Row(
-                    children: [
-                      if (user != null)
-                        UserAvatar(
-                          displayName: user!.fullName,
-                          photoUrl: user!.photoUrl,
-                          radius: 24,
-                        )
-                      else
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor: scheme.primary,
-                          child: const Icon(Icons.hub, color: Colors.white),
-                        ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              user?.fullName.isNotEmpty == true
-                                  ? user!.fullName
-                                  : firstName,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            Text(
-                              consoleTitle,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-                    ],
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
+        child: ValueListenableBuilder<HubModuleContext?>(
+          valueListenable: activeModuleNotifier,
+          builder: (context, moduleContext, _) {
+            final hasSubSections =
+                moduleContext != null && moduleContext.sections.isNotEmpty;
 
-              // ── Overflow module tabs ────────────────────────────────────────
-              if (overflowTabs.isNotEmpty) ...[
-                Padding(
-                  padding:
-                      const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                  child: Text(
-                    'All Modules',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onSurfaceVariant,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ),
-                for (final t in overflowTabs)
-                  _MoreTile(
-                    key: Key('hub_more_tab_${t.name}'),
-                    icon: _HubDashboardScreenState._iconFor(t, selected: false),
-                    selectedIcon:
-                        _HubDashboardScreenState._iconFor(t, selected: true),
-                    label: _HubDashboardScreenState._labelFor(t),
-                    badgeStream: _streamForTab(t),
+            return SingleChildScrollView(
+              padding: EdgeInsets.zero,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Admin Profile Header ─────────────────────────────────────
+                  // Tapping the profile picture OR the tile directly opens Profile Settings
+                  InkWell(
+                    key: const Key('hub_more_profile_tile'),
                     onTap: () {
                       Navigator.of(context).pop();
-                      onTabSelected(t);
+                      onOpenSettings();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 16),
+                      child: Row(
+                        children: [
+                          GestureDetector(
+                            key: const Key('hub_profile_avatar_tap'),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              onOpenSettings();
+                            },
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                if (user != null)
+                                  UserAvatar(
+                                    displayName: user!.fullName,
+                                    photoUrl: user!.photoUrl,
+                                    radius: 26,
+                                  )
+                                else
+                                  CircleAvatar(
+                                    radius: 26,
+                                    backgroundColor: scheme.primary,
+                                    child: const Icon(Icons.hub,
+                                        color: Colors.white, size: 28),
+                                  ),
+                                Positioned(
+                                  right: -2,
+                                  bottom: -2,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(3),
+                                    decoration: BoxDecoration(
+                                      color: scheme.primary,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: scheme.surface, width: 2),
+                                    ),
+                                    child: const Icon(
+                                      Icons.settings,
+                                      size: 11,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  user?.fullName.isNotEmpty == true
+                                      ? user!.fullName
+                                      : firstName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  consoleTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Tap avatar for Settings',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: scheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right,
+                              color: scheme.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+
+                  // ── Active Section Sub-List (when active module has multiple items) ────
+                  if (hasSubSections) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 14, 18, 6),
+                      child: Row(
+                        children: [
+                          Icon(Icons.subdirectory_arrow_right,
+                              size: 16, color: scheme.primary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              moduleContext.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: scheme.primary,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    for (int i = 0; i < moduleContext.sections.length; i++) ...[
+                      Builder(builder: (context) {
+                        final s = moduleContext.sections[i];
+                        final isSelected = i == moduleContext.selectedIndex;
+                        final count = moduleContext.sectionCounts[i] ?? 0;
+                        return ListTile(
+                          key: Key('hub_section_${s.id}'),
+                          dense: true,
+                          leading: Icon(
+                            s.icon,
+                            color: isSelected
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant,
+                            size: 22,
+                          ),
+                          title: Text(
+                            s.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w500,
+                              color: isSelected ? scheme.primary : null,
+                            ),
+                          ),
+                          selected: isSelected,
+                          selectedTileColor:
+                              scheme.primary.withValues(alpha: 0.08),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (count > 0) HubCountBadge(count: count),
+                              if (isSelected) ...[
+                                const SizedBox(width: 8),
+                                Icon(
+                                  Icons.check_circle,
+                                  color: scheme.primary,
+                                  size: 18,
+                                ),
+                              ],
+                            ],
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            moduleContext.onSelectSection(i, s.id);
+                          },
+                        );
+                      }),
+                    ],
+                    const Divider(height: 1),
+                  ],
+
+                  // ── All Modules / Quick Navigation Shortcuts ─────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 4),
+                    child: Text(
+                      'All Modules',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurfaceVariant,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  for (final t in allTabs.where((t) => t != HubTab.profile))
+                    _MoreTile(
+                      key: Key('hub_more_tab_${t.name}'),
+                      icon: _HubDashboardScreenState._iconFor(t,
+                          selected: t == activeTab),
+                      selectedIcon:
+                          _HubDashboardScreenState._iconFor(t, selected: true),
+                      label: _HubDashboardScreenState._labelFor(t),
+                      badgeStream: _streamForTab(t),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        onTabSelected(t);
+                      },
+                    ),
+                  const Divider(height: 1),
+
+                  // ── Settings, Theme, and Sign Out ─────────────────────────────
+                  const SizedBox(height: 6),
+                  _MoreTile(
+                    key: const Key('hub_more_settings_tile'),
+                    icon: Icons.settings_outlined,
+                    selectedIcon: Icons.settings,
+                    label: 'Profile Settings',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      onOpenSettings();
                     },
                   ),
-                const Divider(height: 1),
-              ],
-
-              // ── Settings / Logout ───────────────────────────────────────────
-              const SizedBox(height: 8),
-              _MoreTile(
-                key: const Key('hub_more_settings_tile'),
-                icon: Icons.settings_outlined,
-                selectedIcon: Icons.settings,
-                label: 'Settings',
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onOpenSettings();
-                },
+                  _MoreTile(
+                    key: const Key('hub_more_theme_tile'),
+                    icon: Icons.brightness_6_outlined,
+                    selectedIcon: Icons.brightness_6,
+                    label: 'Theme / Appearance',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      showHubThemePickerSheet(
+                          context, ThemeController.instance);
+                    },
+                  ),
+                  _MoreTile(
+                    key: const Key('hub_more_signout_tile'),
+                    icon: Icons.logout,
+                    selectedIcon: Icons.logout,
+                    label: 'Sign Out',
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      onSignOut();
+                    },
+                    isDestructive: true,
+                  ),
+                  const SizedBox(height: 12),
+                ],
               ),
-              _MoreTile(
-                key: const Key('hub_more_theme_tile'),
-                icon: Icons.brightness_6_outlined,
-                selectedIcon: Icons.brightness_6,
-                label: 'Theme / Appearance',
-                onTap: () {
-                  Navigator.of(context).pop();
-                  showHubThemePickerSheet(context, ThemeController.instance);
-                },
-              ),
-              _MoreTile(
-                key: const Key('hub_more_signout_tile'),
-                icon: Icons.logout,
-                selectedIcon: Icons.logout,
-                label: 'Sign Out',
-                onTap: () {
-                  Navigator.of(context).pop();
-                  onSignOut();
-                },
-                isDestructive: true,
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
