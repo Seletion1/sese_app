@@ -56,6 +56,10 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+
+        ndk {
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+        }
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
         // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
         // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
@@ -144,23 +148,12 @@ android {
         }
     }
 
-    // ── ABI splits: emit per-architecture APKs to eliminate binary bloat ──────
-    // Enables per-architecture APKs targeting modern production architectures
-    // (armeabi-v7a, arm64-v8a, x86_64) for direct APK distribution and sideloading,
-    // while generating a universal APK as a fallback.
-    //
-    // IMPORTANT: ABI splits must be disabled for App Bundle (AAB) builds.
-    // Bundles handle per-architecture delivery natively via Google Play's
-    // Dynamic Delivery — enabling splits during a bundle task causes
-    // "Multiple shrunk-resources files found" build failures (b/402800800).
+    // Disabled ABI splits to ensure the Android App Bundle (.aab) packages
+    // all native architectures (armeabi-v7a, arm64-v8a, x86_64) into the base module.
+    // Google Play handles dynamic per-device delivery automatically in the cloud.
     splits {
         abi {
-            isEnable = gradle.startParameter.taskNames.none {
-                it.contains("bundle", ignoreCase = true)
-            }
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isEnable = false
         }
     }
 

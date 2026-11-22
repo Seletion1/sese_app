@@ -72,6 +72,24 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Play Store Device Compatibility Hardening: Zero-Device Drop Resolution (`sese_hub` 1.0.10+11, `sese_ride` 1.0.13+15)
+
+- **1. Root-Cause Analysis of 0 Supported Devices Drop (-100%, 19,037 devices dropped in IMG-20261122-WA0019)**:
+  - Play Console warning: *"Reasons for changes to your supported devices may include changes to your manifest, or a missing app bundle."*
+  - Cause A (Console Release Creation): If an admin navigates to "Preview and confirm" on an Internal/Closed Testing release draft without uploading or attaching an `.aab` file under "App bundles", the release has 0 bundles attached, leading Play Console to report 0 supported devices across all form factors.
+  - Cause B (Implicit Hardware Requirements): `android.permission.CAMERA`, `RECORD_AUDIO`, and `BLUETOOTH` in Android automatically imply required hardware features (`android.hardware.camera`, `android.hardware.camera.autofocus`, `android.hardware.microphone`, `android.hardware.bluetooth`) with `required="true"`, filtering out devices without autofocus or specific sensors.
+  - Cause C (AGP ABI Splits): Legacy `splits { abi { ... } }` blocks in `build.gradle.kts` interfered with bundle artifact packaging.
+
+- **2. Architecture Hardening Across Both Apps**:
+  - **Explicit Optional Hardware Features (`uses-feature required="false"`)**: Added explicit optional declarations in `sese_hub` and `sese_ride` `AndroidManifest.xml` for `camera`, `camera.autofocus`, `camera.front`, `microphone`, `bluetooth`, `telephony`, `touchscreen`, `screen.portrait`, `screen.landscape`, and `wifi` (plus `location`, `location.gps`, `location.network` for `sese_ride`).
+  - **Screen Size & Density Declarations (`supports-screens`)**: Explicitly declared `smallScreens="true"`, `normalScreens="true"`, `largeScreens="true"`, `xlargeScreens="true"`, and `anyDensity="true"`.
+  - **Native ABI Packaging & Split Deactivation**: Configured `ndk.abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))` and set `splits.abi.isEnable = false` in `build.gradle.kts`. App bundles (.aab) package all architectures for Google Play Dynamic Delivery in the cloud.
+  - Bumped `sese_hub` to `1.0.10+11` and `sese_ride` to `1.0.13+15`.
+
+- **3. Verification**:
+  - `sese_hub`: Release manifest processed with `BUILD SUCCESSFUL`; 0 analyzer issues; 15/15 targeted test cases passed.
+  - `sese_ride`: Release manifest processed with `BUILD SUCCESSFUL`; 0 analyzer issues; 31/31 unit & widget tests passed.
+
 ## 2026-11-22 — Google Play Console Permission Audit & Zero-Declaration Hardening (`sese_ride` 1.0.12+14, `sese_hub` 1.0.9+10)
 
 - **1. Analysis of Historical Play Store Release Errors & Permission Denials**:

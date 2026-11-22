@@ -33,6 +33,10 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
+        }
     }
 
     signingConfigs {
@@ -105,17 +109,12 @@ android {
         }
     }
 
-    // ABI splits for sideload/QA builds and binary size optimization.
-    // Disabled automatically for App Bundle (AAB) builds — bundles handle
-    // per-architecture delivery natively via Google Play Dynamic Delivery.
+    // Disabled ABI splits to ensure the Android App Bundle (.aab) packages
+    // all native architectures (armeabi-v7a, arm64-v8a, x86_64) into the base module.
+    // Google Play handles dynamic per-device delivery automatically in the cloud.
     splits {
         abi {
-            isEnable = gradle.startParameter.taskNames.none {
-                it.contains("bundle", ignoreCase = true)
-            }
-            reset()
-            include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isEnable = false
         }
     }
 }
