@@ -1460,6 +1460,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ===== SEQUENTIAL ID DEDICATED COUNTERS =====
+    // `counters/{counterId}` (e.g. "counters/SC", "counters/SD", "counters/SH").
+    // Dedicated role-based counters for customer, driver, and staff sequential IDs.
+    // Read: authenticated staff or admin. Write: strictly server-authoritative via Cloud Functions transaction.
+    match /counters/{counterId} {
+      allow read: if isHubStaffOrAdmin();
+      allow write: if false;
+    }
+
     // PROMPT 18: server-only, append-only ledger for expired referral
     // commissions (REFERRAL_COMMISSION_EXPIRED). Written exclusively by the
     // Cloud Functions admin SDK, which bypasses rules; clients can never forge

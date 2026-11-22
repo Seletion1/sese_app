@@ -2,15 +2,17 @@
  * Standalone Backfill & Migration Script for Sequential User IDs and Verified Referral Codes.
  *
  * Usage:
- *   node scripts/backfill-sequential-and-referral-ids.js [--dry-run]
+ *   node scripts/backfill-sequential-and-referral-ids.js [--dry-run] [--reset-all]
  *
  * Rules:
- *   1. Orders existing records by registration date (`createdAt` asc) from oldest to newest.
+ *   1. Orders existing records strictly by earliest registration date
+ *      (`createdAt` / `memberSince` asc) from oldest to newest.
  *   2. Customers: "SC0001", "SC0002", ..., growing past 4 digits ("SC10000").
  *   3. Drivers: "SD0001", "SD0002", ..., growing past 4 digits ("SD10000").
- *   4. Skips records that already have a valid sequentialId.
- *   5. Backfills referralId for verified users/drivers with a valid phone number.
- *   6. Enforces immutability: never alters an existing non-placeholder referral code.
+ *   4. Hub Staff: "SH0001", "SH0002", ..., growing past 4 digits ("SH10000").
+ *   5. Writes to dedicated counter documents: `counters/SC`, `counters/SD`, `counters/SH`.
+ *   6. Backfills referralId for verified users/drivers with a valid phone number.
+ *   7. Enforces immutability: never alters an existing non-placeholder referral code.
  */
 
 const admin = require("firebase-admin");
@@ -22,12 +24,33 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const COUNTERS_DOC = "system_config/user_counters";
 const isDryRun = process.argv.includes("--dry-run");
+const isResetAll = process.argv.includes("--reset-all");
+
+const COUNTER_DOCS = {
+  customer: "counters/SC",
+  driver: "counters/SD",
+  staff: "counters/SH",
+  hub: "counters/SH",
+};
 
 function formatSequentialId(role, n) {
   const prefix = role === "customer" ? "SC" : (role === "staff" || role === "hub" ? "SH" : "SD");
   return prefix + String(n).padStart(4, "0");
+}
+
+function extractRegistrationTimestamp(data) {
+  const raw = data.createdAt ?? data.memberSince ?? data.registeredAt ?? data.joinedAt;
+  if (!raw) return Number.MAX_SAFE_INTEGER;
+  if (typeof raw.toMillis === "function") return raw.toMillis();
+  if (typeof raw.toDate === "function") return raw.toDate().getTime();
+  if (raw instanceof Date) return raw.getTime();
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") {
+    const p = Date.parse(raw);
+    if (!isNaN(p)) return p;
+  }
+  return Number.MAX_SAFE_INTEGER;
 }
 
 function generateReferralCodeCandidate(profileData) {
@@ -64,50 +87,42 @@ function generateReferralCodeCandidate(profileData) {
 }
 
 async function runBackfill() {
-  console.log(`[Backfill] Starting sequential ID & referral code backfill (dryRun: ${isDryRun})...`);
-
-  const countersRef = db.doc(COUNTERS_DOC);
-  let customerCount = 0;
-  let driverCount = 0;
-  let staffCount = 0;
-
-  const counterSnap = await countersRef.get();
-  if (counterSnap.exists) {
-    const data = counterSnap.data() || {};
-    customerCount = typeof data.customerCount === "number" ? data.customerCount : 0;
-    driverCount = typeof data.driverCount === "number" ? data.driverCount : 0;
-    staffCount = typeof data.staffCount === "number" ? data.staffCount : 0;
-  }
-
-  console.log(`[Backfill] Current counters: customerCount=${customerCount}, driverCount=${driverCount}, staffCount=${staffCount}`);
+  console.log(`[Backfill] Starting sequential ID & referral code backfill (dryRun: ${isDryRun}, resetAll: ${isResetAll})...`);
 
   // ── 1. Customers ───────────────────────────────────────────────────────────
-  console.log("[Backfill] Fetching customers ordered by createdAt asc...");
-  const usersSnap = await db.collection("users").orderBy("createdAt", "asc").get();
-  console.log(`[Backfill] Found ${usersSnap.docs.length} customer records.`);
+  console.log("[Backfill] Fetching customers (sorted by earliest timestamp)...");
+  const usersSnap = await db.collection("users").get();
+  const sortedUsers = usersSnap.docs.slice().sort((a, b) => {
+    const tA = extractRegistrationTimestamp(a.data());
+    const tB = extractRegistrationTimestamp(b.data());
+    if (tA !== tB) return tA - tB;
+    return a.id.localeCompare(b.id);
+  });
+  console.log(`[Backfill] Found ${sortedUsers.length} customer records.`);
 
   let customerSeqAssigned = 0;
   let customerRefAssigned = 0;
+  let customerCount = 0;
 
-  for (const doc of usersSnap.docs) {
+  for (const doc of sortedUsers) {
+    customerCount++;
     const data = doc.data() || {};
     const existingSeq = data.sequentialId;
+    const expectedSeqId = formatSequentialId("customer", customerCount);
     const updates = {};
 
-    if (!existingSeq || !existingSeq.startsWith("SC")) {
-      customerCount++;
-      const newSeqId = formatSequentialId("customer", customerCount);
-      updates.sequentialId = newSeqId;
+    if (isResetAll || !existingSeq || !existingSeq.startsWith("SC") || existingSeq !== expectedSeqId) {
+      updates.sequentialId = expectedSeqId;
       customerSeqAssigned++;
       if (!isDryRun) {
-        await db.collection("unique_sequential_ids").doc(newSeqId).set({
+        await db.collection("unique_sequential_ids").doc(expectedSeqId).set({
           ownerUid: doc.id,
           role: "customer",
-          sequentialId: newSeqId,
+          sequentialId: expectedSeqId,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      console.log(`  Assigning ${newSeqId} to user ${doc.id} (${data.fullName || 'Unnamed'})`);
+      console.log(`  Assigning ${expectedSeqId} to customer ${doc.id} (${data.fullName || 'Unnamed'})`);
     }
 
     // Referral code check
@@ -122,7 +137,6 @@ async function runBackfill() {
     if (isVerified && rawPhone.length > 0 && (!existingRef || existingRef.endsWith("0000"))) {
       const baseCode = generateReferralCodeCandidate(data);
       if (baseCode) {
-        // Find unique candidate
         for (let counter = 0; counter < 50; counter++) {
           const candidate = counter === 0 ? baseCode : `${baseCode}${counter}`;
           const codeRef = db.collection("referral_codes").doc(candidate);
@@ -152,38 +166,51 @@ async function runBackfill() {
     }
   }
 
-  // Update customer counter doc
-  if (!isDryRun && customerSeqAssigned > 0) {
-    await countersRef.set({ customerCount }, { merge: true });
+  // Update dedicated customer counter doc counters/SC
+  if (!isDryRun) {
+    await db.doc(COUNTER_DOCS.customer).set({
+      count: customerCount,
+      lastNumber: customerCount,
+      role: "customer",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log(`[Backfill] Customer counter counters/SC set to ${customerCount}`);
   }
 
   // ── 2. Drivers ─────────────────────────────────────────────────────────────
-  console.log("[Backfill] Fetching drivers ordered by createdAt asc...");
-  const driversSnap = await db.collection("drivers").orderBy("createdAt", "asc").get();
-  console.log(`[Backfill] Found ${driversSnap.docs.length} driver records.`);
+  console.log("[Backfill] Fetching drivers (sorted by earliest timestamp)...");
+  const driversSnap = await db.collection("drivers").get();
+  const sortedDrivers = driversSnap.docs.slice().sort((a, b) => {
+    const tA = extractRegistrationTimestamp(a.data());
+    const tB = extractRegistrationTimestamp(b.data());
+    if (tA !== tB) return tA - tB;
+    return a.id.localeCompare(b.id);
+  });
+  console.log(`[Backfill] Found ${sortedDrivers.length} driver records.`);
 
   let driverSeqAssigned = 0;
   let driverRefAssigned = 0;
+  let driverCount = 0;
 
-  for (const doc of driversSnap.docs) {
+  for (const doc of sortedDrivers) {
+    driverCount++;
     const data = doc.data() || {};
     const existingSeq = data.sequentialId;
+    const expectedSeqId = formatSequentialId("driver", driverCount);
     const updates = {};
 
-    if (!existingSeq || !existingSeq.startsWith("SD")) {
-      driverCount++;
-      const newSeqId = formatSequentialId("driver", driverCount);
-      updates.sequentialId = newSeqId;
+    if (isResetAll || !existingSeq || !existingSeq.startsWith("SD") || existingSeq !== expectedSeqId) {
+      updates.sequentialId = expectedSeqId;
       driverSeqAssigned++;
       if (!isDryRun) {
-        await db.collection("unique_sequential_ids").doc(newSeqId).set({
+        await db.collection("unique_sequential_ids").doc(expectedSeqId).set({
           ownerUid: doc.id,
           role: "driver",
-          sequentialId: newSeqId,
+          sequentialId: expectedSeqId,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      console.log(`  Assigning ${newSeqId} to driver ${doc.id} (${data.fullName || 'Unnamed'})`);
+      console.log(`  Assigning ${expectedSeqId} to driver ${doc.id} (${data.fullName || 'Unnamed'}, memberSince: ${data.memberSince})`);
     }
 
     // Referral code check
@@ -226,63 +253,73 @@ async function runBackfill() {
     }
   }
 
-  // Update driver counter doc
-  if (!isDryRun && driverSeqAssigned > 0) {
-    await countersRef.set({ driverCount }, { merge: true });
+  // Update dedicated driver counter doc counters/SD
+  if (!isDryRun) {
+    await db.doc(COUNTER_DOCS.driver).set({
+      count: driverCount,
+      lastNumber: driverCount,
+      role: "driver",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log(`[Backfill] Driver counter counters/SD set to ${driverCount}`);
   }
 
   // ── 3. Hub Staff ───────────────────────────────────────────────────────────
-  console.log("[Backfill] Fetching hub staff...");
+  console.log("[Backfill] Fetching hub staff (sorted by earliest timestamp)...");
   const staffSnap = await db.collection("hub_staff").get();
-  console.log(`[Backfill] Found ${staffSnap.docs.length} hub staff records.`);
+  const sortedStaff = staffSnap.docs.slice().sort((a, b) => {
+    const tA = extractRegistrationTimestamp(a.data());
+    const tB = extractRegistrationTimestamp(b.data());
+    if (tA !== tB) return tA - tB;
+    return a.id.localeCompare(b.id);
+  });
+  console.log(`[Backfill] Found ${sortedStaff.length} hub staff records.`);
 
   let staffSeqAssigned = 0;
+  let staffCount = 0;
 
-  for (const doc of staffSnap.docs) {
+  for (const doc of sortedStaff) {
+    staffCount++;
     const data = doc.data() || {};
     const existingSeq = data.sequentialId;
+    const expectedSeqId = formatSequentialId("staff", staffCount);
     const updates = {};
 
-    if (!existingSeq || !existingSeq.startsWith("SH")) {
-      staffCount++;
-      const newSeqId = formatSequentialId("staff", staffCount);
-      updates.sequentialId = newSeqId;
+    if (isResetAll || !existingSeq || !existingSeq.startsWith("SH") || existingSeq !== expectedSeqId) {
+      updates.sequentialId = expectedSeqId;
       staffSeqAssigned++;
       if (!isDryRun) {
-        await db.collection("unique_sequential_ids").doc(newSeqId).set({
+        await db.collection("unique_sequential_ids").doc(expectedSeqId).set({
           ownerUid: doc.id,
           role: "staff",
-          sequentialId: newSeqId,
+          sequentialId: expectedSeqId,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
+        await doc.ref.update(updates);
       }
-      console.log(`  Assigning ${newSeqId} to hub staff ${doc.id} (${data.name || data.email || 'Unnamed'})`);
-    }
-
-    if (Object.keys(updates).length > 0 && !isDryRun) {
-      await doc.ref.update(updates);
+      console.log(`  Assigning ${expectedSeqId} to staff ${doc.id} (${data.email || 'Unnamed'})`);
     }
   }
 
-  if (!isDryRun && staffSeqAssigned > 0) {
-    await countersRef.set({ staffCount }, { merge: true });
+  // Update dedicated staff counter doc counters/SH
+  if (!isDryRun) {
+    await db.doc(COUNTER_DOCS.staff).set({
+      count: staffCount,
+      lastNumber: staffCount,
+      role: "staff",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    console.log(`[Backfill] Staff counter counters/SH set to ${staffCount}`);
   }
 
-  console.log("\n[Backfill] Summary:");
-  console.log(`  Customers: ${customerSeqAssigned} sequential IDs assigned, ${customerRefAssigned} referral IDs generated.`);
-  console.log(`  Drivers:   ${driverSeqAssigned} sequential IDs assigned, ${driverRefAssigned} referral IDs generated.`);
-  console.log(`  Hub Staff: ${staffSeqAssigned} sequential IDs assigned.`);
-  console.log(`  Final counter doc: customerCount=${customerCount}, driverCount=${driverCount}, staffCount=${staffCount}`);
-  console.log("[Backfill] Completed successfully.");
+  console.log("[Backfill] Summary:");
+  console.log(`  Customers: ${customerSeqAssigned} sequential IDs updated, ${customerRefAssigned} referral codes generated. (Counter: ${customerCount})`);
+  console.log(`  Drivers: ${driverSeqAssigned} sequential IDs updated, ${driverRefAssigned} referral codes generated. (Counter: ${driverCount})`);
+  console.log(`  Staff: ${staffSeqAssigned} sequential IDs updated. (Counter: ${staffCount})`);
+  console.log("[Backfill] Completed.");
 }
 
-if (require.main === module) {
-  runBackfill()
-    .then(() => process.exit(0))
-    .catch((err) => {
-      console.error("[Backfill] Fatal error:", err);
-      process.exit(1);
-    });
-}
-
-module.exports = { runBackfill };
+runBackfill().catch((err) => {
+  console.error("[Backfill] Fatal error:", err);
+  process.exit(1);
+});

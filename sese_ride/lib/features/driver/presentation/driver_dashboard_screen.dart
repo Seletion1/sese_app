@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -1675,8 +1676,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       }
 
       final fix = await _collectGpsFix();
+      final effectiveDriverId = widget.driverId.isNotEmpty && widget.driverId != 'current_driver'
+          ? widget.driverId
+          : (widget.user?.uid ?? fb.FirebaseAuth.instance.currentUser?.uid ?? widget.driverId);
       final decision = await _status.requestGoOnline(
-        driverId: widget.driverId,
+        driverId: effectiveDriverId,
         fix: fix,
         vehicleId: selectedVehicle.id,
       );
@@ -1730,12 +1734,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     } on DriverStatusException catch (e) {
       if (!mounted) return;
       final rawMsg = e.message.trim();
-      final userMsg = (e.code == 'unauthenticated' ||
-              rawMsg.toLowerCase() == 'unauthenticated' ||
-              rawMsg.contains('com.sesetech') ||
-              rawMsg.contains('Exception:'))
+      final isUnauth = e.code == 'unauthenticated' ||
+          rawMsg.toLowerCase() == 'unauthenticated' ||
+          rawMsg.toLowerCase().contains('unauthenticated');
+      final isSignedOut = fb.FirebaseAuth.instance.currentUser == null;
+      final userMsg = (isUnauth && isSignedOut)
           ? 'Session expired. Please sign in again to go online.'
-          : rawMsg;
+          : (rawMsg.isNotEmpty ? rawMsg : 'Unable to go online. Please try again.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(userMsg)),
       );

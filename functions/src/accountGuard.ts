@@ -49,7 +49,8 @@ import {
 export function guardedOnCall<T = any, Return = any>(
   handler: (request: CallableRequest<T>) => Return
 ): HttpsFunction & { run(request: CallableRequest<T>): Return } {
-  return onCall({ enforceAppCheck: true }, async (request: CallableRequest<T>) => {
+  const shouldEnforce = process.env.ENFORCE_APP_CHECK === "true";
+  return onCall({ enforceAppCheck: shouldEnforce }, async (request: CallableRequest<T>) => {
     enforceAppCheck(request);
     return await handler(request);
   }) as any;

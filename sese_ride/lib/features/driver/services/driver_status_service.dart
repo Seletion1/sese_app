@@ -160,6 +160,31 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
       final code = e.code.toLowerCase();
       final msg = (e.message ?? '').trim();
       if (code == 'unauthenticated' || msg.toLowerCase() == 'unauthenticated' || msg.contains('unauthenticated')) {
+        // Auth session recovery: refresh token and retry once before failing
+        try {
+          final user = fb.FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            await user.reload();
+            final refreshedToken = await user.getIdToken(true);
+            if (refreshedToken != null && refreshedToken.isNotEmpty) {
+              final retryPayload = <String, dynamic>{
+                'driverId': driverId,
+                'fix': fix,
+                'idToken': refreshedToken,
+                if (vehicleId != null && vehicleId.isNotEmpty) 'vehicleId': vehicleId,
+                if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
+                if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
+              };
+              final retryResult = await fn.httpsCallable('goOnline').call(retryPayload);
+              return Map<String, dynamic>.from(retryResult.data as Map);
+            }
+          }
+        } catch (retryErr) {
+          debugPrint('CloudFunctionsDriverStatusBackend: goOnline token refresh retry failed: $retryErr');
+          if (retryErr is FirebaseFunctionsException && retryErr.code != 'unauthenticated') {
+            throw DriverStatusException(retryErr.code, (retryErr.message ?? '').trim());
+          }
+        }
         throw const DriverStatusException(
           'unauthenticated',
           'Session expired. Please sign in again to go online.',
@@ -181,19 +206,31 @@ class CloudFunctionsDriverStatusBackend implements DriverStatusBackend {
         'Network connection unstable. Please check your connection and try again.',
       );
     }
+    final payload = <String, dynamic>{
+      'driverId': driverId,
+      if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
+    };
     try {
-      final payload = <String, dynamic>{
-        'driverId': driverId,
-      };
-      if (sessionId != null && sessionId.isNotEmpty) {
-        payload['sessionId'] = sessionId;
-      }
       final result = await fn.httpsCallable('goOffline').call(payload);
       return Map<String, dynamic>.from(result.data as Map);
     } on FirebaseFunctionsException catch (e) {
       final code = e.code.toLowerCase();
       final msg = (e.message ?? '').trim();
       if (code == 'unauthenticated' || msg.toLowerCase() == 'unauthenticated' || msg.contains('unauthenticated')) {
+        // Auth session recovery: refresh token and retry once before failing
+        try {
+          final user = fb.FirebaseAuth.instance.currentUser;
+          if (user != null) {
+            await user.reload();
+            final refreshedToken = await user.getIdToken(true);
+            if (refreshedToken != null && refreshedToken.isNotEmpty) {
+              final retryResult = await fn.httpsCallable('goOffline').call(payload);
+              return Map<String, dynamic>.from(retryResult.data as Map);
+            }
+          }
+        } catch (retryErr) {
+          debugPrint('CloudFunctionsDriverStatusBackend: goOffline token refresh retry failed: $retryErr');
+        }
         throw const DriverStatusException(
           'unauthenticated',
           'Session expired. Please sign in again.',
@@ -237,13 +274,22 @@ class DriverStatusService {
     }
     try {
       final auth = _authExplicit ?? fb.FirebaseAuth.instance;
-      final currentUser = auth.currentUser;
+      final currentUser = auth.currentUser ?? fb.FirebaseAuth.instance.currentUser;
       if (currentUser == null) return null;
       try {
         return await currentUser.getIdToken(true);
       } catch (e) {
-        debugPrint('DriverStatusService: getIdToken(true) failed, using cached token: $e');
-        return await currentUser.getIdToken(false);
+        debugPrint('DriverStatusService: getIdToken(true) failed, trying cached/reloaded token: $e');
+        try {
+          return await currentUser.getIdToken(false);
+        } catch (_) {
+          try {
+            await currentUser.reload();
+            return await currentUser.getIdToken(true);
+          } catch (_) {
+            return null;
+          }
+        }
       }
     } catch (e) {
       debugPrint('DriverStatusService: getIdToken error: $e');

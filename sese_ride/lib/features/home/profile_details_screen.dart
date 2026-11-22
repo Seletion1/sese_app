@@ -353,7 +353,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> {
         // ── Account Identifiers ──────────────────────────────────────────
         _sectionHeader('Account Identifiers'),
         TextFormField(
-          initialValue: widget.user.sequentialId.isNotEmpty ? widget.user.sequentialId : 'SC0001',
+          initialValue: widget.user.sequentialId.isNotEmpty ? widget.user.sequentialId : '—',
           decoration: const InputDecoration(
             labelText: 'Customer ID',
             prefixIcon: Icon(Icons.tag),

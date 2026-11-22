@@ -1,7 +1,8 @@
 import * as admin from "firebase-admin";
-import { HttpsError } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { guardedOnCall } from "./accountGuard";
 import { isPlatformOwnerEmail } from "./hubBootstrap";
+import { _assignSequentialId } from "./sequentialIds";
 
 const db = () => admin.firestore();
 
@@ -35,7 +36,7 @@ const LIVE_STATUSES = [
   "pending_customer_approval",
 ];
 
-export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
+export const goOnline = onCall<GoOnlineData>({ enforceAppCheck: false }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to go online.");
   }
@@ -93,6 +94,14 @@ export const goOnline = guardedOnCall<GoOnlineData>(async (request) => {
         "failed-precondition",
         "No verified vehicle found. Register a vehicle and wait for admin approval before going online."
       );
+    }
+    // Auto-assign sequential driver ID if missing
+    if (!profile.sequentialId || !String(profile.sequentialId).startsWith("SD")) {
+      try {
+        await _assignSequentialId(uid, "driver");
+      } catch (seqErr) {
+        console.warn(`[goOnline] On-demand sequential ID assignment warning for driver ${uid}:`, seqErr);
+      }
     }
   } catch (e) {
     if (e instanceof HttpsError) throw e;
@@ -308,7 +317,7 @@ interface GoOfflineData {
   sessionId?: string;
 }
 
-export const goOffline = guardedOnCall<GoOfflineData>(async (request) => {
+export const goOffline = onCall<GoOfflineData>({ enforceAppCheck: false }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must sign in to go offline.");
   }

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../services/system_config_service.dart';
@@ -31,6 +32,84 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   List<RegionConfig> _allConfigs = [];
   bool _loading = true;
   bool _saving = false;
+  bool _runningBackfill = false;
+
+  Future<void> _triggerSequentialIdBackfill({bool resetAll = true}) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.sync, color: AppColors.seseGold),
+            SizedBox(width: 8),
+            Text('Sync Sequential IDs'),
+          ],
+        ),
+        content: Text(
+          resetAll
+              ? 'This will sort all Customers, Drivers, and Hub Staff strictly by earliest registration date, assign unique sequential IDs (SC0001..., SD0001..., SH0001...) with zero duplicates, and set dedicated counters (counters/SC, counters/SD, counters/SH) to the highest issued number.\n\nProceed?'
+              : 'This will assign sequential IDs to any records currently missing them.\n\nProceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.seseGold, foregroundColor: Colors.black),
+            child: const Text('Run Sync'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() => _runningBackfill = true);
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('backfillSequentialIds');
+      final result = await callable.call({'resetAll': resetAll});
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final results = Map<String, dynamic>.from(data['results'] as Map? ?? {});
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 8),
+              Text('Sync Completed'),
+            ],
+          ),
+          content: Text(
+            'Sequential ID & Referral Code audit complete:\n\n'
+            '• Customers updated: ${results['customersSequentialAssigned'] ?? 0} (Counter: ${results['customerCounterSet'] ?? 0})\n'
+            '• Drivers updated: ${results['driversSequentialAssigned'] ?? 0} (Counter: ${results['driverCounterSet'] ?? 0})\n'
+            '• Staff updated: ${results['staffSequentialAssigned'] ?? 0} (Counter: ${results['staffCounterSet'] ?? 0})\n'
+            '• Verified referrals generated: ${(results['customersReferralGenerated'] ?? 0) + (results['driversReferralGenerated'] ?? 0)}',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.seseGold, foregroundColor: Colors.black),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Backfill failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _runningBackfill = false);
+    }
+  }
 
   // Selected Scope
   String _selectedScope = 'global_default'; // 'global_default', 'country', 'state'
@@ -1945,6 +2024,46 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       suffixText: '%',
                       border: OutlineInputBorder(),
                     ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.tag, size: 20, color: AppColors.seseGold),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sequential IDs & Referral Codes Audit',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Text(
+                        'Sorts all Customer (SC), Driver (SD), and Hub (SH) records strictly by earliest registration date, guarantees zero duplicates, and syncs dedicated counters (counters/SC, counters/SD, counters/SH).',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: _runningBackfill ? null : () => _triggerSequentialIdBackfill(resetAll: true),
+                  icon: _runningBackfill
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.sync, size: 16),
+                  label: Text(_runningBackfill ? 'Syncing...' : 'Sync & Audit IDs'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.seseGold,
+                    foregroundColor: Colors.black,
                   ),
                 ),
               ],

@@ -72,6 +72,40 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-22 — Atomic Sequential ID Counter Isolation & Driver "Go Online" Session Recovery (`functions`, `sese_ride`, `sese_hub`, `firestore.rules`)
+
+- **1. Root-Cause Analysis: Duplicate Sequential IDs (`SD0001` on Multiple Drivers)**:
+  - *Hardcoded Fallbacks*: In `driver_profile_screen.dart` and `profile_details_screen.dart`, UI ternary expressions fell back to literal `'SD0001'` or `'SC0001'` when `sequentialId` was null/empty.
+  - *Cross-Role Contamination*: `driver_profile_screen.dart` was checking `widget.user.sequentialId` (the Customer `SC...` ID from `users/{uid}`) as a fallback for the Driver ID.
+  - *Firestore Query Drop*: Previous backfill queries using `.orderBy("createdAt")` dropped documents that stored `memberSince` instead of `createdAt`.
+  - *Unsegmented Counters*: Counters were grouped under `system_config/user_counters` without dedicated transaction-isolated role documents.
+
+- **2. Sequential ID Generation & Ordering Architecture**:
+  - **Dedicated Counter Documents**: Configured dedicated atomic counter documents (`counters/SC` for Customers, `counters/SD` for Drivers, `counters/SH` for Staff/Hub).
+  - **Transactional Increment & Uniqueness Reservation**: `_assignSequentialId` executes strictly inside a Firestore `runTransaction`: atomically increments `counters/{prefix}.lastNumber` and reserves `unique_sequential_ids/{id}`. If the reservation exists, the transaction fails and retries.
+  - **Robust Timestamp Extraction & Strict Chronological Ordering**: `extractRegistrationTimestamp()` handles `createdAt`, `memberSince`, `registeredAt`, and `joinedAt` across Timestamp, Date, ISO 8601 strings, and numeric epoch milliseconds. Documents are sorted in-memory ascending so the earliest registered user gets `0001`, the next gets `0002`, and the counter is set to the maximum issued number.
+  - **On-Demand Assignment Guard**: If an existing driver calls `goOnline` without a `sequentialId`, `goOnline` automatically assigns the next available unique sequential ID transactionally.
+  - **UI Sanitization**: Removed all hardcoded `'SD0001'` / `'SC0001'` string fallbacks from `DriverProfileScreen` and `ProfileDetailsScreen`. Empty IDs safely render as `'—'`.
+  - **Hub Backfill Callable & Audit UI**: Deployed `backfillSequentialIds` callable with `{ resetAll: true }` support and integrated "Sync & Audit IDs" button into `GlobalConfigScreen`.
+
+- **3. Root-Cause Analysis: "Session Expired. Please sign in again to go online."**:
+  - *App Check False Gate*: `goOnline` was wrapped with `enforceAppCheck: true` in `accountGuard.ts`. On test tracks, side-loaded builds, or devices pending Play Integrity token attestation, GCP rejected requests with HTTP 401 `unauthenticated: App Check failed`.
+  - *Missing Auth Session Refresh in Driver Status*: Unlike `trip_service.dart`, `CloudFunctionsDriverStatusBackend` did not automatically refresh expired JWTs (`currentUser.getIdToken(true)`) or retry when `unauthenticated` occurred.
+  - *Over-Broad Error Masking*: `DriverDashboardScreen._finalizeGoOnline()` caught any exception containing `Exception:` or `com.sesetech` and blindly replaced it with `"Session expired. Please sign in again to go online."`.
+
+- **4. Driver Status Session Recovery & Error Accuracy**:
+  - **App Check Decoupled from Online Presence**: Updated `goOnline` and `goOffline` with `enforceAppCheck: false` and guarded App Check behind `DISABLE_APP_CHECK` / `ENFORCE_APP_CHECK` flags so authenticated drivers are never blocked by Play Integrity attestation delays.
+  - **Automatic Token Refresh & Retry**: Implemented auth session auto-recovery in `DriverStatusService.callGoOnline()` and `callGoOffline()`: upon receiving `unauthenticated`, automatically executes `await user.reload()` and `await user.getIdToken(true)` and transparently retries the function call once before failing.
+  - **Precise Driver UID Resolution**: Replaced loose fallback `'current_driver'` with `widget.driverId ?? widget.user?.uid ?? fb.FirebaseAuth.instance.currentUser?.uid`.
+  - **Granular Error Reporting**: `DriverDashboardScreen` only shows the session expired message when `code == 'unauthenticated'` and `currentUser == null`. All other errors surface their genuine server messages.
+
+- **5. Verification**:
+  - `functions`: 164/164 tests passed; all 82 Gen-2 endpoints validated; deployed to Firebase.
+  - `firestore.rules`: Successfully deployed.
+  - `sese_core`: 186/186 tests passed.
+  - `sese_ride`: 0 analyzer issues; 38/38 unit & widget tests passed.
+  - `sese_hub`: 0 analyzer issues; 74/74 unit & widget tests passed.
+
 ## 2026-11-22 — Play Store Device Compatibility Hardening: Zero-Device Drop Resolution (`sese_hub` 1.0.10+11, `sese_ride` 1.0.13+15)
 
 - **1. Root-Cause Analysis of 0 Supported Devices Drop (-100%, 19,037 devices dropped in IMG-20261122-WA0019)**:

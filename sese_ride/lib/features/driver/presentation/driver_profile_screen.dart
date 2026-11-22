@@ -557,9 +557,9 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     label: 'Driver ID',
                     value: profile?.sequentialId.isNotEmpty == true
                         ? profile!.sequentialId
-                        : (widget.user.sequentialId.isNotEmpty == true
+                        : (widget.user.sequentialId.startsWith('SD')
                             ? widget.user.sequentialId
-                            : 'SD0001'),
+                            : '—'),
                   ),
                   const SizedBox(height: 16),
                   Text(
