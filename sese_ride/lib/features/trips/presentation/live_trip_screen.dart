@@ -2364,13 +2364,15 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
               ],
 
               // Pending driver bids carousel
-              const SizedBox(height: 12),
-              _BidCarousel(
-                trip: widget.trip,
-                repository: widget.repository,
-                maxConcurrentBids: widget.dispatchTuning.maxConcurrentBids,
-                sheetController: _sheetController,
-              ),
+              if (widget.trip.allowBidding != false) ...[
+                const SizedBox(height: 12),
+                _BidCarousel(
+                  trip: widget.trip,
+                  repository: widget.repository,
+                  maxConcurrentBids: widget.dispatchTuning.maxConcurrentBids,
+                  sheetController: _sheetController,
+                ),
+              ],
 
               const SizedBox(height: 16),
               const Divider(height: 1),

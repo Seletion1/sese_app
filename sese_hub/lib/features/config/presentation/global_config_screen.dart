@@ -199,6 +199,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _cameraDropoffDwellCtrl = TextEditingController(text: '2');
   final _maxOfferBoostPctCtrl = TextEditingController(text: '100');
   bool _allowStackedOrders = true;
+  bool _allowBidding = true;
   final _maxDistanceToDropoffKmCtrl = TextEditingController(text: '2.0');
   final _maxRemainingTimeMinutesCtrl = TextEditingController(text: '10');
 
@@ -447,6 +448,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _cameraDropoffDwellCtrl.text = tuning.cameraDropoffDwellSec.toString();
       _maxOfferBoostPctCtrl.text = tuning.maxOfferBoostPct.toStringAsFixed(0);
       _allowStackedOrders = tuning.allowStackedOrders;
+      _allowBidding = tuning.allowBidding;
       _maxDistanceToDropoffKmCtrl.text = tuning.maxDistanceToDropoffKm.toString();
       _maxRemainingTimeMinutesCtrl.text = tuning.maxRemainingTimeMinutes.toString();
 
@@ -729,6 +731,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           maxOfferBoostPct:
               double.tryParse(_maxOfferBoostPctCtrl.text.trim()) ?? 100.0,
           allowStackedOrders: _allowStackedOrders,
+          allowBidding: _allowBidding,
           maxDistanceToDropoffKm:
               double.tryParse(_maxDistanceToDropoffKmCtrl.text.trim()) ?? 2.0,
           maxRemainingTimeMinutes:
@@ -3152,6 +3155,14 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               ),
               value: _allowStackedOrders,
               onChanged: (val) => setState(() => _allowStackedOrders = val),
+            ),
+            SwitchListTile(
+              title: const Text('Allow Driver Bidding & Counter-Offers Platform-Wide'),
+              subtitle: const Text(
+                'Enable custom fare counter-bids between drivers and customers. When disabled, all orders are strictly fixed-fare and all bidding carousels, inputs, and endpoints are hidden.',
+              ),
+              value: _allowBidding,
+              onChanged: (val) => setState(() => _allowBidding = val),
             ),
           ],
         ),

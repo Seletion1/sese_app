@@ -190,12 +190,12 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
 
   bool _matchesActiveVehicleCategory(ActiveTrip trip) {
     final driverCat = widget.activeVehicleCategory?.trim().toLowerCase();
-    if (driverCat == null || driverCat.isEmpty) return true;
+    if (driverCat == null || driverCat.isEmpty) return false;
     final reqCat = trip.vehicleCategory.trim().toLowerCase();
     final reqTiers = trip.selectedTiers.map((s) => s.trim().toLowerCase()).toList();
     if (reqCat.isNotEmpty && reqCat == driverCat) return true;
     if (reqTiers.isNotEmpty && reqTiers.contains(driverCat)) return true;
-    if (reqCat.isEmpty && reqTiers.isEmpty) return true;
+    if (reqCat.isEmpty && reqTiers.isEmpty) return false;
     return false;
   }
 

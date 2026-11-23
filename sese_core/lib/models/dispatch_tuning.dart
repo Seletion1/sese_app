@@ -51,6 +51,7 @@ class DispatchTuning {
 
   /// Stacked Order Proximity & Final Stage Criteria (Hub Configurable)
   final bool allowStackedOrders; // default: true
+  final bool allowBidding; // default: true (master bidding toggle)
   final double maxDistanceToDropoffKm; // default: 2.0 km
   final int maxRemainingTimeMinutes; // default: 10 min
 
@@ -70,6 +71,7 @@ class DispatchTuning {
     this.cameraDropoffDwellSec = 2,
     this.maxConcurrentBids = 5,
     this.allowStackedOrders = true,
+    this.allowBidding = true,
     this.maxDistanceToDropoffKm = 2.0,
     this.maxRemainingTimeMinutes = 10,
   });
@@ -134,6 +136,9 @@ class DispatchTuning {
       allowStackedOrders: map['allowStackedOrders'] is bool
           ? map['allowStackedOrders'] as bool
           : true,
+      allowBidding: map['allowBidding'] is bool
+          ? map['allowBidding'] as bool
+          : (map['enableBidding'] is bool ? map['enableBidding'] as bool : true),
       maxDistanceToDropoffKm: numOf('maxDistanceToDropoffKm', 2.0),
       maxRemainingTimeMinutes: intOf('maxRemainingTimeMinutes', 10),
     );
@@ -162,6 +167,8 @@ class DispatchTuning {
         'maxConcurrentBids': maxConcurrentBids,
         'max_visible_bids': maxConcurrentBids,
         'allowStackedOrders': allowStackedOrders,
+        'allowBidding': allowBidding,
+        'enableBidding': allowBidding,
         'maxDistanceToDropoffKm': maxDistanceToDropoffKm,
         'maxRemainingTimeMinutes': maxRemainingTimeMinutes,
       };

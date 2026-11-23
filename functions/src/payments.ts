@@ -402,10 +402,16 @@ async function settleIntent(
       { merge: true }
     );
 
-    const txRef = walletRef.collection("transactions").doc();
+    const userDoc = await tx.get(db().collection("users").doc(uid));
+    const seqId = (userDoc.data()?.sequentialId as string | undefined) || null;
+
+    const txRef = walletRef.collection("transactions").doc(reference);
     tx.set(txRef, {
       type: intent["purpose"] === "trip_payment" ? "trip_payment" : "wallet_topup",
       role: (intent["role"] as string) || "customer",
+      sequentialId: seqId,
+      userId: seqId || uid,
+      uid,
       amountKobo: verifiedAmountKobo,
       amount: verifiedAmountKobo / 100,
       status: "success",

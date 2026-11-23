@@ -77,6 +77,7 @@ interface DispatchTuning {
   bidCountdownMs: number;
   bidCountdownSec: number;
   allowStackedOrders: boolean;
+  allowBidding: boolean;
   maxDistanceToDropoffKm: number;
   maxRemainingTimeMinutes: number;
   maxSequentialDrivers: number;
@@ -96,6 +97,7 @@ const DEFAULT_TUNING: DispatchTuning = {
   bidCountdownMs: 60 * 1000,
   bidCountdownSec: 60,
   allowStackedOrders: true,
+  allowBidding: true,
   maxDistanceToDropoffKm: 2.0,
   maxRemainingTimeMinutes: 10,
   maxSequentialDrivers: 1,
@@ -142,6 +144,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       num(d.publicPoolDurationMin ?? d.poolDurationMin ?? d.publicPoolDurationMinutes, 60, 5, 1440)
     );
     const allowStackedOrders = typeof d.allowStackedOrders === "boolean" ? d.allowStackedOrders : true;
+    const allowBidding = typeof d.allowBidding === "boolean" ? d.allowBidding : (typeof d.enableBidding === "boolean" ? d.enableBidding : true);
     const maxDistanceToDropoffKm = num(d.maxDistanceToDropoffKm, 2.0, 0.1, 10.0);
     const maxRemainingTimeMinutes = Math.round(num(d.maxRemainingTimeMinutes, 10, 1, 60));
     const maxSequentialDrivers = Math.round(num(d.maxSequentialDrivers ?? d.sequentialAttemptsBeforePool, 1, 1, 10));
@@ -160,6 +163,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       bidCountdownMs: bidCountdownSec * 1000,
       bidCountdownSec: bidCountdownSec,
       allowStackedOrders,
+      allowBidding,
       maxDistanceToDropoffKm,
       maxRemainingTimeMinutes,
       maxSequentialDrivers,
@@ -1108,6 +1112,7 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
   const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
   const isHideCustomerPhone = maskedPhoneMap.phoneMasked === true;
   const safeCustomerPhone = isHideCustomerPhone && customerPhone ? maskPhone(customerPhone) : customerPhone;
+  const tuning = await getDispatchTuning();
 
   const tripDocPayload: Record<string, any> = {
     customerId,
@@ -1131,8 +1136,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     serviceType,
     status: "SEARCHING_DRIVER",
     isVerifiedCustomer: isVerifiedCust,
-    allowBidding: (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
-    allow_bidding: (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
+    allowBidding: tuning.allowBidding !== false && (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
+    allow_bidding: tuning.allowBidding !== false && (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
     ...maskedPhoneMap,
     deliveryPinRequired: isPinRequired,
     deliveryPinVerified: !isPinRequired,
@@ -1247,11 +1252,17 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
           { merge: true }
         );
 
+        const custUserSnap = await tx.get(db().collection("users").doc(customerId));
+        const custSeqId = (custUserSnap.data()?.sequentialId as string | undefined) || null;
+
         tx.set(
           custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`),
           {
             type: "trip_escrow_hold",
             role: "customer",
+            sequentialId: custSeqId,
+            userId: custSeqId || customerId,
+            uid: customerId,
             amountNaira: -actualCoverage,
             amountKobo: -actualCoverageKobo,
             amount: -actualCoverageKobo,
@@ -2809,9 +2820,14 @@ export async function releaseTripEscrow(
       { merge: true }
     );
 
+    const custSeqId = (tripData["customerSequentialId"] ?? tripData["sequentialId"] ?? null) as string | null;
+
     tx.set(refundTxRef, {
       type: "trip_escrow_refund",
       role: "customer",
+      sequentialId: custSeqId,
+      userId: custSeqId || customerId,
+      uid: customerId,
       amountNaira: walletCoverage,
       amountKobo: coverageKobo,
       amount: coverageKobo,
@@ -3276,6 +3292,15 @@ export const submitBid = guardedOnCall(async (request) => {
   }
   const tripData = tripSnap.data()!;
 
+  // System-Wide Bidding Setting Guard
+  const tuning = await getDispatchTuning();
+  if (tuning.allowBidding === false) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Driver bidding is currently disabled platform-wide by system administration."
+    );
+  }
+
   // Fixed-Fare Order Guard: If customer disabled driver bidding for this trip, reject counter-offers
   const isBiddingAllowed = tripData.allowBidding !== false && tripData.allow_bidding !== false;
   if (!isBiddingAllowed) {
@@ -3423,7 +3448,6 @@ export const submitBid = guardedOnCall(async (request) => {
     );
   }
 
-  const tuning = await getDispatchTuning();
   const expiresAtMs = currentTime + tuning.bidCountdownMs;
   const expiresAt = admin.firestore.Timestamp.fromMillis(expiresAtMs);
 
@@ -3562,6 +3586,15 @@ export const acceptBid = guardedOnCall(async (request) => {
       throw new HttpsError("not-found", "Trip not found.");
     }
     const tripData = tripSnap.data()!;
+
+    // System-Wide Bidding Setting Guard
+    const tuning = await getDispatchTuning();
+    if (tuning.allowBidding === false) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Driver bidding is currently disabled platform-wide by system administration."
+      );
+    }
 
     // Fixed-Fare Order Guard: If customer disabled driver bidding for this trip, reject counter-offers
     const isBiddingAllowed = tripData.allowBidding !== false && tripData.allow_bidding !== false;

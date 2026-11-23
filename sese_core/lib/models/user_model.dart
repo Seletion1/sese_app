@@ -74,6 +74,7 @@ class AppUser {
       'totalRatingCount': totalRatingCount,
       'sequentialId': sequentialId,
       'referralCode': referralCode,
+      'referralId': referralCode,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {
@@ -88,7 +89,7 @@ class AppUser {
       uid: map['uid'] ?? '',
       fullName: map['fullName'] ?? '',
       email: map['email'] ?? '',
-      phoneNumber: map['phoneNumber'] ?? '',
+      phoneNumber: (map['phoneNumber'] ?? map['phoneNumberE164'] ?? map['phone'] ?? '').toString(),
       role: UserRoleExtension.fromString(map['role'] ?? 'customer'),
       isActive: map['isActive'] ?? true,
       createdAt: _parseDateTime(map['createdAt']),
@@ -98,7 +99,7 @@ class AppUser {
       totalRatingSum: safeNum(map['totalRatingSum'])?.toInt() ?? 0,
       totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
       sequentialId: (map['sequentialId'] ?? '').toString(),
-      referralCode: (map['referralCode'] ?? '').toString(),
+      referralCode: (map['referralCode'] ?? map['referralId'] ?? '').toString(),
     );
   }
 

@@ -2950,6 +2950,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       stream: _streaks.streakConfigStream(),
       builder: (context, cfgSnap) {
         final cfg = cfgSnap.data ?? const DailyStreakConfig();
+        if (!cfg.streakEnabled) {
+          return const SizedBox.shrink();
+        }
         return StreamBuilder<ActiveTrip?>(
           stream: _streaks.activeTripStream(widget.driverId),
           builder: (context, tripSnap) {

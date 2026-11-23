@@ -72,6 +72,23 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-23 — Production-Readiness Hardening, Financial Idempotency & Master Feature Toggles (`functions`, `sese_core`, `sese_ride`, `sese_hub`)
+
+- **1. Financial Idempotency & Sequential Role Ledger Tagging**:
+  - Keyed all wallet ledger movements (top-ups, trip escrow holds/refunds, commissions, referral bonuses, streak rewards, and withdrawals) with deterministic IDs (`topup_${ref}`, `${tripId}_escrow_hold`, `${tripId}_escrow_refund`, `${tripId}_commission`, `${tripId}_ref_${type}_${refereeId}`).
+  - Tagged every transaction with role sequential ID (`sequentialId`: `SC...`/`SD...`/`SH...`), `userId`, and `uid`.
+- **2. Sequential ID & Verification-Gated `referralId` Hardening**:
+  - Standardized phone number resolution across `phoneNumberE164`, `phoneNumber`, `phone`, `verifiedPhone`, `phoneE164`, `driverPhone`, and `admin.auth().getUser(userId).phoneNumber`.
+  - Normalized all Nigerian formats (`+234...`, `080...`) by stripping non-digits and taking last 4 digits, ensuring immutable `referralId` generated exclusively upon verification approval.
+- **3. Master Feature Toggles for Bidding & Streak**:
+  - Introduced `allowBidding` master switch in `system_settings/dispatch`, with live toggle in `GlobalConfigScreen` (`sese_hub`). Backend `submitBid` and `acceptBid` block requests when disabled, and `LiveTripScreen` hides the bidding carousel.
+  - Driver streak banner and UI components in `driver_dashboard_screen.dart` and `streak_progress_banner.dart` completely collapse and hide when `streakEnabled` is toggled off in `sese_hub`.
+- **4. Strict Vehicle Category Order Matching**:
+  - Enforced strict vehicle category match in `order_pool_sheet.dart` and `order_feed.dart` (returns `false` if driver active category is empty or mismatched).
+- **5. Pre-Production Clean Data Reset**:
+  - Provided `functions/scripts/pre-production-reset.js` supporting `--dry-run` and `--execute` to clear test trips, transactions, and streaks while re-indexing sequential IDs (`SC0001+`, `SD0001+`, `SH0001+`).
+
+
 ## 2026-11-23 — Synchronized Driver-Customer Bidding Pipeline & Countdown Hardening (`functions`, `firestore.rules`, `sese_ride`)
 
 - **1. Root-Cause Analysis: Driver Bids Not Appearing on Customer Screen**:

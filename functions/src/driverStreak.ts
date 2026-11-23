@@ -690,12 +690,16 @@ export async function handleTripCompletion(
         { merge: true }
       );
 
+      const driverSeqId = (driverData.sequentialId as string | undefined) || null;
       const commTxRef = driverWalletRef
         .collection("transactions")
         .doc(`${tripId}_commission`);
       tx.set(commTxRef, {
         type: "platform_commission",
         role: "driver",
+        sequentialId: driverSeqId,
+        userId: driverSeqId || driverId,
+        uid: driverId,
         amount: -commissionDebitKobo,
         amountKobo: -commissionDebitKobo,
         amountNaira: -commissionDebitNaira,
@@ -1811,6 +1815,9 @@ async function processReferralCommissions(
 
       tx.set(txRef, {
         type: type === "driver" ? "REFERRAL_COMMISSION_DRIVER" : "REFERRAL_COMMISSION_CUSTOMER",
+        role: type === "driver" ? "driver" : "customer",
+        userId: targetUid,
+        uid: targetUid,
         amountNaira: cutNaira,
         amountKobo: cutKobo,
         amount: cutKobo,

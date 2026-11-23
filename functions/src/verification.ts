@@ -53,9 +53,27 @@ async function _generateAndSaveReferralCode(
 
   const existingCode = String(profileData.referralCode ?? profileData.referralId ?? "").trim();
 
-  const rawPhone = String(
-    profileData.phoneNumberE164 ?? profileData.phoneNumber ?? profileData.phone ?? ""
+  let rawPhone = String(
+    profileData.phoneNumberE164 ??
+      profileData.phoneNumber ??
+      profileData.phone ??
+      profileData.verifiedPhone ??
+      profileData.phoneE164 ??
+      profileData.driverPhone ??
+      profileData.customerPhone ??
+      ""
   ).trim();
+
+  // If phone not directly on profile document, check Firebase Auth record
+  if (!rawPhone) {
+    try {
+      const authUser = await admin.auth().getUser(userId);
+      if (authUser.phoneNumber) {
+        rawPhone = authUser.phoneNumber.trim();
+      }
+    } catch (_) {}
+  }
+
   const digits = rawPhone.replace(/\D/g, "");
 
   // Require a phone number on the account before assigning referral ID

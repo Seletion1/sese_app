@@ -221,6 +221,10 @@ class _StreakProgressBannerState extends State<StreakProgressBanner> {
     final s = widget.streak;
     final scheme = Theme.of(context).colorScheme;
 
+    if (!s.streakActive) {
+      return const SizedBox.shrink();
+    }
+
     if (!_isExpanded) {
       return GestureDetector(
         key: const Key('streak_compact_badge'),
