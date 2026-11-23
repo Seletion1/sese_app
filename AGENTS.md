@@ -72,6 +72,34 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-23 — Full Stored-Value Wallet & Payout System Deletion, External Navigation Transition & Sese Credits (`functions`, `sese_core`, `sese_hub`, `sese_ride`)
+
+- **1. Zero Stored-Value Wallet & Zero Payout Architecture**:
+  - *Google Play Compliance*: Deep physical deletion of all stored-value wallet, deposit, customer bank transfer, withdrawal, daily payout limit, and transaction PIN features across apps to ensure compliance for personal developer account verification.
+  - *Backend Functions (`functions`)*: Completely deleted `payouts.ts` and `payouts_workflow.test.ts`. Stripped `processWeeklyPayoutsBatch`, `requestManualPayout`, `createRecipientAccount`, and `verifyBankLookup` exports.
+  - *Shared Core (`sese_core`)*: Physically deleted `sese_core/lib/wallet/` (bank service, payout queue, transaction PIN, withdrawal service) and `wallet_calculation_engine.dart`. Updated `FinancialConfig` and `LegalDocumentContent` (Terms & Privacy) declaring zero stored-value customer wallet and zero withdrawal system.
+  - *Hub Application (`sese_hub`)*: Completely deleted `sese_hub/lib/features/payouts/` (`HubPayoutDeskScreen`) and `hub_user_wallet_card.dart`. Cleaned all wallet/payout controls from `GlobalConfigScreen`, `CustomerManagementScreen`, `StaffManagementScreen`, `ActiveRidesConsoleScreen`, and verification tabs.
+  - *Customer & Driver App (`sese_ride`)*: Completely deleted `sese_ride/lib/features/wallet/` and `security_pin_screen.dart`. Removed customer stored-value wallet routes and payment options.
+
+- **2. Removal of In-App Turn-by-Turn Navigation & On-Demand External Navigation**:
+  - Removed in-app turn-by-turn navigation mode, step-by-step voice guidance banners, and forced camera tilt/bearing overrides from `driver_dashboard_screen.dart` and `navigation_launcher_service.dart`.
+  - Replaced navigation mode with clean live route polyline and driver GPS marker tracking on the map.
+  - Added a prominent gold "Navigate" button on the driver map that directly launches the driver's preferred external navigation app (Google Maps, Waze, Apple Maps, or system default) with coordinates and turn directions on demand.
+
+- **3. Direct Booking Payments (Cash or Direct Paystack Checkout Only)**:
+  - Restricted customer booking payment selection strictly to **Cash** or **Card / Online (Paystack)** per trip.
+  - Paystack payments are initialized per trip order; trips mark `paid` upon successful verification or prompt customer to retry/switch to Cash if declined.
+
+- **4. Driver Sese Credits (Non-Withdrawable Service Units)**:
+  - Replaced driver wallet with **Sese Credits** (`sese_credits_screen.dart`), dedicated solely to tracking and topping up non-withdrawable platform service credits used strictly to settle dispatch commissions.
+  - Drivers top up Sese Credits via Paystack checkout when balances are low or negative; zero withdrawal, zero transfer, and zero cash-out functionality.
+
+- **5. Verification & Test Suite**:
+  - `functions`: 76 Gen-2 endpoints; 164/164 tests passed.
+  - `sese_core`: 0 analyzer issues; 168/168 tests passed.
+  - `sese_hub`: 0 analyzer issues; 74/74 tests passed.
+  - `sese_ride`: 0 analyzer issues; 318/318 tests passed.
+
 ## 2026-11-23 — Production-Readiness Hardening, Financial Idempotency & Master Feature Toggles (`functions`, `sese_core`, `sese_ride`, `sese_hub`)
 
 - **1. Financial Idempotency & Sequential Role Ledger Tagging**:

@@ -5,9 +5,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../trips/models/trip_models.dart';
 
-/// Supported external and internal navigation providers.
+/// Supported external navigation providers.
 enum NavigationAppOption {
-  inAppOsm,
   googleMaps,
   waze,
   appleMaps,
@@ -15,7 +14,7 @@ enum NavigationAppOption {
 }
 
 /// Service to prompt drivers and launch turn-by-turn navigation
-/// either in-app via OpenStreetMap or via external apps (Google Maps, Waze).
+/// via external apps (Google Maps, Waze, Apple Maps, System GPS).
 abstract final class NavigationLauncherService {
   /// Opens a bottom sheet prompting the driver to pick their navigation app.
   static Future<void> showNavigationChooser({
@@ -40,10 +39,6 @@ abstract final class NavigationLauncherService {
     if (option == null || !context.mounted) return;
 
     switch (option) {
-      case NavigationAppOption.inAppOsm:
-        // In-app turn-by-turn navigation runs directly on the main dashboard map canvas.
-        break;
-
       case NavigationAppOption.googleMaps:
         await launchGoogleMaps(destinationLat, destinationLng);
         break;
@@ -217,14 +212,6 @@ class _NavigationChooserSheet extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 10),
-          _NavOptionTile(
-            title: 'In-App Navigation',
-            subtitle: 'Turn-by-turn guidance on OpenStreetMap',
-            icon: Icons.map_rounded,
-            iconColor: AppColors.seseGold,
-            onTap: () => Navigator.of(context).pop(NavigationAppOption.inAppOsm),
-          ),
-          const SizedBox(height: 8),
           _NavOptionTile(
             title: 'Google Maps',
             subtitle: 'External voice & traffic navigation',

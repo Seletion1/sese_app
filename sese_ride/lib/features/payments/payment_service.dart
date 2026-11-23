@@ -50,16 +50,18 @@ class WalletTransaction {
     switch (type) {
       case 'wallet_topup':
         return 'Wallet top-up';
+      case 'driver_credit_topup':
+        return 'Sese Credits top-up';
       case 'trip_payment':
         return 'Trip payment';
       case 'trip_wallet_settlement':
         return 'Ride fare received';
       case 'trip_escrow_hold':
       case 'escrow_hold':
-        return 'Trip escrow hold';
+        return 'Trip payment hold';
       case 'trip_escrow_refund':
       case 'escrow_refund':
-        return 'Trip escrow refund';
+        return 'Trip payment refund';
       case 'streak_level2_cashback':
         return 'Streak cash-back';
       case 'streak_level3_bonus':
@@ -70,15 +72,6 @@ class WalletTransaction {
       case 'commission_fee':
       case 'commission':
         return 'Platform commission fee';
-      case 'bank_withdrawal':
-      case 'withdrawal':
-      case 'wallet_withdrawal':
-        return 'Bank withdrawal';
-      case 'payout':
-      case 'driver_payout':
-      case 'weekly_payout':
-      case 'monthly_payout':
-        return 'Payout';
       case 'waiting_fee_paid':
       case 'unpaid_waiting_fee_debited':
         return 'Waiting fee';
@@ -295,57 +288,6 @@ class WalletTransaction {
   }
 }
 
-/// One driver payout record (`driver_payouts/{payoutId}`), written by the
-/// hub/operations backend. All fields defensive — amounts may be stored as
-/// kobo integers, naira doubles, or minor-unit ints depending on the flow.
-class DriverPayout {
-  final String id;
-  final double amountNaira;
-  final String status;
-  final String reference;
-  final DateTime? createdAt;
-
-  const DriverPayout({
-    required this.id,
-    required this.amountNaira,
-    this.status = 'pending',
-    this.reference = '',
-    this.createdAt,
-  });
-
-  factory DriverPayout.fromMap(String id, Map<String, dynamic> map) {
-    double naira = 0;
-    final kobo = map['amountKobo'];
-    final amount = map['amount'];
-    final minor = map['fareMinor'] ?? map['amountMinor'];
-    if (kobo is num) {
-      naira = kobo.toDouble() / 100.0;
-    } else if (minor is num) {
-      naira = minor.toDouble() / 100.0;
-    } else if (amount is num) {
-      // Backend convention: `amount` is a naira double.
-      naira = amount.toDouble();
-    }
-    DateTime? when;
-    final raw = map['createdAt'] ?? map['requestedAt'];
-    try {
-      if (raw != null) when = (raw as dynamic).toDate() as DateTime?;
-    } catch (_) {
-      if (raw is String) when = DateTime.tryParse(raw);
-      if (raw is num) {
-        when = DateTime.fromMillisecondsSinceEpoch(raw.toInt());
-      }
-    }
-    return DriverPayout(
-      id: id,
-      amountNaira: naira,
-      status: (map['status'] ?? 'pending').toString(),
-      reference: (map['reference'] ?? map['payoutId'] ?? '').toString(),
-      createdAt: when,
-    );
-  }
-}
-
 /// Result of `initializePayment`: hosted checkout URL + our reference.
 class PaymentAuthorization {
   final String authorizationUrl;
@@ -488,10 +430,7 @@ class PaymentService {
     final config = await const FinancialConfigService().getConfig();
     final minNaira = overrideMinNaira ?? config.minWalletBalanceToOnline;
     final balKobo = await fetchWalletBalanceKobo(driverId);
-    return WalletCalculationEngine.isEligibleToGoOnline(
-      walletBalanceNaira: balKobo / 100.0,
-      minBalanceNaira: minNaira,
-    );
+    return (balKobo / 100.0) >= minNaira;
   }
 
   /// Wallet history, newest first. Filterable by [role]:
@@ -544,45 +483,17 @@ class PaymentService {
         .handleError((Object _) => const <WalletTransaction>[]);
   }
 
-  /// Driver payout records (`driver_payouts`), newest first.
-  /// Denied/unavailable reads resolve to empty. Fields are parsed
-  /// defensively — the hub writes these records, never this app.
-  Stream<List<DriverPayout>> driverPayoutsStream(String uid,
-      {int limit = 10}) {
-    final db = _db;
-    if (db == null || uid.isEmpty) {
-      return Stream.value(const <DriverPayout>[]);
-    }
-    return db
-        .collection('driver_payouts')
-        .where('driverId', isEqualTo: uid)
-        .limit(limit * 3)
-        .snapshots()
-        .map((snap) {
-      final items = snap.docs
-          .map((d) => DriverPayout.fromMap(d.id, d.data()))
-          .toList()
-        ..sort((a, b) => _comparePayoutDate(b, a));
-      return items.take(limit).toList();
-    }).handleError((Object _) => const <DriverPayout>[]);
-  }
-
-  static int _comparePayoutDate(DriverPayout a, DriverPayout b) {
-    final da = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final db = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return da.compareTo(db);
-  }
-
-  /// Starts a wallet top-up. Returns the hosted checkout page to open.
+  /// Initializes a Paystack hosted payment for driver credits or per-trip direct checkout.
   /// Throws [PaymentException] on validation or backend failure.
-  Future<PaymentAuthorization> initializeTopUp({
+  Future<PaymentAuthorization> initializePayment({
     required double amountNaira,
     required String email,
-    String? transactionPin,
+    String purpose = 'driver_credit',
+    String? tripId,
   }) async {
     if (amountNaira < minTopUpNaira) {
       throw const PaymentException(
-          'amount-too-small', 'Minimum top-up is ₦100.');
+          'amount-too-small', 'Minimum payment amount is ₦100.');
     }
     if (amountNaira > maxTopUpNaira) {
       throw const PaymentException(
@@ -592,10 +503,9 @@ class PaymentService {
     try {
       final data = await _ops.callInitializePayment({
         'amountKobo': amountKobo,
-        'purpose': 'wallet_topup',
+        'purpose': purpose,
         'email': email,
-        if (transactionPin != null && transactionPin.isNotEmpty)
-          'transactionPin': transactionPin,
+        if (tripId != null && tripId.isNotEmpty) 'tripId': tripId,
       });
       final url = (data['authorizationUrl'] ?? '').toString();
       final reference = (data['reference'] ?? '').toString();
@@ -619,10 +529,23 @@ class PaymentService {
     }
   }
 
+  /// Starts driver Sese Credits top-up via Paystack.
+  Future<PaymentAuthorization> initializeTopUp({
+    required double amountNaira,
+    required String email,
+    String? purpose,
+    String? tripId,
+  }) =>
+      initializePayment(
+        amountNaira: amountNaira,
+        email: email,
+        purpose: purpose ?? 'wallet_topup',
+        tripId: tripId,
+      );
+
   /// Verifies a payment after the user pays on the checkout page.
-  /// Returns true when the wallet was credited by this call (false when it
-  /// was already settled, e.g. by the webhook).
-  Future<bool> verifyTopUp(String reference) async {
+  /// Returns true when the payment was settled by this call (or previously by webhook).
+  Future<bool> verifyPayment(String reference) async {
     try {
       final data = await _ops.callVerifyPayment(reference);
       return data['settled'] == true;
@@ -636,6 +559,9 @@ class PaymentService {
           'Could not verify the payment. Try again.');
     }
   }
+
+  /// Verifies Sese Credits top-up.
+  Future<bool> verifyTopUp(String reference) => verifyPayment(reference);
 
   /// Opens the Paystack hosted checkout, preferring the secure self-contained
   /// in-app WebView and falling back safely if third-party app deep-links throw

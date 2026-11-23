@@ -90,12 +90,10 @@ export const bootstrapHubOwner = guardedOnCall(async (request) => {
     "user_onboarding",
     "dynamic_config",
     "support_chat",
-    "process_payouts",
     "broadcast_notifications",
     "staff_manage",
     "edit_fares",
     "suspend_users",
-    "p2p_limits",
     "document_review",
   ];
 

@@ -29,16 +29,11 @@ const String permDynamicConfig = 'dynamic_config';
 const String permStaffManage = 'staff_manage';
 const String permSupportChat = 'support_chat';
 
-/// Payout desk (reads `payout_requests`). Mirrors the Firestore
-/// `processPayouts` scope; staff with this grant see the automated
-/// withdrawal audit trail for support follow-up.
-const String permPayouts = 'process_payouts';
 const String permActiveRides = 'active_rides';
 
 /// Scoped Sub-Admin permission toggles.
 const String permEditFares = 'edit_fares';
 const String permSuspendUsers = 'suspend_users';
-const String permP2pLimits = 'p2p_limits';
 const String permDocumentReview = 'document_review';
 
 /// User and Driver Onboarding / Registration module permission code.
@@ -61,7 +56,6 @@ const String permBroadcast = 'broadcast_notifications';
 // next to the keys they depend on).
 const String secConfigPricing = 'config_pricing';
 const String secConfigApiKeys = 'config_api_keys';
-const String secConfigWallet = 'config_wallet';
 const String secConfigReferral = 'config_referral';
 const String secConfigDispatch = 'config_dispatch';
 const String secConfigEngagement = 'config_engagement';
@@ -84,7 +78,6 @@ const String secRidesScheduled = 'rides_scheduled';
 const Set<String> hubSectionCodes = {
   secConfigPricing,
   secConfigApiKeys,
-  secConfigWallet,
   secConfigReferral,
   secConfigDispatch,
   secConfigEngagement,
@@ -103,7 +96,6 @@ const Set<String> hubSectionCodes = {
 const Map<String, String> hubSectionCatalog = {
   secConfigPricing: 'Pricing Engines',
   secConfigApiKeys: 'API & Remote Keys',
-  secConfigWallet: 'Wallet & Payout Rules',
   secConfigReferral: 'Referral & Revenue',
   secConfigDispatch: 'Dispatch & Trips Tuning',
   secConfigEngagement: 'Driver Engagement',
@@ -164,10 +156,8 @@ const Map<String, String> hubModuleCatalog = {
   permUserOnboarding: 'User & Driver Onboarding',
   permDynamicConfig: 'Dynamic Config',
   permSupportChat: 'Support Inbox',
-  permPayouts: 'Payout Desk',
   permEditFares: 'Edit Fares & Pricing',
   permSuspendUsers: 'Suspend Users & Drivers',
-  permP2pLimits: 'Financial Limits & Wallet Rules',
   permDocumentReview: 'Document Review & KYC',
   permBroadcast: 'Broadcast Notifications',
   permStaffManage: 'Staff Management',
@@ -184,7 +174,7 @@ List<String> filterPermissionsForRole(UserRole role, List<String> permissions) {
 
 /// Tabs available inside Sese Hub. There are no separate Agent views:
 /// everyone navigates this single permission-filtered tab set.
-enum HubTab { activeRides, fleet, onboarding, support, payouts, broadcast, config, staff, profile }
+enum HubTab { activeRides, fleet, onboarding, support, broadcast, config, staff, profile }
 
 /// Unified permission-based tab rendering for the nav shell
 /// (HubDashboardScreen rail + bottom bar):
@@ -208,7 +198,6 @@ List<HubTab> visibleTabs({
       HubTab.fleet,
       HubTab.onboarding,
       HubTab.support,
-      HubTab.payouts,
       HubTab.broadcast,
       HubTab.config,
       if (permissions.contains(permStaffManage)) HubTab.staff,
@@ -226,7 +215,6 @@ List<HubTab> visibleTabs({
     out.add(HubTab.onboarding);
   }
   if (granted.contains(permSupportChat)) out.add(HubTab.support);
-  if (granted.contains(permPayouts)) out.add(HubTab.payouts);
   if (granted.contains(permBroadcast)) out.add(HubTab.broadcast);
   if (granted.contains(permDynamicConfig)) out.add(HubTab.config);
   if (granted.contains(permStaffManage)) out.add(HubTab.staff);

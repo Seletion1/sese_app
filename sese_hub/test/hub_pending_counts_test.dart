@@ -152,7 +152,6 @@ void main() {
       expect(await countsService.pendingUserOnboardingCountStream.first, 0);
       expect(await countsService.pendingAgentApplicationsCountStream.first, 0);
       expect(await countsService.pendingSupportChatsCountStream.first, 0);
-      expect(await countsService.pendingPayoutsCountStream.first, 0);
       expect(await countsService.fleetTotalPendingCountStream.first, 0);
       expect(await countsService.onboardingTotalPendingCountStream.first, 0);
     });

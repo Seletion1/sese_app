@@ -51,44 +51,7 @@ export const deleteAccount = guardedOnCall(async (request) => {
     );
   }
 
-  // 1. Guardrail: Check Wallet balance & pending payouts
-  const walletDoc = await db().collection("wallets").doc(uid).get();
-  if (walletDoc.exists) {
-    const data = walletDoc.data() || {};
-    const balance = Number(data.balance || 0);
-    if (balance > 0) {
-      throw new HttpsError(
-        "failed-precondition",
-        `Account deletion blocked: You have an active wallet balance of ₦${(
-          balance / 100
-        ).toFixed(2)}. Please withdraw or exhaust your balance before deleting your account.`
-      );
-    }
-
-    if (data.pendingPayouts === true || data.hasPendingPayout === true) {
-      throw new HttpsError(
-        "failed-precondition",
-        "Account deletion blocked: You have pending payouts in progress. Please wait for them to settle before deleting your account."
-      );
-    }
-  }
-
-  // 2. Guardrail: Check pending driver payouts
-  const pendingPayoutsSnap = await db()
-    .collection("driver_payouts")
-    .where("driverId", "==", uid)
-    .where("status", "==", "pending")
-    .limit(1)
-    .get();
-
-  if (!pendingPayoutsSnap.empty) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Account deletion blocked: You have a pending payout request awaiting processing."
-    );
-  }
-
-  // 3. Guardrail: Check active customer rides/deliveries
+  // 1. Guardrail: Check active customer rides/deliveries
   const activeCustomerTrips = await db()
     .collection("trips")
     .where("customerId", "==", uid)

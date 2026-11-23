@@ -6,8 +6,6 @@ import '../customer/presentation/customer_verification_screen.dart';
 import '../customer/services/driver_to_customer_sync.dart';
 import '../settings/screens/settings_screen.dart';
 import '../support/support_chat_screen.dart';
-import '../wallet/bank_details_screen.dart';
-import '../wallet/customer_wallet_screen.dart';
 import '../../widgets/verified_badge.dart';
 import '../referral/referral_hub_screen.dart';
 import 'profile_details_screen.dart';
@@ -176,36 +174,6 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   title: 'Trip history',
                   infoDescription: 'Completed trips and ride receipts appear here.',
                   onTap: () => widget.onSelectTab?.call(0),
-                ),
-                const SizedBox(height: 12),
-
-                // ── Wallet ────────────────────────────────────────────────
-                SettingsTile(
-                  tooltipId: 'menu_wallet___payments',
-                  userId: widget.user.uid,
-                  leading:
-                      const Icon(Icons.account_balance_wallet_outlined),
-                  title: 'Wallet & Payments',
-                  infoDescription: 'Manage balance, payment cards, and transaction history.',
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        CustomerWalletScreen(user: widget.user),
-                  )),
-                ),
-                const SizedBox(height: 12),
-
-                // ── Bank & Payout Details ────────────────────────────────
-                SettingsTile(
-                  tileKey: const Key('customer_bank_details_tile'),
-                  tooltipId: 'menu_bank___payout_details',
-                  userId: widget.user.uid,
-                  leading: const Icon(Icons.account_balance_outlined),
-                  title: 'Bank & Payout Details',
-                  infoDescription: 'Link your bank account for secure fund withdrawals.',
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) =>
-                        BankDetailsScreen(uid: widget.user.uid),
-                  )),
                 ),
                 const SizedBox(height: 12),
 
@@ -392,8 +360,8 @@ Future<void> showSupportContactSheet(BuildContext context, AppUser user) {
                   Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      'Pay with cash or your wallet balance. Top up anytime '
-                      'from Wallet & Payments.',
+                      'Pay directly with cash to the driver or online using '
+                      'your card via Paystack checkout.',
                     ),
                   ),
                 ],

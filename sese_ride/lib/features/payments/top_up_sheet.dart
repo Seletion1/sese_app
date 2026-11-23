@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../wallet/transaction_pin_prompt.dart';
 import 'payment_service.dart';
 import 'paystack_checkout_screen.dart';
 
@@ -81,23 +80,16 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   Future<void> _start() async {
     final amount = _amount;
     final min = _config.minTopUpAmount;
-    final max = _config.maxSingleTopUp;
+    const max = 50000.0;
     if (amount == null || amount < min) {
       final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
       setState(() => _error = 'Min: ₦$minStr');
       return;
     }
     if (amount > max) {
-      final maxStr = max >= 1000 ? '20,000' : max.toStringAsFixed(0);
-      setState(() => _error = 'Max: ₦$maxStr');
+      setState(() => _error = 'Max: ₦50,000');
       return;
     }
-
-    final transactionPin = await TransactionPinPrompt.collectPin(
-      context,
-      uid: widget.user.uid,
-    );
-    if (transactionPin == null || transactionPin.isEmpty || !mounted) return;
 
     setState(() {
       _busy = true;
@@ -107,7 +99,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       final auth = await widget.service.initializeTopUp(
         amountNaira: amount,
         email: widget.user.email,
-        transactionPin: transactionPin,
+        purpose: 'driver_credit',
       );
       if (!mounted) return;
       // Embedded checkout first (card/transfer/USSD inside the app).
@@ -165,7 +157,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Wallet credited')),
+            content: Text('Sese Credits updated successfully')),
       );
     } on PaymentException catch (e) {
       if (!mounted) return;
@@ -180,7 +172,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final pending = _pending;
     final min = _config.minTopUpAmount;
-    final max = _config.maxSingleTopUp;
+    const max = 50000.0;
     final canProceed = !_busy &&
         _amount != null &&
         _amount! >= min &&
@@ -204,10 +196,10 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
             children: [
             Row(
               children: [
-                const Icon(Icons.account_balance_wallet_outlined),
+                const Icon(Icons.stars_rounded, color: AppColors.seseGold),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text('Top Up Wallet',
+                  child: Text('Purchase Sese Credits',
                       style:
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
@@ -272,7 +264,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                 decoration: InputDecoration(
                   labelText: 'Amount',
                   hintText: 'Min ₦${min >= 1000 ? "1,300" : min.toStringAsFixed(0)}',
-                  helperText: 'Max: ₦${max >= 1000 ? "20,000" : max.toStringAsFixed(0)}',
+                  helperText: 'Max: ₦50,000',
                   prefixText: '₦ ',
                   filled: true,
                   fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -308,8 +300,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                       final minStr = min >= 1000 ? '1,300' : min.toStringAsFixed(0);
                       _error = 'Min: ₦$minStr';
                     } else if (parsed != null && parsed > max) {
-                      final maxStr = max >= 1000 ? '20,000' : max.toStringAsFixed(0);
-                      _error = 'Max: ₦$maxStr';
+                      _error = 'Max: ₦50,000';
                     } else {
                       _error = null;
                     }

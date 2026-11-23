@@ -29,10 +29,6 @@ const PRICING: Record<string, { base: number; perKm: number; perMin: number }> =
 export const MIN_TOPUP_KOBO = 130_000; // ₦1,300.00
 export const MAX_TOPUP_KOBO = 50_000_000; // ₦500,000.00
 
-/** External bank payout threshold via weekly desk. Minimum ₦20,000.00 (2,000,000 kobo). */
-export const MIN_WITHDRAWAL_KOBO = 2_000_000; // ₦20,000.00
-export const MAX_WITHDRAWAL_KOBO = 50_000_000; // ₦500,000.00
-
 /** Driver online minimum balance rule: Drivers can toggle ONLINE at any balance.
  * If mainWalletBalance < ₦1.00, a warning is shown and backend holds trip dispatches. */
 export const MIN_WALLET_TO_ONLINE = 1.0; // ₦1.00
@@ -458,46 +454,45 @@ const ARTICLES: Article[] = [
       "convert coin", "convert bonus", "auto sweep", "autosweep", "convert to main",
     ],
     answer:
-      `Unified Wallet & Referral Earnings:\n\n` +
-      `• Direct Main Balance Credit: Referral commissions (1% standard for 365 days, 2% agent/staff for 547 days), streak awards, and promotional bonuses now credit directly into your primary withdrawable cash balance (mainWalletBalance).\n` +
-      `• No Manual Conversion Needed: You no longer need to wait for a threshold or tap "Convert to Main Balance" — earnings are immediately available in your wallet cash.\n` +
-      `• Legacy Coins Auto-Swept: Any legacy SeSe Coin balance is automatically swept into your withdrawable wallet cash.\n` +
-      `• Withdrawable: Your main cash balance can be withdrawn directly to your verified bank account via the weekly payout desk or used towards rides.`,
+      `Direct Trip Payments & Driver Sese Credits:\n\n` +
+      `• Direct Trip Payments: Customer trips are paid directly per order via Cash or Paystack card checkout. SESE does not operate a stored-value customer wallet or withdrawal system.\n` +
+      `• Non-Withdrawable Dispatch Credits: Driver Sese Credits are strictly non-withdrawable platform service credits used to settle trip commissions.\n` +
+      `• Paystack Top-Up: Drivers can top up their Sese Credits balance via Paystack whenever required to cover commissions.\n` +
+      `• Zero Cash-Out: Sese Credits carry zero cash value and cannot be withdrawn, transferred, or cashed out.`,
   },
   {
     topic: "single_account_architecture",
     triggers: [
       "single account", "customer and driver", "switch role", "unified code",
-      "referral code driver", "shared wallet", "same account",
+      "referral code driver", "same account",
     ],
     answer:
       `Single Unified Account Architecture:\n\n` +
       `• A user operating as both a Customer and a Driver uses a single unified account ID (users/{userId}).\n` +
-      `• You share a unified referral code (e.g. MB4321) and a single shared referral wallet pool across both roles.\n` +
+      `• You share a unified referral code (e.g. MB4321) across both roles.\n` +
       `• Verification completed as a customer carries over when registering a vehicle to drive!`,
   },
   {
     topic: "topup",
-    triggers: ["top up", "topup", "add money", "deposit", "fund my wallet", "load wallet", "minimum topup"],
+    triggers: ["top up", "topup", "add credits", "credits topup", "sese credits topup", "minimum topup"],
     answer:
-      `To top up your SeSe wallet:\n\n` +
-      `1. Open Wallet & Earnings and tap "+ Top Up".\n` +
+      `To top up your Driver Sese Credits:\n\n` +
+      `1. Open Sese Credits from the driver menu and tap "Top Up Sese Credits".\n` +
       `2. Enter the amount (Minimum top-up is ${naira(MIN_TOPUP_KOBO)}, maximum is ${naira(MAX_TOPUP_KOBO)}).\n` +
-      `3. Pay securely via card, bank transfer, USSD, or mobile money on Paystack.\n\n` +
-      `Your balance is credited immediately upon payment confirmation.`,
+      `3. Pay securely via Paystack.\n\n` +
+      `Your dispatch credits balance is updated immediately upon payment confirmation.`,
   },
   {
-    topic: "withdraw",
+    topic: "payments_and_credits",
     triggers: [
       "withdraw", "withdrawal", "cash out", "cashout", "payout", "payout desk",
-      "external bank payout", "bank transfer payout",
+      "external bank payout", "bank transfer payout", "sese credits",
     ],
     answer:
-      `External Bank Payout & Withdrawal Rules:\n\n` +
-      `1. Open Wallet & Earnings and select "Withdraw / Payout".\n` +
-      `2. Enter your withdrawal amount, select your bank, and enter your 10-digit account number.\n` +
-      `3. Minimum payout threshold via the weekly payout desk is ${naira(MIN_WITHDRAWAL_KOBO)} (₦20,000.00).\n` +
-      `4. Payouts are sent to a bank account matching your registered profile name.`,
+      `Payment & Sese Credits Policy:\n\n` +
+      `• Direct Trip Payments: Customer trips are paid directly per order via Cash or Paystack card/online payment. SESE does not operate a stored-value customer wallet or bank withdrawal system.\n` +
+      `• Sese Credits: Driver service credits are non-withdrawable platform credits strictly used to settle dispatch commissions. Drivers can top up their Sese Credits balance via Paystack whenever needed.\n` +
+      `• Zero Cash-Out: Sese Credits cannot be withdrawn, transferred, or cashed out.`,
   },
   {
     topic: "fare",
@@ -684,9 +679,8 @@ export async function respondTo(
         topic: "sese_coin_followup",
         intent: "financials_wallet",
         reply:
-          `Unified Wallet & Earnings:\n\n` +
-          `Referral bonuses and promotional earnings are now credited directly to your main cash wallet (mainWalletBalance) with zero manual conversion required!\n\n` +
-          `Any existing legacy coins are automatically swept into your withdrawable wallet cash. You can view your total balance in the Wallet & Earnings screen and withdraw directly to your bank account via the weekly payout desk.`,
+          `Sese Credits Policy:\n\n` +
+          `Driver dispatch credits are non-withdrawable service units strictly used for trip commission settlement. Customer trips are paid per-order via cash or Paystack card payment.`,
       };
     }
   }

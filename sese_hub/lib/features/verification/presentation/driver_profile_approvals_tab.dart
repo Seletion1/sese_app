@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../auth/hub_session_guard.dart';
-import '../../dashboard/presentation/hub_user_wallet_card.dart';
 import '../../../widgets/hub_badge.dart';
 
 /// Driver profile audit queue (Step 2 onboarding submissions).
@@ -630,14 +629,6 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
             if ((kin['address'] ?? '').toString().isNotEmpty)
               _fieldReviewRow('kinAddress', 'Kin Address',
                   '${kin['address']}'),
-            const SizedBox(height: 8),
-            HubUserWalletCard(
-              userId: widget.driverId,
-              role: 'driver',
-              sequentialId: (data['sequentialId'] ?? '').toString(),
-              targetLabel: 'Driver Wallet • ${(data['sequentialId'] ?? '').toString().isNotEmpty ? data['sequentialId'] : 'SD'}',
-              firestore: widget.firestore,
-            ),
             const SizedBox(height: 8),
             // Document thumbnail chips with per-field approve/reject
             if ((data['idFrontUrl'] ?? '').toString().isNotEmpty) ...[

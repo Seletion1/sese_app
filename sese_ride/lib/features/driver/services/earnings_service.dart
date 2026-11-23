@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../payments/payment_service.dart';
-import '../trips/models/trip_models.dart';
+import '../../payments/payment_service.dart';
+import '../../trips/models/trip_models.dart';
 
 /// One completed trip's earnings for a driver.
 class TripEarning {

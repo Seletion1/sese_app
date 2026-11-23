@@ -258,7 +258,6 @@ class AddStaffDialogState extends State<AddStaffDialog> {
   final Set<String> _permissions = {
     permSupportChat,
     permEditFares,
-    permP2pLimits,
   };
 
   /// Jurisdiction scope: true = Global, false = specific country code.

@@ -10,7 +10,6 @@ import '../../auth/login_page.dart';
 import '../../driver/presentation/driver_fleet_screen.dart';
 import '../../driver/services/driver_fleet_service.dart';
 import '../../driver/services/driver_presence_service.dart';
-import '../../home/security_pin_screen.dart';
 import '../delete_account_dialog.dart';
 import '../mode_switcher.dart';
 import '../role_controller.dart';
@@ -83,20 +82,6 @@ class SettingsScreen extends StatelessWidget {
           Card(
             child: Column(
               children: [
-                SettingsTile(
-                  tileKey: const Key('settings_security_pin_tile'),
-                  leading: const Icon(Icons.pin_outlined,
-                      color: AppColors.seseGold),
-                  title: 'Transaction Security PIN',
-                  infoDescription:
-                      'Manage your 4-digit PIN for wallet transfers, payouts, and withdrawal requests.',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SecurityPinScreen(uid: user.uid),
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
                 SettingsTile(
                   tileKey: const Key('settings_account_password_tile'),
                   leading: const Icon(Icons.password_outlined,

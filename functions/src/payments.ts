@@ -2,8 +2,6 @@ import * as admin from "firebase-admin";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { HttpsError, onRequest } from "firebase-functions/v2/https";
 
-import { settleTransfer } from "./payouts";
-import { requireValidPin } from "./transactionPin";
 import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 
 /**
@@ -39,7 +37,7 @@ const PAYSTACK_BASE =
 const MIN_AMOUNT_KOBO = 10_000;
 const MAX_AMOUNT_KOBO = 50_000_000;
 
-type PaymentPurpose = "wallet_topup" | "trip_payment";
+type PaymentPurpose = "driver_credit" | "trip_payment";
 
 async function paystackSecret(): Promise<string> {
   const envSecret =
@@ -126,9 +124,6 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
     // when Firestore rules have not yet propagated to all SDK caches.
     await requireAccountActive(uid, "customer");
 
-    // Transaction-PIN gate: verified server-side before initializing Paystack payment intent.
-    await requireValidPin(uid, request.data?.transactionPin);
-
     const secret = await paystackSecret();
 
     const d = request.data ?? {};
@@ -147,83 +142,10 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
       );
     }
 
+    const rawPurpose = String(d.purpose ?? "");
     const purpose: PaymentPurpose =
-      d.purpose === "trip_payment" ? "trip_payment" : "wallet_topup";
+      rawPurpose === "trip_payment" ? "trip_payment" : "driver_credit";
 
-    // ── Financial Rules & Business Limits Gate ─────────────────────────
-    if (purpose === "wallet_topup") {
-      let maxAccountBalance = 50000;
-      let maxSingleTopUp = 20000;
-      let dailyTopUpFrequency = 5;
-      try {
-        const finDoc = await db().collection("system_configs").doc("financials").get();
-        if (finDoc.exists) {
-          const finData = finDoc.data() ?? {};
-          if (typeof finData["maxAccountBalance"] === "number") {
-            maxAccountBalance = finData["maxAccountBalance"];
-          }
-          if (typeof finData["maxSingleTopUp"] === "number") {
-            maxSingleTopUp = finData["maxSingleTopUp"];
-          }
-          if (typeof finData["dailyTopUpFrequency"] === "number") {
-            dailyTopUpFrequency = finData["dailyTopUpFrequency"];
-          }
-        }
-      } catch (e) {
-        console.warn(`[initializePayment] financials config read fallback: ${e}`);
-      }
-
-      // 1. Max Single Top-Up
-      const maxSingleKobo = Math.round(maxSingleTopUp * 100);
-      if (amountKobo > maxSingleKobo) {
-        throw new HttpsError(
-          "invalid-argument",
-          `Max top-up ₦${maxSingleTopUp.toLocaleString("en-NG")}`
-        );
-      }
-
-      // 2. Max Account Balance Cap
-      try {
-        const walletDoc = await db().collection("wallets").doc(uid).get();
-        if (walletDoc.exists) {
-          const wData = walletDoc.data() ?? {};
-          const currentBalKobo = typeof wData["mainWalletBalance"] === "number"
-            ? Math.round(wData["mainWalletBalance"] * 100)
-            : (typeof wData["balance"] === "number" ? Math.round(wData["balance"]) : 0);
-          const maxBalanceKobo = Math.round(maxAccountBalance * 100);
-          if (currentBalKobo + amountKobo > maxBalanceKobo) {
-            throw new HttpsError(
-              "failed-precondition",
-              `Max balance ₦${maxAccountBalance.toLocaleString("en-NG")}`
-            );
-          }
-        }
-      } catch (e) {
-        if (e instanceof HttpsError) throw e;
-        console.warn(`[initializePayment] wallet balance check warning: ${e}`);
-      }
-
-      // 3. Daily Top-Up Frequency (Max times per 24 hours)
-      try {
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const dailyTopUpsSnap = await db()
-          .collection("payment_intents")
-          .where("userId", "==", uid)
-          .where("purpose", "==", "wallet_topup")
-          .where("createdAt", ">=", oneDayAgo)
-          .get();
-
-        if (dailyTopUpsSnap.size >= dailyTopUpFrequency) {
-          throw new HttpsError(
-            "resource-exhausted",
-            "Daily limit reached"
-          );
-        }
-      } catch (e) {
-        if (e instanceof HttpsError) throw e;
-        console.warn(`[initializePayment] daily frequency check warning: ${e}`);
-      }
-    }
     const tripId = typeof d.tripId === "string" ? d.tripId.trim() : "";
     if (purpose === "trip_payment" && !tripId) {
       throw new HttpsError(
@@ -390,25 +312,46 @@ async function settleIntent(
       recoveredKobo = 0;
     }
 
-    tx.set(
-      walletRef,
-      {
-        userId: uid,
-        balance: admin.firestore.FieldValue.increment(creditKobo),
-        mainWalletBalance: admin.firestore.FieldValue.increment(creditKobo / 100),
-        currency: "NGN",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const tripId = typeof intent["tripId"] === "string" ? intent["tripId"].trim() : "";
+    if (intent["purpose"] === "trip_payment" && tripId) {
+      const tripRef = db().collection("trips").doc(tripId);
+      tx.set(
+        tripRef,
+        {
+          paidViaCard: true,
+          paymentMethod: "online",
+          paymentStatus: "paid",
+          cashToCollect: 0,
+          paidAmount: verifiedAmountKobo / 100,
+          paystackReference: reference,
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } else {
+      // Driver Sese Credits (non-withdrawable service units for platform commission)
+      tx.set(
+        walletRef,
+        {
+          userId: uid,
+          balance: admin.firestore.FieldValue.increment(creditKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(creditKobo / 100),
+          driverBalance: admin.firestore.FieldValue.increment(creditKobo / 100),
+          currency: "NGN",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
 
     const userDoc = await tx.get(db().collection("users").doc(uid));
     const seqId = (userDoc.data()?.sequentialId as string | undefined) || null;
 
     const txRef = walletRef.collection("transactions").doc(reference);
     tx.set(txRef, {
-      type: intent["purpose"] === "trip_payment" ? "trip_payment" : "wallet_topup",
-      role: (intent["role"] as string) || "customer",
+      type: intent["purpose"] === "trip_payment" ? "trip_payment" : "credit_topup",
+      role: (intent["role"] as string) || (intent["purpose"] === "trip_payment" ? "customer" : "driver"),
       sequentialId: seqId,
       userId: seqId || uid,
       uid,
@@ -417,7 +360,7 @@ async function settleIntent(
       status: "success",
       currency: "NGN",
       paymentReference: reference,
-      tripId: intent["tripId"] ?? null,
+      tripId: tripId || null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     if (recoveredKobo > 0) {
@@ -557,22 +500,6 @@ export const paystackWebhook = onRequest(async (req, res) => {
       const amountKobo = Number(event.data["amount"] ?? 0);
       if (reference && amountKobo > 0) {
         await settleIntent(reference, amountKobo);
-      }
-    } else if (event.event === "transfer.success" && event.data) {
-      // `reference` is the payout requestId we set on the transfer.
-      const reference = String(event.data["reference"] ?? "");
-      if (reference) {
-        await settleTransfer(reference, "success", "");
-      }
-    } else if (event.event === "transfer.failed" && event.data) {
-      const reference = String(event.data["reference"] ?? "");
-      const reason = String(
-        (event.data["gateway_response"] as string | undefined) ??
-          (event.data["reason"] as string | undefined) ??
-          "Transfer failed at the bank."
-      );
-      if (reference) {
-        await settleTransfer(reference, "failed", reason);
       }
     }
     res.status(200).send("ok");

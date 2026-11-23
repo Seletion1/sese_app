@@ -899,12 +899,10 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     ? rawPaymentMode
     : "sender_pays";
 
-  const rawPayment = String((d as any).paymentMethod ?? "auto").toLowerCase();
-  let paymentMethod = [
-    "auto", "cash", "split", "prepaid", "wallet", "card", "paystack", "online",
-  ].includes(rawPayment)
-    ? rawPayment
-    : "auto";
+  const rawPayment = String((d as any).paymentMethod ?? "cash").toLowerCase();
+  let paymentMethod = ["card", "paystack", "online"].includes(rawPayment)
+    ? "online"
+    : "cash";
 
   // Receiver Pays: Automatically enforce Cash Only
   if (paymentMode === "receiver_pays") {
@@ -1078,20 +1076,14 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     // "sender_pays"
     payerRole = "sender";
     collectAt = "pickup";
-    if (paymentMethod === "cash" || (paymentMethod === "auto" && availableWalletBalance <= 0)) {
-      walletCoverageAmount = 0;
+    walletCoverageAmount = 0;
+    escrowLocked = false;
+    if (paymentMethod === "online") {
+      cashToCollect = 0;
+      senderCashToCollect = 0;
+    } else {
       cashToCollect = totalFare;
       senderCashToCollect = totalFare;
-      escrowLocked = false;
-    } else {
-      // Auto (smart default) or Wallet / Card
-      walletCoverageAmount = roundToNearest100(Math.min(totalFare, availableWalletBalance));
-      if (walletCoverageAmount > totalFare) {
-        walletCoverageAmount = totalFare;
-      }
-      cashToCollect = Math.max(0, totalFare - walletCoverageAmount);
-      senderCashToCollect = cashToCollect;
-      escrowLocked = walletCoverageAmount > 0;
     }
   }
 

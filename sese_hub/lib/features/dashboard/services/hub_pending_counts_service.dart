@@ -211,21 +211,6 @@ class HubPendingCountsService {
     }
   }
 
-  /// Stream of pending payout request counts.
-  Stream<int> get pendingPayoutsCountStream {
-    final db = _db;
-    if (db == null) return Stream.value(0);
-    try {
-      return db
-          .collection('payout_requests')
-          .where('status', isEqualTo: 'pending')
-          .snapshots()
-          .map((snap) => snap.docs.length)
-          .handleError((_) => 0);
-    } catch (_) {
-      return Stream.value(0);
-    }
-  }
 
   /// Combined total pending count for the Fleet & Security module
   /// (Pending Vehicles + Driver KYC + Customer KYC).

@@ -34,8 +34,8 @@ import 'widgets/slide_to_offline.dart';
 import 'widgets/streak_celebration_modal.dart';
 import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
-import '../../wallet/earnings_screen.dart';
-import '../../wallet/earnings_service.dart';
+import 'earnings_screen.dart';
+import '../services/earnings_service.dart';
 import 'widgets/verification_banner.dart';
 
 class _ProfileVerificationCheck {
@@ -108,9 +108,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// True while the activity is backgrounded (overlay bubble owns the UI).
   bool _appPaused = false;
 
-  /// True when the driver mutes spoken audio turn navigation in active trip view.
-  bool _audioGuidanceMuted = false;
-
   // ── Driver Resting Break (Module 4) ────────────────────────────────────────
   /// True while the driver is on a deliberate rest break. Auto-push pings
   /// (Stage 1 exclusive offers) are suppressed but the Quick-Order
@@ -164,39 +161,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   bool get _isMapInteracting => _mapInteractionController.isImmersive;
   DateTime? _lastPanTime;
   List<LatLng> _activeRoutePoints = [];
-  List<RouteStep> _activeRouteSteps = [];
-  RouteStep? _currentGuidanceStep;
   double _currentSpeedKmh = 0.0;
   DateTime? _lastGpsFixTime;
   LatLng? _lastGpsPosition;
   DateTime? _lastRouteFetchTime;
   final Set<String> _ratedTripDocIds = {};
-
-  void _updateCurrentGuidanceStep(LatLng driverPos) {
-    if (_activeRouteSteps.isEmpty || driverPos.latitude == 0) return;
-    RouteStep? nextStep;
-    double minUpcomingDist = double.infinity;
-
-    // Scan steps along the route for the immediate upcoming maneuver ahead
-    for (int i = 0; i < _activeRouteSteps.length; i++) {
-      final step = _activeRouteSteps[i];
-      final distM = const Distance().as(LengthUnit.Meter, driverPos, step.location);
-      if (distM < minUpcomingDist && distM >= 10.0) {
-        minUpcomingDist = distM;
-        nextStep = step;
-        break;
-      }
-    }
-
-    // If past all intermediate turns, lock to the final destination arrival step
-    if (nextStep == null && _activeRouteSteps.isNotEmpty) {
-      nextStep = _activeRouteSteps.last;
-    }
-
-    if (nextStep != null) {
-      _currentGuidanceStep = nextStep;
-    }
-  }
 
   void _handleMapGestureStarted() {
     _mapInteractionController.notifyInteractionStarted(
@@ -288,8 +257,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _trackedTripId = null;
       _lastTrackedStatus = null;
       _activeRoutePoints = [];
-      _activeRouteSteps = [];
-      _currentGuidanceStep = null;
     });
     _collapseActiveTripSheet();
     ScaffoldMessenger.of(context).showSnackBar(
@@ -336,8 +303,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       );
       if (mounted && details.points.isNotEmpty) {
         _activeRoutePoints = details.points;
-        _activeRouteSteps = details.steps;
-        _updateCurrentGuidanceStep(_driverPosition);
         setState(() {});
       }
     } catch (_) {}
@@ -670,21 +635,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _recenterMap() {
-    final active = _currentActiveTrip;
-    final isNav = active != null &&
-        (active.status == TripStatus.inProgress ||
-            active.status == TripStatus.driverAccepted ||
-            active.status == TripStatus.driverArriving);
-    if (isNav) {
-      _mapController.recenterToBottomCenter(
-        _driverPosition,
-        zoom: 17.8,
-        bearing: _driverBearing,
-        tilt: 48.0,
-      );
-    } else {
-      _mapController.recenterTo(_driverPosition, 16.5);
-    }
+    _mapController.recenterTo(_driverPosition, 16.5);
     _mapInteractionController.restoreUI();
     if (mounted) {
       setState(() {
@@ -766,7 +717,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _lastGpsFixTime = now;
           _lastGpsPosition = newPos;
 
-          _updateCurrentGuidanceStep(newPos);
           _mapInteractionController.onLocationUpdate(
             pos.latitude,
             pos.longitude,
@@ -801,21 +751,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
           // Live map camera follow during active trip or when set to follow
           if (_isFollowingUser) {
-            final active = _currentActiveTrip;
-            final isNav = active != null &&
-                (active.status == TripStatus.inProgress ||
-                    active.status == TripStatus.driverAccepted ||
-                    active.status == TripStatus.driverArriving);
-            if (isNav) {
-              _mapController.followToBottomCenter(
-                newPos,
-                zoom: 17.8,
-                bearing: _driverBearing,
-                tilt: 48.0,
-              );
-            } else {
-              _mapController.followTo(newPos);
-            }
+            _mapController.followTo(newPos);
           } else {
             _checkAutoResumeTracking(pos, newPos);
           }
@@ -1555,9 +1491,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 color: anyRejected ? Colors.red : Colors.orange,
               ),
               const SizedBox(width: 8),
-              Text(anyRejected
-                  ? 'Vehicle Rejected'
-                  : 'Account Verification Required'),
+              Expanded(
+                child: Text(anyRejected
+                    ? 'Vehicle Rejected'
+                    : 'Account Verification Required'),
+              ),
             ],
           ),
           content: Text(
@@ -1737,7 +1675,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       final isUnauth = e.code == 'unauthenticated' ||
           rawMsg.toLowerCase() == 'unauthenticated' ||
           rawMsg.toLowerCase().contains('unauthenticated');
-      final isSignedOut = fb.FirebaseAuth.instance.currentUser == null;
+      bool isSignedOut = false;
+      try {
+        isSignedOut = fb.FirebaseAuth.instance.currentUser == null;
+      } catch (_) {}
       final userMsg = (isUnauth && isSignedOut)
           ? 'Session expired. Please sign in again to go online.'
           : (rawMsg.isNotEmpty ? rawMsg : 'Unable to go online. Please try again.');
@@ -2007,12 +1948,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               _autoCollapseSheetOnActiveTrip();
               if (isNav && _driverPosition.latitude != 0.0) {
                 _isFollowingUser = true;
-                _mapController.recenterToBottomCenter(
-                  _driverPosition,
-                  zoom: 17.8,
-                  bearing: _driverBearing,
-                  tilt: 48.0,
-                );
+                _mapController.recenterTo(_driverPosition, 16.5);
               }
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
@@ -2111,13 +2047,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                             _buildSessionTerminatedBanner(),
                           ],
                           const SizedBox(height: 8),
-                          if (active != null) ...[
+                          if (active != null &&
+                              active.status ==
+                                  TripStatus.cancelledWaitingCashSettlement) ...[
                             Padding(
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 16),
-                              child: _buildActiveTripTopNavBanner(active),
+                              child: _buildCashSettlementBanner(active),
                             ),
-                          ] else ...[
+                          ] else if (active == null) ...[
                             Padding(
                               padding:
                                   const EdgeInsets.symmetric(horizontal: 12),
@@ -2229,39 +2167,28 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ),
 
-            // Right Panel Search Icon (retained exclusively during active turn-by-turn navigation)
-            if (active != null && active.status == TripStatus.inProgress)
+            // Clear "Navigate" button directly on the driver's map to launch external navigation
+            if (active != null &&
+                (active.status == TripStatus.driverAccepted ||
+                    active.status == TripStatus.driverArriving ||
+                    active.status == TripStatus.driverArrived ||
+                    active.status == TripStatus.inProgress))
               Positioned(
                 right: 14,
                 top: 105,
-                child: Container(
-                  key: const Key('hud_search_button'),
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF252530).withValues(alpha: 0.90)
-                        : Colors.white.withValues(alpha: 0.90),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.search_rounded,
-                      color: isDark ? Colors.white70 : Colors.black87,
-                      size: 22,
-                    ),
-                    onPressed: () {
+                child: Material(
+                  key: const Key('hud_navigate_button'),
+                  color: AppColors.seseGold,
+                  elevation: 6,
+                  shadowColor: Colors.black.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(24),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(24),
+                    onTap: () {
                       final isHeadingToPickup =
                           active.status == TripStatus.driverAccepted ||
-                          active.status == TripStatus.driverArriving ||
-                          active.status == TripStatus.driverArrived;
+                              active.status == TripStatus.driverArriving ||
+                              active.status == TripStatus.driverArrived;
                       NavigationLauncherService.showNavigationChooser(
                         context: context,
                         destinationLat: isHeadingToPickup
@@ -2278,6 +2205,29 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                         trip: active,
                       );
                     },
+                    child: const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.navigation_rounded,
+                            color: Colors.black,
+                            size: 20,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Navigate',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2688,53 +2638,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     );
   }
 
-  String _formattedGuidanceText(ActiveTrip active) {
-    if (_currentGuidanceStep != null &&
-        _currentGuidanceStep!.instruction.isNotEmpty) {
-      if (_driverPosition.latitude != 0.0) {
-        final distM = const Distance().as(
-          LengthUnit.Meter,
-          _driverPosition,
-          _currentGuidanceStep!.location,
-        );
-        return _currentGuidanceStep!.formatDynamicInstruction(distM);
-      }
-      return _currentGuidanceStep!.instruction;
-    }
-    if (_activeRouteSteps.isNotEmpty) {
-      final step = _activeRouteSteps.first;
-      if (_driverPosition.latitude != 0.0) {
-        final distM = const Distance().as(
-          LengthUnit.Meter,
-          _driverPosition,
-          step.location,
-        );
-        return step.formatDynamicInstruction(distM);
-      }
-      return step.instruction;
-    }
-    return active.status == TripStatus.inProgress
-        ? 'Continue straight to drop-off'
-        : 'Head toward pickup location';
-  }
-
-  IconData _guidanceManeuverIcon(ActiveTrip active) {
-    if (_currentGuidanceStep != null) {
-      return _currentGuidanceStep!.maneuverIconData;
-    }
-    return active.status == TripStatus.inProgress
-        ? Icons.turn_right_rounded
-        : Icons.navigation_rounded;
-  }
-
   /// Floating top turn-by-turn banner shown while a driver has an active trip.
-  /// Matches top turn navigation indicator spec:
-  /// Left turn/navigation icon, title ("Navigation: En Route to Drop-off"),
-  /// destination address, and secondary detail line.
-  Widget _buildActiveTripTopNavBanner(ActiveTrip active) {
-    final isCashSettlement =
-        active.status == TripStatus.cancelledWaitingCashSettlement;
-    final isDropoff = active.status == TripStatus.inProgress;
+  /// Banner shown when a trip was cancelled with waiting fee cash settlement pending.
+  Widget _buildCashSettlementBanner(ActiveTrip active) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final fee = active.pendingCashFee > 0
         ? active.pendingCashFee
@@ -2745,16 +2651,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF252530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: isDark
-            ? Border.all(
-                color: isCashSettlement
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0xFF3A3A46),
-                width: isCashSettlement ? 1.5 : 1.0,
-              )
-            : (isCashSettlement
-                ? Border.all(color: const Color(0xFFF59E0B), width: 1.5)
-                : null),
+        border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.12),
@@ -2770,16 +2667,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: isCashSettlement
-                  ? const Color(0xFFF59E0B)
-                  : (isDropoff ? const Color(0xFF1E293B) : const Color(0xFF10B981)),
+              color: const Color(0xFFF59E0B),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Center(
+            child: const Center(
               child: Icon(
-                isCashSettlement
-                    ? Icons.payments_rounded
-                    : _guidanceManeuverIcon(active),
+                Icons.payments_rounded,
                 color: Colors.white,
                 size: 24,
               ),
@@ -2791,124 +2684,55 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isCashSettlement) ...[
-                  Row(
-                    children: [
-                      Text(
-                        'Cancelled',
+                Row(
+                  children: [
+                    Text(
+                      'Cancelled',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: isDark
+                            ? const Color(0xFFFCA5A5)
+                            : Colors.red.shade700,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                            : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'CASH DUE',
                         style: TextStyle(
+                          fontSize: 10,
                           fontWeight: FontWeight.bold,
-                          fontSize: 13,
                           color: isDark
-                              ? const Color(0xFFFCA5A5)
-                              : Colors.red.shade700,
+                              ? const Color(0xFFFDE68A)
+                              : const Color(0xFF92400E),
+                          letterSpacing: 0.5,
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? const Color(0xFF78350F).withValues(alpha: 0.3)
-                              : const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'CASH DUE',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: isDark
-                                ? const Color(0xFFFDE68A)
-                                : const Color(0xFF92400E),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Collect $feeStr cash waiting fee',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          isDark ? Colors.grey.shade300 : Colors.grey.shade800,
-                      fontWeight: FontWeight.w600,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Collect $feeStr cash waiting fee',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                    fontWeight: FontWeight.w600,
                   ),
-                ] else ...[
-                  Text(
-                    _formattedGuidanceText(active),
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14.5,
-                      color: isDark ? Colors.white : Colors.black87,
-                      letterSpacing: -0.2,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isDropoff
-                        ? (active.dropoffAddress.isNotEmpty
-                            ? active.dropoffAddress
-                            : 'Drop-off destination')
-                        : (active.pickupAddress.isNotEmpty
-                            ? active.pickupAddress
-                            : 'Pickup location'),
-                    style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          isDark ? Colors.grey.shade300 : Colors.grey.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    'Destination details',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color:
-                          isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                    ),
-                  ),
-                ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
-          ),
-          IconButton(
-            tooltip: _audioGuidanceMuted ? 'Unmute guidance' : 'Mute guidance',
-            icon: Icon(
-              _audioGuidanceMuted
-                  ? Icons.volume_off_outlined
-                  : Icons.volume_up_outlined,
-              color: _audioGuidanceMuted
-                  ? Colors.grey
-                  : (isDark ? Colors.white : Colors.black87),
-            ),
-            visualDensity: VisualDensity.compact,
-            onPressed: () {
-              setState(() {
-                _audioGuidanceMuted = !_audioGuidanceMuted;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    _audioGuidanceMuted
-                        ? 'Navigation voice guidance muted'
-                        : 'Navigation voice guidance enabled',
-                  ),
-                  duration: const Duration(seconds: 1),
-                ),
-              );
-            },
           ),
         ],
       ),

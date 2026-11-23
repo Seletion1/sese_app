@@ -63,6 +63,7 @@ Future<void> _pumpFeed(WidgetTester tester, _FakeDispatchService svc) async {
                 streakTag: 'Streak Rate: 12.5% Fee',
                 streakService: svc,
                 isOnline: true,
+                activeVehicleCategory: 'comfort',
               ),
             ),
             const SizedBox(height: 60), // streak banner placeholder

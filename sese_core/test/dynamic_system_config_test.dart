@@ -381,24 +381,20 @@ void main() {
     test('FinancialConfig parses null, empty, and numeric types safely', () {
       final defaultConfig = FinancialConfig.fromMap(null);
       expect(defaultConfig.minWalletBalanceToOnline, 1.0);
-      expect(defaultConfig.minTopUpAmount, 1300.0);
+      expect(defaultConfig.minTopUpAmount, 1000.0);
       expect(defaultConfig.userReferralCommissionRate, 0.01);
-      expect(defaultConfig.dailyTopUpFrequency, 5);
 
       final customConfig = FinancialConfig.fromMap({
         'minWalletBalanceToOnline': 100.0,
         'minTopUpAmount': 2000.0,
-        'dailyTopUpFrequency': 10,
         'userReferralCommissionRate': 0.02,
       });
       expect(customConfig.minWalletBalanceToOnline, 100.0);
       expect(customConfig.minTopUpAmount, 2000.0);
-      expect(customConfig.dailyTopUpFrequency, 10);
       expect(customConfig.userReferralCommissionRate, 0.02);
 
       final map = customConfig.toMap();
       expect(map['minTopUpAmount'], 2000.0);
-      expect(map['dailyTopUpFrequency'], 10);
     });
 
     test('DispatchTuning handles null map, string coercion, and fallback alias keys', () {

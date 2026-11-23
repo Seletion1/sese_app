@@ -722,7 +722,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final isSplit = data['isSplitPayment'] == true || data['paymentSplit'] != null;
     final senderShare = (data['senderShareNaira'] is num) ? (data['senderShareNaira'] as num).toDouble() : 0.0;
     final receiverShare = (data['receiverShareNaira'] is num) ? (data['receiverShareNaira'] as num).toDouble() : 0.0;
-    final senderMethod = (data['senderPaymentMethod'] ?? 'wallet').toString();
+    final senderMethod = (data['senderPaymentMethod'] ?? data['paymentMethod'] ?? 'cash').toString();
     final receiverMethod = (data['receiverPaymentMethod'] ?? 'cash').toString();
 
     showModalBottomSheet(
@@ -1009,10 +1009,6 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                         'Total Cash to Collect: ₦${((data['cashToCollect'] is num) ? (data['cashToCollect'] as num).toDouble() : 0.0).toStringAsFixed(2)}',
                         style: const TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold),
                       ),
-                      if (data['walletCoverageAmount'] is num && (data['walletCoverageAmount'] as num) > 0) ...[
-                        const SizedBox(height: 4),
-                        Text('Wallet Escrow Lock: ₦${(data['walletCoverageAmount'] as num).toDouble().toStringAsFixed(2)}'),
-                      ],
                       const Divider(height: 16),
                       if (isSplit) ...[
                         Text('Sender Share: ₦${senderShare.toStringAsFixed(2)} ($senderMethod)'),

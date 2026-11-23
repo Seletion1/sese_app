@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
-import 'package:sese_ride/features/wallet/earnings_service.dart';
+import 'package:sese_ride/features/driver/services/earnings_service.dart';
 
 void main() {
   group('Trip History Role Segregation & Sorting Tests', () {

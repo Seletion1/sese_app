@@ -44,7 +44,7 @@ const ESCALATION_KEYWORDS = [
   "accident", "crash", "injur", "hospital", "police", "stole", "stolen",
   "theft", "fraud", "scam", "blocked", "suspend", "banned", "talk to human",
   "speak to support", "human agent", "real person", "admin", "support agent",
-  "money missing", "didn't receive", "not received", "payout", "lawyer",
+  "money missing", "didn't receive", "not received", "payment error", "lawyer",
   "court", "connect to agent", "representative",
 ];
 

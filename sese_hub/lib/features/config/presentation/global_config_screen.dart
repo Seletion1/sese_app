@@ -219,11 +219,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _agentReferralCommissionRateCtrl = TextEditingController(text: '2.0');
   final _standardReferralDurationDaysCtrl = TextEditingController(text: '365');
   final _agentReferralDurationDaysCtrl = TextEditingController(text: '547');
-  final _minPayoutThresholdCtrl = TextEditingController(text: '20000');
-  final _maxAccountBalanceCtrl = TextEditingController(text: '50000');
-  final _maxSingleTopUpCtrl = TextEditingController(text: '20000');
-  final _dailyTopUpFrequencyCtrl = TextEditingController(text: '5');
-  final _maxDailyWithdrawalCtrl = TextEditingController(text: '20000');
 
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
   final _paystackPublicKeyCtrl = TextEditingController();
@@ -236,8 +231,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _mapboxQuotaCapCtrl = TextEditingController(text: '50000');
   final _resendApiKeyCtrl = TextEditingController();
   final _osmTileServerUrlCtrl = TextEditingController();
-  final _remoteMinTopUpCtrl = TextEditingController(text: '1300');
-  final _remoteWithdrawalThresholdCtrl = TextEditingController(text: '20000');
+  final _remoteMinTopUpCtrl = TextEditingController(text: '1000');
   final _maxCashTripAmountCtrl = TextEditingController(text: '50000');
   String _activeMapProvider = 'google';
   String _manualOverrideProvider = 'auto';
@@ -338,11 +332,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _agentReferralCommissionRateCtrl.dispose();
     _standardReferralDurationDaysCtrl.dispose();
     _agentReferralDurationDaysCtrl.dispose();
-    _minPayoutThresholdCtrl.dispose();
-    _maxAccountBalanceCtrl.dispose();
-    _maxSingleTopUpCtrl.dispose();
-    _dailyTopUpFrequencyCtrl.dispose();
-    _maxDailyWithdrawalCtrl.dispose();
     _paystackPublicKeyCtrl.dispose();
     _paystackSecretKeyCtrl.dispose();
     _googleMapsApiKeyCtrl.dispose();
@@ -353,7 +342,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _resendApiKeyCtrl.dispose();
     _osmTileServerUrlCtrl.dispose();
     _remoteMinTopUpCtrl.dispose();
-    _remoteWithdrawalThresholdCtrl.dispose();
     _maxCashTripAmountCtrl.dispose();
     _driverBreakOption1Ctrl.dispose();
     _driverBreakOption2Ctrl.dispose();
@@ -424,7 +412,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       if (mapboxCapText != null) _mapboxQuotaCapCtrl.text = mapboxCapText;
       _osmTileServerUrlCtrl.text = remoteKeys.osmTileServerUrl.trim();
       _remoteMinTopUpCtrl.text = remoteKeys.minimumWalletTopUp.toStringAsFixed(0);
-      _remoteWithdrawalThresholdCtrl.text = remoteKeys.withdrawalPayoutThreshold.toStringAsFixed(0);
       _maxCashTripAmountCtrl.text = remoteKeys.maxCashTripAmountNaira.toStringAsFixed(0);
       _appMaintenanceMode = remoteKeys.appMaintenanceMode;
       _splitPaymentMasterEnabled = remoteKeys.splitPaymentMasterEnabled;
@@ -470,11 +457,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _agentReferralCommissionRateCtrl.text = (finConfig.agentReferralCommissionRate * 100).toStringAsFixed(2);
       _standardReferralDurationDaysCtrl.text = finConfig.standardReferralDurationDays.toString();
       _agentReferralDurationDaysCtrl.text = finConfig.agentReferralDurationDays.toString();
-      _minPayoutThresholdCtrl.text = finConfig.minPayoutThreshold.toStringAsFixed(0);
-      _maxAccountBalanceCtrl.text = finConfig.maxAccountBalance.toStringAsFixed(0);
-      _maxSingleTopUpCtrl.text = finConfig.maxSingleTopUp.toStringAsFixed(0);
-      _dailyTopUpFrequencyCtrl.text = finConfig.dailyTopUpFrequency.toString();
-      _maxDailyWithdrawalCtrl.text = finConfig.maxDailyWithdrawal.toStringAsFixed(0);
       _loading = false;
     }
   });
@@ -809,7 +791,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           minWalletBalanceToOnline:
               double.tryParse(_minWalletBalanceToOnlineCtrl.text.trim()) ?? 1.0,
           minTopUpAmount:
-              double.tryParse(_minTopUpAmountCtrl.text.trim()) ?? 1300.0,
+              double.tryParse(_minTopUpAmountCtrl.text.trim()) ?? 1000.0,
           userReferralCommissionRate:
               (double.tryParse(_userReferralCommissionRateCtrl.text.trim()) ?? 1.0) / 100.0,
           agentReferralCommissionRate:
@@ -818,16 +800,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_standardReferralDurationDaysCtrl.text.trim()) ?? 365,
           agentReferralDurationDays:
               int.tryParse(_agentReferralDurationDaysCtrl.text.trim()) ?? 547,
-          minPayoutThreshold:
-              double.tryParse(_minPayoutThresholdCtrl.text.trim()) ?? 20000.0,
-          maxAccountBalance:
-              double.tryParse(_maxAccountBalanceCtrl.text.trim()) ?? 50000.0,
-          maxSingleTopUp:
-              double.tryParse(_maxSingleTopUpCtrl.text.trim()) ?? 20000.0,
-          dailyTopUpFrequency:
-              int.tryParse(_dailyTopUpFrequencyCtrl.text.trim()) ?? 5,
-          maxDailyWithdrawal:
-              double.tryParse(_maxDailyWithdrawalCtrl.text.trim()) ?? 20000.0,
         ),
       );
 
@@ -861,9 +833,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         manualOverrideProvider:
             _manualOverrideProvider == 'auto' ? '' : _manualOverrideProvider,
         minimumWalletTopUp:
-            double.tryParse(_remoteMinTopUpCtrl.text.trim()) ?? 1300.0,
-        withdrawalPayoutThreshold:
-            double.tryParse(_remoteWithdrawalThresholdCtrl.text.trim()) ?? 20000.0,
+            double.tryParse(_remoteMinTopUpCtrl.text.trim()) ?? 1000.0,
         appMaintenanceMode: _appMaintenanceMode,
         splitPaymentMasterEnabled: _splitPaymentMasterEnabled,
         forceDeliveryPinSystemWide: _forceDeliveryPinSystemWide,
@@ -1068,10 +1038,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           ]),
         ),
         HubModuleSection(
-          id: 'wallet',
-          title: 'Wallet & Payouts',
-          icon: Icons.account_balance_wallet,
-          permission: secConfigWallet,
+          id: 'financials',
+          title: 'Credits & Commissions',
+          icon: Icons.confirmation_number_outlined,
+          permission: secConfigPricing,
           child: sectionScroll([
             _buildFinancialConfigCard(),
           ]),
@@ -1651,19 +1621,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   ),
                 ),
                 _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: _remoteWithdrawalThresholdCtrl,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Payout Floor Threshold',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
                   preferredWidth: 250,
                   child: SwitchListTile(
                     title: const Text('Maintenance Mode'),
@@ -1801,12 +1758,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.account_balance_wallet_outlined,
+                const Icon(Icons.confirmation_number_outlined,
                     color: Colors.amber),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Financial System Parameters (/system_configs/financials)',
+                    'Driver Credits & Commissions (/system_configs/financials)',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     softWrap: true,
                   ),
@@ -1815,7 +1772,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Configures real-time financial thresholds, deposit rules, referral commission rates, coin limits, and payout floors strictly in Naira (₦).',
+              'Configures platform driver credit thresholds for dispatches and referral commission rates.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -1829,7 +1786,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     controller: _minWalletBalanceToOnlineCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
-                      labelText: 'Min Wallet to Online',
+                      labelText: 'Min Sese Credits to Online',
                       prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),
@@ -1841,7 +1798,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     controller: _minTopUpAmountCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
-                      labelText: 'Min Deposit / Top-up',
+                      labelText: 'Min Sese Credits Top-Up',
                       prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),
@@ -1891,66 +1848,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Agent Referral Window',
                       suffixText: 'days',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _minPayoutThresholdCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Weekly Payout Floor',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _maxAccountBalanceCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Max Account Balance',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _maxSingleTopUpCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Max Single Top-Up',
-                      prefixText: '₦ ',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _dailyTopUpFrequencyCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Daily Top-Up Limit',
-                      suffixText: 'times',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
-                    controller: _maxDailyWithdrawalCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Max Daily Withdrawal',
-                      prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),
                   ),

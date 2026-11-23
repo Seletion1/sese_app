@@ -63,9 +63,9 @@ class AwarenessTooltipService extends ChangeNotifier {
   /// Default baseline descriptions loaded while offline or before the first
   /// server sync. The server configuration takes precedence once fetched.
   static const Map<String, ({String title, String description})> _defaultContent = {
-    'menu_wallet': (
-      title: 'Wallet',
-      description: 'Manage funds, top up balance, withdraw to your bank, and view transaction ledger.',
+    'menu_credits': (
+      title: 'Sese Credits',
+      description: 'Manage platform dispatch credits used strictly to settle trip commissions.',
     ),
     'menu_earnings': (
       title: 'Earnings',
@@ -73,7 +73,7 @@ class AwarenessTooltipService extends ChangeNotifier {
     ),
     'menu_referral': (
       title: 'Refer & Earn',
-      description: 'Share your referral code with friends and drivers to earn lifetime commission bonus coins.',
+      description: 'Share your referral code with friends and drivers to earn commission bonus points.',
     ),
     'menu_trips_history': (
       title: 'Trips History',
@@ -91,21 +91,9 @@ class AwarenessTooltipService extends ChangeNotifier {
       title: 'Trip History',
       description: 'Completed trips, parcel delivery details, and ride receipts appear here.',
     ),
-    'menu_wallet___payments': (
-      title: 'Wallet & Payments',
-      description: 'Manage your payment balance, linked debit cards, and transaction history.',
-    ),
-    'menu_bank___payout_details': (
-      title: 'Bank & Payout Details',
-      description: 'Link and verify your Nigerian bank account for instant withdrawal settlements.',
-    ),
-    'sese_coin': (
-      title: 'SeSe Coin Balance',
-      description: 'Bonus rewards earned from referrals and streaks. 1 SeSe Coin = ₦1, converting to main cash upon reaching threshold.',
-    ),
-    'wallet_balance': (
-      title: 'Wallet Balance',
-      description: 'Withdrawable cash balance available for trips, peer transfers, and bank payouts.',
+    'sese_credits': (
+      title: 'Sese Credits',
+      description: 'Non-withdrawable platform service credits used strictly for commission settlement.',
     ),
     'dispatch_mode': (
       title: 'Service Mode',

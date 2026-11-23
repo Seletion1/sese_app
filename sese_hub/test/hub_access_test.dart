@@ -85,7 +85,6 @@ void main() {
           HubTab.fleet,
           HubTab.onboarding,
           HubTab.support,
-          HubTab.payouts,
           HubTab.broadcast,
           HubTab.config,
           HubTab.staff,
@@ -103,7 +102,6 @@ void main() {
           HubTab.fleet,
           HubTab.onboarding,
           HubTab.support,
-          HubTab.payouts,
           HubTab.broadcast,
           HubTab.config,
           HubTab.profile,
@@ -132,14 +130,6 @@ void main() {
         visibleTabs(
             role: UserRole.admin, isOwner: false, permissions: const []),
         [HubTab.profile],
-      );
-      expect(
-        visibleTabs(
-          role: UserRole.admin,
-          isOwner: false,
-          permissions: const [permPayouts],
-        ),
-        [HubTab.payouts, HubTab.profile],
       );
     });
   });

@@ -5,7 +5,6 @@ import 'package:sese_core/sese_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../auth/hub_session_guard.dart';
-import '../../dashboard/presentation/hub_user_wallet_card.dart';
 
 /// Customer Directory & Emergency Lookup Console for Sese Hub.
 ///
@@ -392,16 +391,6 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              // Live Wallet Card (strictly isolated to customer role and sequential ID)
-              HubUserWalletCard(
-                userId: customerId,
-                role: 'customer',
-                sequentialId: (data['sequentialId'] ?? '').toString(),
-                targetLabel: 'Customer Wallet • ${(data['sequentialId'] ?? '').toString().isNotEmpty ? data['sequentialId'] : 'SC'}',
-                firestore: widget.firestore,
               ),
               const SizedBox(height: 16),
 

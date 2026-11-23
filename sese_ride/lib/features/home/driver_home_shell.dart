@@ -9,8 +9,8 @@ import '../referral/referral_hub_screen.dart';
 import '../support/support_chat_screen.dart';
 import '../trips/presentation/customer_trips_screen.dart';
 import '../trips/services/trip_service.dart';
-import '../wallet/earnings_screen.dart';
-import '../wallet/wallet_screen.dart';
+import '../driver/presentation/earnings_screen.dart';
+import '../driver/presentation/sese_credits_screen.dart';
 
 /// Role-gated container strictly for Driver users, scoped to the driver's
 /// real authenticated UID.
@@ -331,17 +331,17 @@ class _MenuTab extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           SettingsTile(
-            tileKey: const Key('menu_wallet_tile'),
-            tooltipId: 'menu_wallet',
+            tileKey: const Key('menu_sese_credits_tile'),
+            tooltipId: 'menu_sese_credits',
             userId: user.uid,
-            leading: const Icon(Icons.account_balance_wallet_outlined,
+            leading: const Icon(Icons.confirmation_number_outlined,
                 color: AppColors.seseGold),
-            title: 'Wallet',
+            title: 'Sese Credits',
             infoDescription:
-                'Manage funds, top up, request payouts, and view transaction history.',
+                'Top up service credits and view commission settlements.',
             trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => WalletScreen(user: user)),
+              MaterialPageRoute(builder: (_) => SeseCreditsScreen(user: user)),
             ),
           ),
           SettingsTile(
@@ -508,16 +508,16 @@ class _HelpTab extends StatelessWidget {
                   ],
                 ),
                 ExpansionTile(
-                  leading: Icon(Icons.account_balance_wallet_outlined,
+                  leading: Icon(Icons.confirmation_number_outlined,
                       color: AppColors.seseGold),
-                  title: Text('When do I get paid?',
+                  title: Text('How does trip payment work?',
                       style: TextStyle(fontWeight: FontWeight.w600)),
                   children: [
                     Padding(
                       padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: Text(
-                        'Payouts settle to your wallet after each completed trip. '
-                        'See the Earnings tab for details.',
+                        'Customers pay directly in cash or online via Paystack card payment. '
+                        'Platform commissions are deducted automatically from your Sese Credits.',
                       ),
                     ),
                   ],

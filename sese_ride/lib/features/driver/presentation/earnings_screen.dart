@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-import '../payments/payment_service.dart';
-import 'earnings_service.dart';
+import '../../payments/payment_service.dart';
+import '../services/earnings_service.dart';
 
 enum EarningsPeriod { daily, weekly, monthly }
 

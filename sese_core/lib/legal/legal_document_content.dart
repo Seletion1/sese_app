@@ -60,20 +60,21 @@ By creating an account, accessing, or using SESE Technology LTD ("SESE", "Compan
 • Prohibited Goods: Senders must ensure packages contain no illegal drugs, unregistered firearms, weapons, toxic materials, hazardous goods, stolen items, or counterfeit property. Drivers retain the right to inspect exterior packaging and decline transit.
 • Delivery PIN Verification: Couriers require a secure 4-digit PIN delivered to the recipient, which must be validated before delivery completion. Delivery is not finalized without successful PIN confirmation.
 
-5. PRICING, IMMEDIATE WALLET DEDUCTION & ESCROW
-• Server-Authoritative Money: Fares, commission rates, waiting fees, and settlements are calculated strictly by SESE's authoritative backend servers. No client-side fare computation is permitted or honored.
-• Immediate Prepayment & Escrow Lock: For trips paid via Wallet or Card, the full fare amount is immediately deducted from the customer's available balance and held in secure server-side Escrow upon booking confirmation. This prevents balance double-spending across concurrent ride requests. Driver partners receive wallet credit only upon confirmed drop-off completion verified by the platform.
-• Wallet Top-Up: Customers may top up their SESE Wallet via Paystack (bank card, bank transfer, USSD). All payment processing is PCI-DSS compliant. SESE never stores raw card or CVV details.
+5. PRICING & DIRECT ORDER PAYMENTS
+• Server-Authoritative Pricing: Fares, commission rates, waiting fees, and settlements are calculated strictly by SESE's authoritative backend servers. No client-side fare computation is permitted or honored.
+• Direct Trip Payments: Customer trips are paid directly per booking via Cash or online Card (Paystack checkout). When paid online, trip payments are authorized through licensed gateways in ESCROW until trip completion. SESE does not operate a stored-value customer wallet, customer deposits, or withdrawal system.
+• Online Payment Processing: When paying online, payment is authorized directly through Paystack's PCI-DSS compliant checkout. SESE never stores raw card PAN or CVV details. If an online payment declines, the customer must select Cash or retry before trip execution.
 
 6. CANCELLATION RULES, WAITING FEES & IN-PROGRESS LOCK
 • Cancellation Before Trip Start: Riders may cancel without fee before a driver arrives at the pickup point.
-• Waiting Fees: If a driver partner arrives at the pickup location and waits beyond the Grace Period (default: 10 minutes), an automated waiting fee (default: ₦20 per minute) accrues dynamically and is deducted from the escrow balance. Configurable by platform administrators.
+• Waiting Fees: If a driver partner arrives at the pickup location and waits beyond the Grace Period (default: 10 minutes), an automated waiting fee (default: ₦20 per minute) accrues dynamically as configured by platform administrators.
 • Strict In-Progress Cancellation Lock: Once a ride is started (status: IN_PROGRESS or pending_customer_approval), in-app cancellation by either rider or driver is strictly locked. The trip must proceed to its destination.
-• Support Intervention: In verifiable emergencies, a SESE Hub Support administrator can cancel and refund the trip to the rider's wallet. Driver trip fare is forfeited except for valid waiting fee compensation already accrued.
-• Hub Admin Cancellation: Hub administrators retain the authority to cancel any trip regardless of status, issue full or partial refunds, and manually settle driver waiting compensation.
+• Support Intervention: In verifiable emergencies, a SESE Hub Support administrator can cancel the trip.
+• Hub Admin Cancellation: Hub administrators retain the authority to cancel any trip regardless of status and manually settle driver waiting compensation.
 
-7. CASH REMITTANCE & DRIVER WALLET RULES
-Drivers collecting cash fares must remit platform commission promptly. If a driver's wallet balance drops below the minimum threshold (default: ₦1,000), dispatches are temporarily suspended until the balance is settled via wallet top-up. Persistent non-remittance results in account suspension.
+7. CASH REMITTANCE & DRIVER SESE CREDITS
+• Non-Withdrawable Dispatch Credits: SESE provides Driver Sese Credits strictly as non-withdrawable platform service credits used to settle trip commissions. Sese Credits carry zero cash value, cannot be withdrawn, transferred, or cashed out.
+• Commission Remittance: Drivers collecting cash fares retain the full customer fare and remit platform commission via their Sese Credits balance. Drivers purchase Sese Credits via Paystack checkout. Dispatches are temporarily paused if credits fall below the minimum threshold until topped up.
 
 8. DRIVER DAILY STREAKS & COMMISSIONS
 Eligible drivers maintain daily dispatch acceptance streaks to unlock reduced commission tiers and milestone bonuses. Declining assigned orders resets streak progression. Public order pool pickups carry standard base commission rates as configured by platform administrators.
@@ -101,7 +102,7 @@ SESE's liability for damaged or lost courier goods during transit is capped at t
 Users may delete their account at any time:
 • In-App: Settings → Legal & Compliance → Delete Account. Re-authentication required.
 • Web Portal: https://sesetech.com/delete
-Prerequisites: Zero wallet balance, no active trips or deliveries, no pending driver payout requests. After deletion, data is held in a 30-day regulatory soft-archive for financial audit compliance before permanent PII erasure.
+Prerequisites: No active trips or deliveries in progress. After deletion, data is held in a 30-day regulatory soft-archive for audit compliance before permanent PII erasure.
 
 15. DISPUTE RESOLUTION & GOVERNING LAW
 These Terms are governed by the laws of the Federal Republic of Nigeria. Unresolved disputes shall first be escalated to SESE's internal resolution desk (legal@sesetech.com). Disputes not resolved within 30 days shall be submitted to binding arbitration under the Arbitration and Mediation Act, 2023.
@@ -151,8 +152,8 @@ In strict alignment with our Google Play Console Data Safety disclosures, SESE T
   • Other Info: Cryptographic SHA-256 hashes of government IDs (NIN, BVN, Driver's License) for Driver KYC duplicate prevention, age/date of birth validation, and vehicle registration numbers.
 
 (2) Financial Info:
-  • User Payment Info: Paystack tokenized card reference keys, driver bank account details for withdrawal payouts, wallet balances, and escrow records for App functionality, Fraud prevention, and Account management. SESE never stores raw card PAN or CVV.
-  • Purchase History: Ride fares, courier deliveries, wallet top-ups, waiting fee deductions, and financial transaction invoices for App functionality, Accounting, Analytics, and Legal compliance.
+  • User Payment Info: Paystack tokenized card reference keys for direct trip payments and driver Sese Credits purchases for App functionality, Fraud prevention, and Account management. SESE never stores raw card PAN or CVV.
+  • Purchase History: Direct ride fares, courier deliveries, Sese Credits purchases, and transaction receipts for App functionality, Accounting, Analytics, and Legal compliance.
 
 (3) Location:
   • Approximate Location: Coarse geographic fix used for regional service availability, city-level analytics, and initial map center.
@@ -265,14 +266,12 @@ Subject: Account Deletion Request — [Your Registered Phone Number]
   - Following the 30-day archival period, all retained financial records are permanently purged or irrevocably anonymized such that personal re-identification is mathematically impossible.
 
 • Driver-Specific Retention:
-  - Pending driver bank payout requests must be fully settled before account deletion finalization.
   - Vehicle registration certificates, insurance documents, and roadworthiness records associated with completed trips are archived for the statutory minimum period.
 
 4. MANDATORY PREREQUISITES FOR DELETION
 Your account cannot be deleted until ALL of the following conditions are met:
-• In-app wallet balance must be exactly ₦0.00 (withdraw or spend all funds first).
 • No active trips or courier deliveries currently in progress.
-• No pending driver bank payout requests awaiting settlement.
+• Zero outstanding platform debt balance (₦0.00).
 • No unresolved disputes or fraud investigations flagged by SESE Compliance.
 
 5. WHAT HAPPENS AFTER DELETION

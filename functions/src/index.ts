@@ -94,16 +94,6 @@ export {
   paystackWebhook,
 } from "./payments";
 
-export {
-  paystackBanks,
-  resolveBankAccount,
-  verifyBankAccount,
-  processWalletWithdrawal,
-  approveWeeklyPayout,
-  approveAllWeeklyPayouts,
-  settleTransfer,
-} from "./payouts";
-
 // NOTE: `onSupportTicketReply` was removed. It was bound to
 // `support_tickets/{ticketId}/messages`, a legacy collection nothing writes
 // to any more (the app and hub both use `support_chats`), so it was dead code

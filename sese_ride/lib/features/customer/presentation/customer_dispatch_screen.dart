@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -16,6 +15,7 @@ import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
 import 'pick_on_map_screen.dart';
 import '../../payments/payment_service.dart';
+import '../../payments/paystack_checkout_screen.dart';
 
 /// Validates a Nigerian phone number (strict, server-aligned).
 ///
@@ -304,9 +304,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   bool _allowBidding = true;
   String _paymentMode =
       'sender_pays'; // 'sender_pays', 'receiver_pays'
-  String _paymentMethod = 'auto'; // 'auto' (default), 'cash', 'wallet'
-  double _customerWalletBalance = 0.0;
-  StreamSubscription<int>? _walletSub;
+  String _paymentMethod = 'cash'; // 'cash' (default), 'online'
 
   double get _currentEstimatedFare {
     final resp = _fareResponse;
@@ -376,16 +374,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _fareService = widget.fareService ?? FareService();
     _editingTripId = widget.editingTripId;
     _selectedModeIndex = widget.initialModeIndex;
-    final uid = widget.user?.uid;
-    if (uid != null && uid.isNotEmpty) {
-      _walletSub = PaymentService().walletBalanceKoboStream(uid).listen((kobo) {
-        if (mounted) {
-          setState(() {
-            _customerWalletBalance = kobo / 100.0;
-          });
-        }
-      });
-    }
     // Seed the Sending/Receiving toggle from the entry route (`isReceiving`
     // from the Home "Receive Item" card). The `focusedTitle` text match is a
     // fallback so older call sites without the flag keep working.
@@ -545,7 +533,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     _dropoffNameController.dispose();
     _debounceTimer?.cancel();
     _pickupDebounceTimer?.cancel();
-    _walletSub?.cancel();
     _hideSuggestionsOverlay();
     super.dispose();
   }
@@ -1566,34 +1553,18 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final pickupName = _pickupNameController.text.trim();
     final dropoffName = _dropoffNameController.text.trim();
     final totalFare = _currentEstimatedFare;
-    final negativeBalance =
-        _customerWalletBalance < 0 ? _customerWalletBalance.abs() : 0.0;
-    double walletCoverage = 0.0;
-    double cashToCollect = totalFare;
+    double cashToCollect = _paymentMethod == 'cash' ? totalFare : 0.0;
     String collectAt = 'pickup';
     String payerRole = 'sender';
 
     if (_paymentMode == 'receiver_pays') {
-      walletCoverage = 0.0;
       cashToCollect = totalFare;
       collectAt = 'dropoff';
       payerRole = 'receiver';
     } else {
       payerRole = 'sender';
       collectAt = 'pickup';
-      if (_paymentMethod == 'cash' ||
-          (_paymentMethod == 'auto' && _customerWalletBalance <= 0)) {
-        walletCoverage = 0.0;
-        cashToCollect = totalFare + negativeBalance;
-      } else {
-        if (_customerWalletBalance > 0) {
-          walletCoverage = math.min(totalFare, _customerWalletBalance);
-          cashToCollect = math.max(0.0, totalFare - walletCoverage);
-        } else {
-          walletCoverage = 0.0;
-          cashToCollect = totalFare + negativeBalance;
-        }
-      }
+      cashToCollect = _paymentMethod == 'cash' ? totalFare : 0.0;
     }
 
     setState(() => _creatingTrip = true);
@@ -1626,9 +1597,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           paymentMode: _paymentMode,
           senderShareAmount: null,
           receiverShareAmount: null,
-          walletCoverageAmount: walletCoverage,
+          walletCoverageAmount: 0.0,
           cashToCollect: cashToCollect,
-          recoveredDebt: negativeBalance,
+          recoveredDebt: 0.0,
           collectAt: collectAt,
           payerRole: payerRole,
           allowBidding: _allowBidding,
@@ -1661,6 +1632,77 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       if (mounted) setState(() => _creatingTrip = false);
     }
     if (!mounted) return;
+
+    // Direct Paystack checkout per order
+    if (_paymentMethod == 'online' && _paymentMode != 'receiver_pays') {
+      try {
+        final paymentService = PaymentService();
+        final auth = await paymentService.initializePayment(
+          amountNaira: totalFare,
+          email: widget.user?.email ?? 'customer@seseride.com',
+          purpose: 'trip_payment',
+          tripId: tripId,
+        );
+        if (!mounted) return;
+        final paid = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => PaystackCheckoutScreen(
+              service: paymentService,
+              auth: auth,
+            ),
+          ),
+        );
+        if (paid != true) {
+          if (!mounted) return;
+          final switchToCash = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Online Payment Incomplete'),
+              content: const Text(
+                'Online payment was not completed. Would you like to switch this booking to Cash to proceed, or cancel the booking?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancel Booking'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Switch to Cash'),
+                ),
+              ],
+            ),
+          );
+          if (switchToCash == true) {
+            await FirebaseFirestore.instance
+                .collection('trips')
+                .doc(tripId)
+                .update({
+              'paymentMethod': 'cash',
+              'cashToCollect': totalFare,
+              'paidViaCard': false,
+            });
+          } else {
+            await _tripRepository.cancelTrip(
+                tripId,
+                reason: 'Customer cancelled due to payment decline.',
+            );
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Direct Paystack initiation error: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Payment initiation error: $e. Switched to Cash.'),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+        }
+      }
+    }
 
     // Cache booked locations locally and sync to cloud profile (0 API calls on next use)
     // ignore: discarded_futures
@@ -3182,33 +3224,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   /// Booker/Rider (a person is moving).
   Widget _buildPaymentOptionSelector({required bool isDelivery}) {
     final totalFare = _currentEstimatedFare;
-    final availableWallet = _customerWalletBalance;
-    final double negativeBalance =
-        availableWallet < 0 ? availableWallet.abs() : 0.0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Calculate smart breakdown
-    double walletCoverage = 0.0;
-    double cashToCollect = totalFare;
-    if (_paymentMode == 'receiver_pays') {
-      walletCoverage = 0.0;
-      cashToCollect = totalFare;
-    } else {
-      // sender_pays
-      if (_paymentMethod == 'cash' ||
-          (_paymentMethod == 'auto' && availableWallet <= 0)) {
-        walletCoverage = 0.0;
-        cashToCollect = totalFare + negativeBalance;
-      } else {
-        if (availableWallet > 0) {
-          walletCoverage = math.min(totalFare, availableWallet);
-          cashToCollect = math.max(0.0, totalFare - walletCoverage);
-        } else {
-          walletCoverage = 0.0;
-          cashToCollect = totalFare + negativeBalance;
-        }
-      }
-    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -3352,17 +3368,6 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                 children: [
                   Expanded(
                     child: _buildPaymentMethodPill(
-                      label: 'Auto',
-                      subtitle: availableWallet > 0 ? 'Smart Split' : 'Cash',
-                      icon: Icons.auto_awesome,
-                      isSelected: _paymentMethod == 'auto',
-                      isDark: isDark,
-                      onTap: () => setState(() => _paymentMethod = 'auto'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildPaymentMethodPill(
                       label: 'Cash',
                       subtitle: 'Pay Driver',
                       icon: Icons.payments_outlined,
@@ -3374,19 +3379,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _buildPaymentMethodPill(
-                      label: 'Wallet / Card',
-                      subtitle: '₦${availableWallet.toStringAsFixed(0)}',
-                      icon: Icons.account_balance_wallet_outlined,
-                      isSelected: _paymentMethod == 'wallet',
+                      label: 'Card / Online',
+                      subtitle: 'Paystack',
+                      icon: Icons.credit_card_rounded,
+                      isSelected: _paymentMethod == 'online',
                       isDark: isDark,
-                      onTap: () => setState(() => _paymentMethod = 'wallet'),
+                      onTap: () => setState(() => _paymentMethod = 'online'),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
 
-              // Breakdown Container
+              // Summary Container
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -3405,199 +3410,75 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     Row(
                       children: [
                         Icon(
-                          walletCoverage > 0
-                              ? Icons.lock_clock_rounded
-                              : Icons.info_outline_rounded,
+                          _paymentMethod == 'online'
+                              ? Icons.credit_card_rounded
+                              : Icons.payments_outlined,
                           size: 16,
-                          color: walletCoverage > 0
+                          color: _paymentMethod == 'online'
                               ? (isDark
-                                    ? const Color(0xFF34D399)
-                                    : const Color(0xFF10B981))
+                                  ? const Color(0xFF34D399)
+                                  : const Color(0xFF10B981))
                               : (isDark
-                                    ? Colors.grey.shade400
-                                    : Colors.grey.shade700),
+                                  ? Colors.grey.shade400
+                                  : Colors.grey.shade700),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          walletCoverage > 0
-                              ? 'Wallet Escrow & Collection Breakdown'
-                              : 'Payment Summary',
+                          _paymentMethod == 'online'
+                              ? 'Direct Paystack Checkout'
+                              : 'Cash on Delivery / Ride',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
-                            color: walletCoverage > 0
+                            color: _paymentMethod == 'online'
                                 ? (isDark
-                                      ? const Color(0xFF34D399)
-                                      : const Color(0xFF047857))
+                                    ? const Color(0xFF34D399)
+                                    : const Color(0xFF047857))
                                 : (isDark ? Colors.white : Colors.black87),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    if (walletCoverage > 0 && cashToCollect > 0) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              'Wallet Escrow Lock: ₦${walletCoverage.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark
-                                    ? const Color(0xFF34D399)
-                                    : const Color(0xFF059669),
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          _paymentMethod == 'online'
+                              ? 'Amount to Pay Online:'
+                              : 'Cash to Collect at Pickup:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? Colors.grey.shade300
+                                : Colors.grey.shade800,
                           ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Cash to Driver: ₦${cashToCollect.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                        ),
+                        Text(
+                          '₦${totalFare.toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isDark
+                                ? const Color(0xFFFBBF24)
+                                : const Color(0xFFD97706),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '₦${walletCoverage.toStringAsFixed(0)} locked from your wallet. Pay remaining ₦${cashToCollect.toStringAsFixed(0)} cash at pickup. No payment at drop-off.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
                         ),
-                      ),
-                    ] else if (walletCoverage >= totalFare &&
-                        totalFare > 0) ...[
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.check_circle_rounded,
-                            size: 14,
-                            color: Color(0xFF10B981),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '100% Wallet Prepaid (₦${totalFare.toStringAsFixed(0)})',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isDark
-                                  ? const Color(0xFF34D399)
-                                  : const Color(0xFF059669),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Total fare locked in wallet escrow. No cash needed during or after the ride.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
-                        ),
-                      ),
-                    ] else ...[
-                      if (negativeBalance > 0) ...[
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Base Trip Fare:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isDark
-                                    ? Colors.grey.shade400
-                                    : Colors.grey.shade700,
-                              ),
-                            ),
-                            Text(
-                              '₦${totalFare.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Outstanding Debt Recovery:',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: isDark
-                                    ? const Color(0xFFF87171)
-                                    : const Color(0xFFDC2626),
-                              ),
-                            ),
-                            Text(
-                              '₦${negativeBalance.toStringAsFixed(0)}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: isDark
-                                    ? const Color(0xFFF87171)
-                                    : const Color(0xFFDC2626),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 12),
                       ],
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Total Cash to Collect:',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: isDark
-                                  ? Colors.grey.shade300
-                                  : Colors.grey.shade800,
-                            ),
-                          ),
-                          Text(
-                            '₦${cashToCollect.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: isDark
-                                  ? const Color(0xFFFBBF24)
-                                  : const Color(0xFFD97706),
-                            ),
-                          ),
-                        ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _paymentMethod == 'online'
+                          ? 'Pay securely with your card via Paystack upon booking confirmation.'
+                          : 'Pay in cash directly to the driver at pickup.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade600,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        negativeBalance > 0
-                            ? 'Paid in cash to the driver at pickup. Includes ₦${negativeBalance.toStringAsFixed(0)} outstanding debt recovery.'
-                            : 'Paid in cash to the driver at pickup.',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: isDark
-                              ? Colors.grey.shade400
-                              : Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
+                    ),
                   ],
                 ),
               ),

@@ -31,8 +31,7 @@ class RemoteKeysConfig {
   /// Hub manual provider override. `'auto'` or empty = normal fallback logic.
   final String manualOverrideProvider;
 
-  final double minimumWalletTopUp; // in Naira (default 1300.0)
-  final double withdrawalPayoutThreshold; // in Naira (default 20000.0)
+  final double minimumWalletTopUp; // in Naira (default 1000.0)
   final bool appMaintenanceMode;
   final bool splitPaymentMasterEnabled;
   final bool forceDeliveryPinSystemWide;
@@ -62,8 +61,7 @@ class RemoteKeysConfig {
     this.activeMapProvider = 'google',
     this.osmTileServerUrl = '',
     this.manualOverrideProvider = '',
-    this.minimumWalletTopUp = 1300.0,
-    this.withdrawalPayoutThreshold = 20000.0,
+    this.minimumWalletTopUp = 1000.0,
     this.appMaintenanceMode = false,
     this.splitPaymentMasterEnabled = true,
     this.forceDeliveryPinSystemWide = false,
@@ -177,10 +175,7 @@ class RemoteKeysConfig {
       manualOverrideProvider: rawOverride,
       minimumWalletTopUp: (map['minimumWalletTopUp'] is num)
           ? (map['minimumWalletTopUp'] as num).toDouble()
-          : 1300.0,
-      withdrawalPayoutThreshold: (map['withdrawalPayoutThreshold'] is num)
-          ? (map['withdrawalPayoutThreshold'] as num).toDouble()
-          : 20000.0,
+          : 1000.0,
       appMaintenanceMode:
           map['appMaintenanceMode'] == true || map['app_maintenance_mode'] == true,
       splitPaymentMasterEnabled:
@@ -252,7 +247,6 @@ class RemoteKeysConfig {
       'manualOverrideProvider': manualOverrideProvider.trim(),
       'manual_override_provider': manualOverrideProvider.trim(),
       'minimumWalletTopUp': minimumWalletTopUp,
-      'withdrawalPayoutThreshold': withdrawalPayoutThreshold,
       'appMaintenanceMode': appMaintenanceMode,
       'splitPaymentMasterEnabled': splitPaymentMasterEnabled,
       'forceDeliveryPinSystemWide': forceDeliveryPinSystemWide,

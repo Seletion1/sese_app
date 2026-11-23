@@ -41,7 +41,7 @@ void main() {
   }
 
   group('Driver Menu tab navigation shortcuts', () {
-    testWidgets('Wallet and Earnings tiles route to their screens',
+    testWidgets('Sese Credits and Earnings tiles route to their screens',
         (tester) async {
       await pumpShell(tester);
 
@@ -49,42 +49,33 @@ void main() {
       await tester.tap(find.text('Menu'));
       await tester.pumpAndSettle();
 
-      // Strict menu order: Wallet, Earnings, Trips, Support, Settings.
+      // Strict menu order: Sese Credits, Earnings, Trips, Support, Settings.
       // Go Online lives on Home; Fleet, Theme, App Mode, Sign Out, Delete
       // live in Settings.
       expect(find.text('Go Online (Home)'), findsNothing);
       expect(find.text('Manage Fleet & Documents'), findsNothing);
 
-      // Wallet above Earnings.
-      expect(find.text('Wallet'), findsOneWidget);
+      // Sese Credits above Earnings.
+      expect(find.text('Sese Credits'), findsOneWidget);
       expect(find.text('Earnings'), findsWidgets);
-      // Tile order: Wallet first, Settings near the bottom (mode
+      // Tile order: Sese Credits first, Settings near the bottom (mode
       // switching moved to Settings → App Mode).
-      final walletY =
-          tester.getTopLeft(find.byKey(const Key('menu_wallet_tile'))).dy;
+      final creditsY =
+          tester.getTopLeft(find.byKey(const Key('menu_sese_credits_tile'))).dy;
       final earningsY =
           tester.getTopLeft(find.byKey(const Key('menu_earnings_tile'))).dy;
-      expect(walletY, lessThan(earningsY));
+      expect(creditsY, lessThan(earningsY));
       final settingsY =
           tester.getTopLeft(find.byKey(const Key('menu_settings_tile'))).dy;
       expect(earningsY, lessThan(settingsY));
       expect(find.byKey(const Key('menu_switch_mode_tile')), findsNothing);
 
-      // Wallet tile pushes the wallet screen: balance card with both
-      // actions plus the chronological ledger (no earnings card). The
-      // ledger header sits below the fold — scroll it into view first
-      // (ListView builds lazily).
-      await tester.tap(find.byKey(const Key('menu_wallet_tile')));
+      // Sese Credits tile pushes the credits screen: balance card with
+      // purchase credits action plus chronological ledger.
+      await tester.tap(find.byKey(const Key('menu_sese_credits_tile')));
       await tester.pumpAndSettle();
-      expect(find.text('Wallet Balance'), findsOneWidget);
-      expect(find.text('+ Top Up'), findsOneWidget);
-      expect(find.text('Withdraw / Payout'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.text('Transaction history'),
-        300,
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Transaction history'), findsOneWidget);
+      expect(find.text('Sese Credits'), findsWidgets);
+      expect(find.text('Top Up Sese Credits'), findsOneWidget);
       expect(find.text('Earnings breakdown'), findsNothing);
     });
 
@@ -170,9 +161,9 @@ void main() {
 
       await tester.tap(find.text('Menu'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('menu_wallet_tile')));
+      await tester.tap(find.byKey(const Key('menu_sese_credits_tile')));
       await tester.pumpAndSettle();
-      expect(find.text('Wallet Balance'), findsOneWidget);
+      expect(find.text('Sese Credits'), findsWidgets);
 
       // System back pops the pushed wallet screen back to the Menu.
       await tester.binding.handlePopRoute();

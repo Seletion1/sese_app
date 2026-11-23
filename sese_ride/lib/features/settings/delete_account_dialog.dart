@@ -5,13 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// Secure Account Deletion Dialog with Hard Financial & Security Guardrails.
+/// Secure Account Deletion Dialog with Active Trip & Security Guardrails.
 ///
 /// Guardrails checked in Firestore:
-/// 1. `walletBalance > 0`: Rejected (must withdraw or spend funds first).
-/// 2. `pendingPayouts == true`: Rejected (must wait for pending payouts to settle).
-/// 3. Ongoing active rides / deliveries: Rejected.
-/// 4. Explicit re-authentication: Password prompt for email users or Google sign-in.
+/// 1. Ongoing active rides / deliveries: Rejected.
+/// 2. Explicit re-authentication: Password prompt for email users or Google sign-in.
 ///
 /// Execution Pipeline:
 /// - Soft-delete & 30-day archival in Firestore
@@ -80,49 +78,7 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 1. Check Wallet Balance & Pending Payouts
-      final walletSnap = await db.collection('wallets').doc(uid).get();
-      if (walletSnap.exists && walletSnap.data() != null) {
-        final data = walletSnap.data()!;
-        final balance = safeNum(data['balance'])?.toDouble() ?? 0.0;
-        if (balance > 0) {
-          final naira = balance > 1000 ? (balance / 100.0) : balance;
-          setState(() {
-            _guardrailError =
-                'Account deletion blocked: You have a remaining wallet balance of ₦${naira.toStringAsFixed(2)}. Please withdraw or exhaust your balance before deleting your account.';
-            _checkingGuardrails = false;
-          });
-          return;
-        }
-
-        if (data['pendingPayouts'] == true || data['hasPendingPayout'] == true) {
-          setState(() {
-            _guardrailError =
-                'Account deletion blocked: You have pending payouts in progress. Please wait for payouts to settle before deleting your account.';
-            _checkingGuardrails = false;
-          });
-          return;
-        }
-      }
-
-      // 2. Check pending driver payouts
-      final payoutsSnap = await db
-          .collection('driver_payouts')
-          .where('driverId', isEqualTo: uid)
-          .where('status', isEqualTo: 'pending')
-          .limit(1)
-          .get();
-
-      if (payoutsSnap.docs.isNotEmpty) {
-        setState(() {
-          _guardrailError =
-              'Account deletion blocked: You have pending payouts awaiting processing.';
-          _checkingGuardrails = false;
-        });
-        return;
-      }
-
-      // 3. Check active trips (as customer or driver)
+      // 1. Check active trips (as customer or driver)
       const liveStatuses = [
         'SEARCHING_DRIVER',
         'WAITING_FOR_ACCEPTANCE',

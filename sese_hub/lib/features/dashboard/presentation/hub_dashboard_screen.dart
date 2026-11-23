@@ -4,7 +4,6 @@ import 'package:sese_core/sese_core.dart';
 import '../../config/presentation/global_config_screen.dart';
 import '../../config/services/system_config_service.dart';
 import '../../notifications/presentation/broadcast_screen.dart';
-import '../../payouts/presentation/hub_payout_desk_screen.dart';
 import '../../settings/hub_settings_screen.dart';
 import '../../staff/presentation/staff_management_screen.dart';
 import '../../staff/services/hub_access_service.dart';
@@ -17,7 +16,6 @@ import '../services/hub_route_persistence.dart';
 import '../services/view_mode_controller.dart';
 import '../../../widgets/hub_badge.dart';
 import 'hub_module_shell.dart' show HubModuleContext, HubTabScope;
-import 'hub_user_wallet_card.dart';
 
 /// Unified permission-gated hub shell. Mounted ONLY after [HubAccessService]
 /// qualifies the user (see AuthGate in main.dart). There are no separate
@@ -268,8 +266,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return const AdminUserOnboardingScreen();
       case HubTab.support:
         return const HubSupportChatScreen();
-      case HubTab.payouts:
-        return const HubPayoutDeskScreen();
       case HubTab.broadcast:
         return const BroadcastScreen();
       case HubTab.config:
@@ -421,8 +417,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return service.onboardingTotalPendingCountStream;
       case HubTab.support:
         return service.pendingSupportChatsCountStream;
-      case HubTab.payouts:
-        return service.pendingPayoutsCountStream;
       default:
         return null;
     }
@@ -594,8 +588,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return 'User Onboarding';
       case HubTab.support:
         return 'Support Inbox';
-      case HubTab.payouts:
-        return 'Payouts';
       case HubTab.broadcast:
         return 'Broadcasts';
       case HubTab.config:
@@ -617,8 +609,6 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return selected ? Icons.person_add : Icons.person_add_outlined;
       case HubTab.support:
         return selected ? Icons.mark_chat_read : Icons.mark_chat_read_outlined;
-      case HubTab.payouts:
-        return selected ? Icons.payments : Icons.payments_outlined;
       case HubTab.broadcast:
         return selected ? Icons.campaign : Icons.campaign_outlined;
       case HubTab.config:
@@ -1129,8 +1119,6 @@ class _HubProfileAndSectionDrawer extends StatelessWidget {
         return service.onboardingTotalPendingCountStream;
       case HubTab.support:
         return service.pendingSupportChatsCountStream;
-      case HubTab.payouts:
-        return service.pendingPayoutsCountStream;
       default:
         return null;
     }
@@ -1358,13 +1346,6 @@ class _ProfilePage extends StatelessWidget {
                                 .surfaceContainerHighest,
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 16),
-                      HubUserWalletCard(
-                        userId: u.uid,
-                        role: 'hub',
-                        sequentialId: staffSeqId,
-                        targetLabel: 'Staff Ledger • $staffSeqId',
                       ),
                     ],
                     const SizedBox(height: 24),
