@@ -72,6 +72,27 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-23 — Synchronized Driver-Customer Bidding Pipeline & Countdown Hardening (`functions`, `firestore.rules`, `sese_ride`)
+
+- **1. Root-Cause Analysis: Driver Bids Not Appearing on Customer Screen**:
+  - *Premature 15s Countdown Expiration*: Backend defaulted `bidCountdownSec` to 15s. Between Cloud Function cold starts, network latency, and client clock skew, incoming bids expired within seconds or were discarded upon arrival before the customer could view them.
+  - *Same-Trip Re-Bidding Block*: `submitBid` collectionGroup query rejected drivers attempting to adjust/re-submit a counter-offer on the same trip if their previous bid was still pending.
+  - *Security Rule Parent Document Latency*: `match /bids/{driverId}` relied exclusively on `get(/databases/$(database)/documents/trips/$(tripId)).data.get('customerId', '') == request.auth.uid`. Cross-document fetch overhead caused query evaluation failures.
+  - *Missing Bid Overlay on `LiveTripScreen` & Buried Carousel*: `CustomerBidOverlay` was mounted only on `CustomerHomeShell`, which was occluded once `LiveTripScreen` was pushed full-screen. On `LiveTripScreen`, `_BidCarousel` was tucked inside `_LiveTripSearchingSheet` at 0.38 height without auto-expanding above 0.40 height.
+
+- **2. Pipeline Hardening Across Backend, Rules, and Client**:
+  - *Backend Countdown Extended*: Raised default bid countdown from 15s to 60s (`DEFAULT_TUNING.bidCountdownMs = 60 * 1000`, clamped between 15s and 180s in `getDispatchTuning`).
+  - *Permit Same-Trip Counter-Offer Re-bidding*: Updated `submitBid` to allow revising bids on the same trip (`bidTripId !== tripId` blocks cross-trip spam only).
+  - *Direct Resource Evaluation in `firestore.rules`*: Added direct `resource.data.get('customerId', '') == request.auth.uid` and `resource.data.get('driverId', '') == request.auth.uid` alongside existing parent lookups and admin claims. Deployed via `firebase deploy --only firestore:rules`.
+  - *Mounted `CustomerBidOverlay` in `LiveTripScreen`*: Wrapped `LiveTripScreen`'s Scaffold body in `CustomerBidOverlay` with safe `FirebaseAuth` uninitialized fallback.
+  - *Auto-Expanding Carousel & Audio/Haptic Alert*: Updated `_BidCarousel` to animate sheet height from `< 0.65` to `0.70` upon incoming bids, playing heavy haptics and alert sounds.
+
+- **3. Verification**:
+  - `functions`: 164/164 unit tests passed; `submitBid`, `acceptBid`, `rejectBid` deployed to Firebase.
+  - `firestore.rules`: Successfully deployed.
+  - `sese_ride`: 0 analyzer issues; 2/2 `customer_bid_overlay_test.dart` and 4/4 `synchronized_bidding_flow_test.dart` tests passed.
+
+
 ## 2026-11-22 — Strict Wallet Ledger Isolation by Role (`SC...`/`SD...`/`SH...`) & Desktop Mode Phone Responsiveness (`sese_hub`, `sese_ride`, `functions`)
 
 - **1. Desktop View Mode Phone Recovery & Status Bar Overlap Resolution (`sese_hub`)**:

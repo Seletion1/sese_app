@@ -207,6 +207,10 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(
+            useMaterial3: false,
+            splashFactory: InkRipple.splashFactory,
+          ),
           home: LiveTripScreen(
             tripId: 'trip-1',
             repository: repo,
@@ -260,6 +264,10 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(
+            useMaterial3: false,
+            splashFactory: InkRipple.splashFactory,
+          ),
           home: Scaffold(
             body: PoolOrderDetailSheet(
               trip: trip,
@@ -364,6 +372,10 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(
+            useMaterial3: false,
+            splashFactory: InkRipple.splashFactory,
+          ),
           home: Scaffold(
             body: PoolOrderDetailSheet(
               trip: trip,

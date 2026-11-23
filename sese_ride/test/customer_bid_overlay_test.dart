@@ -107,6 +107,10 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          useMaterial3: false,
+          splashFactory: InkRipple.splashFactory,
+        ),
         home: Scaffold(
           body: CustomerBidOverlay(
             userId: 'cust-101',
@@ -179,6 +183,10 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(
+          useMaterial3: false,
+          splashFactory: InkRipple.splashFactory,
+        ),
         home: Scaffold(
           body: CustomerBidOverlay(
             userId: 'cust-101',

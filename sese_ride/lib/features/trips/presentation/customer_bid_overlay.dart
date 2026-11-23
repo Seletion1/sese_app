@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../models/bid_models.dart';
@@ -134,14 +135,8 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
   /// - Removes bids that are no longer pending or already expired.
   /// - Keeps the list sorted soonest-expiring first.
   void _mergeBids(String tripId, List<BidModel> incomingBids) {
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-
     final pending = incomingBids
-        .where((b) =>
-            b.status == BidStatus.pending &&
-            !b.isExpired &&
-            b.expiresAt != null &&
-            b.expiresAt!.millisecondsSinceEpoch > nowMs)
+        .where((b) => b.status == BidStatus.pending && !b.isExpired)
         .toList();
 
     final incomingIds = pending.map((b) => b.bidId).toSet();
@@ -150,13 +145,22 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
     _pendingBids.removeWhere(
         (p) => p.tripId == tripId && !incomingIds.contains(p.bid.bidId));
 
+    bool hasNewIncomingBid = false;
     for (final bid in pending) {
       final alreadyPresent =
           _pendingBids.any((p) => p.bid.bidId == bid.bidId);
       if (!alreadyPresent) {
+        hasNewIncomingBid = true;
         _pendingBids.add(_TripBidPair(tripId: tripId, bid: bid));
         _armExpiryTimer(bid);
       }
+    }
+
+    if (hasNewIncomingBid) {
+      try {
+        HapticFeedback.heavyImpact();
+        SystemSound.play(SystemSoundType.alert);
+      } catch (_) {}
     }
 
     // Sort: soonest-expiring first so the most urgent offer is shown at the top.

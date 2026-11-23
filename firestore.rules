@@ -457,10 +457,12 @@ service cloud.firestore {
         // Customer (trip owner) may read all bids on their trip; driver may read
         // their own bid; hub verification staff and admins may read for the Queue Inspector.
         allow read: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/trips/$(tripId)).data.get('customerId', '')
-            == request.auth.uid ||
+          (resource.data.get('customerId', '') == request.auth.uid ||
+           resource.data.get('driverId', '') == request.auth.uid ||
            driverId == request.auth.uid ||
-           isAgent() || isHubStaff() || isAdminAuthClaim());
+           get(/databases/$(database)/documents/trips/$(tripId)).data.get('customerId', '') == request.auth.uid ||
+           get(/databases/$(database)/documents/trips/$(tripId)).data.get('userId', '') == request.auth.uid ||
+           isAgent() || isHubStaff() || isAdminAuthClaim() || isSuperAdmin());
 
         // Verified online driver may write ONLY their own bid document on an open, unassigned trip.
         allow create, update: if isAuthenticated() && isNotSuspended() &&

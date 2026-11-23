@@ -60,7 +60,7 @@ class BidModel {
     this.plateNumber = '',
     this.createdAt,
     this.expiresAt,
-    this.bidCountdownSeconds = 15,
+    this.bidCountdownSeconds = 60,
     this.isVerifiedDriver = false,
   });
 
@@ -79,7 +79,8 @@ class BidModel {
   }
 
   int get remainingSeconds {
-    return remainingDuration.inSeconds;
+    final secs = remainingDuration.inSeconds;
+    return secs > 0 ? secs : 0;
   }
 
   factory BidModel.fromMap(String bidId, Map<String, dynamic> map) {
@@ -110,7 +111,7 @@ class BidModel {
       plateNumber: (map['plateNumber'] ?? '').toString(),
       createdAt: dateOf(map['createdAt']),
       expiresAt: dateOf(map['expiresAt']),
-      bidCountdownSeconds: safeNum(map['bidCountdownSeconds'])?.toInt() ?? 15,
+      bidCountdownSeconds: safeNum(map['bidCountdownSeconds'])?.toInt() ?? 60,
       isVerifiedDriver: map['isVerifiedDriver'] == true ||
           map['isProfileVerified'] == true ||
           map['verificationStatus'] == 'approved' ||

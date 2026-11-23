@@ -93,8 +93,8 @@ const DEFAULT_TUNING: DispatchTuning = {
   publicPoolDurationMin: DEFAULT_PUBLIC_POOL_DURATION_MIN,
   publicPoolDurationMs: DEFAULT_PUBLIC_POOL_DURATION_MIN * 60 * 1000,
   maxOfferBoostPct: 100,
-  bidCountdownMs: 15 * 1000,
-  bidCountdownSec: 15,
+  bidCountdownMs: 60 * 1000,
+  bidCountdownSec: 60,
   allowStackedOrders: true,
   maxDistanceToDropoffKm: 2.0,
   maxRemainingTimeMinutes: 10,
@@ -129,7 +129,7 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       50
     );
     const bidCountdownSec = Math.round(
-      num(d.bidCountdownSec ?? d.bidCountdownSeconds, 15, 5, 60)
+      num(d.bidCountdownSec ?? d.bidCountdownSeconds, 60, 15, 180)
     );
     const tier1Radius = Math.min(
       num(d.tier1RadiusKm ?? d.searchRadiusKm, DEFAULT_TIER1_RADIUS_KM, 0.5, 50),
@@ -3407,10 +3407,12 @@ export const submitBid = guardedOnCall(async (request) => {
     for (const bDoc of existingPendingBids.docs) {
       const bData = bDoc.data();
       const expMs = bData.expiresAt?.toMillis?.() ?? 0;
-      if (expMs > currentTime) {
+      const bidTripId = String(bData.tripId ?? bDoc.ref.parent?.parent?.id ?? "");
+      // Drivers can update/re-submit on the same trip. Block only if an active pending bid exists on ANOTHER trip.
+      if (expMs > currentTime && bidTripId && bidTripId !== tripId) {
         throw new HttpsError(
           "failed-precondition",
-          "You already have an active bid waiting for a customer decision."
+          "You already have an active bid on another trip waiting for a customer decision."
         );
       }
     }
@@ -3419,21 +3421,6 @@ export const submitBid = guardedOnCall(async (request) => {
     console.warn(
       `[submitBid] collectionGroup bids query failed (${err?.message}) — falling back to per-trip check.`
     );
-    try {
-      const existingTripBid = await tripRef.collection("bids").doc(driverId).get();
-      if (existingTripBid.exists) {
-        const bData = existingTripBid.data();
-        const expMs = bData?.expiresAt?.toMillis?.() ?? 0;
-        if (bData?.status === "pending" && expMs > currentTime) {
-          throw new HttpsError(
-            "failed-precondition",
-            "You already have an active bid waiting for a customer decision."
-          );
-        }
-      }
-    } catch (fbErr: any) {
-      if (fbErr instanceof HttpsError) throw fbErr;
-    }
   }
 
   const tuning = await getDispatchTuning();

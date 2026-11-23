@@ -21,6 +21,7 @@ import 'trip_rating_dialog.dart';
 import '../services/trip_chat_service.dart';
 import '../services/trip_rating_service.dart';
 import '../../customer/presentation/customer_dispatch_screen.dart';
+import 'customer_bid_overlay.dart';
 
 /// Pops or returns to the home screen when a trip is closed or cancelled.
 void _navigateBackToHomeOrPop(
@@ -136,9 +137,18 @@ class LiveTripScreen extends StatelessWidget {
             onPressed: () => _handleBackPress(context),
           ),
         ),
-        body: StreamBuilder<ActiveTrip?>(
-          stream: repository.tripStream(tripId),
-          builder: (context, snapshot) {
+        body: CustomerBidOverlay(
+          userId: () {
+            try {
+              return FirebaseAuth.instance.currentUser?.uid ?? '';
+            } catch (_) {
+              return '';
+            }
+          }(),
+          tripRepository: repository,
+          child: StreamBuilder<ActiveTrip?>(
+            stream: repository.tripStream(tripId),
+            builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const SeseDetailSkeleton();
             }
@@ -242,7 +252,8 @@ class LiveTripScreen extends StatelessWidget {
           },
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
@@ -1625,19 +1636,23 @@ class _BidCarouselState extends State<_BidCarousel> {
                 .toList() ??
             const [];
 
-        // Requirement 1: Auto-expanding bottom sheet on incoming bid
+        // Auto-expanding bottom sheet on incoming bid
         if (allPendingBids.length > _previousPendingCount) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (widget.sheetController != null &&
                 widget.sheetController!.isAttached &&
-                widget.sheetController!.size <= 0.40) {
+                widget.sheetController!.size < 0.65) {
               widget.sheetController!.animateTo(
-                0.68,
+                0.70,
                 duration: const Duration(milliseconds: 350),
                 curve: Curves.easeOutCubic,
               );
             }
           });
+          try {
+            HapticFeedback.heavyImpact();
+            SystemSound.play(SystemSoundType.alert);
+          } catch (_) {}
         }
         _previousPendingCount = allPendingBids.length;
 
