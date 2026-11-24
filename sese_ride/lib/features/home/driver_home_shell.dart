@@ -366,7 +366,7 @@ class _MenuTab extends StatelessWidget {
                 color: AppColors.seseGold),
             title: 'Refer & Earn',
             infoDescription:
-                'Invite friends & drivers to earn lifetime bonus coins.',
+                'Invite friends & drivers to earn 1% referral credits on completed trips.',
             trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ReferralHubScreen(user: user),

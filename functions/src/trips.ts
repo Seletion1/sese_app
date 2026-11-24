@@ -1101,6 +1101,44 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     }
   }
 
+  // Lookup available seseCredits for automatic Trip Discount
+  let availableSeseCredits = 0;
+  try {
+    const custWalletSnap = await custWalletRef.get();
+    if (custWalletSnap.exists) {
+      const wData = custWalletSnap.data()!;
+      if (typeof wData.seseCredits === "number" && wData.seseCredits > 0) {
+        availableSeseCredits = wData.seseCredits;
+      }
+    }
+    if (availableSeseCredits <= 0) {
+      const custUserSnap = await db().collection("users").doc(customerId).get();
+      if (custUserSnap.exists) {
+        const uData = custUserSnap.data()!;
+        if (typeof uData.seseCredits === "number" && uData.seseCredits > 0) {
+          availableSeseCredits = uData.seseCredits;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`createTrip: seseCredits lookup warning: ${e}`);
+  }
+
+  const applySeseCredits = (d as any).useSeseCredits !== false && (d as any).applySeseCredits !== false;
+  let seseCreditsDiscount = 0;
+  if (applySeseCredits && availableSeseCredits > 0) {
+    seseCreditsDiscount = Number(Math.min(availableSeseCredits, totalFare).toFixed(2));
+  }
+
+  if (seseCreditsDiscount > 0) {
+    if (cashToCollect > 0) {
+      cashToCollect = Math.max(0, cashToCollect - seseCreditsDiscount);
+    }
+    if (senderCashToCollect > 0) {
+      senderCashToCollect = Math.max(0, senderCashToCollect - seseCreditsDiscount);
+    }
+  }
+
   const ref = db().collection("trips").doc();
   const tripId = ref.id;
 
@@ -1179,6 +1217,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     paymentMethod,
     paymentMode,
     walletCoverageAmount,
+    seseCreditsDiscount,
+    referralDiscount: seseCreditsDiscount,
     cashToCollect,
     collectAt,
     payerRole,
@@ -1198,6 +1238,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
       broadcast_fare: baseFare,
       broadcastFare: baseFare,
       walletCoverageAmount,
+      seseCreditsDiscount,
+      referralDiscount: seseCreditsDiscount,
       cashToCollect,
       senderCashToCollect,
       receiverCashToCollect,
@@ -1292,6 +1334,44 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
           invariantsChecked: true,
         });
       }
+    }
+
+    if (seseCreditsDiscount > 0) {
+      const discountKobo = nairaToKobo(seseCreditsDiscount);
+      tx.set(
+        custWalletRef,
+        {
+          seseCredits: admin.firestore.FieldValue.increment(-seseCreditsDiscount),
+          balance: admin.firestore.FieldValue.increment(-discountKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(-seseCreditsDiscount),
+          customerBalance: admin.firestore.FieldValue.increment(-seseCreditsDiscount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const txRef = custWalletRef.collection("transactions").doc(`${tripId}_sese_credits_discount`);
+      tx.set(txRef, {
+        type: "sese_credits_trip_discount",
+        role: "customer",
+        amount: -discountKobo,
+        amountKobo: -discountKobo,
+        amountNaira: -seseCreditsDiscount,
+        tripId,
+        currency: "NGN",
+        note: `Sese Credits applied as Trip Discount on trip ${tripId}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const custUserRef = db().collection("users").doc(customerId);
+      tx.set(
+        custUserRef,
+        {
+          seseCredits: admin.firestore.FieldValue.increment(-seseCreditsDiscount),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
     }
 
     tx.set(ref, tripDocPayload);

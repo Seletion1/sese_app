@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import '../../config/presentation/global_config_screen.dart';
@@ -1347,6 +1348,7 @@ class _ProfilePage extends StatelessWidget {
                           ),
                         ],
                       ),
+                      _AdminReferralCreditsWidget(uid: u.uid),
                     ],
                     const SizedBox(height: 24),
                     ValueListenableBuilder<HubViewMode>(
@@ -1512,4 +1514,61 @@ Future<void> showHubThemePickerSheet(
       );
     },
   );
+}
+
+class _AdminReferralCreditsWidget extends StatelessWidget {
+  final String uid;
+
+  const _AdminReferralCreditsWidget({required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    if (uid.isEmpty) return const SizedBox.shrink();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('wallets').doc(uid).snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final seseCredits = (data?['seseCredits'] as num?)?.toDouble() ?? 0.0;
+
+        return Container(
+          margin: const EdgeInsets.only(top: 16),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50.withOpacity(0.8),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.amber.shade300),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.card_giftcard, color: Colors.amber, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Accumulated Sese Credits',
+                      style: TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+                    ),
+                    Text(
+                      '₦${seseCredits.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

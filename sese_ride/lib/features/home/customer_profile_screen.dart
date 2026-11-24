@@ -185,7 +185,7 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                   leading: const Icon(Icons.card_giftcard_outlined,
                       color: AppColors.seseGold),
                   title: 'Refer & Earn',
-                  infoDescription: 'Invite friends & earn 1% bonus on every completed trip.',
+                  infoDescription: 'Invite friends & earn 1% referral credits on completed trips.',
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => ReferralHubScreen(user: widget.user),
                   )),

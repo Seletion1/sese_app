@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -367,10 +368,33 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   String? _editingTripId;
 
+  double _availableSeseCredits = 0.0;
+  StreamSubscription? _seseCreditsSub;
+
+  void _listenSeseCredits() {
+    final uid = widget.user?.uid;
+    if (uid == null || uid.isEmpty) return;
+    _seseCreditsSub = FirebaseFirestore.instance
+        .collection('wallets')
+        .doc(uid)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final data = snap.data();
+      if (data != null) {
+        final credits = (data['seseCredits'] as num?)?.toDouble() ?? 0.0;
+        setState(() {
+          _availableSeseCredits = credits;
+        });
+      }
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
+    _listenSeseCredits();
     _fareService = widget.fareService ?? FareService();
     _editingTripId = widget.editingTripId;
     _selectedModeIndex = widget.initialModeIndex;
@@ -523,6 +547,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
   @override
   void dispose() {
+    _seseCreditsSub?.cancel();
     _pickupController.dispose();
     _dropoffController.dispose();
     _pickupFocusNode.dispose();
@@ -1637,8 +1662,10 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (_paymentMethod == 'online' && _paymentMode != 'receiver_pays') {
       try {
         final paymentService = PaymentService();
+        final seseCreditsDiscount = math.min(_availableSeseCredits, totalFare);
+        final netPayableFare = math.max(0.0, totalFare - seseCreditsDiscount);
         final auth = await paymentService.initializePayment(
-          amountNaira: totalFare,
+          amountNaira: netPayableFare > 0 ? netPayableFare : totalFare,
           email: widget.user?.email ?? 'customer@seseride.com',
           purpose: 'trip_payment',
           tripId: tripId,
@@ -3658,6 +3685,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         const SizedBox(height: 12),
         _buildSecurityPinToggle(),
         _buildPaymentOptionSelector(isDelivery: true),
+        _buildSeseCreditsDiscountCard(),
         const Text(
           'Fare by Vehicle Type',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -3704,6 +3732,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         ),
         const SizedBox(height: 12),
         _buildPaymentOptionSelector(isDelivery: false),
+        _buildSeseCreditsDiscountCard(),
         const Text(
           'Fare Summary',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -3719,6 +3748,68 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               'Final fare may vary slightly based on real-time traffic and actual route.',
         ),
       ],
+    );
+  }
+
+  Widget _buildSeseCreditsDiscountCard() {
+    if (_availableSeseCredits <= 0) return const SizedBox.shrink();
+    final totalFare = _currentEstimatedFare;
+    final discount = math.min(_availableSeseCredits, totalFare);
+    final netFare = math.max(0.0, totalFare - discount);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.amber.shade50.withOpacity(0.8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.amber.shade400, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'Sese Credits Trip Discount',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                ),
+                const Spacer(),
+                Text(
+                  '-₦${discount.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Your available Sese Credits (₦${_availableSeseCredits.toStringAsFixed(2)}) will automatically apply as a Trip Discount at checkout.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            if (discount > 0) ...[
+              const Divider(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Estimated Fare:', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  Text('₦${totalFare.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12, color: Colors.black54, decoration: TextDecoration.lineThrough)),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Net Payable Fare:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  Text('₦${netFare.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87)),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

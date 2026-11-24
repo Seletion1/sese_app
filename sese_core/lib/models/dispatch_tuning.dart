@@ -55,6 +55,15 @@ class DispatchTuning {
   final double maxDistanceToDropoffKm; // default: 2.0 km
   final int maxRemainingTimeMinutes; // default: 10 min
 
+  /// Referral Credit System Parameters (Hub Configurable)
+  ///
+  /// - [referralCommissionPercent]: percentage of completed trip fare credited to referrer (default 1.0 for 1%).
+  /// - [standardReferralDurationDays]: active duration window in days for regular users (default 365 days / 1 year).
+  /// - [adminReferralDurationDays]: active duration window in days for Hub Admins/Staff (default 548 days / 1.5 years).
+  final double referralCommissionPercent; // default: 1.0 (1%)
+  final int standardReferralDurationDays; // default: 365 days
+  final int adminReferralDurationDays; // default: 548 days
+
   const DispatchTuning({
     this.dispatchRadiusKm = 15,
     this.tier1RadiusKm = 3,
@@ -74,6 +83,9 @@ class DispatchTuning {
     this.allowBidding = true,
     this.maxDistanceToDropoffKm = 2.0,
     this.maxRemainingTimeMinutes = 10,
+    this.referralCommissionPercent = 1.0,
+    this.standardReferralDurationDays = 365,
+    this.adminReferralDurationDays = 548,
   });
 
   /// Resolves the driver search radius (in kilometers) for a given trip dispatch tier (1, 3).
@@ -141,6 +153,9 @@ class DispatchTuning {
           : (map['enableBidding'] is bool ? map['enableBidding'] as bool : true),
       maxDistanceToDropoffKm: numOf('maxDistanceToDropoffKm', 2.0),
       maxRemainingTimeMinutes: intOf('maxRemainingTimeMinutes', 10),
+      referralCommissionPercent: numOf('referralCommissionPercent', 1.0),
+      standardReferralDurationDays: intOf('standardReferralDurationDays', 365),
+      adminReferralDurationDays: intOf('adminReferralDurationDays', 548),
     );
   }
 
@@ -171,5 +186,8 @@ class DispatchTuning {
         'enableBidding': allowBidding,
         'maxDistanceToDropoffKm': maxDistanceToDropoffKm,
         'maxRemainingTimeMinutes': maxRemainingTimeMinutes,
+        'referralCommissionPercent': referralCommissionPercent,
+        'standardReferralDurationDays': standardReferralDurationDays,
+        'adminReferralDurationDays': adminReferralDurationDays,
       };
 }

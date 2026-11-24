@@ -545,6 +545,210 @@ export async function handleTripCompletion(
   console.log(
     `handleTripCompletion[${tripId}] driver=${driverId} fare=${baseFare} commission=${commissionAmount}`
   );
+
+  try {
+    await processTripReferralAccumulation(tripId, after);
+  } catch (e) {
+    console.warn(`handleTripCompletion[${tripId}]: referral accumulation warning: ${e}`);
+  }
+}
+
+/**
+ * 1% Referral Credit Accumulation on Completed Trips.
+ * Checks if passenger or driver was referred by a valid referrerId.
+ * Verifies referral is within active duration window:
+ *   - standardReferralDurationDays (default 365) for regular users
+ *   - adminReferralDurationDays (default 548) for Hub Admins/Staff
+ * Atomically credits 1% (configured referralCommissionPercent) of base fare into referrer's seseCredits balance,
+ * keyed idempotently by `${tripId}_referral_credit_${role}` so it can never credit twice.
+ */
+export async function processTripReferralAccumulation(
+  tripId: string,
+  after: admin.firestore.DocumentData
+): Promise<void> {
+  const baseFare = Number(
+    after["base_trip_fare"] ??
+      after["baseTripFare"] ??
+      after["broadcast_fare"] ??
+      after["broadcastFare"] ??
+      after["baseFare"] ??
+      after["proposedFare"] ??
+      after["fareAmount"] ??
+      0
+  );
+  if (baseFare <= 0) return;
+
+  // 1. Fetch dispatch settings
+  let referralCommissionPercent = 1.0;
+  let standardReferralDurationDays = 365;
+  let adminReferralDurationDays = 548;
+
+  try {
+    const dispatchSnap = await db().collection("system_settings").doc("dispatch").get();
+    if (dispatchSnap.exists) {
+      const dData = dispatchSnap.data()!;
+      if (typeof dData["referralCommissionPercent"] === "number") {
+        referralCommissionPercent = dData["referralCommissionPercent"];
+      }
+      if (typeof dData["standardReferralDurationDays"] === "number") {
+        standardReferralDurationDays = dData["standardReferralDurationDays"];
+      }
+      if (typeof dData["adminReferralDurationDays"] === "number") {
+        adminReferralDurationDays = dData["adminReferralDurationDays"];
+      }
+    }
+  } catch (e) {
+    console.warn(`processTripReferralAccumulation[${tripId}]: failed to read dispatch config: ${e}`);
+  }
+
+  if (referralCommissionPercent <= 0) return;
+
+  const creditAmountNaira = Number(((baseFare * referralCommissionPercent) / 100).toFixed(2));
+  const creditAmountKobo = nairaToKobo(creditAmountNaira);
+  if (creditAmountNaira <= 0 || creditAmountKobo <= 0) return;
+
+  const customerId = String(after["customerId"] ?? after["userId"] ?? "");
+  const driverId = String(after["driver"]?.["driverId"] ?? after["driverId"] ?? "");
+
+  const actors = [
+    { refereeId: customerId, collection: "users", role: "customer" },
+    { refereeId: driverId, collection: "drivers", role: "driver" },
+  ];
+
+  for (const { refereeId, collection, role } of actors) {
+    if (!refereeId) continue;
+
+    try {
+      let refereeSnap = await db().collection(collection).doc(refereeId).get();
+      if (!refereeSnap.exists) {
+        const altCollection = collection === "users" ? "drivers" : "users";
+        refereeSnap = await db().collection(altCollection).doc(refereeId).get();
+      }
+      if (!refereeSnap.exists) continue;
+
+      const refereeData = refereeSnap.data()!;
+      const rawReferredBy = String(
+        refereeData.referredBy ??
+          refereeData.referrerId ??
+          refereeData.referred_by_code ??
+          ""
+      ).trim();
+      if (!rawReferredBy) continue;
+
+      let referrerId = "";
+      const codeSnap = await db().collection("referral_codes").doc(rawReferredBy.toUpperCase()).get();
+      if (codeSnap.exists) {
+        referrerId = String(codeSnap.data()?.referrerId ?? "").trim();
+      }
+      if (!referrerId) {
+        referrerId = rawReferredBy;
+      }
+
+      if (!referrerId || referrerId === refereeId) continue;
+
+      let referrerSnap = await db().collection("users").doc(referrerId).get();
+      let referrerColl = "users";
+      if (!referrerSnap.exists) {
+        referrerSnap = await db().collection("drivers").doc(referrerId).get();
+        referrerColl = "drivers";
+      }
+      if (!referrerSnap.exists) continue;
+
+      const referrerData = referrerSnap.data()!;
+
+      const referrerRoleStr = String(referrerData.role ?? "").toLowerCase();
+      const isHubAdminOrStaff =
+        ["admin", "hub_admin", "operations_admin", "hub_staff", "super_admin", "dispatch_operations"].includes(referrerRoleStr) ||
+        referrerData.isHubStaff === true ||
+        referrerData.isAdmin === true;
+
+      const maxDays = isHubAdminOrStaff ? adminReferralDurationDays : standardReferralDurationDays;
+
+      let refereeSignupMs = Date.now();
+      const rawSignup = refereeData.referralSignupAt ?? refereeData.createdAt;
+      if (rawSignup) {
+        if (typeof rawSignup.toMillis === "function") {
+          refereeSignupMs = rawSignup.toMillis();
+        } else if (typeof rawSignup === "number") {
+          refereeSignupMs = rawSignup;
+        } else if (rawSignup instanceof Date) {
+          refereeSignupMs = rawSignup.getTime();
+        }
+      }
+
+      const ageInDays = (Date.now() - refereeSignupMs) / (1000 * 60 * 60 * 24);
+      if (ageInDays > maxDays) {
+        console.log(`processTripReferralAccumulation[${tripId}]: referral from ${refereeId} to ${referrerId} expired (${ageInDays.toFixed(1)} days > ${maxDays} days)`);
+        continue;
+      }
+
+      const txId = `${tripId}_referral_credit_${role}`;
+      const referrerWalletRef = db().collection("wallets").doc(referrerId);
+      const txRef = referrerWalletRef.collection("transactions").doc(txId);
+
+      await db().runTransaction(async (tx) => {
+        const txSnap = await tx.get(txRef);
+        if (txSnap.exists) {
+          console.log(`processTripReferralAccumulation[${tripId}]: tx ${txId} already processed, skipping`);
+          return;
+        }
+
+        const isDriverReferrer = referrerColl === "drivers" || String(referrerData.role ?? "").toLowerCase() === "driver";
+        const walletUpdate: Record<string, any> = {
+          seseCredits: admin.firestore.FieldValue.increment(creditAmountNaira),
+          balance: admin.firestore.FieldValue.increment(creditAmountKobo),
+          mainWalletBalance: admin.firestore.FieldValue.increment(creditAmountNaira),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (isDriverReferrer) {
+          walletUpdate["driverBalance"] = admin.firestore.FieldValue.increment(creditAmountNaira);
+        } else {
+          walletUpdate["customerBalance"] = admin.firestore.FieldValue.increment(creditAmountNaira);
+        }
+        tx.set(referrerWalletRef, walletUpdate, { merge: true });
+
+        tx.set(txRef, {
+          type: "referral_credit",
+          role: isDriverReferrer ? "driver" : "customer",
+          amount: creditAmountKobo,
+          amountKobo: creditAmountKobo,
+          amountNaira: creditAmountNaira,
+          tripId,
+          refereeId,
+          currency: "NGN",
+          note: `${referralCommissionPercent}% Referral credit earned from completed trip ${tripId}`,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const profileRef = db().collection(referrerColl).doc(referrerId);
+        tx.set(
+          profileRef,
+          {
+            seseCredits: admin.firestore.FieldValue.increment(creditAmountNaira),
+            totalReferralCreditsEarned: admin.firestore.FieldValue.increment(creditAmountNaira),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        persistFinancialAuditLogInTx(tx, {
+          tripId,
+          type: "referral_credit",
+          accountId: referrerId,
+          amountNaira: creditAmountNaira,
+          amountKobo: creditAmountKobo,
+          currency: "NGN",
+          note: `${referralCommissionPercent}% Referral credit earned from completed trip ${tripId}`,
+          timestamp: Date.now(),
+          stage: "completion",
+        });
+      });
+
+      console.log(`processTripReferralAccumulation[${tripId}] credited ${creditAmountNaira} NGN to referrer ${referrerId}`);
+    } catch (err) {
+      console.warn(`processTripReferralAccumulation[${tripId}] error for ${refereeId}:`, err);
+    }
+  }
 }
 
 /**

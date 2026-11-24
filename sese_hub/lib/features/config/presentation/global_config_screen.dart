@@ -174,6 +174,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _allowBidding = true;
   final _maxDistanceToDropoffKmCtrl = TextEditingController(text: '2.0');
   final _maxRemainingTimeMinutesCtrl = TextEditingController(text: '10');
+  final _dispatchReferralCommissionPercentCtrl = TextEditingController(text: '1.0');
+  final _dispatchStandardReferralDurationDaysCtrl = TextEditingController(text: '365');
+  final _dispatchAdminReferralDurationDaysCtrl = TextEditingController(text: '548');
 
   // Map & API Key Management Controllers (/system_config/api_keys)
   String _apiKeysActiveProvider = 'google';
@@ -286,6 +289,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _cameraPickupDwellCtrl.dispose();
     _cameraDropoffDwellCtrl.dispose();
     _maxOfferBoostPctCtrl.dispose();
+    _dispatchReferralCommissionPercentCtrl.dispose();
+    _dispatchStandardReferralDurationDaysCtrl.dispose();
+    _dispatchAdminReferralDurationDaysCtrl.dispose();
     _minWalletBalanceToOnlineCtrl.dispose();
     _minTopUpAmountCtrl.dispose();
     _userReferralCommissionRateCtrl.dispose();
@@ -398,6 +404,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _allowBidding = tuning.allowBidding;
       _maxDistanceToDropoffKmCtrl.text = tuning.maxDistanceToDropoffKm.toString();
       _maxRemainingTimeMinutesCtrl.text = tuning.maxRemainingTimeMinutes.toString();
+      _dispatchReferralCommissionPercentCtrl.text = tuning.referralCommissionPercent.toString();
+      _dispatchStandardReferralDurationDaysCtrl.text = tuning.standardReferralDurationDays.toString();
+      _dispatchAdminReferralDurationDaysCtrl.text = tuning.adminReferralDurationDays.toString();
 
       _apiKeysActiveProvider = apiKeys.normalizedProvider;
       _googleAndroidKeyCtrl.text = apiKeys.googleAndroidKey;
@@ -584,6 +593,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               double.tryParse(_maxDistanceToDropoffKmCtrl.text.trim()) ?? 2.0,
           maxRemainingTimeMinutes:
               int.tryParse(_maxRemainingTimeMinutesCtrl.text.trim()) ?? 10,
+          referralCommissionPercent:
+              double.tryParse(_dispatchReferralCommissionPercentCtrl.text.trim()) ?? 1.0,
+          standardReferralDurationDays:
+              int.tryParse(_dispatchStandardReferralDurationDaysCtrl.text.trim()) ?? 365,
+          adminReferralDurationDays:
+              int.tryParse(_dispatchAdminReferralDurationDaysCtrl.text.trim()) ?? 548,
           maxConcurrentBids: maxBids,
         ),
       );
@@ -2523,6 +2538,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     'Default 2.0 km (0.1–10 km). Max distance to active drop-off to receive next stacked order.'),
                 numField(_maxRemainingTimeMinutesCtrl, 'Stacked max drop-off time', 'min',
                     'Default 10 min (1–60 min). Max remaining ETA to active drop-off for next stacked order.'),
+                numField(_dispatchReferralCommissionPercentCtrl, 'Referral credit rate', '%',
+                    'Default 1.0 (1%). Fare percentage credited to referrer on completed trips.'),
+                numField(_dispatchStandardReferralDurationDaysCtrl, 'Standard referral window', 'days',
+                    'Default 365 days (1 yr). Active referral window for Customers & Drivers.'),
+                numField(_dispatchAdminReferralDurationDaysCtrl, 'Admin referral window', 'days',
+                    'Default 548 days (1.5 yrs). Active referral window for Hub Admins/Staff.'),
               ],
             ),
             const SizedBox(height: 12),

@@ -358,6 +358,9 @@ void main() {
       expect(defaultConfig.tier1RadiusKm, 3.0);
       expect(defaultConfig.tier1TimeoutSec, 15);
       expect(defaultConfig.publicPoolDurationMin, 60);
+      expect(defaultConfig.referralCommissionPercent, 1.0);
+      expect(defaultConfig.standardReferralDurationDays, 365);
+      expect(defaultConfig.adminReferralDurationDays, 548);
 
       final mapConfig = DispatchTuning.fromMap({
         'searchRadiusKm': 4.5,
@@ -367,6 +370,9 @@ void main() {
         'bidCountdownSec': 10,
         'maxOfferBoostPct': 150.0,
         'maxSequentialDrivers': 3,
+        'referralCommissionPercent': 1.5,
+        'standardReferralDurationDays': 180,
+        'adminReferralDurationDays': 365,
       });
 
       expect(mapConfig.tier1RadiusKm, 4.5);
@@ -375,6 +381,9 @@ void main() {
       expect(mapConfig.publicPoolDurationMin, 45);
       expect(mapConfig.bidCountdownSec, 10);
       expect(mapConfig.maxOfferBoostPct, 150.0);
+      expect(mapConfig.referralCommissionPercent, 1.5);
+      expect(mapConfig.standardReferralDurationDays, 180);
+      expect(mapConfig.adminReferralDurationDays, 365);
 
       // Escalation rules
       expect(mapConfig.shouldEscalateToPool(candidateCount: 0, attemptedCount: 0), isTrue);

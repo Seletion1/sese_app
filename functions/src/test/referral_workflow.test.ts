@@ -73,4 +73,40 @@ describe("Referral System & Identity Workflow Invariants", () => {
       assert.strictEqual(isSelfReferral("user_referrer_456", "user_referee_789"), false);
     });
   });
+
+  describe("3. 1% Referral Credit Accumulation & Active Window Invariants", () => {
+    function calculateReferralCredit(baseFare: number, commissionPercent: number): number {
+      if (baseFare <= 0 || commissionPercent <= 0) return 0;
+      return Number(((baseFare * commissionPercent) / 100).toFixed(2));
+    }
+
+    function isReferralActive(signupMs: number, maxDays: number, nowMs: number): boolean {
+      const ageInDays = (nowMs - signupMs) / (1000 * 60 * 60 * 24);
+      return ageInDays <= maxDays;
+    }
+
+    test("computes exact 1% referral credit from completed trip base fare", () => {
+      assert.strictEqual(calculateReferralCredit(5000, 1.0), 50.00);
+      assert.strictEqual(calculateReferralCredit(12500, 1.0), 125.00);
+      assert.strictEqual(calculateReferralCredit(2750, 1.0), 27.50);
+    });
+
+    test("enforces standard 365-day active referral window for regular users", () => {
+      const now = Date.now();
+      const signup30DaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+      const signup400DaysAgo = now - 400 * 24 * 60 * 60 * 1000;
+
+      assert.strictEqual(isReferralActive(signup30DaysAgo, 365, now), true);
+      assert.strictEqual(isReferralActive(signup400DaysAgo, 365, now), false);
+    });
+
+    test("enforces elevated 548-day active referral window for Hub Admins/Staff", () => {
+      const now = Date.now();
+      const signup400DaysAgo = now - 400 * 24 * 60 * 60 * 1000;
+      const signup600DaysAgo = now - 600 * 24 * 60 * 60 * 1000;
+
+      assert.strictEqual(isReferralActive(signup400DaysAgo, 548, now), true);
+      assert.strictEqual(isReferralActive(signup600DaysAgo, 548, now), false);
+    });
+  });
 });

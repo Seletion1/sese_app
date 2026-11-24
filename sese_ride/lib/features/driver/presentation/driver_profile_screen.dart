@@ -611,7 +611,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         color: AppColors.seseGold),
                     title: 'Refer & Earn',
                     infoDescription:
-                        'Invite friends & drivers to earn lifetime bonus coins.',
+                        'Invite friends & drivers to earn 1% referral credits on completed trips.',
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => ReferralHubScreen(user: widget.user),
