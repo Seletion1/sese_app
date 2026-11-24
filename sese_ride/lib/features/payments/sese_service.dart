@@ -215,11 +215,13 @@ class PaymentAuthorization {
   final String authorizationUrl;
   final String accessCode;
   final String reference;
+  final String gateway;
 
   const PaymentAuthorization({
     required this.authorizationUrl,
     required this.accessCode,
     required this.reference,
+    this.gateway = 'paystack',
   });
 }
 
@@ -414,13 +416,15 @@ class SeseService {
         .handleError((Object _) => const <WalletTransaction>[]);
   }
 
-  /// Initializes a Paystack hosted payment for driver credits or per-trip direct checkout.
+  /// Initializes a hosted payment for driver credits or per-trip direct checkout
+  /// via [gateway] ('paystack' or 'opay').
   /// Throws [PaymentException] on validation or backend failure.
   Future<PaymentAuthorization> initializePayment({
     required double amountNaira,
     required String email,
     String purpose = 'driver_credit',
     String? tripId,
+    String gateway = 'paystack',
   }) async {
     if (amountNaira < minTopUpNaira) {
       throw const PaymentException(
@@ -436,10 +440,12 @@ class SeseService {
         'amountKobo': amountKobo,
         'purpose': purpose,
         'email': email,
+        'gateway': gateway,
         if (tripId != null && tripId.isNotEmpty) 'tripId': tripId,
       });
       final url = (data['authorizationUrl'] ?? '').toString();
       final reference = (data['reference'] ?? '').toString();
+      final resolvedGateway = (data['gateway'] ?? gateway).toString();
       if (url.isEmpty || reference.isEmpty) {
         throw const PaymentException('invalid-response',
             'Payment server did not return a checkout page.');
@@ -448,6 +454,7 @@ class SeseService {
         authorizationUrl: url,
         accessCode: (data['accessCode'] ?? '').toString(),
         reference: reference,
+        gateway: resolvedGateway,
       );
     } on FirebaseFunctionsException catch (e) {
       debugPrint('PaymentService.initialize ${e.code}: ${e.message}');
@@ -460,18 +467,20 @@ class SeseService {
     }
   }
 
-  /// Starts driver Sese Credits top-up via Paystack.
+  /// Starts driver Sese Credits top-up via Paystack or OPay Checkout.
   Future<PaymentAuthorization> initializeTopUp({
     required double amountNaira,
     required String email,
     String? purpose,
     String? tripId,
+    String gateway = 'paystack',
   }) =>
       initializePayment(
         amountNaira: amountNaira,
         email: email,
         purpose: purpose ?? 'driver_credit',
         tripId: tripId,
+        gateway: gateway,
       );
 
   /// Verifies a payment after the user pays on the checkout page.
@@ -567,15 +576,21 @@ class SeseService {
   }
 
   static String _mapError(String code, String? message) {
-    // The backend has no usable Paystack secret (revoked key or nothing
+    // The backend has no usable secret (revoked key or nothing
     // configured): tell the user what is actually wrong instead of
-    // "Invalid key". Matches both Paystack's own rejection and the
-    // backend's PAYSTACK_NOT_CONFIGURED fail-fast code.
+    // "Invalid key". Matches both gateway's own rejection and the
+    // backend's NOT_CONFIGURED fail-fast codes.
     final msg = (message ?? '').toLowerCase();
     if (msg.contains('invalid key') ||
         msg.contains('paystack_not_configured')) {
       return 'Online payment is not set up yet. Please top up via bank '
           'transfer or contact support.';
+    }
+    if (msg.contains('opay_not_configured')) {
+      return 'OPay Checkout is not set up yet. Please select Paystack or contact support.';
+    }
+    if (msg.contains('gateway_not_supported') || msg.contains('unsupported gateway')) {
+      return 'The selected payment gateway is not supported.';
     }
     switch (code) {
       case 'unauthenticated':

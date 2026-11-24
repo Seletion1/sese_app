@@ -29,6 +29,8 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
   bool _busy = false;
   String? _error;
   FinancialConfig _config = const FinancialConfig();
+  RemoteKeysConfig _remoteKeys = const RemoteKeysConfig();
+  String _selectedGateway = 'paystack';
 
   /// Guards the controller echo when a quick-chip writes into the field:
   /// setting [_amountCtrl.text] fires `onChanged` synchronously, which must
@@ -49,6 +51,17 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _config = c;
+      });
+    });
+    const RemoteKeysService().fetchRemoteKeys().then((keys) {
+      if (!mounted) return;
+      setState(() {
+        _remoteKeys = keys;
+        if (!keys.enablePaystack && keys.enableOpay) {
+          _selectedGateway = 'opay';
+        } else if (keys.enablePaystack) {
+          _selectedGateway = 'paystack';
+        }
       });
     });
   }
@@ -100,6 +113,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         amountNaira: amount,
         email: widget.user.email,
         purpose: 'driver_credit',
+        gateway: _selectedGateway,
       );
       if (!mounted) return;
       // Embedded checkout first (card/transfer/USSD inside the app).
@@ -120,13 +134,14 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         return;
       }
       // Embedded page failed or user chose browser — request a fresh session
-      // so Paystack never encounters an already opened or aborted checkout URL.
+      // so the gateway never encounters an already opened or aborted checkout URL.
       PaymentAuthorization browserAuth = auth;
       try {
         browserAuth = await widget.service.initializeTopUp(
           amountNaira: amount,
           email: widget.user.email,
           purpose: 'driver_credit',
+          gateway: _selectedGateway,
         );
       } catch (e) {
         debugPrint('TopUpSheet: fresh browser auth failed ($e), falling back');
@@ -176,6 +191,75 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         _error = e.userMessage;
       });
     }
+  }
+
+  Widget _buildGatewayOption({
+    required String id,
+    required String title,
+    required String subtitle,
+    required bool isSelected,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: _busy ? null : () => setState(() => _selectedGateway = id),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? const Color(0xFF2C2410) : const Color(0xFFFFFBEB))
+              : (isDark ? AppColors.darkFieldFill : AppColors.lightFieldFill),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? AppColors.seseGold
+                : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300),
+            width: isSelected ? 1.8 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_off,
+              size: 16,
+              color: isSelected
+                  ? AppColors.seseGold
+                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color:
+                          isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -323,24 +407,74 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
                     style: TextStyle(
                         color: Colors.red.shade800, fontSize: 12)),
               ],
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                icon: _busy
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.lock_outline),
-                label: Text(_busy ? 'Contacting Paystack…' : 'Pay Securely'),
-                style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50)),
-                onPressed: canProceed ? _start : null,
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Secured by Paystack • Card, Transfer, USSD',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: Colors.grey),
+              if (_remoteKeys.enablePaystack && _remoteKeys.enableOpay) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Payment Gateway',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).brightness == Brightness.dark
+                        ? Colors.grey.shade400
+                        : Colors.grey.shade700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildGatewayOption(
+                        id: 'paystack',
+                        title: 'Paystack',
+                        subtitle: 'Card, Bank, USSD',
+                        isSelected: _selectedGateway == 'paystack',
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildGatewayOption(
+                        id: 'opay',
+                        title: 'OPay Checkout',
+                        subtitle: 'OPay App, Card, Bank',
+                        isSelected: _selectedGateway == 'opay',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              Builder(
+                builder: (context) {
+                  final gatewayLabel =
+                      _selectedGateway == 'opay' ? 'OPay' : 'Paystack';
+                  return Column(
+                    children: [
+                      FilledButton.icon(
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.lock_outline),
+                        label: Text(_busy
+                            ? 'Contacting $gatewayLabel…'
+                            : 'Pay via $gatewayLabel'),
+                        style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50)),
+                        onPressed: canProceed ? _start : null,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _selectedGateway == 'opay'
+                            ? 'Secured by OPay • Instant Credit'
+                            : 'Secured by Paystack • Card, Transfer, USSD',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  );
+                },
               ),
             ] else ...[
               const SizedBox(height: 8),

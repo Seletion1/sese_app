@@ -85,6 +85,7 @@ export {
   initializePaystackTopUp,
   verifyPayment,
   paystackWebhook,
+  opayWebhook,
 } from "./payments";
 
 // NOTE: `onSupportTicketReply` was removed. It was bound to

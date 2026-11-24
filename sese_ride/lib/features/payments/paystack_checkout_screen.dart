@@ -132,7 +132,9 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
               final isCallbackHostOrPath = host.contains('sesetech.com') ||
                   path.contains('payment/callback') ||
                   path.contains('/callback') ||
-                  path.contains('paystack/callback');
+                  path.contains('paystack/callback') ||
+                  path.contains('opay/callback') ||
+                  uri.scheme == 'seseride';
 
               if (isCallbackHostOrPath) {
                 final ref = _callbackReference(request.url);
@@ -181,17 +183,17 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
       ..loadRequest(Uri.parse(widget.auth.authorizationUrl));
   }
 
-  /// Paystack redirects to the dashboard callback URL with the transaction
-  /// reference as `reference` (or legacy `trxref`) once card/transfer/USSD
-  /// completes. Accepts the reference if it matches our initialized reference
-  /// or belongs to the current payment session.
+  /// Paystack & OPay redirect to callback URLs with the transaction reference
+  /// (`reference`, `trxref`, `orderNo`) once payment completes.
   String? _callbackReference(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return null;
     final ref = uri.queryParameters['reference'] ??
         uri.queryParameters['trxref'] ??
         uri.queryParameters['Reference'] ??
-        uri.queryParameters['trx_ref'];
+        uri.queryParameters['trx_ref'] ??
+        uri.queryParameters['orderNo'] ??
+        uri.queryParameters['order_no'];
     if (ref == null || ref.isEmpty) return null;
     if (ref == widget.auth.reference) return ref;
     if (widget.auth.reference.isNotEmpty &&

@@ -72,6 +72,29 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Dual Gateway Architecture: Paystack & OPay Checkout Integration (`functions`, `sese_core`, `sese_hub`, `sese_ride`)
+
+- **1. Architecture & Gateway Duality**:
+  - *User Choice*: Provided seamless selection between **Paystack** and **OPay Checkout** (`opaycheckout.com`) for direct customer per-trip booking payments and driver non-withdrawable Sese Credits top-ups.
+  - *Hub Remote Configuration*: Added gateway toggles (`enablePaystack`, `enableOpay`), OPay Merchant ID, Public Key, and write-only Secret Key inputs in `sese_hub` (`GlobalConfigScreen` under `RemoteKeysConfig` and `system_config/opay_secrets`).
+  - *Strict Zero Stored-Value Invariant*: Preserved zero stored-value customer wallet, zero withdrawal, and zero customer bank transfer UI across the mobile ecosystem.
+- **2. Backend Pipeline Hardening (`functions/src/payments.ts`)**:
+  - *OPay Checkout API Integration*: Added `/api/v1/international/cashier/create` for session initialization and `/api/v1/international/cashier/status` for server-authoritative status query.
+  - *HMAC-SHA512 Webhook Security*: Implemented `opayWebhook` validating cryptographic HMAC-SHA512 signatures using the merchant secret before status query and intent settlement.
+  - *Transaction Idempotency*: Tagged `paymentGateway` in `payment_intents`, `trips`, and `wallet_ledger` preventing duplicate credits or replay attacks.
+- **3. Mobile Apps Harmonization (`sese_core`, `sese_ride`, `sese_hub`)**:
+  - *`sese_core`*: Updated `RemoteKeysConfig`, `DispatchTuning`, and allowed WebView domains (`cashier.opaycheckout.com`, `opaycheckout.com`, `opayweb.com`).
+  - *`sese_ride`*:
+    - `sese_service.dart`: Added `gateway` param (`paystack` | `opay`) to `initializePayment` and `initializeTopUp`, propagated gateway in `PaymentAuthorization`, and mapped `opay_not_configured` to user-safe messaging.
+    - `top_up_sheet.dart`: Added gateway selector enabling drivers to switch between Paystack and OPay Checkout dynamically based on Hub master toggles.
+    - `customer_dispatch_screen.dart`: Added gateway selection chip for customers booking with Card / Online.
+    - `paystack_checkout_screen.dart`: Intercepts OPay callback patterns (`orderNo`, `opay/callback`, `seseride://payment/callback`).
+- **4. Verification & Deployment**:
+  - `functions`: 164/164 tests passed across 54 suites; deployed `initializePayment`, `initializePaystackTopUp`, `verifyPayment`, `paystackWebhook`, and `opayWebhook` live.
+  - `sese_core`: 0 analyzer issues; all tests pass.
+  - `sese_hub`: 0 analyzer issues; all tests pass.
+  - `sese_ride`: 0 analyzer issues; 18/18 payment unit and widget tests pass.
+
 ## 2026-11-24 — Order Pool Sheet Overflow Resolution: RenderFlex 80px Elimination & Scrollable Empty State Integration (`sese_ride`)
 
 - **1. Root-Cause Analysis from Crash Log**:

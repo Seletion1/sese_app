@@ -141,6 +141,9 @@ class _SeseWebViewWidgetState extends State<SeseWebViewWidget> {
   static const Set<String> _defaultAllowedDomains = {
     'paystack.co',
     'paystack.com',
+    'opaycheckout.com',
+    'cashier.opaycheckout.com',
+    'opayweb.com',
     'firebaseapp.com',
     'web.app',
     'sese.app',

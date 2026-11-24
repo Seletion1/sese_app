@@ -8,6 +8,10 @@ import '../maps/global_map_config.dart';
 /// SECURITY: Only PUBLIC/publishable credentials belong here.
 class RemoteKeysConfig {
   final String paystackPublicKey;
+  final String opayMerchantId;
+  final String opayPublicKey;
+  final bool enablePaystack;
+  final bool enableOpay;
   final String googleMapsApiKey;
 
   /// Mapbox public access token (`pk.eyJ1…`). Empty when not configured.
@@ -53,6 +57,10 @@ class RemoteKeysConfig {
 
   const RemoteKeysConfig({
     this.paystackPublicKey = '',
+    this.opayMerchantId = '',
+    this.opayPublicKey = '',
+    this.enablePaystack = true,
+    this.enableOpay = true,
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
@@ -142,6 +150,27 @@ class RemoteKeysConfig {
 
     return RemoteKeysConfig(
       paystackPublicKey: pubKey,
+      opayMerchantId: (map['opayMerchantId'] ??
+              map['opay_merchant_id'] ??
+              map['merchantId'] ??
+              '')
+          .toString()
+          .trim(),
+      opayPublicKey: (map['opayPublicKey'] ??
+              map['opay_public_key'] ??
+              '')
+          .toString()
+          .trim(),
+      enablePaystack: map['enablePaystack'] is bool
+          ? map['enablePaystack'] as bool
+          : (map['enable_paystack'] is bool
+              ? map['enable_paystack'] as bool
+              : true),
+      enableOpay: map['enableOpay'] is bool
+          ? map['enableOpay'] as bool
+          : (map['enable_opay'] is bool
+              ? map['enable_opay'] as bool
+              : true),
       googleMapsApiKey: rawGoogleKey.isNotEmpty
           ? rawGoogleKey
           : GlobalMapConfig.defaultGoogleMapsApiKey,
@@ -229,6 +258,14 @@ class RemoteKeysConfig {
     return {
       'paystackPublicKey': paystackPublicKey.trim(),
       'paystack_public_key': paystackPublicKey.trim(),
+      'opayMerchantId': opayMerchantId.trim(),
+      'opay_merchant_id': opayMerchantId.trim(),
+      'opayPublicKey': opayPublicKey.trim(),
+      'opay_public_key': opayPublicKey.trim(),
+      'enablePaystack': enablePaystack,
+      'enable_paystack': enablePaystack,
+      'enableOpay': enableOpay,
+      'enable_opay': enableOpay,
       'googleMapsApiKey': googleMapsApiKey.trim(),
       'mapApiKey': googleMapsApiKey.trim(),
       'apiKey': googleMapsApiKey.trim(),

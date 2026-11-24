@@ -198,6 +198,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
   final _paystackPublicKeyCtrl = TextEditingController();
   final _paystackSecretKeyCtrl = TextEditingController();
+  final _opayMerchantIdCtrl = TextEditingController();
+  final _opayPublicKeyCtrl = TextEditingController();
+  final _opaySecretKeyCtrl = TextEditingController();
   final _googleMapsApiKeyCtrl = TextEditingController();
   final _mapboxApiKeyCtrl = TextEditingController();
   final _mapboxStyleCtrl =
@@ -218,8 +221,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _splitPaymentMasterEnabled = true;
   bool _forceDeliveryPinSystemWide = false;
   bool _requireDriverCashVerification = true;
+  bool _enablePaystack = true;
+  bool _enableOpay = true;
   bool _obscurePaystackPublic = true;
   bool _obscurePaystackSecret = true;
+  bool _obscureOpayPublic = true;
+  bool _obscureOpaySecret = true;
   bool _obscureGoogleMapsKey = true;
   bool _obscureMapboxKey = true;
   bool _obscureResendKey = true;
@@ -300,6 +307,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _agentReferralDurationDaysCtrl.dispose();
     _paystackPublicKeyCtrl.dispose();
     _paystackSecretKeyCtrl.dispose();
+    _opayMerchantIdCtrl.dispose();
+    _opayPublicKeyCtrl.dispose();
+    _opaySecretKeyCtrl.dispose();
     _googleMapsApiKeyCtrl.dispose();
     _mapboxApiKeyCtrl.dispose();
     _mapboxStyleCtrl.dispose();
@@ -362,7 +372,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _allConfigs = configs;
       if (!silent) {
         _paystackPublicKeyCtrl.text = remoteKeys.paystackPublicKey;
-      _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
+        _opayMerchantIdCtrl.text = remoteKeys.opayMerchantId;
+        _opayPublicKeyCtrl.text = remoteKeys.opayPublicKey;
+        _enablePaystack = remoteKeys.enablePaystack;
+        _enableOpay = remoteKeys.enableOpay;
+        _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
       _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
       _activeMapProvider =
@@ -702,6 +716,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       // Save Remote Keys & API Config.
       final remoteKeysConfig = RemoteKeysConfig(
         paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
+        opayMerchantId: _opayMerchantIdCtrl.text.trim(),
+        opayPublicKey: _opayPublicKeyCtrl.text.trim(),
+        enablePaystack: _enablePaystack,
+        enableOpay: _enableOpay,
         googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
         mapboxToken: _mapboxApiKeyCtrl.text.trim(),
         mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
@@ -751,6 +769,39 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         } catch (e) {
           debugPrint('GlobalConfigScreen: paystack secret key save warning: $e');
         }
+      }
+
+      final enteredOpaySecret = _opaySecretKeyCtrl.text.trim();
+      if (enteredOpaySecret.isNotEmpty) {
+        try {
+          await FirebaseFirestore.instance
+              .collection('system_config')
+              .doc('opay_secrets')
+              .set({
+            'secretKey': enteredOpaySecret,
+            'merchantId': _opayMerchantIdCtrl.text.trim(),
+            'publicKey': _opayPublicKeyCtrl.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          _opaySecretKeyCtrl.clear();
+        } catch (e) {
+          debugPrint('GlobalConfigScreen: opay secret key save warning: $e');
+        }
+      }
+
+      try {
+        await FirebaseFirestore.instance
+            .collection('system_settings')
+            .doc('dispatch')
+            .set({
+          'enablePaystack': _enablePaystack,
+          'enable_paystack': _enablePaystack,
+          'enableOpay': _enableOpay,
+          'enable_opay': _enableOpay,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('GlobalConfigScreen: dispatch gateway toggles save warning: $e');
       }
 
       MapConfigController.instance.updateConfig(
@@ -998,6 +1049,24 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               children: [
                 _CappedField(
                   preferredWidth: 320,
+                  child: SwitchListTile(
+                    title: const Text('Enable Paystack Gateway'),
+                    subtitle: const Text('Cards, Bank Transfer, USSD via Paystack'),
+                    value: _enablePaystack,
+                    onChanged: (val) => setState(() => _enablePaystack = val),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: SwitchListTile(
+                    title: const Text('Enable OPay Checkout Gateway'),
+                    subtitle: const Text('OPay App, Cards, Bank Transfer via OPay'),
+                    value: _enableOpay,
+                    onChanged: (val) => setState(() => _enableOpay = val),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
                   child: TextFormField(
                     controller: _paystackPublicKeyCtrl,
                     obscureText: _obscurePaystackPublic,
@@ -1040,6 +1109,68 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                         onPressed: () {
                           setState(() {
                             _obscurePaystackSecret = !_obscurePaystackSecret;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: TextFormField(
+                    controller: _opayMerchantIdCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'OPay Merchant ID',
+                      helperText: 'Merchant ID assigned by OPay (e.g. 2566...)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: TextFormField(
+                    controller: _opayPublicKeyCtrl,
+                    obscureText: _obscureOpayPublic,
+                    decoration: InputDecoration(
+                      labelText: 'OPay Public Key',
+                      helperText: 'OPAYPUB... credential from OPay dashboard.',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureOpayPublic
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureOpayPublic = !_obscureOpayPublic;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 320,
+                  child: TextFormField(
+                    controller: _opaySecretKeyCtrl,
+                    obscureText: _obscureOpaySecret,
+                    decoration: InputDecoration(
+                      labelText: 'OPay Secret Key (write-only)',
+                      helperText:
+                          'Leave blank to keep current server value. '
+                          'Only OPAYPRV... or private key accepted.',
+                      helperMaxLines: 2,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureOpaySecret
+                              ? Icons.visibility_off
+                              : Icons.visibility,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _obscureOpaySecret = !_obscureOpaySecret;
                           });
                         },
                       ),

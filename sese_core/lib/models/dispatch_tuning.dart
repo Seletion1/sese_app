@@ -64,6 +64,10 @@ class DispatchTuning {
   final int standardReferralDurationDays; // default: 365 days
   final int adminReferralDurationDays; // default: 548 days
 
+  /// Payment Gateway Selection Toggles (Hub Configurable)
+  final bool enablePaystack; // default: true
+  final bool enableOpay; // default: true
+
   const DispatchTuning({
     this.dispatchRadiusKm = 15,
     this.tier1RadiusKm = 3,
@@ -86,6 +90,8 @@ class DispatchTuning {
     this.referralCommissionPercent = 1.0,
     this.standardReferralDurationDays = 365,
     this.adminReferralDurationDays = 548,
+    this.enablePaystack = true,
+    this.enableOpay = true,
   });
 
   /// Resolves the driver search radius (in kilometers) for a given trip dispatch tier (1, 3).
@@ -156,6 +162,12 @@ class DispatchTuning {
       referralCommissionPercent: numOf('referralCommissionPercent', 1.0),
       standardReferralDurationDays: intOf('standardReferralDurationDays', 365),
       adminReferralDurationDays: intOf('adminReferralDurationDays', 548),
+      enablePaystack: map['enablePaystack'] is bool
+          ? map['enablePaystack'] as bool
+          : (map['enable_paystack'] is bool ? map['enable_paystack'] as bool : true),
+      enableOpay: map['enableOpay'] is bool
+          ? map['enableOpay'] as bool
+          : (map['enable_opay'] is bool ? map['enable_opay'] as bool : true),
     );
   }
 
@@ -189,5 +201,9 @@ class DispatchTuning {
         'referralCommissionPercent': referralCommissionPercent,
         'standardReferralDurationDays': standardReferralDurationDays,
         'adminReferralDurationDays': adminReferralDurationDays,
+        'enablePaystack': enablePaystack,
+        'enable_paystack': enablePaystack,
+        'enableOpay': enableOpay,
+        'enable_opay': enableOpay,
       };
 }

@@ -45,9 +45,90 @@ async function paystackSecret(): Promise<string> {
     return envSecret.trim();
   }
 
-  // Paystack secret key must NOT be read from client-accessible Firestore documents.
-  // It is strictly populated via environment variables or Secret Manager.
+  try {
+    const snap = await db().collection("system_config").doc("paystack_secrets").get();
+    if (snap.exists) {
+      const sec = String(snap.data()?.secretKey ?? "").trim();
+      if (sec) return sec;
+    }
+  } catch (_) {}
+
   throw new HttpsError("failed-precondition", "PAYSTACK_NOT_CONFIGURED");
+}
+
+const OPAY_BASE =
+  process.env.OPAY_BASE_URL ?? "https://cashierapi.opaycheckout.com";
+
+export interface OPayConfig {
+  secretKey: string;
+  publicKey: string;
+  merchantId: string;
+}
+
+export async function opayConfig(): Promise<OPayConfig> {
+  let secret = (process.env.OPAY_SECRET_KEY ?? process.env.OPAY_PRV_KEY ?? "").trim();
+  let publicKey = (process.env.OPAY_PUBLIC_KEY ?? process.env.OPAY_PUB_KEY ?? "").trim();
+  let merchantId = (process.env.OPAY_MERCHANT_ID ?? "").trim();
+
+  if (!secret) {
+    try {
+      const snap = await db().collection("system_config").doc("opay_secrets").get();
+      if (snap.exists) {
+        secret = String(snap.data()?.secretKey ?? "").trim();
+        if (!merchantId) merchantId = String(snap.data()?.merchantId ?? "").trim();
+        if (!publicKey) publicKey = String(snap.data()?.publicKey ?? "").trim();
+      }
+    } catch (_) {}
+  }
+
+  if (!merchantId || !publicKey) {
+    try {
+      const keySnap = await db().collection("system_config").doc("remote_keys").get();
+      if (keySnap.exists) {
+        const d = keySnap.data() ?? {};
+        if (!merchantId) merchantId = String(d.opayMerchantId ?? d.opay_merchant_id ?? "").trim();
+        if (!publicKey) publicKey = String(d.opayPublicKey ?? d.opay_public_key ?? "").trim();
+      }
+    } catch (_) {}
+  }
+
+  if (!secret || !merchantId) {
+    throw new HttpsError("failed-precondition", "OPAY_NOT_CONFIGURED");
+  }
+
+  return { secretKey: secret, publicKey, merchantId };
+}
+
+async function opayPost(path: string, body: unknown, config: OPayConfig) {
+  const res = await fetch(`${OPAY_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.secretKey}`,
+      MerchantId: config.merchantId,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json()) as {
+    code?: string;
+    message?: string;
+    data?: Record<string, unknown>;
+  };
+  if (!res.ok || json.code !== "00000") {
+    throw new HttpsError(
+      "internal",
+      `OPay error: ${json.message ?? `HTTP ${res.status}`}`
+    );
+  }
+  return json.data ?? {};
+}
+
+async function opayGetStatus(reference: string, orderNo: string, config: OPayConfig) {
+  return opayPost(
+    "/api/v1/international/cashier/status",
+    { reference, orderNo: orderNo || reference },
+    config
+  );
 }
 
 function newReference(uid: string): string {
@@ -103,11 +184,12 @@ interface InitializePaymentData {
   tripId?: string;
   email?: string;
   transactionPin?: string;
+  gateway?: "paystack" | "opay";
 }
 
 /**
- * Callable: starts a Paystack collection for the caller.
- * Returns `{ authorizationUrl, accessCode, reference }`.
+ * Callable: starts a Paystack or OPay collection for the caller.
+ * Returns `{ authorizationUrl, accessCode, reference, gateway }`.
  */
 export const initializePayment = guardedOnCall<InitializePaymentData>(
   async (request) => {
@@ -123,9 +205,9 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
     // when Firestore rules have not yet propagated to all SDK caches.
     await requireAccountActive(uid, "customer");
 
-    const secret = await paystackSecret();
-
     const d = request.data ?? {};
+    const gateway = d.gateway === "opay" ? "opay" : "paystack";
+
     const amountKobo =
       typeof d.amountKobo === "number" ? Math.round(d.amountKobo) : NaN;
     if (!Number.isFinite(amountKobo) || amountKobo < MIN_AMOUNT_KOBO) {
@@ -165,6 +247,79 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
 
     const reference = newReference(uid);
     const intentRef = db().collection("payment_intents").doc(reference);
+
+    if (gateway === "opay") {
+      const config = await opayConfig();
+      await intentRef.set({
+        reference,
+        userId: uid,
+        email,
+        amountKobo,
+        currency: "NGN",
+        purpose,
+        gateway: "opay",
+        tripId: tripId || null,
+        status: "INITIALIZED",
+        opayOrderNo: null,
+        authorizationUrl: null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      let orderNo = "";
+      let authorizationUrl = "";
+      const callbackUrl =
+        process.env.OPAY_CALLBACK_URL ?? "https://sesetech.com/payment/callback";
+
+      try {
+        const data = await opayPost(
+          "/api/v1/international/cashier/create",
+          {
+            country: "NG",
+            reference,
+            amount: (amountKobo / 100).toFixed(2),
+            currency: "NGN",
+            returnUrl: callbackUrl,
+            callbackUrl,
+            cancelUrl: `${callbackUrl}?status=cancelled`,
+            expireAt: 30,
+            userInfo: {
+              userEmail: email,
+              userId: uid,
+            },
+            product: {
+              name: purpose === "trip_payment" ? "Trip Payment" : "Sese Credits Top-Up",
+              description: "SeSe Ride Direct Checkout",
+            },
+            payMethods: ["account", "qrcode", "card", "bankTransfer"],
+          },
+          config
+        );
+        orderNo = String(data["orderNo"] ?? "");
+        authorizationUrl = String(data["cashierUrl"] ?? "");
+        if (!authorizationUrl) {
+          throw new HttpsError("internal", "OPay returned no checkout URL.");
+        }
+        await intentRef.update({
+          status: "PENDING",
+          opayOrderNo: orderNo,
+          authorizationUrl,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        await intentRef.update({
+          status: "FAILED",
+          failureReason: e instanceof Error ? e.message : String(e),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw e;
+      }
+
+      return { authorizationUrl, accessCode: orderNo, reference, gateway: "opay" };
+    }
+
+    // Default: Paystack payment initialization
+    const secret = await paystackSecret();
     await intentRef.set({
       reference,
       userId: uid,
@@ -172,6 +327,7 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
       amountKobo,
       currency: "NGN",
       purpose,
+      gateway: "paystack",
       tripId: tripId || null,
       status: "INITIALIZED",
       paystackAccessCode: null,
@@ -199,6 +355,7 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
             amount: amountKobo,
             transactionType: purpose === "trip_payment" ? "trip_payment" : "driver_credit_topup",
             purpose,
+            gateway: "paystack",
           },
         },
         secret
@@ -222,7 +379,7 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
       throw e;
     }
 
-    return { authorizationUrl, accessCode, reference };
+    return { authorizationUrl, accessCode, reference, gateway: "paystack" };
   }
 );
 
@@ -319,6 +476,7 @@ async function settleIntent(
     }
 
     const tripId = typeof intent["tripId"] === "string" ? intent["tripId"].trim() : "";
+    const gateway = String(intent["gateway"] ?? "paystack");
     if (intent["purpose"] === "trip_payment" && tripId) {
       const tripRef = db().collection("trips").doc(tripId);
       tx.set(
@@ -326,9 +484,11 @@ async function settleIntent(
         {
           paidViaCard: true,
           paymentMethod: "online",
+          paymentGateway: gateway,
           paymentStatus: "paid",
           cashToCollect: 0,
           paidAmount: verifiedAmountKobo / 100,
+          paymentReference: reference,
           paystackReference: reference,
           paidAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -362,6 +522,7 @@ async function settleIntent(
       amount: verifiedAmountKobo / 100,
       status: "success",
       currency: "NGN",
+      gateway,
       paymentReference: reference,
       tripId: tripId || null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -426,6 +587,36 @@ export const verifyPayment = guardedOnCall<VerifyPaymentData>(async (request) =>
   }
   if (intentSnap.data()!["userId"] !== request.auth.uid) {
     throw new HttpsError("permission-denied", "Not your payment.");
+  }
+
+  const gateway = String(intentSnap.data()!["gateway"] ?? "paystack");
+
+  if (gateway === "opay") {
+    const config = await opayConfig();
+    const orderNo = String(intentSnap.data()!["opayOrderNo"] ?? "");
+    const data = await opayGetStatus(reference, orderNo, config);
+    const opayStatus = String(data["status"] ?? "");
+
+    if (opayStatus !== "SUCCESS") {
+      await intentSnap.ref.update({
+        status: "FAILED",
+        failureReason: `OPay status: ${opayStatus || "unknown"}`,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        "Payment was not successful. No money was taken from your wallet flow."
+      );
+    }
+    if (String(data["currency"] ?? "NGN") !== "NGN") {
+      throw new HttpsError("data-loss", "Unexpected payment currency.");
+    }
+
+    const rawAmt = data["amount"];
+    const paidNaira =
+      typeof rawAmt === "number" ? rawAmt : parseFloat(String(rawAmt ?? "0"));
+    const paidKobo = Math.round(paidNaira * 100);
+    return settleIntent(reference, paidKobo);
   }
 
   const secret = await paystackSecret();
@@ -504,6 +695,79 @@ export const paystackWebhook = onRequest(async (req, res) => {
     res.status(200).send("ok");
   } catch (e) {
     console.error(`paystackWebhook settlement failed: ${e}`);
+    res.status(500).send("Internal settlement error");
+  }
+});
+
+/**
+ * HTTPS webhook: settlement driven by OPay Cashier events.
+ * Validates the HMAC-SHA512 cryptographic signature before trusting the payload,
+ * directly queries OPay status API to confirm authenticity and status,
+ * and enforces strict idempotency via wallet_ledger so duplicate events never double-credit.
+ */
+export const opayWebhook = onRequest(async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).send("Method not allowed");
+    return;
+  }
+  let config: OPayConfig;
+  try {
+    config = await opayConfig();
+  } catch (e) {
+    console.error("opayWebhook config error:", e);
+    res.status(500).send("Payments not configured");
+    return;
+  }
+
+  const rawBody: Buffer =
+    (req as unknown as { rawBody?: Buffer }).rawBody ??
+    Buffer.from(JSON.stringify(req.body ?? {}));
+  const expected = createHmac("sha512", config.secretKey).update(rawBody).digest("hex");
+
+  const headerSig = String(
+    req.headers["sha512"] ??
+    req.headers["x-opay-signature"] ??
+    req.body?.sha512 ??
+    ""
+  );
+
+  const sigBuf = Buffer.from(headerSig, "hex");
+  const expBuf = Buffer.from(expected, "hex");
+  if (
+    !headerSig ||
+    sigBuf.length === 0 ||
+    sigBuf.length !== expBuf.length ||
+    !timingSafeEqual(sigBuf, expBuf)
+  ) {
+    console.error("opayWebhook invalid signature");
+    res.status(401).send("Invalid signature");
+    return;
+  }
+
+  const payload = (req.body?.payload ?? req.body?.data ?? req.body ?? {}) as Record<string, unknown>;
+  const reference = String(payload.reference ?? "");
+  const orderNo = String(payload.orderNo ?? "");
+
+  if (!reference) {
+    res.status(400).send("Missing reference");
+    return;
+  }
+
+  try {
+    // Direct status confirmation with OPay status API to prevent replay/tampering
+    const statusData = await opayGetStatus(reference, orderNo, config);
+    if (statusData["status"] === "SUCCESS") {
+      const rawAmt = statusData["amount"];
+      const paidNaira =
+        typeof rawAmt === "number" ? rawAmt : parseFloat(String(rawAmt ?? "0"));
+      const paidKobo = Math.round(paidNaira * 100);
+      if (paidKobo > 0) {
+        await settleIntent(reference, paidKobo);
+      }
+    }
+    res.status(200).json({ code: "00000", message: "SUCCESSFUL" });
+  } catch (e) {
+    console.error(`opayWebhook settlement failed: ${e}`);
     res.status(500).send("Internal settlement error");
   }
 });

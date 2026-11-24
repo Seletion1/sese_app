@@ -59,6 +59,26 @@ void main() {
           amountNaira: 1000, email: 'a@b.co');
       expect(auth.reference, 'sese_ref_1');
       expect(auth.authorizationUrl, contains('paystack'));
+      expect(auth.gateway, 'paystack');
+    });
+
+    test('supports OPay gateway initialization and propagation', () async {
+      final backend = _ScriptedBackend()
+        ..initResponse = {
+          'authorizationUrl': 'https://cashier.opaycheckout.com/pay/abc',
+          'accessCode': 'opay_code_123',
+          'reference': 'sese_opay_ref_1',
+          'gateway': 'opay',
+        };
+      final service = PaymentService(backend: backend);
+      final auth = await service.initializePayment(
+        amountNaira: 2500,
+        email: 'user@seseride.com',
+        gateway: 'opay',
+      );
+      expect(auth.reference, 'sese_opay_ref_1');
+      expect(auth.gateway, 'opay');
+      expect(auth.authorizationUrl, contains('opaycheckout.com'));
     });
 
     test('throws when backend returns no checkout URL', () async {

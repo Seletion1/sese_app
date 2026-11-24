@@ -306,6 +306,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   String _paymentMode =
       'sender_pays'; // 'sender_pays', 'receiver_pays'
   String _paymentMethod = 'cash'; // 'cash' (default), 'online'
+  String _selectedOnlineGateway = 'paystack'; // 'paystack', 'opay'
 
   double get _currentEstimatedFare {
     final resp = _fareResponse;
@@ -508,7 +509,16 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     if (SeseUniversalMap.debugTileProviderOverride == null) {
       // ignore: discarded_futures
       RemoteKeysService().fetchRemoteKeys().then((cfg) {
-        if (mounted) setState(() => _remoteKeys = cfg);
+        if (mounted) {
+          setState(() {
+            _remoteKeys = cfg;
+            if (!cfg.enablePaystack && cfg.enableOpay) {
+              _selectedOnlineGateway = 'opay';
+            } else if (cfg.enablePaystack) {
+              _selectedOnlineGateway = 'paystack';
+            }
+          });
+        }
       });
     }
     if (_pickupLatLng != null && _dropoffLatLng != null) {
@@ -1669,6 +1679,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           email: widget.user?.email ?? 'customer@seseride.com',
           purpose: 'trip_payment',
           tripId: tripId,
+          gateway: _selectedOnlineGateway,
         );
         if (!mounted) return;
         final paid = await Navigator.of(context).push<bool>(
@@ -3407,7 +3418,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   Expanded(
                     child: _buildPaymentMethodPill(
                       label: 'Card / Online',
-                      subtitle: 'Paystack',
+                      subtitle: _selectedOnlineGateway == 'opay'
+                          ? 'OPay'
+                          : (_remoteKeys.enableOpay
+                              ? 'Paystack / OPay'
+                              : 'Paystack'),
                       icon: Icons.credit_card_rounded,
                       isSelected: _paymentMethod == 'online',
                       isDark: isDark,
@@ -3416,6 +3431,38 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                   ),
                 ],
               ),
+              if (_paymentMethod == 'online' &&
+                  _remoteKeys.enablePaystack &&
+                  _remoteKeys.enableOpay) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildOnlineGatewayChip(
+                        id: 'paystack',
+                        label: 'Paystack',
+                        subtitle: 'Card, USSD, Bank',
+                        isSelected: _selectedOnlineGateway == 'paystack',
+                        isDark: isDark,
+                        onTap: () =>
+                            setState(() => _selectedOnlineGateway = 'paystack'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildOnlineGatewayChip(
+                        id: 'opay',
+                        label: 'OPay Checkout',
+                        subtitle: 'OPay App, Card, Bank',
+                        isSelected: _selectedOnlineGateway == 'opay',
+                        isDark: isDark,
+                        onTap: () =>
+                            setState(() => _selectedOnlineGateway = 'opay'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
 
               // Summary Container
@@ -3452,7 +3499,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                         const SizedBox(width: 6),
                         Text(
                           _paymentMethod == 'online'
-                              ? 'Direct Paystack Checkout'
+                              ? (_selectedOnlineGateway == 'opay'
+                                  ? 'Direct OPay Checkout'
+                                  : 'Direct Paystack Checkout')
                               : 'Cash on Delivery / Ride',
                           style: TextStyle(
                             fontSize: 12,
@@ -3497,7 +3546,9 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                     const SizedBox(height: 2),
                     Text(
                       _paymentMethod == 'online'
-                          ? 'Pay securely with your card via Paystack upon booking confirmation.'
+                          ? (_selectedOnlineGateway == 'opay'
+                              ? 'Pay securely via OPay Checkout upon booking confirmation.'
+                              : 'Pay securely with your card via Paystack upon booking confirmation.')
                           : 'Pay in cash directly to the driver at pickup.',
                       style: TextStyle(
                         fontSize: 11,
@@ -3650,6 +3701,74 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnlineGatewayChip({
+    required String id,
+    required String label,
+    required String subtitle,
+    required bool isSelected,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    final primary = AppColors.seseGold;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (isDark ? const Color(0xFF2C2410) : const Color(0xFFFFFBEB))
+              : (isDark ? const Color(0xFF252530) : Colors.white),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? primary
+                : (isDark ? const Color(0xFF3A3A46) : Colors.grey.shade300),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+              size: 15,
+              color: isSelected
+                  ? primary
+                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      color:
+                          isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
