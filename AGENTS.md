@@ -72,6 +72,17 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Paystack Checkout Resolution: Browser Fallback inAppBrowserView (Custom Tabs), WebViewActivity Lifecycle Crash Elimination & Precise Main Document Error Guard (`sese_ride`)
+
+- **1. Root-Cause Analysis from Logcat**:
+  - *`WebViewActivity` Lifecycle Termination*: When falling back to the browser (or when the user tapped "Browser" on the AppBar), `PaymentService.launchCheckout` opened `LaunchMode.inAppWebView`. On Android (especially Huawei EMUI / Mali GPU), `io.flutter.plugins.urllauncher.WebViewActivity` failed SurfaceProducer buffer binding (`dequeueBuffer failed, error = -110; switching to fallback`, `reserveNext failed`, `BufferQueueProducer disconnect failed`) and was immediately destroyed by the OS (`current lifecycle state: 3 -> 5 -> 6`). Because `launchUrl` had returned `true`, the sheet considered the launch successful, leaving the user on the "Verify Payment" sheet with no checkout page visible.
+  - *Mainframe HTTP Status Guard Precision*: `onHttpError` in `PaystackCheckoutScreen` previously checked `reqUri.host.contains('paystack.com')` without restricting to the base document path, risking false positives if background API/resolution calls on Paystack failed.
+- **2. Pipeline Hardening**:
+  - *`SeseService.launchCheckout`*: Removed `LaunchMode.inAppWebView` (`WebViewActivity`). The primary launch mode is now `LaunchMode.inAppBrowserView` (Android Chrome Custom Tabs / iOS SFSafariViewController), which provides a full native browser session, DOM storage, session cookies, and 3DS banking redirects while remaining inside the app lifecycle. Gracefully falls back to `LaunchMode.externalApplication` and `LaunchMode.platformDefault`.
+  - *`PaystackCheckoutScreen`*: Tightened `onHttpError` to strictly compare `reqUri.split('?').first == authBase`, ensuring sub-resource and internal resolution calls never trip full-screen error states.
+- **3. Verification**:
+  - `sese_ride`: 17/17 tests passed (`sese_service_test.dart`, `paystack_checkout_error_guard_test.dart`, `payment_topup_test.dart`).
+
 ## 2026-11-24 — Paystack Checkout Resolution: 404 Callback Prevention, Fresh Session Init, Subresource Error Immunity (`functions`, `firebase.json`, `public/payment/`, `sese_ride`)
 
 - **1. Root-Cause Analysis for Images 1 & 2**:

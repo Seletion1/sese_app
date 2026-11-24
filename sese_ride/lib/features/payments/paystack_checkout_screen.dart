@@ -82,14 +82,10 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
           onHttpError: (HttpResponseError err) {
             final statusCode = err.response?.statusCode;
             final reqUri = err.request?.uri;
+            final authBase = Uri.tryParse(widget.auth.authorizationUrl)?.toString().split('?').first;
             final isMainDocument = reqUri != null &&
-                (reqUri.toString() == widget.auth.authorizationUrl ||
-                    (reqUri.host.contains('paystack.com') &&
-                        !reqUri.path.endsWith('.png') &&
-                        !reqUri.path.endsWith('.ico') &&
-                        !reqUri.path.endsWith('.svg') &&
-                        !reqUri.path.endsWith('.js') &&
-                        !reqUri.path.endsWith('.css')));
+                authBase != null &&
+                reqUri.toString().split('?').first == authBase;
             debugPrint(
               'PaystackCheckout: HTTP status error: $statusCode, uri=$reqUri, isMain=$isMainDocument',
             );

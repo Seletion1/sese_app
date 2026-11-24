@@ -494,55 +494,52 @@ class SeseService {
   /// Verifies Sese Credits top-up.
   Future<bool> verifyTopUp(String reference) => verifyPayment(reference);
 
-  /// Opens the Paystack hosted checkout, preferring the secure self-contained
-  /// in-app WebView and falling back safely if third-party app deep-links throw
-  /// SecurityExceptions.
+  /// Opens the Paystack hosted checkout in a genuine browser environment.
+  /// Prefers `LaunchMode.inAppBrowserView` (Chrome Custom Tabs on Android /
+  /// SFSafariViewController on iOS), which provides a full native browser
+  /// with cookies, DOM storage, autofill, and 3DS banking redirects while
+  /// staying inside the app. Falls back cleanly to `LaunchMode.externalApplication`
+  /// and `LaunchMode.platformDefault`.
+  ///
+  /// Never uses `LaunchMode.inAppWebView` (`io.flutter.plugins.urllauncher.WebViewActivity`)
+  /// because it lacks DOM storage, fails on Huawei/Mali GPU lifecycles, and
+  /// defeats the purpose of an external browser fallback.
   Future<bool> launchCheckout(String authorizationUrl) async {
     final uri = Uri.tryParse(authorizationUrl.trim());
     if (uri == null || !uri.hasScheme) {
-      debugPrint('PaymentService.launchCheckout: malformed url');
+      debugPrint('SeseService.launchCheckout: malformed url');
       return false;
     }
     debugPrint(
-        'PaymentService.launchCheckout: opening ${uri.host} (scheme ${uri.scheme})');
+        'SeseService.launchCheckout: opening ${uri.host} (scheme ${uri.scheme})');
 
-    // Attempt 1: In-App WebView (fully self-contained; immune to third-party
-    // app intent filter traps, e.g. OPay's unexported WebFoundationActivity,
-    // which resolved https://checkout.paystack.com and threw SecurityException).
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.inAppWebView);
-      debugPrint('PaymentService.launchCheckout inAppWebView: $ok');
-      if (ok) return true;
-    } catch (e) {
-      debugPrint('PaymentService.launchCheckout inAppWebView error: $e');
-    }
-
-    // Attempt 2: In-App Browser View / Chrome Custom Tab (used only if the
-    // self-contained WebView fails on exotic devices).
+    // Attempt 1: In-App Browser View / Chrome Custom Tabs / SFSafariViewController.
+    // Full native browser session, DOM storage, cookies, banking app handoffs,
+    // and safe against unexported third-party app intent filter traps.
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-      debugPrint('PaymentService.launchCheckout inAppBrowserView: $ok');
+      debugPrint('SeseService.launchCheckout inAppBrowserView: $ok');
       if (ok) return true;
     } catch (e) {
-      debugPrint('PaymentService.launchCheckout inAppBrowserView error: $e');
+      debugPrint('SeseService.launchCheckout inAppBrowserView error: $e');
     }
 
-    // Attempt 3: External Application
+    // Attempt 2: External Application (standard system browser application)
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      debugPrint('PaymentService.launchCheckout externalApplication: $ok');
+      debugPrint('SeseService.launchCheckout externalApplication: $ok');
       if (ok) return true;
     } catch (e) {
-      debugPrint('PaymentService.launchCheckout externalApplication error: $e');
+      debugPrint('SeseService.launchCheckout externalApplication error: $e');
     }
 
-    // Attempt 4: Platform Default
+    // Attempt 3: Platform Default
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
-      debugPrint('PaymentService.launchCheckout platformDefault: $ok');
+      debugPrint('SeseService.launchCheckout platformDefault: $ok');
       return ok;
     } catch (e) {
-      debugPrint('PaymentService.launchCheckout platformDefault error: $e');
+      debugPrint('SeseService.launchCheckout platformDefault error: $e');
       return false;
     }
   }
