@@ -72,6 +72,18 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Order Pool Sheet Overflow Resolution: RenderFlex 80px Elimination & Scrollable Empty State Integration (`sese_ride`)
+
+- **1. Root-Cause Analysis from Crash Log**:
+  - *Crash Log Assertion*: `A RenderFlex overflowed by 80 pixels on the bottom. The relevant error-causing widget was: Column Column:file:///Users/micheal/sese_app/sese_ride/lib/features/driver/presentation/widgets/order_pool_sheet.dart:290:22`.
+  - *Intrinsic Height vs. DraggableScrollableSheet Clamping*: In `OrderPoolSheet`, when `trips.isEmpty` evaluated to true (or before orders populated into the pool stream), `_EmptyPoolRadar` rendered directly inside an unscrollable `Column` with `mainAxisSize: MainAxisSize.min`. `DraggableScrollableSheet` with `minChildSize: 0.22` or `initialChildSize: 0.35` bounded max sheet height on mobile displays to ~260–270dp. However, `_EmptyPoolRadar` + sheet header had a combined fixed intrinsic height of ~340–350dp, immediately triggering an 80-pixel bottom RenderFlex overflow.
+  - *Unbound Draggable Scroll Controller*: In the empty state, `scrollController` from `DraggableScrollableSheet` was left completely unbound to any Scrollable, disabling sheet drag physics.
+- **2. Pipeline Hardening (`order_pool_sheet.dart`)**:
+  - *Flex Contract Symmetry*: Wrapped `_EmptyPoolRadar` in `Expanded(child: SingleChildScrollView(controller: scrollController, physics: const AlwaysScrollableScrollPhysics(), child: ...))` identical to the active `ListView.separated` branch. This guarantees that `DraggableScrollableSheet` bounds are strictly respected, dragging is always functional, and content scrolls cleanly without ever exceeding viewport constraints.
+  - *Proportional Compact Scaling*: Tightened `_EmptyPoolRadar` vertical padding (28 -> 16), pulsing radar diameter (140 -> 110), and element spacing so the searching state natively fits on compact viewports without scroll triggers.
+- **3. Verification**:
+  - `sese_ride`: Added widget test `renders empty pool radar without overflow on compact viewport` in `test/order_pool_bidding_test.dart` (10/10 tests passed; analyzer 0 issues).
+
 ## 2026-11-24 — Sese Credits Top-Up Resolution: Firestore Transaction Read-Before-Write Invariant in `settleIntent` & Interactive Verification Action (`functions`, `sese_ride`)
 
 - **1. Root-Cause Analysis from User Images & Log**:

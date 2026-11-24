@@ -1,6 +1,28 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/order_pool_sheet.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
+
+class _FakeDriverStreakService extends Fake implements DriverStreakService {
+  final StreamController<List<ActiveTrip>> _streamController =
+      StreamController<List<ActiveTrip>>.broadcast();
+
+  @override
+  String get driverId => 'd_1';
+
+  @override
+  Stream<List<ActiveTrip>> marketplaceStream({
+    String? driverId,
+    int limit = 20,
+  }) =>
+      _streamController.stream;
+
+  void emit(List<ActiveTrip> trips) => _streamController.add(trips);
+  void close() => _streamController.close();
+}
 
 ActiveTrip _makeTrip({
   required String tripId,
@@ -143,6 +165,40 @@ void main() {
 
       expect(OrderPoolSession.isDismissedTrip(updatedTrip), isFalse);
       expect(OrderPoolSession.isDismissed('trip_104'), isFalse);
+    });
+
+    testWidgets(
+        'renders empty pool radar without overflow on compact viewport',
+        (tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      final fakeService = _FakeDriverStreakService();
+      addTearDown(fakeService.close);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: OrderPoolSheet(
+              streakService: fakeService,
+              driverPosition: const LatLng(6.5244, 3.3792),
+              currencySymbol: '₦',
+            ),
+          ),
+        ),
+      );
+
+      fakeService.emit([]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Order Pool (0)'), findsOneWidget);
+      expect(find.text('Searching…'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

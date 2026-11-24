@@ -319,7 +319,13 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
                         ),
                       ),
                       if (trips.isEmpty)
-                        _EmptyPoolRadar(breathe: _breathe)
+                        Expanded(
+                          child: SingleChildScrollView(
+                            controller: scrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: _EmptyPoolRadar(breathe: _breathe),
+                          ),
+                        )
                       else
                         Expanded(
                           child: ListView.separated(
@@ -1869,7 +1875,7 @@ class _EmptyPoolRadar extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 28),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1878,15 +1884,15 @@ class _EmptyPoolRadar extends StatelessWidget {
             builder: (context, _) {
               final t = breathe.value;
               return SizedBox(
-                width: 140,
-                height: 140,
+                width: 110,
+                height: 110,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
                     // Outer pulsing ring.
                     Container(
-                      width: 140 * (0.55 + 0.45 * t),
-                      height: 140 * (0.55 + 0.45 * t),
+                      width: 110 * (0.55 + 0.45 * t),
+                      height: 110 * (0.55 + 0.45 * t),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: scheme.primary
@@ -1895,22 +1901,22 @@ class _EmptyPoolRadar extends StatelessWidget {
                     ),
                     // Inner filled disc.
                     Container(
-                      width: 84,
-                      height: 84,
+                      width: 68,
+                      height: 68,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: scheme.primary.withValues(alpha: 0.14),
                       ),
                     ),
-                    Icon(Icons.radar, size: 36, color: scheme.primary),
+                    Icon(Icons.radar, size: 30, color: scheme.primary),
                   ],
                 ),
               );
             },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(20),
@@ -1918,13 +1924,13 @@ class _EmptyPoolRadar extends StatelessWidget {
             child: Text(
               'Searching\u2026',
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: scheme.onSurfaceVariant,
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Padding(
             // 16px matches the sheet list padding (12–16) so the empty
             // text spans the same width as pool rows, not a narrow column.
