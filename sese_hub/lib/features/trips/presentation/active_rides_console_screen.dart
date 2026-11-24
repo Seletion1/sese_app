@@ -23,7 +23,7 @@ import '../../staff/services/hub_access_service.dart';
 ///    - Prominently displays the 4-digit Security/Delivery PIN with one-tap copy.
 ///    - Hotline operator assistance guidance for providing PIN to drivers over the phone when customer is unreachable.
 ///    - Customer and Driver contact diallers (`url_launcher` with `tel:`).
-///    - Dispute overrides: "Force Complete Trip", "Cancel & Refund Escrow", "Manual PIN Bypass".
+///    - Dispute overrides: "Force Complete Trip", "Remove Trip & Refund Customer", "Manual PIN Bypass".
 class ActiveRidesConsoleScreen extends StatelessWidget {
   final FirebaseFirestore? firestore;
 

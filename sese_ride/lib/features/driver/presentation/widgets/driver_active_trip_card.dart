@@ -254,7 +254,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         content: Text(
           'You have waited over ${widget.waitThresholdMinutes} minutes after arriving. '
           'Cancelling now is policy-protected and will not penalize your driver rating. '
-          'Note: Driver no-show cancellations forfeit waiting fee payouts, but allow you to exit immediately.',
+          'Note: Driver no-show cancellations forfeit waiting fee compensation, but allow you to exit immediately.',
         ),
         actions: [
           TextButton(
@@ -531,7 +531,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   ),
                 ),
                 child: Text(
-                  'Wallet portion of $walletStr is locked in escrow and will be credited to your driver wallet upon completion.',
+                  'Card/Online payment of $walletStr is prepaid and will be settled upon trip completion.',
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
@@ -650,7 +650,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
                   ),
                 ),
                 child: Text(
-                  'Sender portion of $walletStr is prepaid and locked in escrow. It will be credited to your driver wallet upon completion.',
+                  'Sender portion of $walletStr is prepaid online and will be settled upon trip completion.',
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark ? const Color(0xFFA7F3D0) : const Color(0xFF065F46),
@@ -3200,7 +3200,7 @@ class _PaymentCollectionCard extends StatelessWidget {
             if (hasWallet) ...[
               const SizedBox(height: 3),
               Text(
-                '₦${walletAmount.toStringAsFixed(0)} wallet portion locked in escrow, credited upon completion.',
+                '₦${walletAmount.toStringAsFixed(0)} online prepaid portion, settled upon completion.',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,

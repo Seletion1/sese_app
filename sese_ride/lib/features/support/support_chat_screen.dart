@@ -393,8 +393,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                                       size: 56, color: scheme.primary),
                                   const SizedBox(height: 12),
                                   const Text(
-                                    'Hi! I can help with payouts, trip issues, '
-                                    'wallet queries, app navigation and more.',
+                                    'Hi! I can help with trips, bookings, '
+                                    'Sese Credits, app navigation and more.',
                                     textAlign: TextAlign.center,
                                   ),
                                 ],
@@ -454,7 +454,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                                     decoration: InputDecoration(
                                       hintText: isHuman
                                           ? 'Message the support agent…'
-                                          : 'Ask about payouts, trips, wallet…',
+                                          : 'Ask about trips, Sese Credits, bookings…',
                                       filled: true,
                                       fillColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                                       border: OutlineInputBorder(

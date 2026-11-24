@@ -367,12 +367,9 @@ class SeseService {
     return (balKobo / 100.0) >= minNaira;
   }
 
-  /// Wallet history, newest first. Filterable by [role]:
-  /// - `'customer'`: returns only customer-facing transactions (top-ups, passenger
-  ///   ride payments, escrow holds/refunds, customer bonuses). Hides driver commission
-  ///   fees, driver settlements, driver escrows, and payout logs.
-  /// - `'driver'`: returns driver-facing transactions (fare income, platform commissions,
-  ///   driver bonuses, payouts, top-ups).
+  /// Credit and transaction history, newest first. Filterable by [role]:
+  /// - `'customer'`: returns customer-facing records (ride payments, refunds).
+  /// - `'driver'`: returns driver-facing records (fare receipts, platform commissions, top-ups).
   /// - `null`: returns all transactions without role filtering.
   Stream<List<WalletTransaction>> walletHistoryStream(
     String uid, {

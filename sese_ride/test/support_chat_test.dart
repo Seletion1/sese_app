@@ -132,14 +132,14 @@ void main() {
       service.messagesCtrl.add(const []);
       service.statusCtrl.add(SupportChatStatus.aiActive);
       await tester.pumpAndSettle();
-      expect(find.textContaining('payouts, trip issues, wallet'), findsOneWidget);
+      expect(find.textContaining('trips, bookings, Sese Credits'), findsOneWidget);
 
       await tester.enterText(
-          find.byKey(const Key('support_input')), 'Where is my payout?');
+          find.byKey(const Key('support_input')), 'How do I top up Sese Credits?');
       await tester.tap(find.byKey(const Key('support_send_button')));
       await tester.pump(const Duration(milliseconds: 100));
       await tester.pump(const Duration(milliseconds: 100));
-      expect(service.sent, ['Where is my payout?']);
+      expect(service.sent, ['How do I top up Sese Credits?']);
       expect(find.byKey(const Key('typing_indicator')), findsOneWidget);
 
       service.messagesCtrl.add(const [
@@ -147,17 +147,17 @@ void main() {
           id: 'u1',
           senderType: 'user',
           senderId: 'user_1',
-          text: 'Where is my payout?',
+          text: 'How do I top up Sese Credits?',
         ),
         SupportMessage(
           id: 'b1',
           senderType: 'ai',
           senderId: 'ai_assistant',
-          text: 'Payouts settle to your wallet immediately after trips.',
+          text: 'You can top up Sese Credits via Paystack in Driver Settings.',
         ),
       ]);
       await tester.pumpAndSettle();
-      expect(find.text('Payouts settle to your wallet immediately after trips.'), findsOneWidget);
+      expect(find.text('You can top up Sese Credits via Paystack in Driver Settings.'), findsOneWidget);
       expect(find.byKey(const Key('typing_indicator')), findsNothing);
     });
 

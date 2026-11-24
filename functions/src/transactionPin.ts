@@ -13,9 +13,7 @@ import { guardedOnCall } from "./accountGuard";
  *
  * NOW: the PIN is SHA-256(salt + pin) hashed server-side and stored in
  * `users/{uid}/private/auth` (owner-read, server-write only — see
- * firestore.rules). Every money-moving callable (`transferWalletFunds`,
- * `processWalletWithdrawal`, `settleSplitPayment`) takes a `transactionPin`
- * and verifies it HERE, before any balance is read. No PIN, no money.
+ * firestore.rules). Sensitive account operations verify it HERE.
  *
  * The account password (Firebase Auth credential) and this PIN never share
  * storage, never share verification, and never overwrite each other: the

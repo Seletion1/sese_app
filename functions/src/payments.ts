@@ -23,8 +23,7 @@ import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountG
  *
  * Secrets: the Paystack SECRET key lives ONLY here, read from
  * `process.env.PAYSTACK_API_KEY` (plain `.env` var, git-ignored) with a
- * fallback to `process.env.PAYSTACK_SECRET_KEY` (stale Secret Manager
- * binding from the defineSecret era — see payouts.ts).
+ * fallback to `process.env.PAYSTACK_SECRET_KEY`.
  * The public key (`pk_test_...`) is safe to embed in the client.
  */
 
@@ -451,15 +450,11 @@ export const verifyPayment = guardedOnCall<VerifyPaymentData>(async (request) =>
 });
 
 /**
- * HTTPS webhook: `charge.success` settlement + `transfer.success` /
- * `transfer.failed` payout settlement, all driven by Paystack.
+ * HTTPS webhook: `charge.success` settlement driven by Paystack.
  * Verifies the `x-paystack-signature` HMAC before trusting the payload.
  * Configure the URL in the Paystack dashboard (Settings → Webhooks).
  *
- * Transfer events settle `payout_requests` rows written by
- * `processWalletWithdrawal`, via the shared idempotent `settleTransfer`.
- * This is the single HMAC-verified ingress for all Paystack events; the old
- * token-guarded `transferWebhook` callable is deleted.
+ * This is the single HMAC-verified ingress for Paystack webhook events.
  */
 export const paystackWebhook = onRequest(async (req, res) => {
   if (req.method !== "POST") {

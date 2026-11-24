@@ -237,7 +237,7 @@
             </tr>
             <tr>
               <td><strong>30-Day Regulatory Soft-Archive</strong></td>
-              <td>Completed trip receipts, fare invoices, commission ledger entries, wallet transaction records, driver payout summaries, dispute records.</td>
+              <td>Completed trip receipts, fare invoices, commission ledger entries, credit transaction records, and dispute records.</td>
               <td>Held in an encrypted, access-restricted archive for <strong>30 days</strong> for Nigerian AML, tax, and financial compliance. Permanently purged or irrevocably anonymized after 30 days.</td>
             </tr>
           </tbody>
@@ -246,11 +246,10 @@
 
       <div id="s4" class="legal-section">
         <h2>4. Mandatory Prerequisites for Deletion</h2>
-        <p>To protect your funds and prevent fraudulent account abandonment, your account cannot be deleted until <strong>ALL</strong> of the following conditions are met:</p>
+        <p>To protect your account and prevent fraudulent account abandonment, your account cannot be deleted until <strong>ALL</strong> of the following conditions are met:</p>
         <ul class="prereq-list">
-          <li><strong>Zero Wallet Balance:</strong> Your in-app SESE Wallet balance must be exactly ₦0.00. Withdraw or spend any remaining balance first.</li>
           <li><strong>No Active Rides or Deliveries:</strong> You must not have any ongoing, uncompleted, or disputed trips or courier deliveries in progress.</li>
-          <li><strong>No Pending Driver Payouts:</strong> (Driver accounts only) All pending bank withdrawal transfers must be fully settled before deletion can proceed.</li>
+          <li><strong>No Outstanding Commission Debt:</strong> (Driver accounts only) Any outstanding platform commission must be settled before deletion can proceed.</li>
           <li><strong>No Active Compliance Flags:</strong> No unresolved fraud investigations or compliance holds flagged by SESE Compliance.</li>
         </ul>
       </div>
@@ -304,7 +303,7 @@
           <div class="form-group">
             <label class="checkbox-label">
               <input type="checkbox" id="confirmConsent" required>
-              <span>I confirm I am the authorized owner of this account, have a zero wallet balance, no active rides or deliveries, and I explicitly request permanent deletion of my account and all associated personal data.</span>
+              <span>I confirm I am the authorized owner of this account, have no active rides or deliveries, and I explicitly request permanent deletion of my account and all associated personal data.</span>
             </label>
           </div>
           <button type="submit" class="btn-submit">🗑 Submit Account Deletion Request</button>
@@ -375,7 +374,7 @@
         'Account Type: ' + role + '\n' +
         'Reason: ' + reason + '\n' +
         'Additional Notes: ' + (notes || 'None') + '\n\n' +
-        'User confirmed: zero wallet balance, no active rides, no pending payouts.\n' +
+        'User confirmed: no active rides, no outstanding platform debt.\n' +
         'User explicitly consents to permanent account and data deletion.'
       );
 

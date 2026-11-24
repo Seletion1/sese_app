@@ -175,7 +175,6 @@ service cloud.firestore {
       return scope == 'manageAdminInvites' ? 'iam'
         : scope == 'manageVaultKeys' ? 'vault'
         : scope == 'viewLedger' ? 'ledger'
-        : scope == 'processPayouts' ? 'payouts'
         : scope == 'liveDriverTracking' ? 'tracking'
         : scope == 'manageIncidents' ? 'incidents'
         : scope == 'approveKyc' ? 'kyc'
@@ -1416,15 +1415,6 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // ===== DRIVER PAYOUTS — PROMPT 42 =====
-    match /driver_payouts/{payoutId} {
-      allow read: if isAuthenticated() && (
-        resource.data.driverId == request.auth.uid ||
-        isOperationsAdmin()
-      );
-      allow write: if false; // Server-only via Admin SDK
-    }
-
     // ===== PROMPT 44: DRIVER OTP BYPASS & LIABILITY AUDIT =====
     match /liability_audit/{auditId} {
       allow read: if isAuthenticated() && (
@@ -2043,8 +2033,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // PROMPT 48 — Insured Claims & Escrow Disputes. Docs are written by
-    // server callables only (disputeCreateAndHoldEscrow / disputeResolveEscrow);
+    // Insured Claims & Order Disputes. Docs are written by server callables only;
     // the order owner may read their own dispute, admins may audit all.
     match /disputes/{disputeId} {
       allow read: if isAuthenticated() && (

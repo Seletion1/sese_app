@@ -7,21 +7,21 @@ async function main() {
   const accessToken = fbConfig.tokens.access_token;
 
   const tooltips = {
-    menu_wallet: {
-      title: 'Wallet',
-      description: 'Manage funds, top up balance, withdraw to your Nigerian bank, and view real-time transaction ledger.',
+    menu_credits: {
+      title: 'Sese Credits',
+      description: 'Manage platform dispatch credits used strictly to settle trip commissions.',
       enabled: true,
       maxViews: 2,
     },
     menu_earnings: {
       title: 'Earnings',
-      description: 'Track daily, weekly, and monthly trip earnings, commissions, net profit, and streak milestones.',
+      description: 'Track daily, weekly, and monthly trip earnings, commissions, and net profit.',
       enabled: true,
       maxViews: 2,
     },
     menu_referral: {
       title: 'Refer & Earn',
-      description: 'Share your referral code with friends and drivers to earn lifetime commission bonus coins.',
+      description: 'Share your referral code with friends and drivers.',
       enabled: true,
       maxViews: 2,
     },
@@ -49,45 +49,15 @@ async function main() {
       enabled: true,
       maxViews: 2,
     },
-    menu_wallet___payments: {
-      title: 'Wallet & Payments',
-      description: 'Manage your payment balance, linked debit cards, and transaction history.',
+    sese_credits: {
+      title: 'Sese Credits',
+      description: 'Non-withdrawable platform service credits used strictly for commission settlement.',
       enabled: true,
       maxViews: 2,
     },
-    menu_saved_places: {
-      title: 'Saved Places',
-      description: 'Bookmark your Home, Work, and frequent addresses for zero-cost instant booking.',
-      enabled: true,
-      maxViews: 2,
-    },
-    menu_bank___payout_details: {
-      title: 'Bank & Payout Details',
-      description: 'Link and verify your Nigerian bank account for instant withdrawal settlements.',
-      enabled: true,
-      maxViews: 2,
-    },
-    menu_security_pin: {
-      title: 'Security PIN',
-      description: 'Protect your account, withdrawals, and wallet transfers with a secure 4-digit PIN.',
-      enabled: true,
-      maxViews: 2,
-    },
-    sese_coin: {
-      title: 'SeSe Coin Balance',
-      description: 'Bonus rewards earned from referrals and streaks. 1 SeSe Coin = ₦1, converting to main cash upon reaching threshold.',
-      enabled: true,
-      maxViews: 2,
-    },
-    wallet_balance: {
-      title: 'Wallet Balance',
-      description: 'Withdrawable cash balance available for trips, peer transfers, and bank payouts.',
-      enabled: true,
-      maxViews: 2,
-    },
-    payment_mode: {
-      title: 'Payment Mode',
-      description: 'Choose who pays for the trip: Sender at pickup, Receiver at drop-off, or Split Payment between both.',
+    dispatch_mode: {
+      title: 'Service Mode',
+      description: 'Select Ride-Hailing to book a vehicle, or Package Delivery to send or receive parcels.',
       enabled: true,
       maxViews: 2,
     },

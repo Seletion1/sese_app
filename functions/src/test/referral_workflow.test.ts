@@ -3,7 +3,7 @@ import { test, describe } from "node:test";
 
 /**
  * Unit test suite for Referral Code Generation, Self-Referral Prevention,
- * and Dynamic Referral Commission Payout calculations.
+ * and Dynamic Referral Code Validation.
  */
 
 function generateBaseReferralCode(fullName: string, phoneNumber: string): string {

@@ -76,14 +76,13 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 - **Verified:** `firebase deploy --only firestore:rules --dry-run` → "rules file firestore.rules compiled successfully"; redeploy completed.
 
 ### F8 — Rules audit: money/writes are server-authoritative
-- `wallets/*` — client `create` zero-balance only; `update`/`delete` all `if false`. `wallets/{uid}/transactions/*` — client writes denied. Escrow, payouts, referrals, settlements — all server writes (Admin SDK). ✓
+- `wallets/*` — client `create` zero-balance only; `update`/`delete` all `if false`. `wallets/{uid}/transactions/*` — client writes denied. Sese Credits, settlements — all server writes (Admin SDK). ✓
 - `users` — `role`, `isSuspended`, `outstandingNegativeBalance`, `balance` bans on create/update (well-tested at lines 724-736). New: `sequentialId`, `referralCode`, `referralId` + new `referredBy`, `referred_by_code`, `referrerId`, `referralSignupAt` bans.
 - `drivers` — same bans; new fields added.
 - `hub_staff` — new: create/update ban sequentialId; on update it cannot change (verified logic: absent-safe).
 - `trips` — `allow create, update, delete: if false` — **server-only**. ✓
 - `delivery_pins` — server-only writes; read-scoped to customer + admins. ✓
 - `payment_intents` — owner-read only. ✓
-- `payout_requests` — owner read; Super Admin/ops update; no create/update by owner. ✓
 - `split_bills` — server-only writes (intended for future split-settlement).
 - `calls/*` + ICE candidate subcollections — participant-only. ✓
 - `users/{uid}/private/auth` — owner read, `allow write: if false`. ✓
@@ -108,8 +107,6 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 
 ### F10 — Good practices confirmed (no fixes needed)
 - `payments.ts:settleIntent` — idempotency via `wallet_ledger/{reference}` existence check; amount equality enforced; App Check on `initializePayment`/`verifyPayment`.
-- `payouts.ts:processWalletWithdrawal` — App Check + account-active + transaction-PIN + daily-limit + server-side Paystack name match + atomic balance check + compensating refund on Paystack failure.
-- `payouts.ts:settleTransfer` — idempotency keys (`payout_${ref}_${outcome}`) + status guards + CRITICAL double-payout alert.
 - `accountGuard.ts` — runtime App Check gate; fail-open ONLY on infra errors with critical logs.
 - `trips.ts:acceptTrip` — multi-device session lock, low-balance gate, self-assignment guard, vehicle approval gate, category isolation, bid validation.
 - `trips.ts:createTrip` — atomic escrow lock with availability-clamp, deterministic `${tripId}_escrow_hold` ledger keys, self-assignment guard.
@@ -157,7 +154,7 @@ All other layers audited (sequential ID issuance, wallet ledger role isolation, 
 5. **[ ] Expiry:** `X-Endpoints` [ ] `handleBillingBudgetAlert` configured for Maps (Google Maps daily-quota alert).
 6. **[ ] CI/CD gates:** consider adding rule dry-run + tsc to deploy pipeline.
 7. **[ ] Firestore indexes:** check `firestore.indexes.json` — verify all production query indexes (wallets.createdAt, users.referralCode, users.referralCode on drivers, etc.).
-8. **[ ] Support-bot risk:** `support_brain.ts` quotes stale product values — re-sync `PRICING`, `MIN_WALLET_TO_ONLINE`, withdrawal bounds with `FinancialConfig` after any fee change.
+8. **[ ] Support-bot risk:** `supportBrain.ts` quotes stale product values — re-sync `PRICING`, `MIN_CREDITS_TO_ONLINE` with `FinancialConfig` after any fee change.
 
 ---
 

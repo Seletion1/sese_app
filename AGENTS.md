@@ -75,7 +75,8 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 ## 2026-11-24 — Full Audit, Verification & Hardening: Zero Stored-Value Wallet, Zero Payout, External Navigation, Direct Booking Payments, Sese Credits & Sese Service Renaming (`functions`, `firestore.rules`, `firestore.indexes.json`, `sese_core`, `sese_hub`, `sese_ride`)
 
 - **1. Zero Stored-Value & Non-Withdrawable Platform Credits Audit**:
-  - *Firestore Rules & Indexes Purge*: Cleaned all obsolete indexes (`failed_payouts_dlq`, `payout_requests`, `streak_campaigns`, `streak_territory_delegations`) from `firestore.indexes.json` and deleted 16 remote indexes via `firebase deploy --only firestore:indexes --force`. Stripped `payout_requests`, `wallet_vault`, `payout_profiles`, and `mystery_boxes` from `firestore.rules` and secured `wallets/{walletId}` under `isZeroBalanceCreditCreate` for server-managed Sese Credits. Deployed rules to Firebase.
+  - *Firestore Rules & Indexes Purge*: Cleaned all obsolete indexes (`failed_payouts_dlq`, `payout_requests`, `streak_campaigns`, `streak_territory_delegations`) from `firestore.indexes.json` and deleted 16 remote indexes via `firebase deploy --only firestore:indexes --force`. Stripped `payout_requests`, `wallet_vault`, `payout_profiles`, `mystery_boxes`, and `/driver_payouts/{payoutId}` from `firestore.rules` and secured `wallets/{walletId}` under `isZeroBalanceCreditCreate` for server-managed Sese Credits. Deployed rules to Firebase.
+  - *Web Hosting Legal Pages*: Completely scrubbed `public/terms.html`, `public/privacy.html`, and `public/delete.html` of all mentions of wallet balances, deposits, escrow, payouts, and bank accounts. Added external navigation notices and deployed to Firebase Hosting.
   - *Backend Support & Functions*: Replaced `MIN_WALLET_TO_ONLINE` with `MIN_CREDITS_TO_ONLINE` in `supportBrain.ts`, updated AI FAQs declaring direct booking payments and non-withdrawable Driver Sese Credits, and aligned `trips.ts` to evaluate `minCreditUnitsToOnline`. All 75 Gen-2 endpoints compiled, tested (158/158 pass), and deployed live via `firebase deploy --only functions --force`.
   - *Shared Core (`sese_core`)*: Added `minCreditUnitsToOnline` in `FinancialConfig` and `minimumCreditTopUp` in `RemoteConfigKeys`. Cleaned legal content (`legal_document_content.dart`) of all stored-value escrow, payout history, and wallet references. Verified `legal_compliance_test.dart` passes.
   - *Hub Desk (`sese_hub`)*: Renamed top-up controls to 'Minimum Sese Credits Top-Up' in `GlobalConfigScreen` and cleaned customer management strings. Passed `flutter analyze` (0 issues) and test suite (74/74 pass).
@@ -83,8 +84,8 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
     - Renamed `payment_service.dart` -> `sese_service.dart` and `payment_service_test.dart` -> `sese_service_test.dart`.
     - Introduced `SeseService`, `SeseCreditTransaction`, `creditBalanceKoboStream`, `creditHistoryStream`, and `hasSufficientCredits`.
     - Updated all consumer imports across 13 Dart files.
-    - Fixed `live_trip_screen.dart` payment breakdown widget and syntax boundaries.
-    - Verified `sese_ride` passes `flutter analyze` (0 issues) and payment/credits test suite (17/17 pass).
+    - Cleaned driver trip card notifications and customer support prompt strings from wallet/payout text.
+    - Verified `sese_ride` passes `flutter analyze` (0 issues) and test suite (36/36 pass).
 
 ## 2026-11-24 — Deep Deletion of Driver Streak, Bonus, Reward, Cashback & Referral-Payout Systems (`functions`, `firestore.rules`, `sese_core`, `sese_hub`, `sese_ride`)
 

@@ -17,10 +17,9 @@ const ACTIVE_TRIP_STATUSES = [
 /**
  * Secure Account Deletion Pipeline:
  *
- * 1. Hard Security & Financial Guardrails:
- *    - Rejects if `walletBalance > 0`
- *    - Rejects if `pendingPayouts == true`
+ * 1. Hard Security Guardrails:
  *    - Rejects if user has active ongoing rides/deliveries
+ *    - Re-authentication required within last 10 minutes
  *
  * 2. Execution:
  *    - Soft-deletes user/driver document with 30-day regulatory archival
