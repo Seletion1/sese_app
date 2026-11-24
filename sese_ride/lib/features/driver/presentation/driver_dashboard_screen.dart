@@ -31,7 +31,7 @@ import 'widgets/incoming_offer_sheet.dart';
 import 'widgets/order_feed.dart';
 import 'widgets/order_pool_sheet.dart';
 import 'widgets/slide_to_offline.dart';
-import '../../payments/payment_service.dart';
+import '../../payments/sese_service.dart';
 import 'earnings_screen.dart';
 import '../services/earnings_service.dart';
 import 'widgets/verification_banner.dart';

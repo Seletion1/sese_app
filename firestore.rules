@@ -218,26 +218,6 @@ service cloud.firestore {
       allow read: if isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('viewAuditLogs'));
       allow write: if false; // immutable append-only ledger via Cloud Functions
     }
-    match /failed_payouts_dlq/{jobId} {
-      allow read: if isAdminAuthClaim();
-      allow write: if false; // managed strictly by server Cloud Functions
-    }
-    // ===== HUB PAYOUT APPROVALS =====
-    // Payout requests are created exclusively server-side by
-    // `processWalletWithdrawal` (Admin SDK), which is the only writer and the
-    // only component that debits the wallet. The Hub approval desk may read
-    // and update them with Super Admin access or the delegated payouts scope.
-    // The OWNER may read their own request so the app can show withdrawal
-    // status — the owner can never create, update, or delete one, so they
-    // cannot forge or mutate a payout.
-    match /payout_requests/{requestId} {
-      allow read: if isSuperAdmin() ||
-        (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('processPayouts'))) ||
-        (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow update: if isSuperAdmin() ||
-        (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('processPayouts')));
-      allow create, delete: if false;
-    }
     // Delivery PIN codes, written exclusively server-side at trip mint.
     // The customer reads their own code to share with the recipient; the
     // assigned driver must NEVER read it (they enter it blind at drop-off),
@@ -1502,11 +1482,10 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // ===== P2P WALLET & LEDGER (PROMPT 16) =====
-    // `system_config`: public configuration docs (wallet rules, payment
-    // gateways, delivery modes, referral settings, dispatch settings, ride
-    // split rules, KYC rules) and the insurance *tier* store are read by every
-    // app and written only by admins carrying the system-settings scope.
+    // ===== SYSTEM CONFIGURATION =====
+    // `system_config`: public configuration docs (payment gateways, delivery modes,
+    // referral settings, dispatch settings, KYC rules) and the insurance *tier*
+    // store are read by every app and written only by admins carrying the system-settings scope.
     // PROMPT 48 SECURITY: partner API keys + webhook secrets are NOT stored in
     // public docs — they live in `insurance_secrets` (restricted to
     // SUPER_ADMIN / OPERATIONS_ADMIN) and the legacy `insurance` key store is
@@ -1515,7 +1494,7 @@ service cloud.firestore {
     function isPublicSystemConfig(docId) {
       return docId in ['config', 'payments', 'gateways', 'delivery_modes',
         'referral_settings', 'referral_rates', 'dispatch_settings',
-        'wallet_rules', 'kyc_rules', 'dispatch_rules'];
+        'kyc_rules', 'dispatch_rules'];
     }
     match /system_config/{docId} {
       allow read: if isAuthenticated() && isPublicSystemConfig(docId);
@@ -1716,59 +1695,44 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // A client-created wallet may only carry a zero/absent balance. Any
-    // non-zero financial field would let a user mint arbitrary wallet credit
-    // (TOCTOU/forgery vector), so creation is restricted to a bare zeroed
-    // document. All balance mutations happen exclusively inside server-side
-    // Cloud Functions (admin SDK), which bypasses these rules.
-    function isZeroBalanceWalletCreate() {
+    // ===== DRIVER SESE CREDITS & COMMISSION SETTLEMENT =====
+    // Sese operates with zero customer stored-value wallets, zero payouts,
+    // and zero withdrawals. Driver service units ("Sese Credits") are used
+    // strictly to settle platform dispatch commissions on trips.
+    // Drivers top up Sese Credits via direct Paystack checkout.
+    // All balance mutations happen exclusively server-side via Cloud Functions (Admin SDK).
+    function isZeroBalanceCreditCreate() {
       return request.resource.data.keys().hasOnly([
-        'userId', 'currency', 'balance', 'mainWalletBalance', 'availableBalance',
-        'escrowHold', 'escrowBalance', 'createdAt', 'updatedAt',
+        'userId', 'currency', 'balance', 'mainWalletBalance', 'driverBalance',
+        'availableBalance', 'createdAt', 'updatedAt',
       ]) &&
         (!request.resource.data.keys().hasAny(['balance']) ||
          request.resource.data.balance == 0) &&
         (!request.resource.data.keys().hasAny(['mainWalletBalance']) ||
          request.resource.data.mainWalletBalance == 0) &&
+        (!request.resource.data.keys().hasAny(['driverBalance']) ||
+         request.resource.data.driverBalance == 0) &&
         (!request.resource.data.keys().hasAny(['availableBalance']) ||
          request.resource.data.availableBalance == 0) &&
-        (!request.resource.data.keys().hasAny(['escrowHold']) ||
-         request.resource.data.escrowHold == 0) &&
-        (!request.resource.data.keys().hasAny(['escrowBalance']) ||
-         request.resource.data.escrowBalance == 0) &&
         request.resource.data.userId == request.auth.uid;
     }
 
-    // `wallets/{walletId}`: users own their wallet and may read it. Hub
-    // staff and admins may also read wallets and transaction history to support
-    // operations and payout processing. All balance mutations happen
-    // server-side in Cloud Functions (admin SDK), which bypasses rules —
-    // so clients get read + owner-initiated zero-balance create only.
     match /wallets/{walletId} {
       allow read: if isAuthenticated() && (
         isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
       );
       allow create: if isAuthenticated() && isOwner(walletId) &&
-        isNotSuspended() && isZeroBalanceWalletCreate();
+        isNotSuspended() && isZeroBalanceCreditCreate();
       allow update: if false;
       allow delete: if false;
 
-      // Per-wallet transaction history (top-ups, streak bonuses, payouts).
-      // Written exclusively server-side via the Admin SDK (Paystack
-      // settlement, streak engine); the owner and Hub staff/admins may read.
+      // Driver Sese Credits transaction history (commission debits, top-up credits).
+      // Written exclusively server-side via Cloud Functions Admin SDK.
       match /transactions/{txId} {
         allow read: if isAuthenticated() && (
           isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
         );
         allow create, update, delete: if false;
-      }
-
-      // Daily financial limits tracking (server-only write; owner/staff read)
-      match /daily_usage/{dateKey} {
-        allow read: if isAuthenticated() && (
-          isOwner(walletId) || isHubStaff() || isOperationsAdmin() || isAdminAuthClaim() || isSuperAdmin()
-        );
-        allow write: if false;
       }
     }
 
@@ -1781,23 +1745,9 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // `wallet_transactions`: server-only append-only ledger. Users may read
-    // only transfers they are a party to; creation is exclusively performed by
-    // the Cloud Functions admin SDK (which bypasses rules).
-    match /wallet_transactions/{txId} {
-      allow read: if isAuthenticated() &&
-        (resource.data.senderId == request.auth.uid ||
-         resource.data.recipientId == request.auth.uid ||
-         (resource.data.partyIds is list && resource.data.partyIds.hasAny([request.auth.uid])));
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
-    }
-
-    // `wallet_ledger`: server-only double-entry and idempotency ledger.
+    // Server-only double-entry and idempotency ledger for payments and commissions.
     // Written exclusively server-side via Cloud Functions Admin SDK.
-    // Authenticated users read only their own entries; Super Admins and Hub
-    // staff read for audit and balance reconciliation.
+    // Authenticated users read only their own entries; Hub staff read for audit.
     match /wallet_ledger/{ledgerId} {
       allow read: if isAuthenticated() &&
         (resource.data.userId == request.auth.uid ||
@@ -1806,17 +1756,6 @@ service cloud.firestore {
          isOperationsAdmin() ||
          isAdminAuthClaim());
       allow create, update, delete: if false;
-    }
-
-    match /wallet_configs/{configId} {
-      allow read: if isAuthenticated() && isNotSuspended();
-      allow create, update, delete: if isSuperAdmin();
-    }
-
-    match /payout_profiles/{userId} {
-      allow read: if isOwner(userId) || isSuperAdmin();
-      allow create, update: if isOwner(userId);
-      allow delete: if false;
     }
 
     match /phone_lookup/{phoneId} {
@@ -1902,17 +1841,6 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // `wallet_vault`: drivers may read only their own escrow entries; operators
-    // read entries they own. Creation, sweeping and balance mutation are
-    // exclusively server-side (`fleetSweepToOperator` admin SDK transaction).
-    match /wallet_vault/{vaultId} {
-      allow read: if isAuthenticated() &&
-        (resource.data.driverId == request.auth.uid ||
-         resource.data.operatorId == request.auth.uid ||
-         isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
     // `remittance_records`: immutable audit trail — drivers/operators read
     // their own; all writes come from the backend engine.
     match /remittance_records/{recordId} {
@@ -1974,21 +1902,6 @@ service cloud.firestore {
     // ===== PROMPT 32: GAMIFICATION (discounts, quests, leaderboard) =====
     // Targeted customer discounts — campaigns are readable by all authenticated
     // users, writable only by the super admin. Per-user discounts are readable
-    // only by the owning user (a client can never read/write another user's).
-    match /promotional_campaigns/{campaignId} {
-      allow read: if isAuthenticated() && isNotSuspended();
-      allow create, update, delete: if isSuperAdmin();
-    }
-
-    // Individual discount grants: owner-read; the balance/wallet mutations and
-    // `usesLeft` decrements happen inside the settlement transaction via the
-    // admin SDK (service account), so clients are write-denied entirely.
-    match /user_discounts/{discountId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        (isOwner(resource.data.userId) || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
     // Driver milestones / quests — drivers read active quests; writers are
     // super admins only. Progress docs track `tripsCompleted` verified and
     // incremented server-side; clients never write progress.
@@ -2013,19 +1926,6 @@ service cloud.firestore {
     match /driver_badge_profiles/{driverId} {
       allow read: if isAuthenticated() && isNotSuspended() &&
         (isOwner(driverId) || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
-    // ===== PROMPT 34: MYSTERY BOXES =====
-    // `mystery_boxes/{boxId}` — the prize is predetermined by the server-side
-    // `revealMysteryBox` callable at unlock time; the doc carries the reward +
-    // `serverVerificationToken`. The owner reads their own boxes to render the
-    // scratch card and claim state; every state transition + wallet credit is
-    // performed server-side in `runTransaction` (idempotent), so clients can
-    // neither pick prizes nor credit their wallet themselves.
-    match /mystery_boxes/{boxId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        (isOwner(resource.data.userId) || isSuperAdmin());
       allow create, update, delete: if false;
     }
 

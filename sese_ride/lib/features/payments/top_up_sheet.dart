@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-import 'payment_service.dart';
+import 'sese_service.dart';
 import 'paystack_checkout_screen.dart';
 
 /// Wallet top-up bottom sheet for any signed-in user.

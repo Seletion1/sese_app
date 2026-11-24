@@ -1361,7 +1361,7 @@ function pickupOf(data: admin.firestore.DocumentData): { lat: number; lng: numbe
 async function getMinWalletBalanceToOnline(): Promise<number> {
   try {
     const snap = await db().collection("system_configs").doc("financials").get();
-    const raw = snap.data()?.minWalletBalanceToOnline;
+    const raw = snap.data()?.minCreditUnitsToOnline ?? snap.data()?.minWalletBalanceToOnline;
     if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   } catch (_) {}
   return 1.00;

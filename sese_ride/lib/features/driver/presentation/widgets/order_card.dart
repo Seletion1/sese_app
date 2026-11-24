@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
 import '../../../../widgets/map_provider.dart';
-import '../../../payments/payment_service.dart';
+import '../../../payments/sese_service.dart';
 import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';

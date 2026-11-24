@@ -32,6 +32,7 @@ class RemoteKeysConfig {
   final String manualOverrideProvider;
 
   final double minimumWalletTopUp; // in Naira (default 1000.0)
+  double get minimumCreditTopUp => minimumWalletTopUp;
   final bool appMaintenanceMode;
   final bool splitPaymentMasterEnabled;
   final bool forceDeliveryPinSystemWide;
@@ -173,9 +174,11 @@ class RemoteKeysConfig {
           .toString()
           .trim(),
       manualOverrideProvider: rawOverride,
-      minimumWalletTopUp: (map['minimumWalletTopUp'] is num)
-          ? (map['minimumWalletTopUp'] as num).toDouble()
-          : 1000.0,
+      minimumWalletTopUp: (map['minimumCreditTopUp'] is num)
+          ? (map['minimumCreditTopUp'] as num).toDouble()
+          : ((map['minimumWalletTopUp'] is num)
+              ? (map['minimumWalletTopUp'] as num).toDouble()
+              : 1000.0),
       appMaintenanceMode:
           map['appMaintenanceMode'] == true || map['app_maintenance_mode'] == true,
       splitPaymentMasterEnabled:
@@ -246,6 +249,7 @@ class RemoteKeysConfig {
       'tileUrlTemplate': osmTileServerUrl.trim(),
       'manualOverrideProvider': manualOverrideProvider.trim(),
       'manual_override_provider': manualOverrideProvider.trim(),
+      'minimumCreditTopUp': minimumWalletTopUp,
       'minimumWalletTopUp': minimumWalletTopUp,
       'appMaintenanceMode': appMaintenanceMode,
       'splitPaymentMasterEnabled': splitPaymentMasterEnabled,

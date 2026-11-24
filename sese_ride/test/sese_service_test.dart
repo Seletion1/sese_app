@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sese_ride/features/payments/payment_service.dart';
+import 'package:sese_ride/features/payments/sese_service.dart';
 
 class _ScriptedBackend implements PaymentsBackend {
   Map<String, dynamic>? initResponse;
@@ -100,7 +100,7 @@ void main() {
         'paymentReference': 'sese_ref_1',
       });
       expect(tx.amountNaira, 2500.0);
-      expect(tx.label, 'Wallet top-up');
+      expect(tx.label, 'Sese Credits top-up');
     });
 
     test('converts legacy naira amounts to kobo', () {

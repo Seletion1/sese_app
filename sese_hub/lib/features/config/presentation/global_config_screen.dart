@@ -1478,7 +1478,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: const InputDecoration(
-                      labelText: 'Minimum Wallet Top-Up',
+                      labelText: 'Minimum Sese Credits Top-Up',
                       prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),

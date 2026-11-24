@@ -54,7 +54,8 @@ void main() {
     test('contains all required platform business rules', () {
       final terms = LegalDocumentContent.termsOfServiceText;
       expect(terms, contains('SESE TECHNOLOGY LTD'));
-      expect(terms, contains('ESCROW'));
+      expect(terms, contains('DIRECT ORDER PAYMENTS'));
+      expect(terms, contains('SESE CREDITS'));
       expect(terms, contains('CANCELLATION'));
       expect(terms, contains('WAITING FEE'));
       expect(terms, contains('BIDDING'));

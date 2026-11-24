@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sese_ride/features/payments/payment_service.dart';
+import 'package:sese_ride/features/payments/sese_service.dart';
 import 'package:sese_ride/features/payments/paystack_checkout_screen.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 

@@ -11,7 +11,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class FinancialConfig {
   /// Minimum dispatch credit balance required for a driver to go ONLINE
   /// and receive dispatches. Default ₦1.00.
+  /// Minimum Sese Credits required for a driver to go online and receive offers.
   final double minWalletBalanceToOnline;
+
+  /// Alias for non-financial credit terminology.
+  double get minCreditUnitsToOnline => minWalletBalanceToOnline;
 
   /// Minimum driver Sese Credits purchase amount. Default ₦1,000.00.
   final double minTopUpAmount;
@@ -44,7 +48,9 @@ class FinancialConfig {
     int i(String k, int fb) =>
         (map![k] is num) ? (map[k] as num).toInt() : fb;
     return FinancialConfig(
-      minWalletBalanceToOnline: d('minWalletBalanceToOnline', 1.0),
+      minWalletBalanceToOnline: (map['minCreditUnitsToOnline'] is num)
+          ? (map['minCreditUnitsToOnline'] as num).toDouble()
+          : d('minWalletBalanceToOnline', 1.0),
       minTopUpAmount: d('minTopUpAmount', 1000.0),
       userReferralCommissionRate: d('userReferralCommissionRate', 0.01),
       agentReferralCommissionRate: d('agentReferralCommissionRate', 0.02),
@@ -54,6 +60,7 @@ class FinancialConfig {
   }
 
   Map<String, dynamic> toMap() => {
+        'minCreditUnitsToOnline': minWalletBalanceToOnline,
         'minWalletBalanceToOnline': minWalletBalanceToOnline,
         'minTopUpAmount': minTopUpAmount,
         'userReferralCommissionRate': userReferralCommissionRate,

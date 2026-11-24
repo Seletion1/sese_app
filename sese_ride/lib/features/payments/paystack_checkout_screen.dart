@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import 'payment_service.dart';
+import 'sese_service.dart';
 
 /// Embedded Paystack checkout: card, transfer, and USSD all run inside an
 /// in-app WebView — the system browser is never opened unless explicitly requested.

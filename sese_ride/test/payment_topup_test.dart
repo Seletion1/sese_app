@@ -1,6 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sese_ride/features/payments/payment_service.dart';
+import 'package:sese_ride/features/payments/sese_service.dart';
 
 /// Fake backend: records the init payload and replays canned responses.
 class _FakePaymentsBackend implements PaymentsBackend {

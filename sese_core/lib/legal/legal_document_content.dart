@@ -62,7 +62,7 @@ By creating an account, accessing, or using SESE Technology LTD ("SESE", "Compan
 
 5. PRICING & DIRECT ORDER PAYMENTS
 • Server-Authoritative Pricing: Fares, commission rates, waiting fees, and settlements are calculated strictly by SESE's authoritative backend servers. No client-side fare computation is permitted or honored.
-• Direct Trip Payments: Customer trips are paid directly per booking via Cash or online Card (Paystack checkout). When paid online, trip payments are authorized through licensed gateways in ESCROW until trip completion. SESE does not operate a stored-value customer wallet, customer deposits, or withdrawal system.
+• Direct Trip Payments: Customer trips are paid directly per booking via Cash or online Card (Paystack checkout). When paid online, trip payments are authorized directly through licensed gateways until trip completion. SESE does not operate a stored-value customer wallet, customer deposits, or withdrawal system.
 • Online Payment Processing: When paying online, payment is authorized directly through Paystack's PCI-DSS compliant checkout. SESE never stores raw card PAN or CVV details. If an online payment declines, the customer must select Cash or retry before trip execution.
 
 6. CANCELLATION RULES, WAITING FEES & IN-PROGRESS LOCK
@@ -207,7 +207,7 @@ In strict alignment with our Google Play Console Data Safety disclosures, SESE T
 Users have the absolute right to delete their SESE account and associated personal data at any time:
 • In-App: Settings → Legal & Compliance → Delete Account
 • Official Web Deletion Portal: https://sesetech.com/delete
-• Regulatory Soft-Archive Retention: In accordance with Nigerian financial anti-money laundering and tax regulations, financial ledger records, transaction receipts, and driver payout history are maintained in an access-restricted soft-archive for thirty (30) days prior to permanent, irreversible PII erasure.
+• Regulatory Soft-Archive Retention: In accordance with Nigerian financial anti-money laundering and tax regulations, financial ledger records, transaction receipts, and driver commission settlement history are maintained in an access-restricted soft-archive for thirty (30) days prior to permanent, irreversible PII erasure.
 
 7. YOUR RIGHTS UNDER NDPA & GDPR
 Under the Nigeria Data Protection Act (NDPA) 2023, users enjoy the right to:
@@ -262,7 +262,7 @@ Subject: Account Deletion Request — [Your Registered Phone Number]
   - Device telemetry: FCM tokens, device identifiers, and recent search history.
 
 • 30-Day Regulatory Retention (Soft-Archive):
-  - In compliance with statutory anti-money laundering (AML), tax, and financial accounting laws in the Federal Republic of Nigeria, completed transaction ledgers, fare invoices, and driver bank payout summaries are held in an encrypted, access-restricted soft-archive for thirty (30) days.
+  - In compliance with statutory anti-money laundering (AML), tax, and financial accounting laws in the Federal Republic of Nigeria, completed transaction ledgers, fare invoices, and driver commission settlement summaries are held in an encrypted, access-restricted soft-archive for thirty (30) days.
   - Following the 30-day archival period, all retained financial records are permanently purged or irrevocably anonymized such that personal re-identification is mathematically impossible.
 
 • Driver-Specific Retention:

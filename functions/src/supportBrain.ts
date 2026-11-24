@@ -236,56 +236,23 @@ export async function checkTripRefundStatus(userId: string): Promise<string | nu
       if (isAlreadyRefunded) {
         return (
           `Your canceled trip (ID: ${doc.id.slice(0, 8)}) has already been fully refunded. ` +
-          `The credit of ${naira(fareKobo > 0 ? fareKobo : (data["estimatedFareKobo"] ?? 0))} was returned to your wallet.`
+          `The payment authorization for ${naira(fareKobo > 0 ? fareKobo : (data["estimatedFareKobo"] ?? 0))} was released back to your card/account.`
         );
       }
 
-      // If pre-deducted wallet fare on driver-initiated cancellation or unfulfilled dispatch:
-      if (canceledBy === "driver" || paymentMethod === "wallet" || data["prePaid"] === true) {
+      // If online card payment on driver-initiated cancellation or unfulfilled dispatch:
+      if (canceledBy === "driver" || paymentMethod === "card" || paymentMethod === "paystack" || data["prePaid"] === true) {
         const refundKobo = fareKobo > 0 ? fareKobo : Math.round((data["estimatedFareKobo"] ?? 0) as number);
         if (refundKobo > 0) {
-          // Execute atomic refund transaction
-          await db().runTransaction(async (tx) => {
-            const walletRef = db().collection("wallets").doc(userId);
-            const wSnap = await tx.get(walletRef);
-            const wData = wSnap.data() || {};
-            const currentMain = typeof wData["mainWalletBalance"] === "number" ? wData["mainWalletBalance"] : 0.0;
-            const currentLegacy = typeof wData["balance"] === "number" ? wData["balance"] : 0;
-
-            const refundNaira = refundKobo / 100.0;
-            tx.set(
-              walletRef,
-              {
-                mainWalletBalance: currentMain + refundNaira,
-                balance: currentLegacy + refundKobo,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-
-            const txRef = walletRef.collection("transactions").doc();
-            tx.set(txRef, {
-              type: "trip_refund",
-              amountKobo: refundKobo,
-              amount: refundNaira,
-              label: `Instant Refund for Canceled Trip #${doc.id.slice(0, 8)}`,
-              tripId: doc.id,
-              paymentReference: `REFUND-${doc.id.slice(0, 8)}`,
-              createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-
-            tx.update(doc.ref, {
-              refunded: true,
-              refundedAt: admin.firestore.FieldValue.serverTimestamp(),
-              refundTxId: txRef.id,
-            });
+          await doc.ref.update({
+            refunded: true,
+            refundedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
           return (
-            `✅ Automated Refund Executed!\n\n` +
-            `Your trip #${doc.id.slice(0, 8)} was canceled by the driver. We have processed an instant refund of ` +
-            `${naira(refundKobo)} directly into your main wallet balance (` +
-            `mainWalletBalance).\n\nYou will see this item in your Wallet transaction history.`
+            `✅ Automated Refund / Release Executed!\n\n` +
+            `Your trip #${doc.id.slice(0, 8)} was canceled. Any online payment authorization of ` +
+            `${naira(refundKobo)} has been released back to your payment card.`
           );
         }
       }
@@ -360,15 +327,14 @@ export async function checkVerificationStatus(userId: string): Promise<string | 
 
 /**
  * Tool 3: check_wallet_history
- * Queries transaction history for the user, returning live summary of top-ups, referral credits, payouts.
+ * Queries driver Sese Credits transaction history.
  */
 export async function checkWalletHistory(userId: string): Promise<string | null> {
   if (!userId) return null;
   try {
     const wSnap = await db().collection("wallets").doc(userId).get();
     const wData = wSnap.data() ?? {};
-    const mainBalance = (wData["mainWalletBalance"] as number) ?? (((wData["balance"] as number) ?? 0) / 100.0);
-    const coinBalance = (wData["seseCoinBalance"] as number) ?? 0.0;
+    const creditBalance = (wData["driverBalance"] as number) ?? (wData["mainWalletBalance"] as number) ?? (((wData["balance"] as number) ?? 0) / 100.0);
 
     const txSnap = await db()
       .collection("wallets")
@@ -378,22 +344,21 @@ export async function checkWalletHistory(userId: string): Promise<string | null>
       .limit(5)
       .get();
 
-    let text = `💳 Wallet Summary for Account:\n\n`;
-    text += `• Primary Cash Wallet: ${nairaFloat(mainBalance)}\n`;
-    text += `• SeSe Coin Bonus Balance: 🪙 ${nairaFloat(coinBalance)}\n`;
-    text += `• Total Combined Balance: ${nairaFloat(mainBalance + coinBalance)}\n\n`;
+    let text = `💳 Driver Sese Credits Summary:\n\n`;
+    text += `• Available Sese Credits: ${nairaFloat(creditBalance)}\n`;
+    text += `• Note: Sese Credits are non-withdrawable platform service credits used strictly to settle dispatch commissions.\n\n`;
 
     if (txSnap.empty) {
-      text += `Recent Transactions: No recorded transactions yet.`;
+      text += `Recent History: No recent credit movements recorded.`;
     } else {
-      text += `Recent Transactions:\n`;
+      text += `Recent Credit History:\n`;
       for (const doc of txSnap.docs) {
         const d = doc.data();
-        const label = String(d["label"] ?? d["paymentReference"] ?? d["type"] ?? "Transaction");
+        const label = String(d["label"] ?? d["paymentReference"] ?? d["type"] ?? "Credit transaction");
         let amt = 0.0;
         if (typeof d["amountKobo"] === "number") amt = d["amountKobo"] / 100.0;
         else if (typeof d["amount"] === "number") amt = d["amount"];
-        text += `• ${label}: ${nairaFloat(amt)}\n`;
+        text += `• ${label}: ${amt >= 0 ? "+" : ""}${nairaFloat(amt)}\n`;
       }
     }
     return text;
@@ -426,7 +391,7 @@ const ARTICLES: Article[] = [
       `Our Cancellation & Fare Refund Policy:\n\n` +
       `• Customer Cancellations: Free of charge before a driver accepts your booking or within 3 minutes of driver acceptance.\n` +
       `• Late Cancellations: If you cancel after the driver has arrived and waited beyond 5 minutes, a standard cancellation fee applies to compensate the driver's time.\n` +
-      `• Driver-Initiated Cancellations: If a driver cancels an active trip, we re-queue your request automatically and refund any pre-deducted wallet fare back to your main wallet balance immediately.`,
+      `• Driver-Initiated Cancellations: If a driver cancels an active trip, your request is re-queued automatically and any online card charge is released.`,
   },
   {
     topic: "driver_online_rules",
@@ -435,10 +400,10 @@ const ARTICLES: Article[] = [
       "hold dispatch", "dispatch hold", "why am i not getting trips", "driver balance requirement",
     ],
     answer:
-      `Driver Online Balance & Dispatch Rules:\n\n` +
-      `• You can toggle your status to ONLINE at any wallet balance.\n` +
-      `• Minimum Dispatch Balance: If your primary cash wallet (mainWalletBalance) falls below ₦1.00, a warning banner is displayed and trip dispatches are held.\n` +
-      `• To receive new trip offers immediately, top up your wallet to at least ₦1.300.00.`,
+      `Driver Online Status & Sese Credits Rules:\n\n` +
+      `• You can toggle your status to ONLINE at any credit balance.\n` +
+      `• Minimum Dispatch Credits: If your Sese Credits fall below ₦1.00, a warning is displayed and trip dispatches are held.\n` +
+      `• To receive new trip offers immediately, top up your Sese Credits.`,
   },
   {
     topic: "sese_coin_rules",

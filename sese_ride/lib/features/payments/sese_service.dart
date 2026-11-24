@@ -23,8 +23,8 @@ class PaymentException implements Exception {
   String toString() => 'PaymentException($code): $userMessage';
 }
 
-/// One wallet history row (`wallets/{uid}/transactions/{txId}`).
-class WalletTransaction {
+/// One credit transaction history row (`wallets/{uid}/transactions/{txId}`).
+class SeseCreditTransaction {
   final String id;
   final String type;
   final int amountKobo;
@@ -33,7 +33,7 @@ class WalletTransaction {
   final DateTime? createdAt;
   final String? role;
 
-  const WalletTransaction({
+  const SeseCreditTransaction({
     required this.id,
     required this.type,
     required this.amountKobo,
@@ -49,7 +49,6 @@ class WalletTransaction {
   String get label {
     switch (type) {
       case 'wallet_topup':
-        return 'Wallet top-up';
       case 'driver_credit_topup':
         return 'Sese Credits top-up';
       case 'trip_payment':
@@ -79,13 +78,13 @@ class WalletTransaction {
     }
   }
 
-  /// Driver-facing label: fare receipts read as income on driver wallets.
+  /// Driver-facing label: fare receipts read as income on driver credits ledger.
   String displayLabel({bool driverView = false}) {
     if (driverView && type == 'trip_payment') return 'Ride fare received';
     return label;
   }
 
-  /// Ledger direction. Every credit adds to the wallet balance; debits subtract.
+  /// Ledger direction. Every credit adds to the credit balance; debits subtract.
   /// Dynamically evaluates amounts, role context, and known debit/credit families.
   bool get isCredit {
     if (amountKobo < 0 || amountNaira < 0) return false;
@@ -99,12 +98,6 @@ class WalletTransaction {
       'commission_fee',
       'commission',
       'recovered_debt_debit',
-      'bank_withdrawal',
-      'withdrawal',
-      'wallet_withdrawal',
-      'payout',
-      'weekly_payout',
-      'monthly_payout',
       'trip_charge',
       'fee',
       'debit',
@@ -117,8 +110,6 @@ class WalletTransaction {
     if (debitTypes.contains(lower)) return false;
     if (lower.endsWith('_debit') ||
         lower.endsWith('_fee') ||
-        lower.endsWith('_withdrawal') ||
-        lower.endsWith('_payout') ||
         lower.endsWith('_hold')) {
       return false;
     }
@@ -128,13 +119,9 @@ class WalletTransaction {
   /// Signed, formatted amount for ledger rows (`+₦2,500.00` / `-₦350.00`).
   /// Guaranteed to never collide or produce double signs like `+-` or `-+`.
   String get signedAmount =>
-      PaymentService.formatSignedNaira(amountNaira, isCredit: isCredit);
+      SeseService.formatSignedNaira(amountNaira, isCredit: isCredit);
 
-  /// Whether this transaction is customer-facing (e.g. passenger ride payments,
-  /// wallet top-ups, customer refunds, customer escrow holds, customer waiting fees).
-  ///
-  /// Completely hides driver-specific ledger entries such as platform commission fees,
-  /// driver escrows, driver trip settlements, and payout logs.
+  /// Whether this transaction is customer-facing.
   bool get isCustomerFacing {
     if (role == 'driver') return false;
     if (role == 'customer') return true;
@@ -150,18 +137,9 @@ class WalletTransaction {
       'trip_wallet_settlement',
       'waiting_fee_credited',
       'unpaid_waiting_fee_credited',
-      'driver_payout',
-      'payout',
-      'payout_log',
-      'weekly_payout',
-      'monthly_payout',
-      'driver_escrow',
-      'driver_escrow_hold',
-      'driver_escrow_refund',
     };
     if (driverOnlyTypes.contains(lower)) return false;
     if (lower.contains('commission') && !lower.contains('customer')) return false;
-    if (lower.contains('payout')) return false;
 
     // Driver fare received stored as positive trip_payment without role tag
     if (lower == 'trip_payment' && amountKobo > 0) {
@@ -173,9 +151,6 @@ class WalletTransaction {
 
   /// Whether this transaction is driver-facing (e.g. platform commission fees,
   /// trip fare settlements, top-ups).
-  ///
-  /// Hides customer-specific records like passenger ride payments, customer escrow holds,
-  /// and customer refunds.
   bool get isDriverFacing {
     if (role == 'customer') return false;
     if (role == 'driver') return true;
@@ -203,7 +178,7 @@ class WalletTransaction {
     return true;
   }
 
-  factory WalletTransaction.fromMap(String id, Map<String, dynamic> map) {
+  factory SeseCreditTransaction.fromMap(String id, Map<String, dynamic> map) {
     DateTime? when;
     final raw = map['createdAt'];
     try {
@@ -220,9 +195,9 @@ class WalletTransaction {
     }
     final rawRole = map['role'] ?? map['userRole'] ?? map['actorRole'];
     final roleStr = rawRole?.toString().toLowerCase();
-    return WalletTransaction(
+    return SeseCreditTransaction(
       id: id,
-      type: (map['type'] ?? 'wallet_topup').toString(),
+      type: (map['type'] ?? 'driver_credit_topup').toString(),
       amountKobo: kobo,
       currency: (map['currency'] ?? 'NGN').toString(),
       paymentReference: (map['paymentReference'] ?? '').toString(),
@@ -231,6 +206,9 @@ class WalletTransaction {
     );
   }
 }
+
+/// Backward compatibility typedef
+typedef WalletTransaction = SeseCreditTransaction;
 
 /// Result of `initializePayment`: hosted checkout URL + our reference.
 class PaymentAuthorization {
@@ -271,13 +249,13 @@ class _FunctionsPaymentsBackend implements PaymentsBackend {
   }
 }
 
-/// Payments for every user (customers AND drivers): wallet top-up via
-/// Paystack, live balance, and transaction history.
+/// Platform service and credit operations: Paystack payment initialization,
+/// driver Sese Credits top-up, live credit balance, and transaction history.
 ///
-/// Wallet balance unit is **kobo** (integer-exact, Paystack-native). All
-/// money movement happens server-side; the client only opens Paystack's
+/// Credit unit is **kobo** (integer-exact, Paystack-native). All
+/// money and credit movement happens server-side; the client only opens Paystack's
 /// hosted checkout and asks the backend to verify.
-class PaymentService {
+class SeseService {
   /// Minimum top-up in naira (mirrors the backend floor of ₦100).
   static const double minTopUpNaira = 100.0;
 
@@ -287,7 +265,7 @@ class PaymentService {
   final FirebaseFirestore? _firestore;
   final PaymentsBackend? _backend;
 
-  PaymentService({this._firestore, this._backend});
+  SeseService({this._firestore, this._backend});
 
   FirebaseFirestore? get _db {
     try {
@@ -299,7 +277,19 @@ class PaymentService {
 
   PaymentsBackend get _ops => _backend ?? _FunctionsPaymentsBackend();
 
-  /// Live wallet balance in kobo with instant local cache fallback.
+  /// Sese Credits balance stream in kobo.
+  Stream<int> creditBalanceKoboStream(String uid, {String? role}) =>
+      walletBalanceKoboStream(uid, role: role);
+
+  /// Sese Credits transaction history stream.
+  Stream<List<SeseCreditTransaction>> creditHistoryStream(String uid, {String? role}) =>
+      walletHistoryStream(uid, role: role);
+
+  /// Whether the driver has sufficient Sese Credits to accept/dispatch trips.
+  Future<bool> hasSufficientCredits(String driverId) =>
+      hasSufficientDriverBalance(driverId);
+
+  /// Live wallet / credit balance in kobo with instant local cache fallback.
   /// When [role] is supplied ('driver' or 'customer'), reads the dedicated
   /// role balance if populated before falling back to mainWalletBalance.
   Stream<int> walletBalanceKoboStream(String uid, {String? role}) {
@@ -612,3 +602,7 @@ class PaymentService {
     }
   }
 }
+
+/// Backward compatibility alias for SeseService.
+typedef PaymentService = SeseService;
+typedef SeseCreditService = SeseService;

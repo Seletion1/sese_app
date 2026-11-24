@@ -2688,8 +2688,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
   /// to cancel after the 10-minute free-wait window has expired.
   ///
   /// The computed fee is a display-only estimate. The server recomputes the
-  /// authoritative amount and performs the actual wallet deduction or rejects
-  /// with `INSUFFICIENT_FUNDS` if the wallet is short. This method routes
+  /// authoritative amount and records the settlement on cancellation. This method routes
   /// the outcome through the parent's [widget.onCancel] callback on success
   /// so that navigation and post-cancel feedback run through the same path.
   Future<void> _showWaitingFeeSettlementSheet(
@@ -2770,8 +2769,13 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
 
   Widget? _buildCustomerPaymentBreakdown(ActiveTrip trip) {
     final mode = trip.paymentMode.toLowerCase();
-    final hasWallet = trip.walletCoverageAmount > 0;
+    final pMethod = trip.paymentMethod.toLowerCase();
     final hasCash = trip.cashToCollect > 0;
+    final isOnlinePrepaid = pMethod == 'card' ||
+        pMethod == 'paystack' ||
+        pMethod == 'online' ||
+        trip.isPrepaidTrip ||
+        (!hasCash && trip.fareAmount > 0);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (mode == 'receiver_pays') {
@@ -2810,57 +2814,7 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
           ],
         ),
       );
-    } else if (hasWallet && hasCash) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? const Color(0xFF78350F).withValues(alpha: 0.3)
-              : const Color(0xFFFEF3C7),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.account_balance_wallet_outlined,
-              size: 16,
-              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '₦${trip.walletCoverageAmount.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} locked from wallet in escrow.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Please give ₦${trip.cashToCollect.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} cash to the driver at pickup.',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: isDark
-                          ? const Color(0xFFFDE68A).withValues(alpha: 0.85)
-                          : const Color(0xFF92400E),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    } else if (hasWallet && !hasCash) {
+    } else if (isOnlinePrepaid) {
       return Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -2885,11 +2839,45 @@ class _AcceptedDriverSheetState extends State<_AcceptedDriverSheet> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                '100% Wallet Prepaid — No cash required. Do not pay any cash.',
+                '100% Online Paid (Card / Paystack) — No cash required. Do not pay any cash.',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: isDark ? const Color(0xFFA7F3D0) : Colors.green.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (hasCash) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF78350F).withValues(alpha: 0.3)
+              : const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.payments_outlined,
+              size: 16,
+              color: isDark ? const Color(0xFFFBBF24) : const Color(0xFF92400E),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Cash Payment: Please give ₦${trip.cashToCollect.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},')} cash to the driver.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? const Color(0xFFFDE68A) : const Color(0xFF92400E),
                 ),
               ),
             ),
@@ -3976,28 +3964,14 @@ class _DriverEtaCard extends StatelessWidget {
 
 // ── Waiting Fee Settlement ─────────────────────────────────────────────────
 
-/// Enumerates the two ways a customer can resolve a waiting-fee cancel.
+/// Resolution for a waiting-fee cancel.
 enum _WaitingCancelChoice {
-  /// Deduct the fee from the customer's wallet automatically.
-  walletDeduction,
-
   /// Acknowledge cash settlement (driver collects cash; server records it).
   cashSettlement,
 }
 
 /// Bottom sheet shown when the customer cancels after the 10-minute free-wait
 /// window has elapsed and a waiting fee applies.
-///
-/// Presents two resolution paths:
-///  1. **Auto-Deduct from Wallet** — server deducts [estimatedFee] from the
-///     customer's wallet and transfers it to the driver. Requires sufficient
-///     wallet balance.
-///  2. **Cash Settlement** — driver collects cash on-site. Server sets trip to
-///     `CANCELLED_WAITING_CASH_SETTLEMENT` and notifies the driver.
-///
-/// The displayed fee is a client-side estimate for UX only; the server
-/// recomputes the authoritative amount and rejects the call if the wallet is
-/// insufficient (returning `INSUFFICIENT_FUNDS` which surfaces as a snackbar).
 class _WaitingFeeSettlementSheet extends StatelessWidget {
   final double estimatedFee;
   final String feeStr;
@@ -4073,39 +4047,15 @@ class _WaitingFeeSettlementSheet extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Option 1: Wallet auto-deduction
+            // Cash settlement
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                key: const Key('wallet_settle_cancel_button'),
-                icon: const Icon(Icons.account_balance_wallet_outlined,
-                    size: 18),
-                label: Text('Deduct $feeStr from Wallet & Cancel'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.deepOrange,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                onPressed: () => Navigator.of(context)
-                    .pop(_WaitingCancelChoice.walletDeduction),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Option 2: Cash settlement
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
                 key: const Key('cash_settle_cancel_button'),
                 icon: const Icon(Icons.payments_outlined, size: 18),
                 label: Text('Pay $feeStr Cash to Driver & Cancel'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor:
-                      isDark ? Colors.amber.shade300 : Colors.deepOrange,
-                  side: BorderSide(
-                    color: isDark
-                        ? Colors.amber.shade700
-                        : Colors.deepOrange.shade300,
-                  ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.deepOrange,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 onPressed: () => Navigator.of(context)

@@ -7,7 +7,7 @@ import 'package:sese_core/sese_core.dart';
 import '../../../../core/services/remote_config_service.dart';
 import '../../../../widgets/map_provider.dart';
 import '../../../customer/services/location_service.dart';
-import '../../../payments/payment_service.dart';
+import '../../../payments/sese_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_dispatch_service.dart';

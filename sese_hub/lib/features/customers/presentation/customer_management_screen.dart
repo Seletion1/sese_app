@@ -17,7 +17,6 @@ import '../../auth/hub_session_guard.dart';
 ///    - Account suspension / unsuspension administrative controls.
 /// 4. Complete Historical Record:
 ///    - Past rides, courier deliveries, and scheduled trips stream with delivery PINs.
-///    - Live wallet card and financial transaction ledger.
 class CustomerManagementScreen extends StatefulWidget {
   final FirebaseFirestore? firestore;
 
@@ -62,7 +61,7 @@ class _CustomerManagementScreenState extends State<CustomerManagementScreen> {
         title: Text(targetState ? 'Suspend Customer Account' : 'Reactivate Customer Account'),
         content: Text(
           'Are you sure you want to ${targetState ? "suspend" : "reactivate"} $name\'s account?\n\n'
-          '${targetState ? "Suspended customers cannot log in, request rides, or make payments." : "Reactivating will restore full ride-hailing and wallet permissions."}',
+          '${targetState ? "Suspended customers cannot log in, request rides, or make payments." : "Reactivating will restore full ride-hailing permissions."}',
         ),
         actions: [
           TextButton(
