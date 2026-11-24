@@ -1,23 +1,92 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../trips/models/trip_models.dart';
+import '../presentation/widgets/navigation_logos.dart';
 
-/// Supported external navigation providers.
+/// Supported external navigation providers (strictly Google Maps & Waze).
 enum NavigationAppOption {
   googleMaps,
   waze,
-  appleMaps,
-  systemDefault,
 }
 
 /// Service to prompt drivers and launch turn-by-turn navigation
-/// via external apps (Google Maps, Waze, Apple Maps, System GPS).
+/// via external apps (strictly Google Maps and Waze).
+///
+/// Features daily default preference: on the first tap of any calendar day,
+/// prompts the driver with the 2-option picker and persists the choice.
+/// Subsequent single taps on that same day launch the chosen app directly.
+/// Once the local calendar date advances, the prompt re-appears on the first tap.
+/// Long-pressing the Navigate button always re-opens the picker to switch mid-day.
 abstract final class NavigationLauncherService {
-  /// Opens a bottom sheet prompting the driver to pick their navigation app.
-  static Future<void> showNavigationChooser({
+  static const String prefNavAppKey = 'daily_default_nav_app';
+  static const String prefNavDateKey = 'daily_default_nav_date';
+
+  /// Returns today's local date string formatted as 'YYYY-MM-DD'.
+  static String getTodayDateString([DateTime? now]) {
+    final d = now ?? DateTime.now();
+    final year = d.year.toString().padLeft(4, '0');
+    final month = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  /// Gets the saved navigation app preference if it matches today's date.
+  /// If missing or from a previous calendar day, returns null (and clears stale date).
+  static Future<NavigationAppOption?> getDailyDefaultNavApp({
+    SharedPreferences? overridePrefs,
+    DateTime? now,
+  }) async {
+    final prefs = overridePrefs ?? await SharedPreferences.getInstance();
+    final savedDate = prefs.getString(prefNavDateKey);
+    final savedApp = prefs.getString(prefNavAppKey);
+    final today = getTodayDateString(now);
+
+    if (savedDate == today && savedApp != null) {
+      if (savedApp == NavigationAppOption.googleMaps.name) {
+        return NavigationAppOption.googleMaps;
+      } else if (savedApp == NavigationAppOption.waze.name) {
+        return NavigationAppOption.waze;
+      }
+    } else if (savedDate != null && savedDate != today) {
+      // Clear previous day's preference so new day prompts fresh
+      await prefs.remove(prefNavAppKey);
+      await prefs.remove(prefNavDateKey);
+    }
+    return null;
+  }
+
+  /// Saves today's navigation preference into persistent storage.
+  static Future<void> setDailyDefaultNavApp(
+    NavigationAppOption option, {
+    SharedPreferences? overridePrefs,
+    DateTime? now,
+  }) async {
+    final prefs = overridePrefs ?? await SharedPreferences.getInstance();
+    final today = getTodayDateString(now);
+    await prefs.setString(prefNavAppKey, option.name);
+    await prefs.setString(prefNavDateKey, today);
+  }
+
+  /// Clears any saved daily navigation preference.
+  static Future<void> clearDailyDefaultNavApp({
+    SharedPreferences? overridePrefs,
+  }) async {
+    final prefs = overridePrefs ?? await SharedPreferences.getInstance();
+    await prefs.remove(prefNavAppKey);
+    await prefs.remove(prefNavDateKey);
+  }
+
+  /// Primary navigation dispatch:
+  /// - If [forceChooser] is true (e.g. from long-press) or no valid preference
+  ///   exists for today: prompts the driver with the 2-option sheet, saves the
+  ///   choice, and launches it.
+  /// - If a preference already exists for today: launches directly without showing
+  ///   the picker.
+  static Future<void> navigate({
     required BuildContext context,
     required double destinationLat,
     required double destinationLng,
@@ -25,8 +94,49 @@ abstract final class NavigationLauncherService {
     required bool isHeadingToPickup,
     LatLng? driverPosition,
     ActiveTrip? trip,
+    bool forceChooser = false,
   }) async {
-    final option = await showModalBottomSheet<NavigationAppOption>(
+    NavigationAppOption? targetOption;
+
+    if (!forceChooser) {
+      targetOption = await getDailyDefaultNavApp();
+    }
+
+    if (targetOption == null) {
+      if (!context.mounted) return;
+      targetOption = await showNavigationChooser(
+        context: context,
+        destinationAddress: destinationAddress,
+        isHeadingToPickup: isHeadingToPickup,
+      );
+      if (targetOption != null) {
+        await setDailyDefaultNavApp(targetOption);
+      }
+    }
+
+    if (targetOption == null) return;
+
+    switch (targetOption) {
+      case NavigationAppOption.googleMaps:
+        await launchGoogleMaps(destinationLat, destinationLng);
+        break;
+      case NavigationAppOption.waze:
+        await launchWaze(destinationLat, destinationLng);
+        break;
+    }
+  }
+
+  /// Opens the 2-option chooser bottom sheet (Google Maps & Waze).
+  static Future<NavigationAppOption?> showNavigationChooser({
+    required BuildContext context,
+    required String destinationAddress,
+    required bool isHeadingToPickup,
+    double? destinationLat,
+    double? destinationLng,
+    LatLng? driverPosition,
+    ActiveTrip? trip,
+  }) async {
+    return showModalBottomSheet<NavigationAppOption>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -35,26 +145,6 @@ abstract final class NavigationLauncherService {
         isHeadingToPickup: isHeadingToPickup,
       ),
     );
-
-    if (option == null || !context.mounted) return;
-
-    switch (option) {
-      case NavigationAppOption.googleMaps:
-        await launchGoogleMaps(destinationLat, destinationLng);
-        break;
-
-      case NavigationAppOption.waze:
-        await launchWaze(destinationLat, destinationLng);
-        break;
-
-      case NavigationAppOption.appleMaps:
-        await launchAppleMaps(destinationLat, destinationLng);
-        break;
-
-      case NavigationAppOption.systemDefault:
-        await launchSystemMap(destinationLat, destinationLng, destinationAddress);
-        break;
-    }
   }
 
   /// Launches Google Maps turn-by-turn navigation directly.
@@ -98,32 +188,6 @@ abstract final class NavigationLauncherService {
 
     return false;
   }
-
-  /// Launches Apple Maps navigation directly. The `maps.apple.com` URL
-  /// opens the native Maps app on iOS and degrades to the browser
-  /// elsewhere, so this is safe to offer on every platform.
-  static Future<bool> launchAppleMaps(double lat, double lng) async {
-    final appleUri = Uri.parse('https://maps.apple.com/?daddr=$lat,$lng');
-    if (await canLaunchUrl(appleUri)) {
-      return launchUrl(appleUri, mode: LaunchMode.externalApplication);
-    }
-    return launchGoogleMaps(lat, lng);
-  }
-
-  /// Launches any installed system map via geo: intent.
-  static Future<bool> launchSystemMap(
-    double lat,
-    double lng,
-    String label,
-  ) async {
-    final geoUri = Uri.parse('geo:$lat,$lng?q=$lat,$lng(${Uri.encodeComponent(label)})');
-    if (await canLaunchUrl(geoUri)) {
-      return launchUrl(geoUri, mode: LaunchMode.externalApplication);
-    }
-
-    // Fallback to Google Maps web
-    return launchGoogleMaps(lat, lng);
-  }
 }
 
 class _NavigationChooserSheet extends StatelessWidget {
@@ -152,7 +216,6 @@ class _NavigationChooserSheet extends StatelessWidget {
           ),
         ],
       ),
-      // 16px gutters so app options span edge-to-edge on phones.
       child: SafeArea(
         top: false,
         child: ConstrainedBox(
@@ -165,89 +228,82 @@ class _NavigationChooserSheet extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Icon(Icons.navigation_rounded, color: AppColors.seseGold, size: 24),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isHeadingToPickup ? 'Navigate to Pickup' : 'Navigate to Dropoff',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    if (destinationAddress.isNotEmpty)
-                      Text(
-                        destinationAddress,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.navigation_rounded,
+                      color: AppColors.seseGold,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isHeadingToPickup
+                                ? 'Navigate to Pickup'
+                                : 'Navigate to Dropoff',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          if (destinationAddress.isNotEmpty)
+                            Text(
+                              destinationAddress,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'CHOOSE NAVIGATION APP',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                const SizedBox(height: 20),
+                Text(
+                  'CHOOSE NAVIGATION APP',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
+                const SizedBox(height: 12),
+                _NavOptionTile(
+                  title: 'Google Maps',
+                  subtitle: 'External voice & traffic navigation',
+                  iconWidget: const GoogleMapsLogo(size: 26),
+                  onTap: () =>
+                      Navigator.of(context).pop(NavigationAppOption.googleMaps),
+                ),
+                const SizedBox(height: 10),
+                _NavOptionTile(
+                  title: 'Waze',
+                  subtitle: 'External live community navigation',
+                  iconWidget: const WazeLogo(size: 28),
+                  onTap: () =>
+                      Navigator.of(context).pop(NavigationAppOption.waze),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          _NavOptionTile(
-            title: 'Google Maps',
-            subtitle: 'External voice & traffic navigation',
-            icon: Icons.alt_route_rounded,
-            iconColor: Colors.blue.shade600,
-            onTap: () => Navigator.of(context).pop(NavigationAppOption.googleMaps),
-          ),
-          const SizedBox(height: 8),
-          _NavOptionTile(
-            title: 'Waze',
-            subtitle: 'External live community navigation',
-            icon: Icons.directions_car_filled_rounded,
-            iconColor: Colors.cyan.shade600,
-            onTap: () => Navigator.of(context).pop(NavigationAppOption.waze),
-          ),
-          const SizedBox(height: 8),
-          _NavOptionTile(
-            title: 'Apple Maps',
-            subtitle: 'External navigation on Apple Maps',
-            icon: Icons.map_outlined,
-            iconColor: Colors.grey.shade700,
-            onTap: () => Navigator.of(context).pop(NavigationAppOption.appleMaps),
-          ),
-          const SizedBox(height: 8),
-          _NavOptionTile(
-            title: 'Other Navigation Apps',
-            subtitle: 'Open default device GPS app',
-            icon: Icons.explore_rounded,
-            iconColor: Colors.green.shade600,
-            onTap: () => Navigator.of(context).pop(NavigationAppOption.systemDefault),
-          ),
-        ],
+        ),
       ),
-    ),
-  ),
-),
     );
   }
 }
@@ -255,15 +311,13 @@ class _NavigationChooserSheet extends StatelessWidget {
 class _NavOptionTile extends StatelessWidget {
   final String title;
   final String subtitle;
-  final IconData icon;
-  final Color iconColor;
+  final Widget iconWidget;
   final VoidCallback onTap;
 
   const _NavOptionTile({
     required this.title,
     required this.subtitle,
-    required this.icon,
-    required this.iconColor,
+    required this.iconWidget,
     required this.onTap,
   });
 
@@ -284,13 +338,21 @@ class _NavOptionTile extends StatelessWidget {
         child: Row(
           children: [
             Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.15),
+                color: isDark ? const Color(0xFF1E1E24) : Colors.white,
                 borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
-              child: Icon(icon, color: iconColor, size: 22),
+              alignment: Alignment.center,
+              child: iconWidget,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -299,17 +361,27 @@ class _NavOptionTile extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 12),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(fontSize: 12),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 14,
+              color: Colors.grey,
+            ),
           ],
         ),
       ),

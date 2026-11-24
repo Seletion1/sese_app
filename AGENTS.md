@@ -72,6 +72,21 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — External Navigation Modernization: Two-App Chooser (Google Maps & Waze), CustomPainter Vector Logos, Daily Default Preference & Draggable Sheet Anchoring (`sese_ride`)
+
+- **1. Strict Two-App Navigation Architecture (`Google Maps` & `Waze`)**:
+  - *Clean 2-Option Scope*: Restricted navigation chooser bottom sheet strictly to **Google Maps** and **Waze**. Completely removed Apple Maps and generic system GPS options.
+  - *Vector `CustomPainter` Branding*: Replaced generic icons with bespoke vector logo widgets (`GoogleMapsLogo` and `WazeLogo`) implemented strictly with built-in Flutter `CustomPainter` (zero external image assets and zero `flutter_svg` dependency). Google Maps renders the iconic 4-color pin with central cutout; Waze renders the cyan mascot with wheels, face, and speech tail.
+- **2. Daily Default Navigation Preference**:
+  - *Persistent Keying*: Persisted `daily_default_nav_app` and `daily_default_nav_date` (`YYYY-MM-DD`) in `SharedPreferences`.
+  - *Day-Gated Routing*: First tap of any calendar day prompts with the 2-option sheet, saves the selection with today's date, and launches immediately. Subsequent taps on that same calendar day bypass the sheet and launch the saved app directly.
+  - *Next Day Expiration & Mid-Day Switching*: When the local calendar date advances, the stale preference is cleared and the prompt re-opens on the first tap of the new day. Long-pressing the `Navigate` button triggers `forceChooser: true` to let drivers switch default apps mid-day without impacting single-tap flows.
+- **3. Dynamic Draggable Sheet Anchoring (`driver_dashboard_screen.dart`)**:
+  - *Physical Realignment*: Relocated `Navigate` button from static top HUD (`top: 105`) to a dynamic bottom anchor right above the top-right border of the draggable active trip sheet.
+  - *Live Drag Tracking*: Bound position dynamically to `DraggableScrollableController` and `NotificationListener<DraggableScrollableNotification>`, smoothly tracking live user drag extents with clamping to prevent off-screen clipping or banner collisions.
+- **4. Verification**:
+  - `sese_ride`: 10/10 new tests passed in `test/navigation_launcher_service_test.dart`; 17/17 active trip regression tests passed; `flutter analyze` reported 0 issues.
+
 ## 2026-11-24 — Dual Gateway Architecture: Paystack & OPay Checkout Integration (`functions`, `sese_core`, `sese_hub`, `sese_ride`)
 
 - **1. Architecture & Gateway Duality**:

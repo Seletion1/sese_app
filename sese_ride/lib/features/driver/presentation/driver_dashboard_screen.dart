@@ -129,6 +129,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// Sheet controller for the full-width draggable active trip bottom sheet.
   final DraggableScrollableController _activeTripSheetController =
       DraggableScrollableController();
+  double _activeSheetExtent = _sheetCollapsedSize;
 
   /// Service calculating live completed trip earnings and daily net profit.
   late final EarningsService _earningsService = EarningsService();
@@ -527,6 +528,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   }
 
   void _onActiveTripSheetChanged() {
+    if (_activeTripSheetController.isAttached) {
+      _activeSheetExtent = _activeTripSheetController.size;
+    }
     if (mounted) setState(() {});
   }
 
@@ -861,6 +865,43 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (!mounted) return;
       _collapseActiveTripSheet();
     });
+  }
+
+  /// Calculates dynamic bottom offset for HUD buttons (like Navigate) so they
+  /// stay anchored just above the top-right border of the draggable sheet.
+  double _navigateButtonBottom(BuildContext context) {
+    final screenH = MediaQuery.sizeOf(context).height;
+    final sheetFraction = _activeTripSheetController.isAttached
+        ? _activeTripSheetController.size
+        : _activeSheetExtent;
+    final targetBottom = screenH * sheetFraction + 12.0;
+    // Top clamp ensures the button never collides with top turn banners, notch, or app bar
+    final maxBottom = screenH - 120.0;
+    const minBottom = 80.0;
+    return targetBottom.clamp(minBottom, maxBottom);
+  }
+
+  /// Handles single-tap (daily default navigation) or long-press (picker reopen).
+  void _handleNavigate(ActiveTrip active, {bool forceChooser = false}) {
+    final isHeadingToPickup =
+        active.status == TripStatus.driverAccepted ||
+        active.status == TripStatus.driverArriving ||
+        active.status == TripStatus.driverArrived;
+
+    NavigationLauncherService.navigate(
+      context: context,
+      destinationLat:
+          isHeadingToPickup ? active.pickupLat : active.dropoffLat,
+      destinationLng:
+          isHeadingToPickup ? active.pickupLng : active.dropoffLng,
+      destinationAddress: isHeadingToPickup
+          ? active.pickupAddress
+          : active.dropoffAddress,
+      isHeadingToPickup: isHeadingToPickup,
+      driverPosition: _driverPosition,
+      trip: active,
+      forceChooser: forceChooser,
+    );
   }
 
 
@@ -2154,7 +2195,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ),
 
-            // Clear "Navigate" button directly on the driver's map to launch external navigation
+            // Floating "Navigate" button dynamically anchored just above the top-right
+            // border of the draggable active trip sheet, moving seamlessly with the drag extent.
             if (active != null &&
                 (active.status == TripStatus.driverAccepted ||
                     active.status == TripStatus.driverArriving ||
@@ -2162,7 +2204,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                     active.status == TripStatus.inProgress))
               Positioned(
                 right: 14,
-                top: 105,
+                bottom: _navigateButtonBottom(context),
                 child: Material(
                   key: const Key('hud_navigate_button'),
                   color: AppColors.seseGold,
@@ -2171,27 +2213,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                   borderRadius: BorderRadius.circular(24),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(24),
-                    onTap: () {
-                      final isHeadingToPickup =
-                          active.status == TripStatus.driverAccepted ||
-                              active.status == TripStatus.driverArriving ||
-                              active.status == TripStatus.driverArrived;
-                      NavigationLauncherService.showNavigationChooser(
-                        context: context,
-                        destinationLat: isHeadingToPickup
-                            ? active.pickupLat
-                            : active.dropoffLat,
-                        destinationLng: isHeadingToPickup
-                            ? active.pickupLng
-                            : active.dropoffLng,
-                        destinationAddress: isHeadingToPickup
-                            ? active.pickupAddress
-                            : active.dropoffAddress,
-                        isHeadingToPickup: isHeadingToPickup,
-                        driverPosition: _driverPosition,
-                        trip: active,
-                      );
-                    },
+                    onTap: () => _handleNavigate(active, forceChooser: false),
+                    onLongPress: () =>
+                        _handleNavigate(active, forceChooser: true),
                     child: const Padding(
                       padding:
                           EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -2226,7 +2250,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 left: 0,
                 right: 0,
                 bottom: active != null
-                    ? (MediaQuery.sizeOf(context).height * _sheetCollapsedSize + 24)
+                    ? (_navigateButtonBottom(context) + 12.0)
                     : 180,
                 child: Center(
                   child: Material(
@@ -2278,15 +2302,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             if (active != null) ...[
               if (MapProviderPolicy.resolve(MapContext.realtimeTracking) !=
                   MapProvider.googleMaps)
-                const Positioned(
-                  right: 12,
-                  bottom: 180,
-                  child: _RasterCredit(),
+                Positioned(
+                  left: 12,
+                  bottom: (_navigateButtonBottom(context) - 24.0).clamp(40.0, 300.0),
+                  child: const _RasterCredit(),
                 ),
               // Full-width draggable bottom action sheet extending directly above the bottom nav bar.
               // Kept visible at its snap-to-edge size during map interaction so driver
               // can easily pull it back up; never hidden or dismissed with opacity 0.
-              _buildActiveTripCard(active),
+              NotificationListener<DraggableScrollableNotification>(
+                onNotification: (notification) {
+                  if (mounted && _activeSheetExtent != notification.extent) {
+                    setState(() {
+                      _activeSheetExtent = notification.extent;
+                    });
+                  }
+                  return false;
+                },
+                child: _buildActiveTripCard(active),
+              ),
             ] else if (_isOnline) ...[
               Positioned(
                 left: 12,
