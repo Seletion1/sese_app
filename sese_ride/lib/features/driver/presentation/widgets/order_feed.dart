@@ -7,7 +7,7 @@ import '../../../../core/services/remote_config_service.dart';
 import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
-import '../../services/driver_streak_service.dart';
+import '../../services/driver_dispatch_service.dart';
 import 'order_card.dart';
 import 'order_empty_state.dart';
 import 'order_pool_sheet.dart';
@@ -18,7 +18,7 @@ class OrderFeed extends StatefulWidget {
   final LatLng driverPosition;
   final String currencySymbol;
   final String streakTag;
-  final DriverStreakService streakService;
+  final DriverDispatchService streakService;
   final TripRepository? tripRepository;
   final bool isOnline;
   final String? activeVehicleCategory;
@@ -28,7 +28,7 @@ class OrderFeed extends StatefulWidget {
     required this.driverId,
     required this.driverPosition,
     required this.currencySymbol,
-    required this.streakTag,
+    this.streakTag = '',
     required this.streakService,
     this.tripRepository,
     required this.isOnline,
@@ -304,7 +304,7 @@ class OrderFeedState extends State<OrderFeed> {
 /// pulse animation while orders are available, `Order Pool (0)` inactive
 /// otherwise. Tapping scrolls the feed to the top via [onTap].
 class PoolBadge extends StatefulWidget {
-  final DriverStreakService streakService;
+  final DriverDispatchService streakService;
   final LatLng driverPosition;
   final String? driverId;
   final VoidCallback? onTap;

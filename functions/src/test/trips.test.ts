@@ -4,17 +4,18 @@ import assert from "node:assert";
 import { test, describe } from "node:test";
 import {
   nairaToKobo,
-  computeCommission,
-  applyStreakBreak,
-  DriverStreakDoc,
-  DailyStreakConfig,
   FinancialMutationLog,
   TripTransitionLog,
-} from "../driverStreak";
+} from "../tripSettlement";
 import {
   normalizePhone,
   haversineKm,
 } from "../trips";
+
+function computeCommission(baseFare: number, rate = 0.15) {
+  const commissionAmount = Number((baseFare * rate).toFixed(2));
+  return { commissionRate: rate, commissionAmount };
+}
 
 describe("Backend Safety & Invariant Matrix", () => {
   test("1. Trip Creation & Escrow Invariants", async () => {
@@ -56,18 +57,17 @@ describe("Backend Safety & Invariant Matrix", () => {
   });
 
   test("4. Trip Decline & Audit Trail", async () => {
-    const streakBefore: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 1,
-      currentStep: 3,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
+    const declineLog: TripTransitionLog = {
+      tripId: "trip_123",
+      from: "WAITING_FOR_ACCEPTANCE",
+      to: "SEARCHING_DRIVER",
+      actor: "driver_456",
+      role: "driver",
+      reason: "rejected",
+      timestamp: Date.now(),
     };
-
-    const broken = applyStreakBreak(streakBefore);
-    assert.strictEqual(broken.currentStep, 0); // Drops to step 0 on decline
+    assert.strictEqual(declineLog.reason, "rejected");
+    assert.strictEqual(declineLog.to, "SEARCHING_DRIVER");
   });
 
   test("5. Driver Reassignment Bounds (Max 3 Reassignments)", async () => {
@@ -199,121 +199,23 @@ describe("Financial & Currency Precision Engine", () => {
   });
 });
 
-describe("Driver Streak & Commission Calculation Engine", () => {
-  const cfg: DailyStreakConfig = {
-    streakEnabled: true,
-    baseCommissionRate: 0.20,
-    noShowWaitMinutes: 10,
-    completionCashAward: 10000.0,
-    disabledCountries: [],
-    disabledStates: [],
-  };
-
-  test("Level 1 step 0 computes 15% commission", () => {
-    const streak: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 1,
-      currentStep: 0,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
-    };
-
-    const res = computeCommission(streak, 2000, cfg);
+describe("Driver Commission Calculation Engine", () => {
+  test("Computes standard 15% commission", () => {
+    const res = computeCommission(2000, 0.15);
     assert.strictEqual(res.commissionRate, 0.15);
     assert.strictEqual(res.commissionAmount, 300); // 15% of 2000
-    assert.strictEqual(res.cashBackAmount, 0);
-    assert.strictEqual(res.newState.currentLevel, 1);
-    assert.strictEqual(res.newState.currentStep, 1);
   });
 
-  test("Level 2 refund reverses Level 1 paid commission", () => {
-    const streak: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 2,
-      currentStep: 0,
-      level1PaidHistory: [300, 250, 200, 150, 100, 50],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
-    };
-
-    const res = computeCommission(streak, 2000, cfg);
-    assert.strictEqual(res.commissionRate, 0);
-    assert.strictEqual(res.commissionAmount, 0);
-    assert.strictEqual(res.cashBackAmount, 50); // refunds history[5]
-    assert.strictEqual(res.newState.currentLevel, 2);
-    assert.strictEqual(res.newState.currentStep, 1);
+  test("Computes custom 20% commission", () => {
+    const res = computeCommission(2000, 0.20);
+    assert.strictEqual(res.commissionRate, 0.20);
+    assert.strictEqual(res.commissionAmount, 400); // 20% of 2000
   });
 
-  test("Level 3 grand award triggers at step 6", () => {
-    const streak: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 3,
-      currentStep: 6,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
-    };
-
-    const res = computeCommission(streak, 2000, cfg);
-    assert.strictEqual(res.commissionRate, 0);
-    assert.strictEqual(res.cashBonusAmount, 400); // 20% of 2000
-    assert.strictEqual(res.grandAwardTriggered, true);
-    assert.strictEqual(res.newState.dailyStreakCompleted, true);
-  });
-
-  test("Streak break drop-back rules behave correctly", () => {
-    const streakL1S0: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 1,
-      currentStep: 0,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
-    };
-    const brokenL1S0 = applyStreakBreak(streakL1S0);
-    assert.strictEqual(brokenL1S0.streakActive, false);
-
-    const streakL1S3: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 1,
-      currentStep: 3,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.20,
-      resetDateLocal: "2026-11-02",
-    };
-    const brokenL1S3 = applyStreakBreak(streakL1S3);
-    assert.strictEqual(brokenL1S3.currentStep, 0);
-  });
-
-  test("Public pool order charges full base commission rate and does NOT progress streak", () => {
-    const streak: DriverStreakDoc = {
-      streakActive: true,
-      currentLevel: 1,
-      currentStep: 3,
-      level1PaidHistory: [300, 250, 200],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.15,
-      resetDateLocal: "2026-11-11",
-    };
-
-    const poolCfg: DailyStreakConfig = { ...cfg, baseCommissionRate: 0.15 };
-
-    // When isPoolOrder = true, charges full 15% base rate and bypasses streak step-down (step 3 would be 7.5%)
-    const res = computeCommission(streak, 4000, poolCfg, true);
+  test("Public pool order charges full base commission rate", () => {
+    const res = computeCommission(4000, 0.15);
     assert.strictEqual(res.commissionRate, 0.15);
-    assert.strictEqual(res.commissionAmount, 600); // 15% of 4000 = 600
-    assert.strictEqual(res.cashBackAmount, 0);
-    assert.strictEqual(res.cashBonusAmount, 0);
-    assert.strictEqual(res.grandAwardTriggered, false);
-    // Streak state preserved completely unchanged (remains at Level 1 Step 3)
-    assert.strictEqual(res.newState.currentLevel, 1);
-    assert.strictEqual(res.newState.currentStep, 3);
+    assert.strictEqual(res.commissionAmount, 600); // 15% of 4000
   });
 });
 

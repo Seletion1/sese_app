@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_ride/features/customer/services/location_service.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/order_feed.dart';
-import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 
 /// Controllable dispatch backend: canned Tier 1 / Tier 3 snapshots.

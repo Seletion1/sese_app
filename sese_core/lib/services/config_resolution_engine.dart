@@ -116,22 +116,6 @@ class ConfigResolutionEngine {
           : parent.carTierThresholds.luxeMultiplier,
     );
 
-    // Merge streak rewards per-field: a child doc that never customized a
-    final mergedStreak = _mergeStreakRewards(
-      parent.streakRewards,
-      child.streakRewards,
-    );
-
-    final mergedCustomerStreak = _mergeStreakRewards(
-      parent.customerStreakRewards,
-      child.customerStreakRewards,
-    );
-
-    // Merge daily commission-tiering config. Disable cascades down the
-    // hierarchy (global → country → state): the streak is active only when
-    // every level leaves it enabled and neither disable-list covers the
-    // region. Scalar overrides apply only when the child doc customized
-    // them (i.e. differs from the model default).
     final mergedDailyStreak = _mergeDailyStreak(
       parent.dailyStreakConfig,
       child.dailyStreakConfig,
@@ -148,8 +132,6 @@ class ConfigResolutionEngine {
           : parent.regionalSurgeMultiplier,
       pricingRates: mergedRates,
       carTierThresholds: mergedThresholds,
-      streakRewards: mergedStreak,
-      customerStreakRewards: mergedCustomerStreak,
       dailyStreakConfig: mergedDailyStreak,
       updatedAt: child.updatedAt.isAfter(parent.updatedAt)
           ? child.updatedAt
@@ -159,23 +141,15 @@ class ConfigResolutionEngine {
 
   /// Merges two [DailyStreakConfig] levels (parent → child).
   ///
-  /// - [streakEnabled] uses AND semantics so a disable at any level
-  ///   (global, country, or state) cascades down.
   /// - Scalar fields: child wins only when customized (differs from the
   ///   model default); otherwise the parent value is inherited.
-  /// - Disable lists: union of both levels (normalized to upper-case), so a
-  ///   country/state disabled globally stays disabled under overrides.
   static DailyStreakConfig _mergeDailyStreak(
     DailyStreakConfig parent,
     DailyStreakConfig child,
   ) {
     const defaults = DailyStreakConfig();
-    Set<String> union(List<String> a, List<String> b) => {
-          for (final e in [...a, ...b]) e.trim().toUpperCase(),
-        }..remove('');
 
     return DailyStreakConfig(
-      streakEnabled: parent.streakEnabled && child.streakEnabled,
       baseCommissionRate:
           child.baseCommissionRate != defaults.baseCommissionRate
               ? child.baseCommissionRate
@@ -184,56 +158,28 @@ class ConfigResolutionEngine {
           child.noShowWaitMinutes != defaults.noShowWaitMinutes
               ? child.noShowWaitMinutes
               : parent.noShowWaitMinutes,
-      completionCashAward:
-          child.completionCashAward != defaults.completionCashAward
-              ? child.completionCashAward
-              : parent.completionCashAward,
       autoArrivalEnabled:
           parent.autoArrivalEnabled && child.autoArrivalEnabled,
       autoArrivalCountdownSeconds:
           child.autoArrivalCountdownSeconds != defaults.autoArrivalCountdownSeconds
               ? child.autoArrivalCountdownSeconds
               : parent.autoArrivalCountdownSeconds,
-      disabledCountries:
-          union(parent.disabledCountries, child.disabledCountries).toList()
-            ..sort(),
-      disabledStates:
-          union(parent.disabledStates, child.disabledStates).toList()..sort(),
+      enableWaitingTimeBilling:
+          child.enableWaitingTimeBilling != defaults.enableWaitingTimeBilling
+              ? child.enableWaitingTimeBilling
+              : parent.enableWaitingTimeBilling,
+      freeWaitingMinutes:
+          child.freeWaitingMinutes != defaults.freeWaitingMinutes
+              ? child.freeWaitingMinutes
+              : parent.freeWaitingMinutes,
+      waitingRatePerMinute:
+          child.waitingRatePerMinute != defaults.waitingRatePerMinute
+              ? child.waitingRatePerMinute
+              : parent.waitingRatePerMinute,
+      enableCancellationLock:
+          child.enableCancellationLock != defaults.enableCancellationLock
+              ? child.enableCancellationLock
+              : parent.enableCancellationLock,
     );
-  }
-
-  static StreakRewardConfig _mergeStreakRewards(
-    StreakRewardConfig parent,
-    StreakRewardConfig child,
-  ) {
-    return StreakRewardConfig(
-      enabled: child.enabled && parent.enabled,
-      cycle: child.cycle.isNotEmpty && child.cycle != 'daily'
-          ? child.cycle
-          : parent.cycle,
-      tiers: _isDefaultStreakTiers(child.tiers)
-          ? parent.tiers
-          : child.tiers,
-      grandCompletionCashAward:
-          child.grandCompletionCashAward != StreakRewardConfig.defaultGrandAward
-              ? child.grandCompletionCashAward
-              : parent.grandCompletionCashAward,
-      grandCompletionTargetTrips:
-          child.grandCompletionTargetTrips != StreakRewardConfig.defaultGrandTargetTrips
-              ? child.grandCompletionTargetTrips
-              : parent.grandCompletionTargetTrips,
-    );
-  }
-
-  /// True when [tiers] exactly match the model default (i.e. the child doc
-  /// never customized streak tiers, so the parent value must be inherited).
-  static bool _isDefaultStreakTiers(List<StreakTier> tiers) {
-    if (tiers.length != 3) return false;
-    return tiers[0].completedTripsTrigger == 5 &&
-        tiers[0].bonusPayout == 1000.0 &&
-        tiers[1].completedTripsTrigger == 10 &&
-        tiers[1].bonusPayout == 2500.0 &&
-        tiers[2].completedTripsTrigger == 20 &&
-        tiers[2].bonusPayout == 6000.0;
   }
 }

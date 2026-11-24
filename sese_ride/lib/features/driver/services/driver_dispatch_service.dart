@@ -8,18 +8,21 @@ import '../../trips/models/trip_models.dart';
 
 /// Thrown when a driver trip action (accept/decline/arrive/cancel) fails.
 /// Always carries a [userMessage] safe to show in a SnackBar.
-class DriverStreakException implements Exception {
+class DriverDispatchException implements Exception {
   final String code;
   final String userMessage;
 
-  const DriverStreakException(this.code, this.userMessage);
+  const DriverDispatchException(this.code, this.userMessage);
 
   @override
-  String toString() => 'DriverStreakException($code): $userMessage';
+  String toString() => 'DriverDispatchException($code): $userMessage';
 }
 
+/// Backward compatibility alias.
+typedef DriverStreakException = DriverDispatchException;
+
 /// Transport seam for driver trip-action callables (unit-testable).
-abstract class DriverStreakBackend {
+abstract class DriverDispatchBackend {
   Future<Map<String, dynamic>> callAcceptTrip(String tripId, {String? sessionId});
   Future<Map<String, dynamic>> callDeclineTrip(String tripId, {String action = 'rejected'});
   Future<Map<String, dynamic>> callAdvanceTripStatus(
@@ -70,7 +73,10 @@ abstract class DriverStreakBackend {
       Future.value(const {'ok': true});
 }
 
-class _FunctionsDriverStreakBackend implements DriverStreakBackend {
+/// Backward compatibility alias.
+typedef DriverStreakBackend = DriverDispatchBackend;
+
+class _FunctionsDriverDispatchBackend implements DriverDispatchBackend {
   FirebaseFunctions get _fn => FirebaseFunctions.instance;
 
   Future<Map<String, dynamic>> _call(
@@ -155,7 +161,6 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
       });
     } catch (e) {
       debugPrint('callRequestDropoffApproval: falling back to advanceTripStatus ($e)');
-      // Resilient fallback: advanceTripStatus with status: 'pending_customer_approval'
       return await _call('advanceTripStatus', {
         'tripId': tripId,
         'status': 'pending_customer_approval',
@@ -171,9 +176,6 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
       _call('cancelDropoffApprovalRequest', {'tripId': tripId});
 
   @override
-  /// Invokes the `skipDeliveryPin` server callable. The server validates that
-  /// 10 minutes have elapsed since `IN_PROGRESS` and marks the trip as
-  /// `deliveryPinSkipped: true` with a full audit entry.
   Future<Map<String, dynamic>> callSkipDeliveryPin(String tripId) =>
       _call('skipDeliveryPin', {'tripId': tripId});
 
@@ -196,7 +198,6 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
     try {
       return await _call('recordDropoffArrival', {'tripId': tripId});
     } catch (_) {
-      // Resilient fallback: advanceTripStatus with recordDropoffArrival: true
       return await _call('advanceTripStatus', {
         'tripId': tripId,
         'status': 'IN_PROGRESS',
@@ -206,16 +207,13 @@ class _FunctionsDriverStreakBackend implements DriverStreakBackend {
   }
 }
 
-/// Live data + actions for the Daily Commission Streak system.
+/// Live data + actions for the Driver Dispatch system.
 ///
-/// - Streams come from Firestore (`driver_streaks/{driverId}`, `trips`
-///   pings/assignments, `system_configs/global_default`).
-/// - Mutations go through the server-authoritative callables in
-///   functions/src/trips.ts; the client never writes streak state.
-/// - Constructing this service never touches Firebase (lazy getters only).
-class DriverStreakService {
-  final FirebaseFirestore? _firestore;
-  final DriverStreakBackend? _backend;
+/// - Streams come from Firestore (`trips` pings/assignments, `system_configs/global_default`).
+/// - Mutations go through server-authoritative callables in functions/src/trips.ts.
+class DriverDispatchService {
+  final FirebaseFirestore? firestore;
+  final DriverDispatchBackend? backend;
 
   /// Multi-device active session ID. Forwarded to `acceptTrip` when set
   /// to ensure only the currently active session can accept incoming trips.
@@ -224,46 +222,23 @@ class DriverStreakService {
   /// The active driver's UID.
   String? driverId;
 
-  DriverStreakService({this._firestore, this._backend, this.driverId});
+  DriverDispatchService({
+    this.firestore,
+    this.backend,
+    this.driverId,
+  });
 
   FirebaseFirestore? get _db {
     try {
-      return _firestore ?? FirebaseFirestore.instance;
+      return firestore ?? FirebaseFirestore.instance;
     } catch (_) {
       return null;
     }
   }
 
-  DriverStreakBackend get _ops => _backend ?? _FunctionsDriverStreakBackend();
-
-  /// Real-time streak card for [driverId]. Emits a default (inactive-safe)
-  /// state when Firestore is unavailable so widgets keep rendering.
-  ///
-  /// A denied listen (signed out, or [driverId] is not the current user —
-  /// `driver_streaks` is owner-read-only) resolves to the default state and
-  /// ENDS the stream instead of retrying forever, so the device log and
-  /// battery are spared the permission-denied hot loop.
-  Stream<DriverStreakState> streakStream(String driverId) {
-    final fallback = DriverStreakState(driverId: driverId);
-    final db = _db;
-    if (db == null || driverId.isEmpty) {
-      return Stream.value(fallback);
-    }
-    return db
-        .collection('driver_streaks')
-        .doc(driverId)
-        .snapshots()
-        .map(
-          (doc) => DriverStreakState.fromMap(driverId, doc.data() ?? const {}),
-        )
-        .handleError((Object _) => fallback);
-  }
+  DriverDispatchBackend get _ops => backend ?? _FunctionsDriverDispatchBackend();
 
   /// Tier 1 exclusive ping for [driverId].
-  ///
-  /// Single-field query (the WAITING status is filtered client-side) so no
-  /// composite index is required. A denied listen resolves to null and
-  /// ends instead of retrying forever.
   Stream<ActiveTrip?> pingStream(String driverId) {
     final db = _db;
     if (db == null || driverId.isEmpty) return Stream.value(null);
@@ -286,14 +261,7 @@ class DriverStreakService {
         .handleError((Object _) => null);
   }
 
-
   /// Tier 3 marketplace broadcast (open to all nearby online drivers).
-  ///
-  /// Covers BOTH pool statuses so Stage 3 orders render no matter which
-  /// marker the dispatcher wrote: `MARKETPLACE_OPEN` (broadcast) and
-  /// `MARKETPLACE_LIST` (ignored / rejected / timed-out orders recycled
-  /// into the 3km–5km outer-radius pool). Single-field `whereIn` — no
-  /// composite index required. Denied reads end as empty.
   Stream<List<ActiveTrip>> marketplaceStream({
     String? driverId,
     int limit = 20,
@@ -314,10 +282,6 @@ class DriverStreakService {
         .collection('trips')
         .where(
           'status',
-          // Firestore rule-compatible: drivers may only list
-          // MARKETPLACE_OPEN / MARKETPLACE_LIST. Anything broader is denied
-          // wholesale by the rules engine — orders with active bids keep
-          // `MARKETPLACE_OPEN`, so no legitimate order is missed.
           whereIn: const ['MARKETPLACE_OPEN', 'MARKETPLACE_LIST'],
         )
         .limit(limit)
@@ -332,10 +296,6 @@ class DriverStreakService {
   }
 
   /// Driver's currently assigned live trip, if any.
-  ///
-  /// Queries by `driver.driverId` so Firestore Security Rules permit the read
-  /// for the assigned driver. Does NOT limit to 10 oldest docs so past
-  /// completed trips never hide the active live trip.
   Stream<ActiveTrip?> activeTripStream(String driverId) {
     final db = _db;
     if (db == null || driverId.isEmpty) return Stream.value(null);
@@ -346,7 +306,6 @@ class DriverStreakService {
         .map((snap) {
           for (final d in snap.docs) {
             final trip = ActiveTrip.fromMap(d.id, d.data());
-            // Filter out self-booked customer trips (role-based isolation)
             if (trip.isLive && trip.customerId != driverId) return trip;
           }
           return null;
@@ -357,11 +316,9 @@ class DriverStreakService {
         });
   }
 
-  /// Platform streak tunables (wait threshold, grand award). Falls back to
-  /// model defaults when Firestore is unavailable. A denied listen (e.g.
-  /// signed out — `system_configs` requires authentication) resolves to
-  /// defaults and ends instead of retrying forever.
-  Stream<DailyStreakConfig> streakConfigStream() {
+  /// Platform dispatch tunables. Falls back to model defaults when Firestore
+  /// is unavailable.
+  Stream<DailyStreakConfig> dispatchConfigStream() {
     const fallback = DailyStreakConfig();
     final db = _db;
     if (db == null) {
@@ -379,19 +336,18 @@ class DriverStreakService {
         .handleError((Object _) => fallback);
   }
 
+  /// Backward compatibility stream alias.
+  Stream<DailyStreakConfig> streakConfigStream() => dispatchConfigStream();
+
   Future<void> acceptTrip(String tripId, {String? sessionId}) =>
       _guard(() => _ops.callAcceptTrip(tripId, sessionId: sessionId ?? activeSessionId));
 
-  /// Rejecting or skipping an incoming request breaks the streak (server-enforced).
   Future<void> declineTrip(String tripId, {String action = 'rejected'}) =>
       _guard(() => _ops.callDeclineTrip(tripId, action: action));
 
-  /// Advances DRIVER_ACCEPTED → DRIVER_ARRIVING → DRIVER_ARRIVED →
-  /// IN_PROGRESS → COMPLETED along the server chain.
   Future<void> advanceTripStatus(String tripId, String status) =>
       advanceTripStatusWithLocation(tripId, status);
 
-  /// Advances trip status with live driver GPS coordinates for geofence validation.
   Future<void> advanceTripStatusWithLocation(
     String tripId,
     String status, {
@@ -405,15 +361,9 @@ class DriverStreakService {
             driverLng: driverLng,
           ));
 
-  /// Cancels the assigned trip. The server decides streak protection
-  /// (customer cancel / arrived + waited no-show are protected). [reason]
-  /// is a [CancelTripDialog] code, audited server-side like the customer
-  /// path; unknown codes land as `other`.
   Future<void> cancelTrip(String tripId, {String? reason}) =>
       _guard(() => _ops.callCancelTrip(tripId, reason: reason));
 
-  /// Driver confirms cash collected from customer for waiting time cancellation,
-  /// or reports cash not collected to debit the customer's account balance.
   Future<void> confirmCashCancellation(
     String tripId, {
     bool cashCollected = true,
@@ -425,11 +375,9 @@ class DriverStreakService {
         ),
       );
 
-  /// Submits the recipient's 4-digit delivery PIN to complete a delivery.
   Future<void> verifyDeliveryPin(String tripId, String pin) =>
       verifyDeliveryPinWithLocation(tripId, pin);
 
-  /// Submits the recipient's 4-digit delivery PIN with live driver GPS coordinates.
   Future<void> verifyDeliveryPinWithLocation(
     String tripId,
     String pin, {
@@ -443,20 +391,12 @@ class DriverStreakService {
             driverLng: driverLng,
           ));
 
-  /// Skips the delivery PIN after 10 minutes of recipient unavailability.
-  ///
-  /// The caller is responsible for confirming the liability warning dialog
-  /// before invoking this. The server double-checks the 10-minute gate and
-  /// creates a permanent audit entry. On success the trip is marked verified
-  /// so that settlement proceeds normally.
   Future<void> skipDeliveryPin(String tripId) =>
       _guard(() => _ops.callSkipDeliveryPin(tripId));
 
-  /// Records arrival at drop-off for drop-off waiting and billing tracking.
   Future<void> recordDropoffArrival(String tripId) =>
       _guard(() => _ops.callRecordDropoffArrival(tripId));
 
-  /// Driver requests remote customer confirmation when completing outside drop-off radius.
   Future<void> requestDropoffApproval({
     required String tripId,
     required double driverLat,
@@ -470,13 +410,9 @@ class DriverStreakService {
             reason: reason,
           ));
 
-  /// Cancels an active pending drop-off confirmation request.
   Future<void> cancelDropoffApprovalRequest(String tripId) =>
       _guard(() => _ops.callCancelDropoffApprovalRequest(tripId));
 
-  /// GPS heartbeat for the live trip (powers the customer marker +
-  /// proximity triggers). Mocked fixes are rejected server-side; the
-  /// caller should withhold spoofed fixes and surface a warning instead.
   Future<void> reportDriverLocation({
     required String tripId,
     required double lat,
@@ -490,12 +426,12 @@ class DriverStreakService {
     try {
       await call();
     } on FirebaseFunctionsException catch (e) {
-      debugPrint('DriverStreakService ${e.code}: ${e.message}');
-      throw DriverStreakException(e.code, _mapError(e.code, e.message));
+      debugPrint('DriverDispatchService ${e.code}: ${e.message}');
+      throw DriverDispatchException(e.code, _mapError(e.code, e.message));
     } catch (e) {
-      debugPrint('DriverStreakService error: $e');
-      if (e is DriverStreakException) rethrow;
-      throw const DriverStreakException(
+      debugPrint('DriverDispatchService error: $e');
+      if (e is DriverDispatchException) rethrow;
+      throw const DriverDispatchException(
         'network-error',
         'Could not reach the dispatch server. Check your connection.',
       );
@@ -520,3 +456,6 @@ class DriverStreakService {
     }
   }
 }
+
+/// Backward compatibility class alias.
+typedef DriverStreakService = DriverDispatchService;

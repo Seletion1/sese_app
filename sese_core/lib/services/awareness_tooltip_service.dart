@@ -69,11 +69,11 @@ class AwarenessTooltipService extends ChangeNotifier {
     ),
     'menu_earnings': (
       title: 'Earnings',
-      description: 'Track daily, weekly, and monthly trip earnings, commissions, net profit, and streak milestones.',
+      description: 'Track daily, weekly, and monthly trip earnings, commissions, and net profit.',
     ),
     'menu_referral': (
       title: 'Refer & Earn',
-      description: 'Share your referral code with friends and drivers to earn commission bonus points.',
+      description: 'Share your referral code with friends and drivers.',
     ),
     'menu_trips_history': (
       title: 'Trips History',

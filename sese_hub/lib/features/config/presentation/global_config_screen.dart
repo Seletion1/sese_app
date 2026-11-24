@@ -139,39 +139,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _premiumMultCtrl = TextEditingController(text: '1.35');
   final _luxeMultCtrl = TextEditingController(text: '1.75');
 
-  // Controllers for Streak & Rewards (Drivers)
-  bool _driverStreakRewardEnabled = true;
-  String _driverStreakCycle = 'daily';
-  final _streak5Ctrl = TextEditingController(text: '1000');
-  final _streak10Ctrl = TextEditingController(text: '2500');
-  final _streak20Ctrl = TextEditingController(text: '6000');
-  final _grandAwardCtrl = TextEditingController(text: '15000');
-  final _grandTargetTripsCtrl = TextEditingController(text: '30');
-
-  // Controllers for Streak & Rewards (Customers)
-  bool _customerStreakRewardEnabled = true;
-  String _customerStreakCycle = 'weekly';
-  final _custStreak5Ctrl = TextEditingController(text: '500');
-  final _custStreak10Ctrl = TextEditingController(text: '1200');
-  final _custStreak20Ctrl = TextEditingController(text: '3000');
-  final _custGrandAwardCtrl = TextEditingController(text: '5000');
-  final _custGrandTargetTripsCtrl = TextEditingController(text: '25');
-
-  String _selectedRewardRole = 'driver';
-
-  // Driver Tiered Commission & Streak Settings (DailyStreakConfig).
-  // Active by default platform-wide; admins disable per country/state.
-  bool _dailyStreakEnabled = true;
+  // Driver Commission & Dispatch Settings (DailyStreakConfig).
   bool _autoArrivalEnabled = true;
   final _baseCommissionCtrl = TextEditingController(text: '20.0');
-  final _completionAwardCtrl = TextEditingController(text: '10000');
   final _noShowWaitCtrl = TextEditingController(text: '10');
   final _autoArrivalCountdownCtrl = TextEditingController(text: '5');
-  final Set<String> _disabledCountries = {};
-  final Set<String> _disabledStates = {};
-  String _disableCountryPick = 'KE';
-  String _disableStateCountryPick = 'NG';
-  final _disableStateCtrl = TextEditingController();
 
   // Multi-driver Bidding Settings
   final _maxVisibleBidsCtrl = TextEditingController(text: '5');
@@ -295,21 +267,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _comfortMultCtrl.dispose();
     _premiumMultCtrl.dispose();
     _luxeMultCtrl.dispose();
-    _streak5Ctrl.dispose();
-    _streak10Ctrl.dispose();
-    _streak20Ctrl.dispose();
-    _grandAwardCtrl.dispose();
-    _grandTargetTripsCtrl.dispose();
-    _custStreak5Ctrl.dispose();
-    _custStreak10Ctrl.dispose();
-    _custStreak20Ctrl.dispose();
-    _custGrandAwardCtrl.dispose();
-    _custGrandTargetTripsCtrl.dispose();
     _baseCommissionCtrl.dispose();
-    _completionAwardCtrl.dispose();
     _noShowWaitCtrl.dispose();
     _autoArrivalCountdownCtrl.dispose();
-    _disableStateCtrl.dispose();
     _maxVisibleBidsCtrl.dispose();
     _bicycleMaxCtrl.dispose();
     _kekeMaxCtrl.dispose();
@@ -513,38 +473,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _premiumMultCtrl.text = tiers.premiumMultiplier.toString();
     _luxeMultCtrl.text = tiers.luxeMultiplier.toString();
 
-    final streaks = existing.streakRewards;
-    _driverStreakRewardEnabled = streaks.enabled;
-    _driverStreakCycle = streaks.cycle;
-    if (streaks.tiers.isNotEmpty) {
-      _streak5Ctrl.text = streaks.tiers[0].bonusPayout.toStringAsFixed(0);
-    }
-    if (streaks.tiers.length > 1) {
-      _streak10Ctrl.text = streaks.tiers[1].bonusPayout.toStringAsFixed(0);
-    }
-    if (streaks.tiers.length > 2) {
-      _streak20Ctrl.text = streaks.tiers[2].bonusPayout.toStringAsFixed(0);
-    }
-    _grandAwardCtrl.text = streaks.grandCompletionCashAward.toStringAsFixed(0);
-    _grandTargetTripsCtrl.text = streaks.grandCompletionTargetTrips.toString();
-
-    final custStreaks = existing.customerStreakRewards;
-    _customerStreakRewardEnabled = custStreaks.enabled;
-    _customerStreakCycle = custStreaks.cycle;
-    if (custStreaks.tiers.isNotEmpty) {
-      _custStreak5Ctrl.text = custStreaks.tiers[0].bonusPayout.toStringAsFixed(0);
-    }
-    if (custStreaks.tiers.length > 1) {
-      _custStreak10Ctrl.text = custStreaks.tiers[1].bonusPayout.toStringAsFixed(0);
-    }
-    if (custStreaks.tiers.length > 2) {
-      _custStreak20Ctrl.text = custStreaks.tiers[2].bonusPayout.toStringAsFixed(0);
-    }
-    _custGrandAwardCtrl.text = custStreaks.grandCompletionCashAward.toStringAsFixed(0);
-    _custGrandTargetTripsCtrl.text = custStreaks.grandCompletionTargetTrips.toString();
-
     final daily = existing.dailyStreakConfig;
-    _dailyStreakEnabled = daily.streakEnabled;
     _autoArrivalEnabled = daily.autoArrivalEnabled;
     _enableWaitingTimeBilling = daily.enableWaitingTimeBilling;
     _freeWaitingMinutesCtrl.text = daily.freeWaitingMinutes.toString();
@@ -552,16 +481,9 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     _enableCancellationLock = daily.enableCancellationLock;
     _baseCommissionCtrl.text =
         (daily.baseCommissionRate * 100).toStringAsFixed(1);
-    _completionAwardCtrl.text = daily.completionCashAward.toStringAsFixed(0);
     _noShowWaitCtrl.text = daily.noShowWaitMinutes.toString();
     _autoArrivalCountdownCtrl.text =
         daily.autoArrivalCountdownSeconds.toString();
-    _disabledCountries
-      ..clear()
-      ..addAll(daily.disabledCountries.map((e) => e.trim().toUpperCase()));
-    _disabledStates
-      ..clear()
-      ..addAll(daily.disabledStates.map((e) => e.trim().toUpperCase()));
 
     setState(() {});
   }
@@ -602,62 +524,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         luxeMultiplier: double.tryParse(_luxeMultCtrl.text) ?? 1.75,
       );
 
-      final streakRewards = StreakRewardConfig(
-        enabled: _driverStreakRewardEnabled,
-        cycle: _driverStreakCycle,
-        tiers: [
-          StreakTier(
-            completedTripsTrigger: 5,
-            bonusPayout: double.tryParse(_streak5Ctrl.text) ?? 1000.0,
-          ),
-          StreakTier(
-            completedTripsTrigger: 10,
-            bonusPayout: double.tryParse(_streak10Ctrl.text) ?? 2500.0,
-          ),
-          StreakTier(
-            completedTripsTrigger: 20,
-            bonusPayout: double.tryParse(_streak20Ctrl.text) ?? 6000.0,
-          ),
-        ],
-        grandCompletionCashAward:
-            double.tryParse(_grandAwardCtrl.text) ?? 15000.0,
-        grandCompletionTargetTrips:
-            int.tryParse(_grandTargetTripsCtrl.text) ?? 30,
-      );
-
-      final customerStreakRewards = StreakRewardConfig(
-        enabled: _customerStreakRewardEnabled,
-        cycle: _customerStreakCycle,
-        tiers: [
-          StreakTier(
-            completedTripsTrigger: 5,
-            bonusPayout: double.tryParse(_custStreak5Ctrl.text) ?? 500.0,
-          ),
-          StreakTier(
-            completedTripsTrigger: 10,
-            bonusPayout: double.tryParse(_custStreak10Ctrl.text) ?? 1200.0,
-          ),
-          StreakTier(
-            completedTripsTrigger: 20,
-            bonusPayout: double.tryParse(_custStreak20Ctrl.text) ?? 3000.0,
-          ),
-        ],
-        grandCompletionCashAward:
-            double.tryParse(_custGrandAwardCtrl.text) ?? 5000.0,
-        grandCompletionTargetTrips:
-            int.tryParse(_custGrandTargetTripsCtrl.text) ?? 25,
-      );
-
-      // The form is always populated from the stored doc (see
-      // _populateFormForCurrentSelection), so round-tripping the edited
-      // values preserves admin streak settings instead of wiping them.
       final dailyStreak = DailyStreakConfig(
-        streakEnabled: _dailyStreakEnabled,
         baseCommissionRate:
             (double.tryParse(_baseCommissionCtrl.text) ?? 20.0) / 100.0,
         noShowWaitMinutes: int.tryParse(_noShowWaitCtrl.text) ?? 10,
-        completionCashAward:
-            double.tryParse(_completionAwardCtrl.text) ?? 10000.0,
         autoArrivalEnabled: _autoArrivalEnabled,
         autoArrivalCountdownSeconds:
             int.tryParse(_autoArrivalCountdownCtrl.text) ?? 5,
@@ -665,8 +535,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         freeWaitingMinutes: int.tryParse(_freeWaitingMinutesCtrl.text.trim()) ?? 10,
         waitingRatePerMinute: double.tryParse(_waitingRatePerMinuteCtrl.text.trim()) ?? 20.0,
         enableCancellationLock: _enableCancellationLock,
-        disabledCountries: _disabledCountries.toList()..sort(),
-        disabledStates: _disabledStates.toList()..sort(),
       );
 
       final config = RegionConfig(
@@ -678,8 +546,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         regionalSurgeMultiplier: _regionalSurgeMultiplier,
         pricingRates: pricingRates,
         carTierThresholds: carTiers,
-        streakRewards: streakRewards,
-        customerStreakRewards: customerStreakRewards,
         dailyStreakConfig: dailyStreak,
         updatedAt: DateTime.now(),
       );
@@ -1071,13 +937,11 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           ]),
         ),
         HubModuleSection(
-          id: 'engagement',
-          title: 'Driver Engagement',
-          icon: Icons.emoji_events,
+          id: 'dispatch_policies',
+          title: 'Dispatch & Policies',
+          icon: Icons.tune,
           permission: secConfigEngagement,
           child: sectionScroll([
-            _buildStreakRewardsCard(),
-            const SizedBox(height: 20),
             _buildDailyStreakCard(),
             const SizedBox(height: 20),
             _buildDriverBreakCard(),
@@ -2465,15 +2329,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     );
   }
 
-  /// "Driver Tiered Commission & Streak Settings" control module.
-  ///
-  /// Active by default platform-wide ([DailyStreakConfig.streakEnabled]).
-  /// Country/state cascading selectors add entries to the disable lists;
-  /// scalar fields configure the base commission, grand-completion cash
-  /// award (local currency), and customer no-show wait threshold.
+  /// "Driver Commission & Proximity Settings" control module.
   Widget _buildDailyStreakCard() {
-    final countryOptions =
-        SeseCountryCatalog.allCountries.map((c) => c.countryCode).toList();
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2487,7 +2344,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               runSpacing: 4,
               children: [
                 const Text(
-                  '5. Driver Tiered Commission & Streak Settings',
+                  '4. Driver Commission & Proximity Settings',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -2496,22 +2353,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Streak is ACTIVE BY DEFAULT for all countries and states. '
-              'Disable it below for specific countries or states. '
-              'Level 1: 15% → 0% step-down · Level 2: 0% + cash-back · '
-              'Level 3: 0% + cash bonus + grand award.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
             const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Streak system active'),
-              subtitle: const Text('Default ON — applies to this scope'),
-              value: _dailyStreakEnabled,
-              onChanged: (v) => setState(() => _dailyStreakEnabled = v),
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Proximity Auto-Arrival'),
@@ -2541,19 +2383,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                 _CappedField(
                   preferredWidth: 220,
                   child: TextFormField(
-                    controller: _completionAwardCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Completion Cash Reward',
-                      prefixText: '$_currencySymbol ',
-                      helperText: 'Default ₦10,000',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 220,
-                  child: TextFormField(
                     controller: _noShowWaitCtrl,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
@@ -2573,354 +2402,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                       labelText: 'Auto-Arrival Countdown',
                       suffixText: 'sec',
                       helperText: 'Default 5 seconds',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Regional Disable — Countries',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                _CappedField(
-                  preferredWidth: 160,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: countryOptions.contains(_disableCountryPick)
-                        ? _disableCountryPick
-                        : countryOptions.first,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Country',
-                      isDense: true,
-                    ),
-                    items: [
-                      for (final c in countryOptions)
-                        DropdownMenuItem(
-                          value: c,
-                          child: Text(
-                            '${SeseCountryCatalog.findByCode(c)?.flagEmoji ?? ''} ${SeseCountryCatalog.findByCode(c)?.countryName ?? c} (${SeseCountryCatalog.findByCode(c)?.dialCode ?? ''})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) {
-                        setState(() => _disableCountryPick = v);
-                      }
-                    },
-                  ),
-                ),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.block),
-                  label: const Text('Disable country'),
-                  onPressed: () => setState(
-                      () => _disabledCountries.add(_disableCountryPick)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_disabledCountries.isEmpty)
-              const Text('No countries disabled — streak active everywhere.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey))
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in _disabledCountries)
-                    Chip(
-                      label: Text('$c (disabled)'),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () =>
-                          setState(() => _disabledCountries.remove(c)),
-                    ),
-                ],
-              ),
-            const SizedBox(height: 16),
-            const Text(
-              'Regional Disable — States / Regions',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                _CappedField(
-                  preferredWidth: 140,
-                  child: DropdownButtonFormField<String>(
-                    initialValue:
-                        countryOptions.contains(_disableStateCountryPick)
-                            ? _disableStateCountryPick
-                            : countryOptions.first,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Country',
-                      isDense: true,
-                    ),
-                    items: [
-                      for (final c in countryOptions)
-                        DropdownMenuItem(
-                          value: c,
-                          child: Text(
-                            '${SeseCountryCatalog.findByCode(c)?.flagEmoji ?? ''} ${SeseCountryCatalog.findByCode(c)?.countryName ?? c} (${SeseCountryCatalog.findByCode(c)?.dialCode ?? ''})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) {
-                        setState(() => _disableStateCountryPick = v);
-                      }
-                    },
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 180,
-                  child: TextFormField(
-                    controller: _disableStateCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'State / Region',
-                      hintText: 'e.g. Lagos',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.block),
-                  label: const Text('Disable state'),
-                  onPressed: () {
-                    final state = _disableStateCtrl.text
-                        .trim()
-                        .toUpperCase()
-                        .replaceAll(' ', '_');
-                    if (state.isEmpty) return;
-                    setState(() {
-                      _disabledStates
-                          .add('${_disableStateCountryPick}_$state');
-                      _disableStateCtrl.clear();
-                    });
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_disabledStates.isEmpty)
-              const Text('No states disabled.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey))
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final s in _disabledStates)
-                    Chip(
-                      label: Text('$s (disabled)'),
-                      deleteIcon: const Icon(Icons.close, size: 16),
-                      onDeleted: () =>
-                          setState(() => _disabledStates.remove(s)),
-                    ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStreakRewardsCard() {
-    final isDriver = _selectedRewardRole == 'driver';
-    final isEnabled = isDriver ? _driverStreakRewardEnabled : _customerStreakRewardEnabled;
-    final currentCycle = isDriver ? _driverStreakCycle : _customerStreakCycle;
-
-    final s5Ctrl = isDriver ? _streak5Ctrl : _custStreak5Ctrl;
-    final s10Ctrl = isDriver ? _streak10Ctrl : _custStreak10Ctrl;
-    final s20Ctrl = isDriver ? _streak20Ctrl : _custStreak20Ctrl;
-    final grandTargetCtrl = isDriver ? _grandTargetTripsCtrl : _custGrandTargetTripsCtrl;
-    final grandAwardCtrl = isDriver ? _grandAwardCtrl : _custGrandAwardCtrl;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                const Text(
-                  '4. Dynamic Streak & Reward Overrides',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Awards in $_currencySymbol',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Role selector
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'driver',
-                  label: Text('Driver Streaks'),
-                  icon: Icon(Icons.drive_eta, size: 16),
-                ),
-                ButtonSegment(
-                  value: 'customer',
-                  label: Text('Customer Streaks'),
-                  icon: Icon(Icons.person, size: 16),
-                ),
-              ],
-              selected: {_selectedRewardRole},
-              onSelectionChanged: (val) {
-                if (val.isNotEmpty) {
-                  setState(() => _selectedRewardRole = val.first);
-                }
-              },
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 20,
-              runSpacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Switch(
-                      value: isEnabled,
-                      onChanged: (val) {
-                        setState(() {
-                          if (isDriver) {
-                            _driverStreakRewardEnabled = val;
-                          } else {
-                            _customerStreakRewardEnabled = val;
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      isEnabled
-                          ? '${isDriver ? "Driver" : "Customer"} Rewards Active'
-                          : '${isDriver ? "Driver" : "Customer"} Rewards Disabled',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: isEnabled ? null : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-                _CappedField(
-                  preferredWidth: 200,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: currentCycle,
-                    decoration: const InputDecoration(
-                      labelText: 'Evaluation Cycle',
-                      isDense: true,
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'daily', child: Text('Daily Cycle')),
-                      DropdownMenuItem(value: 'weekly', child: Text('Weekly Cycle')),
-                      DropdownMenuItem(value: 'monthly', child: Text('Monthly Cycle')),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          if (isDriver) {
-                            _driverStreakCycle = val;
-                          } else {
-                            _customerStreakCycle = val;
-                          }
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: s5Ctrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '5-Trip Streak Bonus',
-                      prefixText: '$_currencySymbol ',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: s10Ctrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '10-Trip Streak Bonus',
-                      prefixText: '$_currencySymbol ',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: s20Ctrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '20-Trip Streak Bonus',
-                      prefixText: '$_currencySymbol ',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _CappedField(
-                  preferredWidth: 240,
-                  child: TextFormField(
-                    controller: grandTargetCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Grand Completion Target',
-                      suffixText: 'trips',
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 240,
-                  child: TextFormField(
-                    controller: grandAwardCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: 'Grand Cash Award Payout',
-                      prefixText: '$_currencySymbol ',
                       isDense: true,
                     ),
                   ),

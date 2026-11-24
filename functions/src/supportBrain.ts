@@ -12,7 +12,7 @@ const db = () => admin.firestore();
 
 // ---------------------------------------------------------------------------
 // Product Facts & Policy Kernel
-// Sourced strictly from backend configuration (pricing.ts, payouts.ts, payments.ts, driverStreak.ts).
+// Sourced strictly from backend configuration (pricing.ts, payments.ts, tripSettlement.ts).
 // ---------------------------------------------------------------------------
 
 /** Per-vehicle pricing rates. */
@@ -32,13 +32,6 @@ export const MAX_TOPUP_KOBO = 50_000_000; // ₦500,000.00
 /** Driver online minimum balance rule: Drivers can toggle ONLINE at any balance.
  * If mainWalletBalance < ₦1.00, a warning is shown and backend holds trip dispatches. */
 export const MIN_WALLET_TO_ONLINE = 1.0; // ₦1.00
-
-/** SeSe Coin Bonus thresholds. */
-export const SE_SE_COIN_CONVERT_MIN = 5000.0; // ₦5,000.00
-export const SE_SE_COIN_AUTO_SWEEP = 10000.0; // ₦10,000.00
-
-/** Streak step-down ladder. */
-const L1_RATES = [15, 12.5, 10, 7.5, 5, 2.5, 0];
 
 function naira(kobo: number): string {
   return `₦${(kobo / 100).toLocaleString("en-NG", {
@@ -504,21 +497,11 @@ const ARTICLES: Article[] = [
       `For a Car, the base fare is ${naira(PRICING.car.base)} plus ₦${PRICING.car.perKm}/km and ₦${PRICING.car.perMin}/min.`,
   },
   {
-    topic: "streak",
-    triggers: ["streak", "cash back", "cashback", "driver bonus", "daily streak", "commission ladder"],
-    answer:
-      `Driver Streak Rewards & Commission Ladder:\n\n` +
-      `• Level 1: Commission steps down from ${L1_RATES[0]}% to ${L1_RATES[L1_RATES.length - 1]}% as you complete daily trips.\n` +
-      `• Level 2: 0% commission + previous Level 1 commission is refunded step-by-step.\n` +
-      `• Level 3: 0% commission + growing cash bonus ending in a grand award.\n\n` +
-      `All streak rewards credit automatically to your wallet. Daily streaks reset at 00:00 midnight local time.`,
-  },
-  {
     topic: "greeting",
     triggers: ["hello", "hey there", "good morning", "good evening", "good afternoon", "hiya"],
     standalone: true,
     answer:
-      "Hi! I am the SeSe Assistant. I can help you with trip bookings, driver status, cancellation refunds, wallet top-ups, SeSe Coin bonus conversions, and account verification. How can I assist you today?",
+      "Hi! I am the SeSe Assistant. I can help you with trip bookings, driver status, cancellation refunds, Sese Credits top-ups, and account verification. How can I assist you today?",
   },
   {
     topic: "thanks",

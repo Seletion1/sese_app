@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/driver/services/proximity_trigger_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 

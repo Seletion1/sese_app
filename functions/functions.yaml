@@ -583,24 +583,6 @@
       },
       "entryPoint": "onTripCancelled"
     },
-    "scheduledResetStreaks": {
-      "platform": "gcfv2",
-      "availableMemoryMb": null,
-      "timeoutSeconds": null,
-      "minInstances": null,
-      "maxInstances": null,
-      "ingressSettings": null,
-      "concurrency": null,
-      "serviceAccountEmail": null,
-      "vpc": null,
-      "labels": {},
-      "scheduleTrigger": {
-        "schedule": "0 * * * *",
-        "retryConfig": {},
-        "timeZone": "UTC"
-      },
-      "entryPoint": "scheduledResetStreaks"
-    },
     "onTripWrittenForDriverHistory": {
       "platform": "gcfv2",
       "availableMemoryMb": null,

@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/driver_active_trip_card.dart';
-import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 
 class _MockCancellingStreakService implements DriverStreakService {

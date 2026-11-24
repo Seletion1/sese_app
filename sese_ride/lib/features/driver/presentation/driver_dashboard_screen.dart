@@ -20,7 +20,7 @@ import '../../trips/services/trip_rating_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../services/driver_fleet_service.dart';
 import '../services/driver_status_service.dart';
-import '../services/driver_streak_service.dart';
+import '../services/driver_dispatch_service.dart';
 import '../services/navigation_launcher_service.dart';
 import '../services/driver_presence_service.dart';
 import 'driver_fleet_screen.dart';
@@ -31,8 +31,6 @@ import 'widgets/incoming_offer_sheet.dart';
 import 'widgets/order_feed.dart';
 import 'widgets/order_pool_sheet.dart';
 import 'widgets/slide_to_offline.dart';
-import 'widgets/streak_celebration_modal.dart';
-import 'widgets/streak_progress_banner.dart';
 import '../../payments/payment_service.dart';
 import 'earnings_screen.dart';
 import '../services/earnings_service.dart';
@@ -1912,7 +1910,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// - center shows the radar overlay while online with no live trip and an
   ///   empty pool (the pulsing badge already draws the eye otherwise);
   /// - bottom shows the live-trip card when a trip is active, else the
-  ///   streak banner while online, else nothing (offline is just the map —
+  ///   order pool badge while online, else nothing (offline is just the map —
   ///   there is deliberately no earnings/status overlay card). Tier 1/2
   ///   [_PingListener], never inline — the inline [OrderFeed] list is
   ///   superseded by the pool sheet and is no longer mounted here.
@@ -1999,17 +1997,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 isAppPaused: () => _appPaused,
                 isOnBreak: () => _isOnBreak,
                 user: widget.user,
-              ),
-            ),
-            Positioned(
-              top: 0,
-              left: 0,
-              width: 0,
-              height: 0,
-              child: _CelebrationListener(
-                service: _streaks,
-                driverId: widget.driverId,
-                currencySymbol: _currencySymbol,
               ),
             ),
             // New pool arrivals chime once while browsing the map.
@@ -2287,7 +2274,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 ),
               ),
 
-            // Bottom Area (Active Trip Sheet or Idle Streak Slot + Quick Order Badge)
+            // Bottom Area (Active Trip Sheet or Order Pool Badge)
             if (active != null) ...[
               if (MapProviderPolicy.resolve(MapContext.realtimeTracking) !=
                   MapProvider.googleMaps)
@@ -2331,8 +2318,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                             mainAxisAlignment: MainAxisAlignment.end,
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Flexible(child: _buildBottomStreakSlot()),
-                              const SizedBox(width: 10),
                               PoolBadge(
                                 streakService: _streaks,
                                 driverPosition: _driverPosition,
@@ -2765,43 +2750,6 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       },
     );
   }
-
-  /// Bottom slot: daily streak banner — starts collapsed as a floating round
-  /// badge (tappable to expand). When the driver has arrived at a pickup it
-  /// stays expanded so the wait timer is always visible.
-  Widget _buildBottomStreakSlot() {
-    return StreamBuilder<DailyStreakConfig>(
-      stream: _streaks.streakConfigStream(),
-      builder: (context, cfgSnap) {
-        final cfg = cfgSnap.data ?? const DailyStreakConfig();
-        if (!cfg.streakEnabled) {
-          return const SizedBox.shrink();
-        }
-        return StreamBuilder<ActiveTrip?>(
-          stream: _streaks.activeTripStream(widget.driverId),
-          builder: (context, tripSnap) {
-            final active = tripSnap.data;
-            return StreamBuilder<DriverStreakState>(
-              stream: _streaks.streakStream(widget.driverId),
-              builder: (context, streakSnap) {
-                final streak = streakSnap.data ??
-                    DriverStreakState(driverId: widget.driverId);
-                return StreakProgressBanner(
-                  streak: streak,
-                  fareAmount: active?.fareAmount ?? 0,
-                  currencySymbol: _currencySymbol,
-                  waitThresholdMinutes: cfg.noShowWaitMinutes,
-                  arrivedAt: active?.arrivedAt,
-                  collapsible: true,
-                );
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
 }
 
 /// Raster tile attribution rendered just above the bottom card.
@@ -3037,13 +2985,8 @@ class _PingListenerState extends State<_PingListener>
           trip.status == TripStatus.marketplaceList;
       if (!isOfferActive) return;
 
-      final streak = await widget.service
-          .streakStream(widget.driverId)
-          .first
-          .catchError((_) => DriverStreakState(driverId: widget.driverId));
-
       if (mounted && !_sheetOpen) {
-        await _showPing(trip, streak);
+        await _showPing(trip);
       }
     } catch (e) {
       debugPrint('_fetchAndShowOffer failed for trip $tripId: $e');
@@ -3052,47 +2995,40 @@ class _PingListenerState extends State<_PingListener>
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DriverStreakState>(
-      stream: widget.service.streakStream(widget.driverId),
-      builder: (context, streakSnap) {
-        final streak =
-            streakSnap.data ?? DriverStreakState(driverId: widget.driverId);
-        return StreamBuilder<ActiveTrip?>(
-          stream: widget.service.pingStream(widget.driverId),
-          builder: (context, pingSnap) {
-            final ping = pingSnap.data;
-            if (ping == null) {
-              if (_sheetOpen && mounted) {
-                // Ping resolved elsewhere (accepted/expired/cancelled).
-                _sheetOpen = false;
-                _sheetForTrip = null;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && Navigator.of(context).canPop()) {
-                    Navigator.of(context).pop();
-                  }
-                });
-              } else {
-                _sheetForTrip = null;
+    return StreamBuilder<ActiveTrip?>(
+      stream: widget.service.pingStream(widget.driverId),
+      builder: (context, pingSnap) {
+        final ping = pingSnap.data;
+        if (ping == null) {
+          if (_sheetOpen && mounted) {
+            // Ping resolved elsewhere (accepted/expired/cancelled).
+            _sheetOpen = false;
+            _sheetForTrip = null;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
               }
-            } else if (_sheetForTrip != ping.tripId && !_sheetOpen) {
-              // Gate: suppress exclusive ping popups while driver is on break.
-              // The pool badge (Tier 3 marketplace) remains accessible.
-              if (widget.isOnBreak()) {
-                // Driver is resting — don't auto-popup the offer sheet.
-              } else {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted && !_sheetOpen) _showPing(ping, streak);
-                });
-              }
-            }
-            return const SizedBox.shrink();
-          },
-        );
+            });
+          } else {
+            _sheetForTrip = null;
+          }
+        } else if (_sheetForTrip != ping.tripId && !_sheetOpen) {
+          // Gate: suppress exclusive ping popups while driver is on break.
+          // The pool badge (Tier 3 marketplace) remains accessible.
+          if (widget.isOnBreak()) {
+            // Driver is resting — don't auto-popup the offer sheet.
+          } else {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && !_sheetOpen) _showPing(ping);
+            });
+          }
+        }
+        return const SizedBox.shrink();
       },
     );
   }
 
-  Future<void> _showPing(ActiveTrip ping, DriverStreakState streak) async {
+  Future<void> _showPing(ActiveTrip ping) async {
     if (_sheetOpen || !mounted) return;
     _sheetForTrip = ping.tripId;
     _sheetOpen = true;
@@ -3111,16 +3047,6 @@ class _PingListenerState extends State<_PingListener>
         fullscreenDialog: true,
         builder: (_) => IncomingOfferSheet(
           trip: ping,
-          streakTag: (ping.status == TripStatus.marketplaceOpen ||
-                  ping.status == TripStatus.marketplaceList)
-              ? streak.poolOrderLabel(
-                  fareAmount: ping.fareAmount,
-                  symbol: widget.currencySymbol,
-                )
-              : streak.streakLabel(
-                  fareAmount: ping.fareAmount,
-                  symbol: widget.currencySymbol,
-                ),
           currencySymbol: widget.currencySymbol,
           driverPosition: widget.driverPosition,
           streakService: widget.service,
@@ -3133,59 +3059,6 @@ class _PingListenerState extends State<_PingListener>
     // ignore: discarded_futures
     AppSoundService.instance.stopIncomingOrderAlert();
     if (mounted) setState(() => _sheetOpen = false);
-  }
-}
-
-/// Invisible listener: fires the celebratory modal once per day when the
-/// backend marks the streak complete (Level 3 Step 6 + grand award paid).
-class _CelebrationListener extends StatefulWidget {
-  final DriverStreakService service;
-  final String driverId;
-  final String currencySymbol;
-
-  const _CelebrationListener({
-    required this.service,
-    required this.driverId,
-    required this.currencySymbol,
-  });
-
-  @override
-  State<_CelebrationListener> createState() => _CelebrationListenerState();
-}
-
-class _CelebrationListenerState extends State<_CelebrationListener> {
-  String? _celebratedKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<DailyStreakConfig>(
-      stream: widget.service.streakConfigStream(),
-      builder: (context, cfgSnap) {
-        final cfg = cfgSnap.data ?? const DailyStreakConfig();
-        return StreamBuilder<DriverStreakState>(
-          stream: widget.service.streakStream(widget.driverId),
-          builder: (context, streakSnap) {
-            final streak = streakSnap.data;
-            if (streak != null &&
-                streak.dailyStreakCompleted &&
-                streak.resetDateLocal.isNotEmpty &&
-                _celebratedKey != streak.resetDateLocal) {
-              _celebratedKey = streak.resetDateLocal;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  showStreakCelebration(
-                    context,
-                    awardAmount: cfg.completionCashAward,
-                    currencySymbol: widget.currencySymbol,
-                  );
-                }
-              });
-            }
-            return const SizedBox.shrink();
-          },
-        );
-      },
-    );
   }
 }
 

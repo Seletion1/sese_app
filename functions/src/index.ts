@@ -73,19 +73,12 @@ export {
 export {
   onTripCompleted,
   onTripCancelled,
-  scheduledResetStreaks,
-} from "./driverStreak";
+} from "./tripSettlement";
 
 export {
   onTripWrittenForDriverHistory,
   backfillDriverTripHistory,
 } from "./driverTripHistory";
-
-export {
-  evaluateAndGrantStreakRewards,
-  resolveDynamicStreakRewards,
-  getCyclePeriodKey,
-} from "./streakRewards";
 
 export {
   initializePayment,

@@ -558,12 +558,10 @@ service cloud.firestore {
               'verificationStatus', 'isVerified', 'isProfileVerified',
               'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'completedTrips', 'safetyBlocked',
-              'status', 'isSuspended', 'streak', 'currentLevel', 'currentStep',
+              'status', 'isSuspended',
               'sequentialId', 'referralCode', 'referralId',
               // Referral attribution is server-minted exclusively by the
-              // verification-gated `_generateAndSaveReferralCode` flow — a
-              // client claiming a referrer or a signup timestamp is spoofed
-              // money (see driverStreak `processReferralCommissions`).
+              // verification-gated `_generateAndSaveReferralCode` flow.
               'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt'
             ]);
       }
@@ -1504,19 +1502,6 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // ===== PROMPT 23: referral_earnings =====
-    // `referral_earnings`: per-referee referral contribution ledger. Written
-    // exclusively by `ride_split_service.ts` (admin SDK, inside the settlement
-    // transaction) so clients can never inflate a contribution. A user may read
-    // only the rows where they are the referrer (their contributors) or the
-    // referee (their own contributions).
-    match /referral_earnings/{entryId} {
-      allow read: if isAuthenticated() &&
-        (resource.data.referrerId == request.auth.uid ||
-         resource.data.refereeId == request.auth.uid);
-      allow create, update, delete: if false;
-    }
-
     // ===== P2P WALLET & LEDGER (PROMPT 16) =====
     // `system_config`: public configuration docs (wallet rules, payment
     // gateways, delivery modes, referral settings, dispatch settings, ride
@@ -2018,13 +2003,6 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    // Physical-reward pickups — server-created notices; driver reads own.
-    match /physical_reward_pickups/{pickupId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        (isOwner(resource.data.driverId) || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
     // ===== PROMPT 34: DRIVER BADGE PROFILES =====
     // `driver_badge_profiles/{driverId}` is minted by the badge evaluation
     // functions (`evaluateDriverBadges`) from REAL trip/delivery metrics —
@@ -2079,50 +2057,6 @@ service cloud.firestore {
     match /customer_quest_progress/{progressId} {
       allow read: if isAuthenticated() && isNotSuspended() &&
         (isOwner(resource.data.userId) || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
-    // Ride streaks — day counters / milestone bonuses are written only by the
-    // backend trigger; the owner reads their own streak card.
-    match /ride_streaks/{userId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        isOwner(userId);
-      allow create, update, delete: if false;
-    }
-
-    // Dynamic Commission Streak & Rebate Ladder — engine configs are
-    // Super Admin managed (global / country / state / vehicle scope);
-    // every authenticated user may read the active scope for transparency.
-    match /streak_configs/{configId} {
-      allow read: if isAuthenticated() && isNotSuspended();
-      allow create, update, delete: if isSuperAdmin();
-    }
-
-    // Per-driver ladder state — the owner (or Super Admin) reads only their
-    // own card; stage/commission counters advance exclusively server-side
-    // (trip_settle preview+advance, dispatch decline, order-cancel trigger,
-    // and the midnight `scheduledResetStreaks` cron via the Admin SDK).
-    match /driver_streaks/{driverId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        (isOwner(driverId) || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
-    // Dynamic Streak & Reward Overrides progress — tracks completed cycle trips
-    // and awarded tier/grand bonuses for drivers and customers. Read access is
-    // restricted to the owning user or Super Admin; all mutations are executed
-    // strictly server-side by backend triggers via the Admin SDK.
-    match /user_reward_progress/{progressId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        (resource.data.userId == request.auth.uid || isSuperAdmin());
-      allow create, update, delete: if false;
-    }
-
-    // Referral milestone progress — owner-read only; first-trip counting and
-    // reward credits are exclusive to the settlement trigger.
-    match /referral_milestone_progress/{referrerId} {
-      allow read: if isAuthenticated() && isNotSuspended() &&
-        isOwner(referrerId);
       allow create, update, delete: if false;
     }
 

@@ -4,12 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:sese_core/sese_core.dart';
 
-import 'my_referrals_screen.dart';
-
 /// Dedicated Referral Hub inside the Account/Menu tab.
 ///
-/// Shows the user's unique code, copy + share actions, and a live earnings
-/// card (total referrals, active commissions, coins earned).
+/// Shows the user's unique code with copy + share actions.
 class ReferralHubScreen extends StatelessWidget {
   final AppUser user;
 
@@ -59,8 +56,7 @@ class ReferralHubScreen extends StatelessWidget {
         box != null ? (box.localToGlobal(Offset.zero) & box.size) : null;
     await SharePlus.instance.share(
       ShareParams(
-        text: 'Ride with me on SeSe! Use my referral code $code when you sign '
-            'up. Earn bonuses on every trip. #SeSeRide',
+        text: 'Ride with me on SeSe! Use my referral code $code when you sign up. #SeSeRide',
         subject: 'My SeSe referral code: $code',
         sharePositionOrigin: origin,
       ),
@@ -69,7 +65,6 @@ class ReferralHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final referralService = const ReferralService();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Referral Hub'),
@@ -79,7 +74,7 @@ class ReferralHubScreen extends StatelessWidget {
             userId: user.uid,
             title: 'Refer & Earn',
             description:
-                'Share your referral code with friends and drivers to earn lifetime commission bonus coins.',
+                'Share your referral code with friends and drivers.',
           ),
           const SizedBox(width: 8),
         ],
@@ -150,68 +145,8 @@ class ReferralHubScreen extends StatelessWidget {
               );
             },
           ),
-          const SizedBox(height: 12),
-          StreamBuilder<ReferralStats>(
-            stream: referralService.statsStream(user.uid),
-            builder: (context, snap) {
-              final stats = snap.data ?? const ReferralStats();
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    mainAxisAlignment:
-                        MainAxisAlignment.spaceAround,
-                    children: [
-                      _Stat(
-                          label: 'Referrals',
-                          value: '${stats.totalReferrals}'),
-                      _Stat(
-                          label: 'Active',
-                          value: '${stats.activeReferrals}'),
-                      _Stat(
-                          label: 'Coins earned',
-                          value:
-                              '₦${stats.totalCoinsEarned.toStringAsFixed(0)}'),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          FilledButton.tonalIcon(
-            icon: const Icon(Icons.people_outline),
-            label: const Text('View My Referrals'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    MyReferralsScreen(user: user),
-              ),
-            ),
-          ),
         ],
       ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _Stat({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value,
-            style: const TextStyle(
-                fontSize: 18, fontWeight: FontWeight.bold)),
-        Text(label,
-            style:
-                const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
     );
   }
 }

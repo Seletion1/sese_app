@@ -62,12 +62,6 @@ class WalletTransaction {
       case 'trip_escrow_refund':
       case 'escrow_refund':
         return 'Trip payment refund';
-      case 'streak_level2_cashback':
-        return 'Streak cash-back';
-      case 'streak_level3_bonus':
-        return 'Streak bonus';
-      case 'streak_grand_award':
-        return 'Streak grand award';
       case 'platform_commission':
       case 'commission_fee':
       case 'commission':
@@ -80,20 +74,6 @@ class WalletTransaction {
         return 'Waiting fee earned';
       case 'debt_settled_cash':
         return 'Debt settled';
-      case 'customer_streak_milestone_bonus':
-      case 'driver_streak_milestone_bonus':
-        return 'Streak milestone bonus';
-      case 'customer_streak_grand_award':
-      case 'driver_streak_grand_award':
-        return 'Streak grand award';
-      case 'referral_bonus':
-      case 'referral_earnings':
-      case 'referral_commission':
-      case 'REFERRAL_COMMISSION_DRIVER':
-      case 'REFERRAL_COMMISSION_CUSTOMER':
-        return 'Referral bonus';
-      case 'incentive_bonus':
-        return 'Incentive bonus';
       default:
         return type.replaceAll('_', ' ');
     }
@@ -170,10 +150,6 @@ class WalletTransaction {
       'trip_wallet_settlement',
       'waiting_fee_credited',
       'unpaid_waiting_fee_credited',
-      'streak_level2_cashback',
-      'streak_level3_bonus',
-      'streak_grand_award',
-      'referral_commission_driver',
       'driver_payout',
       'payout',
       'payout_log',
@@ -196,7 +172,7 @@ class WalletTransaction {
   }
 
   /// Whether this transaction is driver-facing (e.g. platform commission fees,
-  /// trip fare settlements, driver streak bonuses, driver payouts/escrows, top-ups).
+  /// trip fare settlements, top-ups).
   ///
   /// Hides customer-specific records like passenger ride payments, customer escrow holds,
   /// and customer refunds.
@@ -225,38 +201,6 @@ class WalletTransaction {
     }
 
     return true;
-  }
-
-  /// Wallet-ledger incentive types (bonuses, referrals, awards).
-  static bool isIncentiveType(String type) {
-    if (type.isEmpty) return false;
-    final lower = type.toLowerCase();
-    const explicitSet = {
-      'streak_level2_cashback',
-      'streak_level3_bonus',
-      'streak_grand_award',
-      'payout_bonus',
-      'referral_bonus',
-      'referral_credit',
-      'referral_earnings',
-      'referral_commission',
-      'referral_commission_driver',
-      'referral_commission_customer',
-      'driver_streak_milestone_bonus',
-      'customer_streak_milestone_bonus',
-      'driver_streak_grand_award',
-      'customer_streak_grand_award',
-      'incentive_bonus',
-      'trip_bonus',
-      'trip_cashback',
-    };
-    if (explicitSet.contains(lower)) return true;
-    return lower.contains('streak') ||
-        lower.contains('referral') ||
-        lower.contains('incentive') ||
-        lower.contains('bonus') ||
-        lower.contains('cashback') ||
-        lower.contains('award');
   }
 
   factory WalletTransaction.fromMap(String id, Map<String, dynamic> map) {

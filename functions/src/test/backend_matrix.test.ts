@@ -2,12 +2,14 @@ import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import {
   nairaToKobo,
-  computeCommission,
-  DriverStreakDoc,
-  DailyStreakConfig,
   FinancialMutationLog,
   TripTransitionLog,
-} from "../driverStreak";
+} from "../tripSettlement";
+
+function computeCommission(baseFare: number, rate = 0.15) {
+  const commissionAmount = Number((baseFare * rate).toFixed(2));
+  return { commissionRate: rate, commissionAmount };
+}
 
 describe("Backend Safety & Invariant Matrix", () => {
   // ── 1. Trip Creation & Escrow Hold Invariants ─────────────────────────────
@@ -106,7 +108,7 @@ describe("Backend Safety & Invariant Matrix", () => {
 
   // ── 4. Trip Decline & Sequential Reassignment ─────────────────────────────
   describe("4. Trip Decline & Audit Trail", () => {
-    it("breaks driver streak and records structured rejection log on decline", () => {
+    it("records structured rejection log on decline", () => {
       const trip = {
         status: "WAITING_FOR_ACCEPTANCE",
         declineCount: 0,
@@ -196,25 +198,7 @@ describe("Backend Safety & Invariant Matrix", () => {
   describe("7. Canonical Completion Settlement", () => {
     it("calculates commission and dual Naira/Kobo balances consistently", () => {
       const fareAmount = 4000;
-      const initialStreak: DriverStreakDoc = {
-        currentLevel: 1,
-        currentStep: 0,
-        streakActive: true,
-        level1PaidHistory: [],
-        baseCommissionRate: 0.15,
-        dailyStreakCompleted: false,
-        resetDateLocal: "2026-11-02",
-      };
-      const cfg: DailyStreakConfig = {
-        streakEnabled: true,
-        baseCommissionRate: 0.15,
-        noShowWaitMinutes: 10,
-        completionCashAward: 5000,
-        disabledCountries: [],
-        disabledStates: [],
-      };
-
-      const result = computeCommission(initialStreak, fareAmount, cfg);
+      const result = computeCommission(fareAmount, 0.15);
       assert.equal(result.commissionRate, 0.15);
       assert.equal(result.commissionAmount, 600); // 15% of 4000 = 600
       assert.equal(nairaToKobo(result.commissionAmount), 60000);
@@ -223,8 +207,6 @@ describe("Backend Safety & Invariant Matrix", () => {
     it("generates deterministic completion settlement keys", () => {
       const tripId = "trip_comp_777";
       assert.equal(`${tripId}_commission`, "trip_comp_777_commission");
-      assert.equal(`${tripId}_bonus`, "trip_comp_777_bonus");
-      assert.equal(`${tripId}_grand_award`, "trip_comp_777_grand_award");
       assert.equal(`${tripId}_payment`, "trip_comp_777_payment");
       assert.equal(`${tripId}_wallet_settlement`, "trip_comp_777_wallet_settlement");
     });

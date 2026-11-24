@@ -274,7 +274,7 @@ class RoleController extends ChangeNotifier {
   /// Check if driver has an active order status (`accepted`, `arrived`, `in_transit`).
   ///
   /// Trips carry the assignee nested at `driver.driverId` (see
-  /// `DriverStreakService.activeTripStream` and the `trips` rules) — the
+  /// `DriverDispatchService.activeTripStream` and the `trips` rules) — the
   /// query must use the nested path or it never matches.
   Future<bool> checkDriverHasActiveTrip(
     String driverId, {

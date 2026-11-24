@@ -72,6 +72,25 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Deep Deletion of Driver Streak, Bonus, Reward, Cashback & Referral-Payout Systems (`functions`, `firestore.rules`, `sese_core`, `sese_hub`, `sese_ride`)
+
+- **1. Zero Streak, Reward & Bonus Architecture**:
+  - *Compliance & Architectural Simplification*: Deep physical deletion of all driver streak mechanisms, daily targets, bonus payouts, reward tiers, promo cashback dialogs, and monetary referral commission payouts across apps, rules, and backend functions.
+  - *Backend Functions (`functions`)*: Completely deleted `driverStreak.ts` and `streakRewards.ts`. Replaced with lightweight, high-performance canonical `tripSettlement.ts` for clean trip completion commission and debt recovery settlements without streak side-effects. Stripped `scheduledResetStreaks` and streak/bonus exports from `index.ts`. All 75 Gen-2 endpoints compiled and deployed (`firebase deploy --only functions --force`), successfully deleting `scheduledResetStreaks(us-central1)`.
+  - *Security Rules (`firestore.rules`)*: Completely stripped `/driver_streaks`, `/ride_streaks`, `/streak_configs`, `/user_reward_progress`, `/referral_earnings`, `/referral_milestone_progress`, and `/physical_reward_pickups` match blocks and validation schemas. Deployed to Firebase.
+  - *Shared Core (`sese_core`)*: Physically deleted `driver_streak_state.dart` and `daily_streak_config_test.dart`. Stripped `StreakTier` and `StreakRewardConfig` from `pricing_config.dart`. Cleaned `config_resolution_engine.dart`, `referral_service.dart` (removed monetary referral tracking and earnings streams), `awareness_tooltip_service.dart`, and `legal_document_content.dart`.
+  - *Hub Application (`sese_hub`)*: Completely removed all streak configuration controls (`streakEnabled` toggle, streak targets/rewards), bonus controls, and referral monetary commission settings from `GlobalConfigScreen` and `system_config_service.dart`.
+  - *Customer & Driver App (`sese_ride`)*:
+    - Physically deleted `driver_streak_service.dart`, `streak_progress_banner.dart`, `streak_celebration_modal.dart`, `streak_banner_theme_test.dart`, and `my_referrals_screen.dart`.
+    - Introduced clean, dedicated `DriverDispatchService` focused strictly on real-time order pool feed, order skips, incoming offer timers, and dispatch actions without streak baggage.
+    - Cleaned `driver_dashboard_screen.dart`, `driver_active_trip_card.dart`, `incoming_offer_sheet.dart`, `order_feed.dart`, `order_card.dart`, `order_pool_sheet.dart`, `driver_profile_screen.dart`, `referral_hub_screen.dart`, `role_controller.dart`, and `earnings_screen.dart`.
+
+- **2. Verification & Test Suite**:
+  - `functions`: 75 Gen-2 endpoints deployed; 158/158 tests passed.
+  - `sese_core`: 0 analyzer issues; 158/158 tests passed.
+  - `sese_hub`: 0 analyzer issues; 74/74 tests passed.
+  - `sese_ride`: 0 analyzer issues; 78/78 targeted test suites passed (`payment_service_test.dart`, `driver_order_skip_workflow_test.dart`, `proximity_trigger_service_test.dart`, `order_feed_test.dart`, `driver_profile_test.dart`, `driver_self_trip_prevention_test.dart`, `synchronized_bidding_flow_test.dart`, `driver_active_trip_card_test.dart`, `driver_full_screen_nav_test.dart`, `driver_navigation_telemetry_test.dart`, `dropoff_geofence_test.dart`, `network_resync_and_optimistic_cancellation_test.dart`, `trip_arrival_countdown_and_ui_cleanup_test.dart`).
+
 ## 2026-11-23 — Full Stored-Value Wallet & Payout System Deletion, External Navigation Transition & Sese Credits (`functions`, `sese_core`, `sese_hub`, `sese_ride`)
 
 - **1. Zero Stored-Value Wallet & Zero Payout Architecture**:

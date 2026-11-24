@@ -289,23 +289,15 @@ class ActiveTrip {
   final DateTime? updatedAt;
   final DateTime? createdAt;
 
-  /// Gross fare for the selected tier (drives streak tag refund/bonus text).
+  /// Gross fare for the selected tier.
   final double fareAmount;
 
   /// True when the requesting customer is hub-verified. Drivers render a
   /// gold [Verified Customer] badge on the incoming request card.
   final bool isVerifiedCustomer;
 
-  /// Streak settlement annotated by the backend on COMPLETED trips
-  /// (see functions/src/driverStreak.ts `settlement.*`).
-  final int streakLevel;
-  final int streakStep;
   final double commissionRate;
   final double commissionAmount;
-  final double cashBackAmount;
-  final double cashBonusAmount;
-  final bool grandAwardTriggered;
-  final double grandAwardAmount;
 
   /// Who cancelled: 'customer' | 'driver' | 'system' | null.
   final String? cancellationSource;
@@ -513,14 +505,8 @@ class ActiveTrip {
     this.createdAt,
     this.fareAmount = 0,
     this.isVerifiedCustomer = false,
-    this.streakLevel = 0,
-    this.streakStep = 0,
     this.commissionRate = 0,
     this.commissionAmount = 0,
-    this.cashBackAmount = 0,
-    this.cashBonusAmount = 0,
-    this.grandAwardTriggered = false,
-    this.grandAwardAmount = 0,
     this.cancellationSource,
     this.baselineFare = 0,
     this.fareBoosted = false,
@@ -872,19 +858,12 @@ class ActiveTrip {
           (map['allowBidding'] == null && map['allow_bidding'] == null),
       fareAmount: fareAmount,
       isVerifiedCustomer: map['isVerifiedCustomer'] == true,
-      streakLevel: n(settlement['streakLevel'])?.toInt() ?? n(map['streakLevel'])?.toInt() ?? 0,
-      streakStep: n(settlement['streakStep'])?.toInt() ?? n(map['streakStep'])?.toInt() ?? 0,
       commissionRate: n(settlement['commissionRate'])?.toDouble() ?? n(map['commissionRate'])?.toDouble() ?? 0,
       commissionAmount: n(settlement['commissionAmount'])?.toDouble() ??
           n(settlement['commission'])?.toDouble() ??
           n(map['commissionAmount'])?.toDouble() ??
           n(map['commission'])?.toDouble() ??
           0,
-      cashBackAmount: n(settlement['cashBackAmount'])?.toDouble() ?? n(map['cashBackAmount'])?.toDouble() ?? 0,
-      cashBonusAmount: n(settlement['cashBonusAmount'])?.toDouble() ?? n(map['cashBonusAmount'])?.toDouble() ?? 0,
-      grandAwardTriggered: settlement['grandAwardTriggered'] == true || map['grandAwardTriggered'] == true,
-      grandAwardAmount:
-          n(settlement['grandAwardAmount'])?.toDouble() ?? n(map['grandAwardAmount'])?.toDouble() ?? 0,
       cancellationSource: (parsedStatus == TripStatus.completed ||
               parsedStatus == TripStatus.inProgress ||
               parsedStatus == TripStatus.driverAccepted ||

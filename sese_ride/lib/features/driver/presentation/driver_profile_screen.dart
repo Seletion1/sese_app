@@ -6,7 +6,7 @@ import '../../referral/referral_hub_screen.dart';
 import '../../trips/models/trip_models.dart';
 import '../../../widgets/verified_badge.dart';
 import '../services/driver_profile_service.dart';
-import '../services/driver_streak_service.dart';
+import '../services/driver_dispatch_service.dart';
 import '../../agent_onboarding/widgets/agent_floating_button.dart';
 import '../../agent_onboarding/presentation/agent_application_sheet.dart';
 import '../../agent_onboarding/presentation/agent_status_card_sheet.dart';

@@ -352,7 +352,7 @@ class _MenuTab extends StatelessWidget {
                 color: AppColors.seseGold),
             title: 'Earnings',
             infoDescription:
-                'View daily, weekly, and monthly trip earnings and streak progress.',
+                'View daily, weekly, and monthly trip earnings and platform commissions.',
             trailing: const Icon(Icons.chevron_right, color: AppColors.seseGold),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => EarningsScreen(user: user)),

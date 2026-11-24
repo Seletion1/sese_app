@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_ride/features/driver/presentation/driver_profile_screen.dart';
 import 'package:sese_ride/features/driver/services/driver_profile_service.dart';
-import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/home/driver_home_shell.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 

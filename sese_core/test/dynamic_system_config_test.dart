@@ -213,51 +213,6 @@ void main() {
       expect(resolved.carTierThresholds.luxeMultiplier, 2.0);
       expect(resolved.carTierThresholds.comfortMultiplier, 1.0);
     });
-
-    test('Merges streak rewards per-field instead of whole-object replace', () {
-      final global = RegionConfig.globalDefault();
-      final countryRule = RegionConfig(
-        id: 'country_NG',
-        countryCode: 'NG',
-        currencyCode: 'NGN',
-        currencySymbol: '₦',
-        pricingRates: const {},
-        streakRewards: const StreakRewardConfig(
-          tiers: [
-            StreakTier(completedTripsTrigger: 5, bonusPayout: 1500.0),
-            StreakTier(completedTripsTrigger: 10, bonusPayout: 3000.0),
-            StreakTier(completedTripsTrigger: 20, bonusPayout: 7000.0),
-          ],
-          grandCompletionCashAward: 25000.0,
-          grandCompletionTargetTrips: 30,
-        ),
-        updatedAt: DateTime.now(),
-      );
-      // State override changes only the grand award; tiers stay default.
-      final lagosOverride = RegionConfig(
-        id: 'state_NG_LAGOS',
-        countryCode: 'NG',
-        stateOrRegion: 'Lagos',
-        currencyCode: 'NGN',
-        currencySymbol: '₦',
-        pricingRates: const {},
-        streakRewards: const StreakRewardConfig(
-          grandCompletionCashAward: 40000.0,
-        ),
-        updatedAt: DateTime.now(),
-      );
-
-      final resolved = ConfigResolutionEngine.resolve(
-        globalDefault: global,
-        countryRule: countryRule,
-        stateOverride: lagosOverride,
-      );
-
-      // Custom country tiers survive; state grand award applies.
-      expect(resolved.streakRewards.tiers[0].bonusPayout, 1500.0);
-      expect(resolved.streakRewards.grandCompletionCashAward, 40000.0);
-      expect(resolved.streakRewards.grandCompletionTargetTrips, 30);
-    });
   });
 
   group('PricingCalculator & Multi-Vehicle Pricing Guarantee', () {

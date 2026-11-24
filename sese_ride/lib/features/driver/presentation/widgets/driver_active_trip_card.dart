@@ -12,7 +12,7 @@ import '../../../trips/presentation/trip_chat_screen.dart';
 import '../../../trips/presentation/trip_rating_dialog.dart';
 import '../../../trips/services/trip_chat_service.dart';
 import '../../../trips/services/trip_rating_service.dart';
-import '../../services/driver_streak_service.dart';
+import '../../services/driver_dispatch_service.dart';
 import '../../services/proximity_trigger_service.dart';
 
 /// Compact driver-side action card for the assigned live trip.
@@ -253,7 +253,7 @@ class _DriverActiveTripCardState extends State<DriverActiveTripCard> {
         title: const Text('Cancel Trip (Customer No-Show)'),
         content: Text(
           'You have waited over ${widget.waitThresholdMinutes} minutes after arriving. '
-          'Cancelling now is streak-protected and will not penalize your streak or driver rating. '
+          'Cancelling now is policy-protected and will not penalize your driver rating. '
           'Note: Driver no-show cancellations forfeit waiting fee payouts, but allow you to exit immediately.',
         ),
         actions: [

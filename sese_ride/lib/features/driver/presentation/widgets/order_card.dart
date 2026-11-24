@@ -10,7 +10,7 @@ import '../../../payments/payment_service.dart';
 import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
-import '../../services/driver_streak_service.dart';
+import '../../services/driver_dispatch_service.dart';
 import 'low_balance_dialog.dart';
 
 /// One incoming ride in the driver home feed.
@@ -43,7 +43,7 @@ class OrderCard extends StatefulWidget {
     required this.currencySymbol,
     required this.streakService,
     this.activeDriverBid,
-    required this.streakTag,
+    this.streakTag = '',
     this.tripRepository,
   });
 
@@ -474,10 +474,7 @@ class _OrderCardState extends State<OrderCard> {
                     ],
                   ),
                 ),
-                if ((widget.trip.status == TripStatus.marketplaceOpen ||
-                        widget.trip.status == TripStatus.marketplaceList
-                    ? 'Pool Rate: Standard Fee'
-                    : widget.streakTag).isNotEmpty)
+                if (widget.streakTag.isNotEmpty)
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -486,10 +483,7 @@ class _OrderCardState extends State<OrderCard> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      widget.trip.status == TripStatus.marketplaceOpen ||
-                              widget.trip.status == TripStatus.marketplaceList
-                          ? 'Pool Rate: Standard Fee'
-                          : widget.streakTag,
+                      widget.streakTag,
                       style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.bold,

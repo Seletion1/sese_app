@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../payments/payment_service.dart';
 import '../../trips/models/trip_models.dart';
 
 /// One completed trip's earnings for a driver.
@@ -252,21 +251,5 @@ class EarningsService {
       net: gross - commission,
       tripCount: count,
     );
-  }
-
-  /// Referral/incentive wallet credits inside a month.
-  static double summarizeMonthIncentives(
-    List<WalletTransaction> transactions,
-    int year,
-    int month,
-  ) {
-    var total = 0.0;
-    for (final t in transactions) {
-      if (!WalletTransaction.isIncentiveType(t.type)) continue;
-      final d = t.createdAt?.toLocal();
-      if (d == null || d.year != year || d.month != month) continue;
-      total += t.amountNaira;
-    }
-    return total;
   }
 }

@@ -54,7 +54,7 @@ class EarningsScreenState extends State<EarningsScreen> {
             userId: widget.user.uid,
             title: 'Earnings',
             description:
-                'Track daily, weekly, and monthly trip earnings, commissions, net profit, and streak milestones.',
+                'Track daily, weekly, and monthly trip earnings, commissions, and net profit.',
           ),
           const SizedBox(width: 8),
         ],
@@ -428,9 +428,7 @@ class _MonthlyView extends StatelessWidget {
     final now = DateTime.now();
     final month =
         EarningsService.summarizeMonth(trips, now.year, now.month);
-    final incentives = EarningsService.summarizeMonthIncentives(
-        wallet, now.year, now.month);
-    final net = month.net + incentives;
+    final net = month.net;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -441,11 +439,6 @@ class _MonthlyView extends StatelessWidget {
           label: 'Total platform commissions',
           value: '-${PaymentService.formatNaira(month.commission)}',
           valueColor: Colors.red.shade800,
-        ),
-        _MonthlyRow(
-          label: 'Referral / incentive earnings',
-          value: '+${PaymentService.formatNaira(incentives)}',
-          valueColor: Colors.green.shade800,
         ),
         const SizedBox(height: 12),
         _MonthlyRow(

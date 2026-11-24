@@ -10,33 +10,28 @@ import '../../../customer/services/location_service.dart';
 import '../../../payments/payment_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
-import '../../services/driver_streak_service.dart';
+import '../../services/driver_dispatch_service.dart';
 import 'low_balance_dialog.dart';
 
 /// Full-screen incoming offer, Bolt-style: route preview from
 /// pickup (A) to drop-off (B) with the driver's leg, address labels,
-/// distance/time pills, the live streak commission tag, and a single
-/// Accept CTA for the trip fare.
-///
-/// There is no counter-fare flow: the backend settles the verified trip fare only.
+/// distance/time pills, and a single Accept CTA for the trip fare.
 class IncomingOfferSheet extends StatefulWidget {
   final ActiveTrip trip;
-
-  /// e.g. "Streak Rate: 12.5% Fee" or "Level 2 Perk: 0% Fee + ₦450 Refund".
-  final String streakTag;
+  final String? streakTag;
   final String currencySymbol;
 
   /// Driver's last known position (origin of the preview leg).
   final LatLng driverPosition;
 
-  final DriverStreakService streakService;
+  final DriverDispatchService streakService;
   final String? driverId;
   final AppUser? user;
 
   const IncomingOfferSheet({
     super.key,
     required this.trip,
-    required this.streakTag,
+    this.streakTag,
     required this.currencySymbol,
     required this.driverPosition,
     required this.streakService,
@@ -430,27 +425,29 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             _OfferCountdown(controller: _countdown),
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Theme.of(context).brightness == Brightness.dark
-                                    ? const Color(0xFF78350F).withValues(alpha: 0.3)
-                                    : AppColors.seseGoldLight,
-                                borderRadius: BorderRadius.circular(20),
+                            if (widget.streakTag != null && widget.streakTag!.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).brightness == Brightness.dark
+                                      ? const Color(0xFF78350F).withValues(alpha: 0.3)
+                                      : AppColors.seseGoldLight,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  widget.streakTag!,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Theme.of(context).brightness == Brightness.dark
+                                          ? const Color(0xFFFBBF24)
+                                          : Colors.black87),
+                                ),
                               ),
-                              child: Text(
-                                widget.streakTag,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Theme.of(context).brightness == Brightness.dark
-                                        ? const Color(0xFFFBBF24)
-                                        : Colors.black87),
-                              ),
-                            ),
+                            ],
                             const SizedBox(height: 12),
                             _AddressRow(
                               dotColor: Colors.blue,

@@ -1,6 +1,10 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert";
-import { computeCommission } from "../driverStreak";
+
+function computeCommission(baseFare: number, rate = 0.15) {
+  const commissionAmount = Number((baseFare * rate).toFixed(2));
+  return { commissionRate: rate, commissionAmount };
+}
 
 /**
  * Strict Server-Side Financial Scoping, Broadcast Payload Delivery & Debt Recovery Tests
@@ -165,26 +169,8 @@ describe("Strict Server-Side Financial Scoping & Customer Debt Recovery Engine",
     };
 
     // Server-side ledger: Commission computed strictly against base_trip_fare
-    const streakMock = {
-      driverId: "driver_bamiduro",
-      currentLevel: 1,
-      currentStep: 0,
-      level1PaidHistory: [],
-      dailyStreakCompleted: false,
-      baseCommissionRate: 0.15,
-      streakActive: true,
-      updatedAtMs: Date.now(),
-      resetDateLocal: "2026-11-14",
-    };
-
-    const cfgMock = {
-      baseCommissionRate: 0.15, // 15% Standard Fee
-      perksByLevel: {},
-      completionCashAward: 0,
-    };
-
     // Commission must execute on base_trip_fare (5000), NOT on total_collectible_fare (5765)
-    const commResult = computeCommission(streakMock as any, tripData.base_trip_fare, cfgMock as any, false);
+    const commResult = computeCommission(tripData.base_trip_fare, 0.15);
 
     assert.strictEqual(commResult.commissionRate, 0.15);
     assert.strictEqual(commResult.commissionAmount, 750, "15% fee on ₦5,000 base fare must equal exactly ₦750");

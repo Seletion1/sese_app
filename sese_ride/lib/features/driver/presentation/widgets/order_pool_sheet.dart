@@ -11,7 +11,7 @@ import '../../../customer/services/location_service.dart';
 import '../../../trips/models/bid_models.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
-import '../../services/driver_streak_service.dart';
+import '../../services/driver_dispatch_service.dart';
 import '../../../../widgets/map_provider.dart';
 import '../../../payments/payment_service.dart';
 import 'low_balance_dialog.dart';

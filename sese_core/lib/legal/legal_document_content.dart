@@ -76,8 +76,8 @@ By creating an account, accessing, or using SESE Technology LTD ("SESE", "Compan
 • Non-Withdrawable Dispatch Credits: SESE provides Driver Sese Credits strictly as non-withdrawable platform service credits used to settle trip commissions. Sese Credits carry zero cash value, cannot be withdrawn, transferred, or cashed out.
 • Commission Remittance: Drivers collecting cash fares retain the full customer fare and remit platform commission via their Sese Credits balance. Drivers purchase Sese Credits via Paystack checkout. Dispatches are temporarily paused if credits fall below the minimum threshold until topped up.
 
-8. DRIVER DAILY STREAKS & COMMISSIONS
-Eligible drivers maintain daily dispatch acceptance streaks to unlock reduced commission tiers and milestone bonuses. Declining assigned orders resets streak progression. Public order pool pickups carry standard base commission rates as configured by platform administrators.
+8. DRIVER DISPATCH & COMMISSIONS
+Driver partner orders carry standard base commission rates as configured by platform administrators and settled via non-withdrawable Sese Credits.
 
 9. IN-APP AUDIO CALLING & CHAT STANDARDS
 • Calling: Powered by WebRTC peer-to-peer encrypted audio with automatic Agora RTC failover when WebRTC signaling fails. Calls operate without exposing private cellular phone numbers. All provider switchovers occur silently with no technical details exposed to users.

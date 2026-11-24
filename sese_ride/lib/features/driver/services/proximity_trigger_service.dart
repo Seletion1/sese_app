@@ -7,7 +7,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../../customer/services/location_service.dart';
 import '../../trips/models/trip_models.dart';
-import 'driver_streak_service.dart';
+import 'driver_dispatch_service.dart';
 
 /// Live proximity zone of the driver relative to the trip pickup.
 enum ProximityZone {

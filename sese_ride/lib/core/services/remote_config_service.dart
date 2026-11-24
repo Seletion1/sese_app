@@ -42,7 +42,7 @@ abstract final class RemoteConfigKeys {
 ///   read from widget code and unit tests, which run without an initialised
 ///   `FirebaseApp` (accessing `FirebaseRemoteConfig.instance` would throw).
 /// - **Not a source of truth for money.** Commission and settlement figures
-///   are computed server-side in `functions/src/driverStreak.ts` from
+///   are computed server-side in `functions/src/tripSettlement.ts` from
 ///   `system_configs`; see [driverCommissionRate] for why this value is
 ///   intentionally left unwired.
 class RemoteConfigService {
@@ -231,9 +231,8 @@ class RemoteConfigService {
   /// Platform commission rate as a fraction of fare (0.15 == 15%).
   ///
   /// Intentionally **not wired into any fare or earnings calculation**.
-  /// Commission is server-authoritative: `functions/src/driverStreak.ts`
-  /// derives it from the admin-managed `DailyStreakConfig.baseCommissionRate`
-  /// plus the `L1_RATES` step-down ladder, persists the result to
+  /// Commission is server-authoritative: `functions/src/tripSettlement.ts`
+  /// derives it from the admin-managed `DailyStreakConfig.baseCommissionRate`, persists the result to
   /// `trips/{id}.settlement.commissionRate`, and the client only renders that
   /// settled value. A client-side Remote Config rate would be a second,
   /// user-overridable source of truth that can silently disagree with what a

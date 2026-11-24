@@ -4,7 +4,7 @@ import 'package:sese_ride/features/trips/models/bid_models.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
 import 'package:sese_ride/features/trips/presentation/live_trip_screen.dart';
 import 'package:sese_ride/features/trips/services/trip_service.dart';
-import 'package:sese_ride/features/driver/services/driver_streak_service.dart';
+import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/driver/presentation/widgets/driver_active_trip_card.dart';
 
 class _FakeTripRepo implements TripRepository {

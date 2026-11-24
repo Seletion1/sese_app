@@ -52,7 +52,6 @@ class SystemConfigService {
         ),
       },
       carTierThresholds: const CarTierThresholds(),
-      streakRewards: const StreakRewardConfig(),
       updatedAt: DateTime.now(),
     ),
     'state_NG_LAGOS': RegionConfig(
@@ -73,9 +72,6 @@ class SystemConfigService {
         comfortMultiplier: 1.0,
         premiumMultiplier: 1.4,
         luxeMultiplier: 1.85,
-      ),
-      streakRewards: const StreakRewardConfig(
-        grandCompletionCashAward: 20000.0,
       ),
       updatedAt: DateTime.now(),
     ),

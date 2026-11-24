@@ -8,16 +8,14 @@ import {
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { verifyFareToken } from "./fareToken";
 import {
-  breakDriverStreak,
   handleTripCompletion,
   handleTripCancellationSettlement,
-  resolveStreakConfig,
   nairaToKobo,
   logFinancialMutation,
   logTripTransition,
   persistFinancialAuditLogInTx,
   persistTripChangeLogInTx,
-} from "./driverStreak";
+} from "./tripSettlement";
 import { roundToNearest100 } from "./pricing";
 import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
 import { chargePaystackCardAuthorization } from "./payments";
@@ -81,6 +79,10 @@ interface DispatchTuning {
   maxDistanceToDropoffKm: number;
   maxRemainingTimeMinutes: number;
   maxSequentialDrivers: number;
+  enableCancellationLock: boolean;
+  enableWaitingTimeBilling: boolean;
+  freeWaitingMinutes: number;
+  waitingRatePerMinute: number;
 }
 
 const DEFAULT_TUNING: DispatchTuning = {
@@ -101,6 +103,10 @@ const DEFAULT_TUNING: DispatchTuning = {
   maxDistanceToDropoffKm: 2.0,
   maxRemainingTimeMinutes: 10,
   maxSequentialDrivers: 1,
+  enableCancellationLock: true,
+  enableWaitingTimeBilling: true,
+  freeWaitingMinutes: 10,
+  waitingRatePerMinute: 20,
 };
 
 let tuningCache: { at: number; value: DispatchTuning } | null = null;
@@ -148,6 +154,10 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
     const maxDistanceToDropoffKm = num(d.maxDistanceToDropoffKm, 2.0, 0.1, 10.0);
     const maxRemainingTimeMinutes = Math.round(num(d.maxRemainingTimeMinutes, 10, 1, 60));
     const maxSequentialDrivers = Math.round(num(d.maxSequentialDrivers ?? d.sequentialAttemptsBeforePool, 1, 1, 10));
+    const enableCancellationLock = typeof d.enableCancellationLock === "boolean" ? d.enableCancellationLock : true;
+    const enableWaitingTimeBilling = typeof d.enableWaitingTimeBilling === "boolean" ? d.enableWaitingTimeBilling : true;
+    const freeWaitingMinutes = Math.round(num(d.freeWaitingMinutes, 10, 0, 60));
+    const waitingRatePerMinute = num(d.waitingRatePerMinute, 20, 0, 500);
 
     const value: DispatchTuning = {
       dispatchRadiusKm: tier3Radius,
@@ -167,6 +177,10 @@ async function getDispatchTuning(): Promise<DispatchTuning> {
       maxDistanceToDropoffKm,
       maxRemainingTimeMinutes,
       maxSequentialDrivers,
+      enableCancellationLock,
+      enableWaitingTimeBilling,
+      freeWaitingMinutes,
+      waitingRatePerMinute,
     };
     tuningCache = { at: Date.now(), value };
     return value;
@@ -1713,14 +1727,6 @@ export const onTripCreated = onDocumentCreated(
   }
 );
 
-async function breakStreakQuiet(driverId: string, reason: string) {
-  try {
-    await breakDriverStreak(driverId, reason);
-  } catch (e) {
-    console.warn(`sweepTripPings: streak break failed for ${driverId}: ${e}`);
-  }
-}
-
 /**
  * Scheduled sweep (every minute): advances timed-out sequential offers (Step 1 -> 2 -> 3 -> Public Pool),
  * expires ignored pings ("skipped_by_driver"), and restarts dispatch for long-waiting searches.
@@ -1741,7 +1747,6 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
     const data = doc.data();
     const ignored: string | undefined = data.pingDriverId;
     if (ignored) {
-      await breakStreakQuiet(ignored, "ping_expired");
       await doc.ref.update({
         cancellationSource: "skipped_by_driver",
         rejections: admin.firestore.FieldValue.arrayUnion({
@@ -1785,7 +1790,6 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
         : {}),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-    if (ignoredDriverId) await breakStreakQuiet(ignoredDriverId, "ping_expired");
   }
 
   // 4. Re-dispatch long-waiting searches (nobody online at creation).
@@ -2394,13 +2398,6 @@ export const declineTrip = guardedOnCall(async (request) => {
     });
   });
 
-  // Rejecting an incoming request breaks the streak.
-  try {
-    await breakDriverStreak(driverId, "driver_declined");
-  } catch (e) {
-    console.warn(`declineTrip: streak break failed for ${driverId}: ${e}`);
-  }
-
   // Advance to next sequential driver (Step 2 / Step 3) or escalate to Public Order Pool (Step 4).
   if (shouldRedispatch) {
     const fresh = await tripRef.get();
@@ -2846,6 +2843,7 @@ export async function releaseTripEscrow(
       currency: "NGN",
       note: `Escrow hold released for cancelled trip ${tripId}`,
       timestamp: Date.now(),
+      stage: "cancellation",
     });
   };
 
@@ -2888,17 +2886,14 @@ export const cancelTrip = guardedOnCall(async (request) => {
   if (!isCustomer && !isDriver) {
     throw new HttpsError("permission-denied", "Not your trip.");
   }
-  const streakConfig = await resolveStreakConfig(
-    String(data.countryCode ?? "NG"),
-    String(data.stateOrRegion ?? "LAGOS")
-  );
+  const tuning = await getDispatchTuning();
 
   // ── In-Progress Cancellation Lock ──────────────────────────────────────────
   // Per platform policy: Once a trip is started (IN_PROGRESS or pending approval),
   // cancellation is strictly locked for both customer and driver to prevent
   // fare avoidance, mid-trip ride abandonment, or unfair cancellation.
   // Users must contact support if they need emergency cancellation.
-  const cancelLockEnabled = streakConfig.enableCancellationLock !== false;
+  const cancelLockEnabled = tuning.enableCancellationLock !== false;
   if (cancelLockEnabled && (data.status === "IN_PROGRESS" || data.status === "pending_customer_approval")) {
     throw new HttpsError(
       "failed-precondition",
@@ -2997,9 +2992,9 @@ export const cancelTrip = guardedOnCall(async (request) => {
     const arrivedAtMs = (data.status === "IN_PROGRESS" && data.dropoffArrivedAt?.toMillis?.())
       ? data.dropoffArrivedAt.toMillis()
       : (data.arrivedAt?.toMillis?.() ?? 0);
-    const enableWaitingBilling = data.enableWaitingTimeBilling !== false && streakConfig.enableWaitingTimeBilling !== false;
-    const freeWaitMinutes = typeof streakConfig.freeWaitingMinutes === "number" ? streakConfig.freeWaitingMinutes : 10;
-    const waitRatePerMin = typeof streakConfig.waitingRatePerMinute === "number" ? streakConfig.waitingRatePerMinute : (Number(data.timeRatePerMinute ?? 20));
+    const enableWaitingBilling = data.enableWaitingTimeBilling !== false && tuning.enableWaitingTimeBilling !== false;
+    const freeWaitMinutes = typeof tuning.freeWaitingMinutes === "number" ? tuning.freeWaitingMinutes : 10;
+    const waitRatePerMin = typeof tuning.waitingRatePerMinute === "number" ? tuning.waitingRatePerMinute : (Number(data.timeRatePerMinute ?? 20));
 
     if (isArrivedOrProgress && arrivedAtMs > 0 && enableWaitingBilling) {
       const elapsedMs = nowMs() - arrivedAtMs;
