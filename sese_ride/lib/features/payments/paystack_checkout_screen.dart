@@ -302,11 +302,27 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
                 color: Colors.red.shade700,
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () => _verifyAndClose(widget.auth.reference),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.red.shade900,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        child: const Text('Verify'),
+                      ),
+                    ],
                   ),
                 ),
               ),

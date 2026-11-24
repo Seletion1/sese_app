@@ -591,7 +591,12 @@ class SeseService {
         return message ?? 'This payment can no longer be completed.';
       case 'permission-denied':
         return 'This payment belongs to a different account.';
+      case 'internal':
+        return 'Payment received by Paystack. Tap Verify to complete credit update.';
       default:
+        if (msg == 'internal') {
+          return 'Payment received by Paystack. Tap Verify to complete credit update.';
+        }
         return message ?? 'Payment failed. Please try again.';
     }
   }

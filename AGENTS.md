@@ -72,6 +72,21 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Sese Credits Top-Up Resolution: Firestore Transaction Read-Before-Write Invariant in `settleIntent` & Interactive Verification Action (`functions`, `sese_ride`)
+
+- **1. Root-Cause Analysis from User Images & Log**:
+  - *Image 1 & 2 ("Payment Successful" with red "INTERNAL" banner)*: When the driver successfully paid ₦2,000 on Paystack, Paystack returned to the checkout screen which called `verifyPayment`.
+  - *Firestore Transaction Violation*: In `functions/src/payments.ts` (`settleIntent`), lines 300, 321, and 337 called `tx.set(...)` to update user stats, trips, and driver wallets. Subsequently, line 351 called `await tx.get(db().collection("users").doc(uid))` to read `sequentialId`. Cloud Firestore strictly requires all reads to be performed before any writes in a transaction. This caused Firestore to throw `Error: Firestore transactions require all reads to be executed before all writes`, which `guardedOnCall` translated to `HttpsError('internal', 'INTERNAL')`.
+  - *Client Banner & UX Lock*: In `sese_ride`, `_mapError` returned the raw `"INTERNAL"` message, which rendered as a passive banner without a manual retry button, leaving the user stranded on the successful Paystack page.
+- **2. Pipeline Hardening**:
+  - *Backend Functions (`functions/src/payments.ts`)*: Relocated `userSnap` and `sequentialId` read to execute at the start of the transaction before any `tx.set` or `tx.update` mutations, strictly maintaining Firestore transaction read-before-write invariants. Deployed `verifyPayment`, `initializePayment`, `initializePaystackTopUp`, and `paystackWebhook`.
+  - *Client App (`sese_ride`)*:
+    - `sese_service.dart`: Mapped `internal` errors to clean user guidance: `"Payment received by Paystack. Tap Verify to complete credit update."`.
+    - `paystack_checkout_screen.dart`: Added an explicit white "Verify" button on the error banner so that drivers can re-trigger verification directly from the "Payment Successful" screen without aborting or losing context.
+- **3. Verification & Deployment**:
+  - `functions`: 161/161 unit tests passed; built and deployed live to Firebase.
+  - `sese_ride`: 17/17 tests passed; analyzer clean (0 issues).
+
 ## 2026-11-24 — Paystack Checkout Resolution: Browser Fallback inAppBrowserView (Custom Tabs), WebViewActivity Lifecycle Crash Elimination & Precise Main Document Error Guard (`sese_ride`)
 
 - **1. Root-Cause Analysis from Logcat**:

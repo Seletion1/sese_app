@@ -288,9 +288,12 @@ async function settleIntent(
     // a racing spend cannot dodge the diversion.
     let creditKobo = verifiedAmountKobo;
     let recoveredKobo = 0;
+    let seqId: string | null = null;
     try {
       const userSnap = await tx.get(db().collection("users").doc(uid));
-      const statsRaw = ((userSnap.data()?.splitStats ?? {}) as Record<string, unknown>);
+      const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+      seqId = (userData.sequentialId as string | undefined) || null;
+      const statsRaw = ((userData.splitStats ?? {}) as Record<string, unknown>);
       const debt = typeof statsRaw.splitDebtKobo === "number" && Number.isFinite(statsRaw.splitDebtKobo)
         ? Math.max(0, Math.floor(statsRaw.splitDebtKobo))
         : 0;
@@ -347,9 +350,6 @@ async function settleIntent(
         { merge: true }
       );
     }
-
-    const userDoc = await tx.get(db().collection("users").doc(uid));
-    const seqId = (userDoc.data()?.sequentialId as string | undefined) || null;
 
     const txRef = walletRef.collection("transactions").doc(reference);
     tx.set(txRef, {
