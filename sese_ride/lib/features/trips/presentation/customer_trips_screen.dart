@@ -532,7 +532,9 @@ class _TripFeedCard extends StatelessWidget {
                   ),
                 ],
               ),
-              if (trip.rejections.isNotEmpty) ...[
+              if (trip.rejections.isNotEmpty &&
+                  trip.status != TripStatus.completed &&
+                  trip.status != TripStatus.inProgress) ...[
                 const SizedBox(height: 16),
                 Container(
                   width: double.infinity,
@@ -718,9 +720,15 @@ class _StatusChip extends StatelessWidget {
         case TripStatus.marketplaceOpen:
         case TripStatus.marketplaceList:
         case TripStatus.bidding:
+        case TripStatus.pendingPayment:
           label = 'Searching for Driver';
           color = const Color(0xFFD97706);
           bgColor = const Color(0xFFFEF3C7);
+
+        case TripStatus.paymentFailed:
+          label = 'Payment Failed';
+          color = const Color(0xFFDC2626);
+          bgColor = const Color(0xFFFEE2E2);
 
         // ── Customer action needed ─────────────────────────────────────────
         case TripStatus.returnedToCustomer:

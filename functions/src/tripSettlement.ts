@@ -273,6 +273,13 @@ export async function handleTripCompletion(
       return;
     }
 
+    const settlementDocRef = db().collection("settlement_records").doc(`${tripId}_completed_settlement`);
+    const settlementDocSnap = await tx.get(settlementDocRef);
+    if (settlementDocSnap.exists) {
+      console.log(`handleTripCompletion[${tripId}]: settlement record already exists, skipping duplicate run`);
+      return;
+    }
+
     const custWalletSnap = custWalletRef ? await tx.get(custWalletRef) : null;
     await tx.get(driverWalletRef);
 
@@ -520,6 +527,19 @@ export async function handleTripCompletion(
       tripUpdate["completedAt"] = admin.firestore.FieldValue.serverTimestamp();
     }
     tx.update(tripRef, tripUpdate);
+
+    tx.set(settlementDocRef, {
+      tripId,
+      driverId,
+      customerId,
+      baseFare,
+      commissionAmount,
+      commissionDebitKobo,
+      recoveredDebt,
+      paymentMethod,
+      settledAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     tx.set(
       db().collection("driver_status").doc(driverId),

@@ -1142,10 +1142,14 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
   const ref = db().collection("trips").doc();
   const tripId = ref.id;
 
+  const isOnlinePrepayment = paymentMethod === "online" && paymentMode !== "receiver_pays";
+  const initialTripStatus = isOnlinePrepayment ? "pending_payment" : "SEARCHING_DRIVER";
+  const initialBroadcastReady = !isOnlinePrepayment;
+
   const initialStatusHistory = [
     {
       from: "none",
-      to: "SEARCHING_DRIVER",
+      to: initialTripStatus,
       actor: customerId,
       role: "customer",
       timestamp: nowMs(),
@@ -1178,7 +1182,10 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
       phone: safeCustomerPhone,
     },
     serviceType,
-    status: "SEARCHING_DRIVER",
+    status: initialTripStatus,
+    broadcastReady: initialBroadcastReady,
+    paymentStatus: isOnlinePrepayment ? "pending_payment" : (paymentMethod === "online" ? "paid" : "cash"),
+    chargeStatus: isOnlinePrepayment ? "pending" : (paymentMethod === "online" ? "captured" : "cash"),
     isVerifiedCustomer: isVerifiedCust,
     allowBidding: tuning.allowBidding !== false && (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
     allow_bidding: tuning.allowBidding !== false && (d as any).allowBidding !== false && (d as any).allow_bidding !== false,
@@ -1379,7 +1386,7 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     persistTripChangeLogInTx(tx, {
       tripId,
       from: "none",
-      to: "SEARCHING_DRIVER",
+      to: initialTripStatus,
       actor: customerId,
       role: "customer",
       timestamp: Date.now(),
@@ -1641,6 +1648,16 @@ async function advanceSequentialDispatch(
   data: admin.firestore.DocumentData,
   tuning: DispatchTuning
 ): Promise<boolean> {
+  // Gate: online card bookings must NOT broadcast to drivers until payment is verified
+  if (
+    data.broadcastReady === false ||
+    data.status === "pending_payment" ||
+    data.status === "PENDING_PAYMENT" ||
+    data.status === "PAYMENT_FAILED"
+  ) {
+    return false;
+  }
+
   const pickup = pickupOf(data);
   const attempted = attemptedIdsOf(data);
   const currentStep =
@@ -1801,11 +1818,25 @@ export const onTripCreated = onDocumentCreated(
     const snap = event.data;
     if (!snap) return;
     const data = snap.data();
-    if (data.status !== "SEARCHING_DRIVER") return;
+    if (data.status !== "SEARCHING_DRIVER" || data.broadcastReady === false) return;
     const tuning = await getDispatchTuning();
     await advanceSequentialDispatch(snap.ref, data, tuning);
   }
 );
+
+/**
+ * Triggers sequential dispatch for a verified/ready trip.
+ * Safe to call after payment settlement or cash switch.
+ */
+export async function dispatchTrip(tripId: string): Promise<boolean> {
+  const tripRef = db().collection("trips").doc(tripId);
+  const snap = await tripRef.get();
+  if (!snap.exists) return false;
+  const data = snap.data()!;
+  if (data.status !== "SEARCHING_DRIVER" || data.broadcastReady === false) return false;
+  const tuning = await getDispatchTuning();
+  return advanceSequentialDispatch(tripRef, data, tuning);
+}
 
 /**
  * Scheduled sweep (every minute): advances timed-out sequential offers (Step 1 -> 2 -> 3 -> Public Pool),
@@ -1880,9 +1911,36 @@ export const sweepTripPings = onSchedule("* * * * *", async () => {
     .get();
   for (const doc of searching.docs) {
     const data = doc.data();
+    if (data.broadcastReady === false) continue;
     const updated = data.updatedAt?.toMillis?.() ?? 0;
     if (cutoff - updated < tuning.repingIntervalMs) continue;
     await advanceSequentialDispatch(doc.ref, data, tuning);
+  }
+
+  // 4b. Expire abandoned online bookings (> 15 mins) that never completed payment
+  try {
+    const stalePending = await db()
+      .collection("trips")
+      .where("status", "in", ["pending_payment", "PENDING_PAYMENT"])
+      .limit(20)
+      .get();
+    for (const doc of stalePending.docs) {
+      const data = doc.data();
+      const createdMs = data.createdAt?.toMillis?.() ?? 0;
+      if (createdMs > 0 && cutoff - createdMs > 15 * 60 * 1000) {
+        await doc.ref.update({
+          status: "PAYMENT_FAILED",
+          paymentStatus: "failed",
+          chargeStatus: "failed",
+          broadcastReady: false,
+          cancellationSource: "payment_timeout",
+          cancellationReason: "Online checkout expired after 15 minutes",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  } catch (e) {
+    console.warn(`sweepTripPings: stale pending cleanup error: ${e}`);
   }
 
   // 5. 30-Minute Idle Marketplace Price Adjustment Prompt
@@ -2652,8 +2710,16 @@ export const advanceTripStatus = guardedOnCall(async (request) => {
     // Record the timestamp when driver taps "Arrived" for no-show timer tracking
     if (status === "DRIVER_ARRIVED") {
       update["arrivedAt"] = admin.firestore.FieldValue.serverTimestamp();
-    } else if (status === "IN_PROGRESS" && !data.startedAt) {
-      update["startedAt"] = admin.firestore.FieldValue.serverTimestamp();
+    } else if (status === "IN_PROGRESS") {
+      if (!data.startedAt) {
+        update["startedAt"] = admin.firestore.FieldValue.serverTimestamp();
+      }
+      if (!data.tripStartedAt) {
+        update["tripStartedAt"] = admin.firestore.FieldValue.serverTimestamp();
+      }
+      if (data.paidViaCard || data.paymentStatus === "paid" || data.paymentMethod === "online") {
+        update["chargeStatus"] = "captured";
+      }
     } else if (status === "pending_customer_approval") {
       const dropoffLat = Number(data.dropoff?.lat ?? data.dropoffLocation?.latitude ?? data.dropoffLat ?? 0);
       const dropoffLng = Number(data.dropoff?.lng ?? data.dropoffLocation?.longitude ?? data.dropoffLng ?? 0);
@@ -2982,6 +3048,8 @@ export const cancelTrip = guardedOnCall(async (request) => {
   }
 
   const CANCELLABLE_STATUSES = new Set<string>([
+    "pending_payment",
+    "PENDING_PAYMENT",
     "SEARCHING_DRIVER",
     "WAITING_FOR_ACCEPTANCE",
     "MARKETPLACE_OPEN",
@@ -3302,6 +3370,69 @@ export const cancelTrip = guardedOnCall(async (request) => {
   });
 
   return { ok: true, cancelledBy: "driver" };
+});
+
+/**
+ * Customer switches a pending online payment booking to Cash,
+ * transitioning the trip to SEARCHING_DRIVER and initiating driver broadcast.
+ */
+export const switchTripToCash = guardedOnCall<{ tripId: string }>(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must sign in.");
+  }
+  enforceAppCheck(request);
+  await requireAccountActive(request.auth.uid, "customer");
+
+  const tripId = String(request.data?.tripId ?? "").trim();
+  if (!tripId) {
+    throw new HttpsError("invalid-argument", "tripId is required.");
+  }
+
+  const tripRef = db().collection("trips").doc(tripId);
+  const snap = await tripRef.get();
+  if (!snap.exists) {
+    throw new HttpsError("not-found", "Trip not found.");
+  }
+  const data = snap.data()!;
+  if (data.customerId !== request.auth.uid) {
+    throw new HttpsError("permission-denied", "Not your trip.");
+  }
+
+  const currentStatus = String(data.status ?? "").toLowerCase();
+  if (currentStatus !== "pending_payment" && data.broadcastReady !== false) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Trip is already broadcast or in progress."
+    );
+  }
+
+  const totalFare = Number(
+    data.totalFare ?? data.totalCollectibleFare ?? data.baseFare ?? data.fareAmount ?? 0
+  );
+
+  await tripRef.update({
+    status: "SEARCHING_DRIVER",
+    broadcastReady: true,
+    paymentMethod: "cash",
+    paymentStatus: "cash",
+    cashToCollect: totalFare,
+    paidViaCard: false,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    statusHistory: admin.firestore.FieldValue.arrayUnion({
+      from: data.status,
+      to: "SEARCHING_DRIVER",
+      actor: request.auth.uid,
+      role: "customer",
+      reason: "switched_to_cash",
+      timestamp: Date.now(),
+    }),
+  });
+
+  const tuning = await getDispatchTuning();
+  const fresh = (await tripRef.get()).data()!;
+  await advanceSequentialDispatch(tripRef, fresh, tuning);
+
+  return { ok: true, status: "SEARCHING_DRIVER" };
 });
 
 // ── Multi-Driver Bidding System & Customer Actions ─────────────────────────

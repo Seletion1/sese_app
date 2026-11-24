@@ -2187,6 +2187,8 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
       case TripStatus.cancelledWaitingCashSettlement:
       case TripStatus.rejected:
       case TripStatus.ignored:
+      case TripStatus.pendingPayment:
+      case TripStatus.paymentFailed:
         message = '';
     }
 

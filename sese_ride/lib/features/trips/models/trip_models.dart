@@ -77,9 +77,15 @@ enum TripStatus {
   /// Customer must approve or reject before completion is allowed.
   pendingCustomerApproval('pending_customer_approval'),
 
+  /// Customer selected online payment and booking is awaiting card/gateway verification.
+  /// Driver broadcast is blocked while in this state.
+  pendingPayment('PENDING_PAYMENT'),
+
+  /// Online payment failed or timed out before driver broadcast.
+  paymentFailed('PAYMENT_FAILED'),
+
   /// Unknown / future-proof fallback (never thrown — renders as searching).
   unknown('UNKNOWN');
-
   final String wireValue;
   const TripStatus(this.wireValue);
 }
@@ -93,6 +99,13 @@ TripStatus tripStatusFromString(String? raw) {
   final normalized = raw.trim().toUpperCase();
 
   switch (normalized) {
+    case 'PENDING_PAYMENT':
+    case 'PENDINGPAYMENT':
+    case 'PENDING_PAY':
+      return TripStatus.pendingPayment;
+    case 'PAYMENT_FAILED':
+    case 'PAYMENTFAILED':
+      return TripStatus.paymentFailed;
     case 'COMPLETED':
     case 'FINISHED':
     case 'DONE':
@@ -424,6 +437,13 @@ class ActiveTrip {
   /// releasing the total collectible fare breakdown to the driver session.
   final bool driverAcceptedFinancialsReleased;
 
+  /// Whether payment verification has succeeded and the trip is ready to be broadcast to drivers.
+  /// False while awaiting online card/gateway settlement (`pendingPayment`).
+  final bool broadcastReady;
+
+  /// Timestamp when driver started the trip (`IN_PROGRESS`).
+  final DateTime? tripStartedAt;
+
   bool get isDropoffApprovalPending =>
       dropoffApprovalStatus == 'PENDING' ||
       status == TripStatus.pendingCustomerApproval;
@@ -544,6 +564,8 @@ class ActiveTrip {
     this.totalCollectibleFare = 0.0,
     this.totalCollectibleFareFormatted = '',
     this.driverAcceptedFinancialsReleased = false,
+    this.broadcastReady = true,
+    this.tripStartedAt,
   }) : tierIds = selectedTiers ?? tierIds;
 
   /// Returns the specific action ('skipped' or 'rejected') logged for [driverId],
@@ -680,7 +702,8 @@ class ActiveTrip {
       status != TripStatus.completed &&
       status != TripStatus.cancelled &&
       status != TripStatus.rejected &&
-      status != TripStatus.ignored;
+      status != TripStatus.ignored &&
+      status != TripStatus.paymentFailed;
 
   /// True while a trip is active from the customer's perspective.
   /// When a customer cancels during paid waiting in cash settlement mode,
@@ -993,6 +1016,10 @@ class ActiveTrip {
           map['driverAcceptedFinancialsReleased'] == true ||
               map['paymentBreakdown']?['driverAcceptedFinancialsReleased'] ==
                   true,
+      broadcastReady: map['broadcastReady'] as bool? ??
+          (parsedStatus != TripStatus.pendingPayment &&
+              parsedStatus != TripStatus.paymentFailed),
+      tripStartedAt: dateOf(map['tripStartedAt'] ?? map['startedAt']),
     );
   }
 }

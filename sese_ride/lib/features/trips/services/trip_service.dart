@@ -378,6 +378,13 @@ class FirestoreTripRepository implements TripRepository {
     }
   }
 
+  /// Switches a pending online payment booking to cash and triggers driver broadcast.
+  Future<void> switchTripToCash(String tripId) async {
+    await _callWithAuthRetry(() => _fn.httpsCallable('switchTripToCash').call({
+          'tripId': tripId,
+        }));
+  }
+
   @override
   Future<void> confirmCashCancellation(
     String tripId, {

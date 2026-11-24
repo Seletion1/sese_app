@@ -399,7 +399,7 @@ async function settleIntent(
   const intentRef = db().collection("payment_intents").doc(reference);
   const ledgerRef = db().collection("wallet_ledger").doc(reference);
 
-  return db().runTransaction(async (tx) => {
+  const settlementResult = await db().runTransaction(async (tx) => {
     // ── Idempotency Check (wallet_ledger) ──────────────────────────────
     const ledgerSnap = await tx.get(ledgerRef);
     if (ledgerSnap.exists) {
@@ -486,12 +486,25 @@ async function settleIntent(
           paymentMethod: "online",
           paymentGateway: gateway,
           paymentStatus: "paid",
+          chargeStatus: "captured",
+          status: "SEARCHING_DRIVER",
+          broadcastReady: true,
           cashToCollect: 0,
           paidAmount: verifiedAmountKobo / 100,
           paymentReference: reference,
           paystackReference: reference,
+          authorizationCode: (intent["authorizationCode"] as string | undefined) ?? null,
+          verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
           paidAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          statusHistory: admin.firestore.FieldValue.arrayUnion({
+            from: "pending_payment",
+            to: "SEARCHING_DRIVER",
+            actor: uid,
+            role: "customer",
+            reason: "payment_verified",
+            timestamp: Date.now(),
+          }),
         },
         { merge: true }
       );
@@ -555,6 +568,24 @@ async function settleIntent(
 
     return { settled: true, creditedKobo: verifiedAmountKobo };
   });
+
+  if (settlementResult.settled) {
+    try {
+      const intentSnap = await intentRef.get();
+      if (intentSnap.exists) {
+        const intent = intentSnap.data()!;
+        const tripId = typeof intent["tripId"] === "string" ? intent["tripId"].trim() : "";
+        if (intent["purpose"] === "trip_payment" && tripId) {
+          const { dispatchTrip } = await import("./trips");
+          await dispatchTrip(tripId);
+        }
+      }
+    } catch (err) {
+      console.warn(`settleIntent: post-settlement dispatch failed for ${reference}: ${err}`);
+    }
+  }
+
+  return settlementResult;
 }
 
 interface VerifyPaymentData {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
@@ -1713,32 +1714,56 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             ),
           );
           if (switchToCash == true) {
-            await FirebaseFirestore.instance
-                .collection('trips')
-                .doc(tripId)
-                .update({
-              'paymentMethod': 'cash',
-              'cashToCollect': totalFare,
-              'paidViaCard': false,
-            });
-          } else {
-            await _tripRepository.cancelTrip(
+            try {
+              final repo = _tripRepository;
+              if (repo is FirestoreTripRepository) {
+                await repo.switchTripToCash(tripId);
+              } else {
+                await FirebaseFunctions.instance
+                    .httpsCallable('switchTripToCash')
+                    .call({'tripId': tripId});
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Switched to Cash. Searching for nearby drivers...'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } catch (e) {
+              debugPrint('switchTripToCash error: $e');
+              await _tripRepository.cancelTrip(
                 tripId,
                 reason: 'Customer cancelled due to payment decline.',
+              );
+              return;
+            }
+          } else {
+            await _tripRepository.cancelTrip(
+              tripId,
+              reason: 'Customer cancelled due to payment decline.',
             );
             return;
           }
         }
       } catch (e) {
-        debugPrint('Direct Paystack initiation error: $e');
+        debugPrint('Direct payment initiation error: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Payment initiation error: $e. Switched to Cash.'),
-              backgroundColor: Colors.orange.shade800,
+              content: Text('Payment initiation error: $e'),
+              backgroundColor: Colors.red.shade700,
             ),
           );
         }
+        try {
+          await _tripRepository.cancelTrip(
+            tripId,
+            reason: 'Payment initiation error.',
+          );
+        } catch (_) {}
+        return;
       }
     }
 

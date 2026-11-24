@@ -72,6 +72,23 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Online Payment Broadcast Gating, Trip-Start Charge Capture & Idempotent Completion Settlement (`functions`, `sese_ride`)
+
+- **1. Block Driver Broadcast Until Online Payment Is Verified**:
+  - *`functions/src/trips.ts` (`createTrip`, `onTripCreated`, `advanceSequentialDispatch`, `sweepTripPings`)*: Online bookings (`paymentMethod === "online" && paymentMode !== "receiver_pays"`) initialize with `status: "pending_payment"`, `broadcastReady: false`, `paymentStatus: "pending_payment"`, and `chargeStatus: "pending"`. `onTripCreated` and `advanceSequentialDispatch` strictly skip trips where `broadcastReady === false` or `status === "pending_payment"`, preventing drivers from receiving pings or seeing unpaid orders in the pool. Abandoned `pending_payment` trips auto-expire to `PAYMENT_FAILED` after 15 minutes via `sweepTripPings`.
+  - *`functions/src/payments.ts` (`settleIntent`)*: Upon verified gateway settlement (Paystack or OPay), atomically updates the trip document with `status: "SEARCHING_DRIVER"`, `broadcastReady: true`, `paidViaCard: true`, `paymentStatus: "paid"`, `chargeStatus: "captured"`, `paymentGateway`, `paymentReference`, `verifiedAt`, and `authorizationCode`, then immediately triggers `dispatchTrip(tripId)` to begin driver matching.
+  - *Switch to Cash & Cancel Safety*: Added `switchTripToCash` callable (`functions/src/trips.ts` & `FirestoreTripRepository.switchTripToCash` in `sese_ride`) and updated `cancelTrip` to allow cancelling from `pending_payment`. Replaced invalid direct Firestore client updates in `customer_dispatch_screen.dart` with the server callable.
+- **2. Trip Start & Idempotent Completion Settlement**:
+  - *Trip Start (`advanceTripStatus`)*: Records `tripStartedAt` (alongside `startedAt`) when transitioning to `IN_PROGRESS` and confirms `chargeStatus: "captured"` for paid online trips.
+  - *Idempotent Settlement (`functions/src/tripSettlement.ts`)*: Enforced `${tripId}_completed_settlement` idempotency guard document in `settlement_records/` within the `handleTripCompletion` transaction so duplicate triggers or retries never double-debit driver Sese Credits or duplicate settlement fields.
+- **3. Model & Customer UI Alignment (`sese_ride`)**:
+  - Added `TripStatus.pendingPayment` (`PENDING_PAYMENT`) and `TripStatus.paymentFailed` (`PAYMENT_FAILED`), plus `broadcastReady` and `tripStartedAt` fields on `ActiveTrip` (`trip_models.dart`), handled exhaustively across UI switches.
+  - Suppressed internal `Dispatch Audit Log` (`Skipped by Driver (Superseded)`) from completed/in-progress customer trip details in `customer_trips_screen.dart`.
+- **4. Verification & Deployment**:
+  - `functions`: 164/164 tests passed across 54 suites; deployed `createTrip`, `onTripCreated`, `sweepTripPings`, `advanceTripStatus`, `cancelTrip`, `switchTripToCash`, `verifyPayment`, `paystackWebhook`, `opayWebhook`, and `onTripCompleted` live.
+  - `sese_ride`: `flutter analyze` reported 0 issues; 28/28 payment/checkout/nav tests passed.
+  - `sese_core`: 158/158 tests passed; `sese_hub`: 74/74 tests passed.
+
 ## 2026-11-24 — External Navigation Modernization: Two-App Chooser (Google Maps & Waze), CustomPainter Vector Logos, Daily Default Preference & Draggable Sheet Anchoring (`sese_ride`)
 
 - **1. Strict Two-App Navigation Architecture (`Google Maps` & `Waze`)**:
