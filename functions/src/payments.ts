@@ -182,6 +182,9 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
 
     let accessCode = "";
     let authorizationUrl = "";
+    const callbackUrl =
+      process.env.PAYSTACK_CALLBACK_URL ?? "https://sesetech.com/payment/callback";
+
     try {
       const data = await paystackPost(
         "/transaction/initialize",
@@ -190,10 +193,11 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
           amount: amountKobo,
           currency: "NGN",
           reference,
+          callback_url: callbackUrl,
           metadata: {
             userId: uid,
             amount: amountKobo,
-            transactionType: "wallet_topup",
+            transactionType: purpose === "trip_payment" ? "trip_payment" : "driver_credit_topup",
             purpose,
           },
         },

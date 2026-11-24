@@ -48,6 +48,18 @@
     ],
     "rewrites": [
       {
+        "source": "/payment/callback",
+        "destination": "/payment/callback.html"
+      },
+      {
+        "source": "/callback",
+        "destination": "/payment/callback.html"
+      },
+      {
+        "source": "/paystack/callback",
+        "destination": "/payment/callback.html"
+      },
+      {
         "source": "/terms",
         "destination": "/terms.html"
       },

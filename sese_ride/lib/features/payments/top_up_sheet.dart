@@ -119,10 +119,20 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         setState(() => _busy = false);
         return;
       }
-      // Embedded page failed — the screen already opened the browser
-      // fallback, so keep the manual "I've Paid — Verify" path below.
+      // Embedded page failed or user chose browser — request a fresh session
+      // so Paystack never encounters an already opened or aborted checkout URL.
+      PaymentAuthorization browserAuth = auth;
+      try {
+        browserAuth = await widget.service.initializeTopUp(
+          amountNaira: amount,
+          email: widget.user.email,
+          purpose: 'driver_credit',
+        );
+      } catch (e) {
+        debugPrint('TopUpSheet: fresh browser auth failed ($e), falling back');
+      }
       final launched =
-          await widget.service.launchCheckout(auth.authorizationUrl);
+          await widget.service.launchCheckout(browserAuth.authorizationUrl);
       if (!mounted) return;
       if (!launched) {
         setState(() {
@@ -132,7 +142,7 @@ class _TopUpSheetState extends State<TopUpSheet> with WidgetsBindingObserver {
         return;
       }
       setState(() {
-        _pending = auth;
+        _pending = browserAuth;
         _autoVerified = false;
         _busy = false;
       });

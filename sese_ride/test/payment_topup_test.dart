@@ -77,7 +77,7 @@ void main() {
       expect(auth.reference, 'sese_test_ref');
       // ₦2000 → 200,000 kobo, integer-exact.
       expect(backend.lastInitPayload?['amountKobo'], 200000);
-      expect(backend.lastInitPayload?['purpose'], 'wallet_topup');
+      expect(backend.lastInitPayload?['purpose'], 'driver_credit');
       expect(backend.lastInitPayload?['email'], 'rider@example.ng');
     });
 

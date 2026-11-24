@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Callback — SESE</title>
+  <link rel="icon" type="image/png" href="https://sesetech.com/favicon.png">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background-color: #0F1015;
+      color: #F3F4F6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    .card {
+      background: #181920;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 40px 28px;
+      max-width: 440px;
+      width: 100%;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      background: rgba(226, 183, 20, 0.15);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px auto;
+      color: #E2B714;
+    }
+    .icon svg {
+      width: 32px;
+      height: 32px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #FFFFFF;
+      margin-bottom: 8px;
+    }
+    p {
+      color: #9CA3AF;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .ref-badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      color: #E2B714;
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      background: #E2B714;
+      color: #0F1015;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      text-decoration: none;
+      transition: opacity 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+    .btn:hover {
+      opacity: 0.9;
+    }
+    .helper {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #6B7280;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+      </svg>
+    </div>
+    <h1 id="title">Payment Processing</h1>
+    <p id="desc">Your transaction has been processed. Returning you to the Sese Ride app...</p>
+    <div id="ref-container" style="display: none;">
+      <div class="ref-badge" id="ref-text"></div>
+    </div>
+    <a id="return-btn" class="btn" href="seseride://payment/callback">Return to Sese Ride</a>
+    <p class="helper">If the app does not open automatically, tap the button above or switch back to the Sese Ride app.</p>
+  </div>
+
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var ref = params.get('reference') || params.get('trxref') || params.get('Reference');
+      var status = params.get('status');
+
+      if (ref) {
+        var refElem = document.getElementById('ref-text');
+        var refCont = document.getElementById('ref-container');
+        if (refElem && refCont) {
+          refElem.textContent = 'Ref: ' + ref;
+          refCont.style.display = 'block';
+        }
+      }
+
+      var deepLink = 'seseride://payment/callback' + window.location.search;
+      var returnBtn = document.getElementById('return-btn');
+      if (returnBtn) {
+        returnBtn.href = deepLink;
+      }
+
+      // Automatically attempt deep link redirect
+      setTimeout(function() {
+        window.location.href = deepLink;
+      }, 500);
+    })();
+  </script>
+</body>
+</html>

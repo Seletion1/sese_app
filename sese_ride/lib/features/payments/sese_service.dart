@@ -470,7 +470,7 @@ class SeseService {
       initializePayment(
         amountNaira: amountNaira,
         email: email,
-        purpose: purpose ?? 'wallet_topup',
+        purpose: purpose ?? 'driver_credit',
         tripId: tripId,
       );
 

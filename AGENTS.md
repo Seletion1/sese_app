@@ -72,6 +72,23 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-24 — Paystack Checkout Resolution: 404 Callback Prevention, Fresh Session Init, Subresource Error Immunity (`functions`, `firebase.json`, `public/payment/`, `sese_ride`)
+
+- **1. Root-Cause Analysis for Images 1 & 2**:
+  - *Image 1 (Branded 404 Page inside in-app WebView)*: When completing or cancelling payment on Paystack, Paystack redirected to `sesetech.com/payment/callback`. Firebase Hosting had no route for `/payment/callback` or `/callback`, falling through to `public/404.html`. Additionally, `onNavigationRequest` allowed navigation to the 404 URL when `_callbackReference` returned null on cancelled sessions.
+  - *Image 2 ("We could not start this transaction")*: Subresource HTTP errors (e.g. 404 on missing favicons or tracking scripts) and Chromium `ERR_ABORTED (-3)` during redirects triggered `onHttpError`/`onWebResourceError` in `PaystackCheckoutScreen` because they were not guarded against non-mainframe requests. This prompted a browser fallback that reused the already-opened authorization URL, which Paystack rejected as an aborted/used session.
+- **2. Pipeline Hardening**:
+  - *Backend Functions (`functions/src/payments.ts`)*: Explicitly passed `callback_url: "https://sesetech.com/payment/callback"` in `/transaction/initialize` and normalized metadata to `transactionType: "driver_credit_topup"`. Deployed `initializePayment`, `initializePaystackTopUp`, `verifyPayment`, and `paystackWebhook` to Firebase.
+  - *Hosting Routes (`firebase.json` & `public/payment/callback.html`)*: Created dedicated, dark-gold branded `public/payment/callback.html` supporting deep-link return to `seseride://payment/callback`, and configured rewrites in `firebase.json` for `/payment/callback`, `/callback`, and `/paystack/callback`. Deployed hosting to live domain.
+  - *Client App (`sese_ride`)*:
+    - `PaystackCheckoutScreen`: Guarded `onHttpError` to only trip on main-frame document failures (ignoring sub-asset 404s), filtered out harmless `ERR_ABORTED (-3)` in `onWebResourceError`, and intercepted all callback/cancel URLs in `onNavigationRequest` to prevent web page rendering in the checkout sheet.
+    - `TopUpSheet`: When switching to browser fallback, requests a fresh authorization from the backend so the external browser never loads an aborted/reused session.
+    - Updated SnackBar confirmation to `'Payment verified — credits updated.'`.
+- **3. Verification**:
+  - `functions`: 158/158 tests passed; endpoints deployed to production.
+  - `hosting`: Deployed to `sese-ride.web.app` and `sesetech.com`.
+  - `sese_ride`: 7/7 payment and checkout tests passed; analyzer clean (0 issues).
+
 ## 2026-11-24 — Full Audit, Verification & Hardening: Zero Stored-Value Wallet, Zero Payout, External Navigation, Direct Booking Payments, Sese Credits & Sese Service Renaming (`functions`, `firestore.rules`, `firestore.indexes.json`, `sese_core`, `sese_hub`, `sese_ride`)
 
 - **1. Zero Stored-Value & Non-Withdrawable Platform Credits Audit**:

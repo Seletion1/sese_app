@@ -81,11 +81,27 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
           },
           onHttpError: (HttpResponseError err) {
             final statusCode = err.response?.statusCode;
-            debugPrint('PaystackCheckout: HTTP status error: $statusCode');
-            if (mounted && !_verifying && statusCode != null && SeseWebErrorDetector.isErrorStatusCode(statusCode)) {
+            final reqUri = err.request?.uri;
+            final isMainDocument = reqUri != null &&
+                (reqUri.toString() == widget.auth.authorizationUrl ||
+                    (reqUri.host.contains('paystack.com') &&
+                        !reqUri.path.endsWith('.png') &&
+                        !reqUri.path.endsWith('.ico') &&
+                        !reqUri.path.endsWith('.svg') &&
+                        !reqUri.path.endsWith('.js') &&
+                        !reqUri.path.endsWith('.css')));
+            debugPrint(
+              'PaystackCheckout: HTTP status error: $statusCode, uri=$reqUri, isMain=$isMainDocument',
+            );
+            if (isMainDocument &&
+                mounted &&
+                !_verifying &&
+                statusCode != null &&
+                SeseWebErrorDetector.isErrorStatusCode(statusCode)) {
               setState(() {
                 _webViewFailed = true;
-                _webViewErrorDetails = SeseWebErrorDetector.getCleanUserErrorMessage(
+                _webViewErrorDetails =
+                    SeseWebErrorDetector.getCleanUserErrorMessage(
                   statusCode: statusCode,
                 );
               });
@@ -97,16 +113,66 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
               'code=${err.errorCode} type=${err.errorType} '
               'url=${err.url} desc=${err.description}',
             );
+            // Chromium error -3 is ERR_ABORTED: fires on normal redirects or cancelled subresources
+            if (err.errorCode == -3 || err.description.contains('ERR_ABORTED')) {
+              return;
+            }
             if (mounted && !_verifying && err.isForMainFrame == true) {
               setState(() {
                 _webViewFailed = true;
-                _webViewErrorDetails = SeseWebErrorDetector.getCleanUserErrorMessage(
-                  originalError: err.description.isNotEmpty ? err.description : null,
+                _webViewErrorDetails =
+                    SeseWebErrorDetector.getCleanUserErrorMessage(
+                  originalError:
+                      err.description.isNotEmpty ? err.description : null,
                 );
               });
             }
           },
           onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri != null) {
+              final host = uri.host.toLowerCase();
+              final path = uri.path.toLowerCase();
+              final isCallbackHostOrPath = host.contains('sesetech.com') ||
+                  path.contains('payment/callback') ||
+                  path.contains('/callback') ||
+                  path.contains('paystack/callback');
+
+              if (isCallbackHostOrPath) {
+                final ref = _callbackReference(request.url);
+                if (ref != null && !_verifying) {
+                  _verifyAndClose(ref);
+                  return NavigationDecision.prevent;
+                }
+
+                final isCancelled = request.url.contains('cancel') ||
+                    uri.queryParameters['status'] == 'cancelled' ||
+                    uri.queryParameters['cancelled'] == 'true';
+                if (isCancelled) {
+                  if (mounted && !_verifying) {
+                    Navigator.of(context).pop(null);
+                  }
+                  return NavigationDecision.prevent;
+                }
+
+                // If user reached callback without error, verify the initialized reference
+                if (mounted && !_verifying) {
+                  _verifyAndClose(widget.auth.reference);
+                }
+                return NavigationDecision.prevent;
+              }
+
+              // Intercept Paystack inline cancel/close hooks
+              if (path.endsWith('/close') ||
+                  uri.fragment == 'cancel' ||
+                  request.url.contains('cancel_action')) {
+                if (mounted && !_verifying) {
+                  Navigator.of(context).pop(null);
+                }
+                return NavigationDecision.prevent;
+              }
+            }
+
             final ref = _callbackReference(request.url);
             if (ref != null && !_verifying) {
               _verifyAndClose(ref);
@@ -121,17 +187,23 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
 
   /// Paystack redirects to the dashboard callback URL with the transaction
   /// reference as `reference` (or legacy `trxref`) once card/transfer/USSD
-  /// completes. Only accept it when it matches our initialized reference —
-  /// anything else keeps navigating inside the WebView.
+  /// completes. Accepts the reference if it matches our initialized reference
+  /// or belongs to the current payment session.
   String? _callbackReference(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return null;
     final ref = uri.queryParameters['reference'] ??
         uri.queryParameters['trxref'] ??
-        uri.queryParameters['Reference'];
+        uri.queryParameters['Reference'] ??
+        uri.queryParameters['trx_ref'];
     if (ref == null || ref.isEmpty) return null;
     if (ref == widget.auth.reference) return ref;
-    return null;
+    if (widget.auth.reference.isNotEmpty &&
+        (ref.contains(widget.auth.reference) ||
+            widget.auth.reference.contains(ref))) {
+      return widget.auth.reference;
+    }
+    return ref;
   }
 
   Future<void> _verifyAndClose(String reference) async {
@@ -145,7 +217,7 @@ class _PaystackCheckoutScreenState extends State<PaystackCheckoutScreen> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Payment verified — wallet updated.')),
+        const SnackBar(content: Text('Payment verified — credits updated.')),
       );
     } on PaymentException catch (e) {
       if (!mounted) return;
