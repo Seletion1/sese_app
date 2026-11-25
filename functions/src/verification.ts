@@ -6,202 +6,37 @@ import { _assignSequentialId } from "./sequentialIds";
 
 const db = () => admin.firestore();
 
-// ─── Referral Code Generation ────────────────────────────────────────────────
-
-/**
- * Deterministically generates a unique referral code for a newly-verified
- * user or driver and persists it atomically to both the profile document and
- * the `referral_codes/{CODE}` lookup index.
- *
- * Format Rule: FirstInitial + LastInitial + last-4-digits-of-phone (uppercase).
- * Collision Handling: Incrementally appends counter (MB1592, MB15921, MB15922, ...)
- * until a unique referral ID is secured.
- *
- * The function is idempotent: if the profile already has a `referralCode` it
- * returns immediately without writing anything.
- *
- * @param userId  - Firestore document ID (uid)
- * @param collection - "users" | "drivers"
- */
-async function _generateAndSaveReferralCode(
-  userId: string,
-  collection: "users" | "drivers"
-): Promise<string | null> {
-  const firestore = db();
-  const profileRef = firestore.collection(collection).doc(userId);
-
-  // ── Idempotency & Upgrade check ────────────────────────────────────────────
-  const profileSnap = await profileRef.get();
-  if (!profileSnap.exists) {
-    console.warn(
-      `_generateAndSaveReferralCode: ${collection}/${userId} not found, skipping.`
-    );
-    return null;
-  }
-  const profileData = profileSnap.data() ?? {};
-
-  // Verification gate: only generate referral code for verified users/drivers
-  const isVerified =
-    profileData?.isProfileVerified === true ||
-    profileData?.verificationStatus === "approved" ||
-    profileData?.verificationStatus === "verified" ||
-    profileData?.isVerifiedCustomer === true;
-  if (!isVerified) {
-    console.log(`[Referral] Skipping referral code for ${userId}: not yet verified.`);
-    return null;
-  }
-
-  const existingCode = String(profileData.referralCode ?? profileData.referralId ?? "").trim();
-
-  let rawPhone = String(
-    profileData.phoneNumberE164 ??
-      profileData.phoneNumber ??
-      profileData.phone ??
-      profileData.verifiedPhone ??
-      profileData.phoneE164 ??
-      profileData.driverPhone ??
-      profileData.customerPhone ??
-      ""
-  ).trim();
-
-  // If phone not directly on profile document, check Firebase Auth record
-  if (!rawPhone) {
-    try {
-      const authUser = await admin.auth().getUser(userId);
-      if (authUser.phoneNumber) {
-        rawPhone = authUser.phoneNumber.trim();
-      }
-    } catch (_) {}
-  }
-
-  const digits = rawPhone.replace(/\D/g, "");
-
-  // Require a phone number on the account before assigning referral ID
-  if (!rawPhone || digits.length === 0) {
-    console.log(`[Referral] Skipping referral code for ${userId}: no phone number on record.`);
-    return null;
-  }
-
-  // Immutability Rule: If a valid referral code already exists (not a placeholder ending in 0000),
-  // retain it permanently even if the user updates/changes their phone number later.
-  if (existingCode && !existingCode.endsWith("0000")) {
-    return existingCode;
-  }
-
-  // ── Format Rule: First Initial + Last Initial + Last 4 phone digits ────────
-  const fullName = String(profileData.fullName ?? profileData.displayName ?? "").trim();
-  const firstName = String(profileData.firstName ?? "").trim();
-  const lastName = String(profileData.lastName ?? "").trim();
-
-  let fInitial = "X";
-  let lInitial = "X";
-
-  if (firstName.length > 0) {
-    fInitial = (firstName.match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
-    lInitial = lastName.length > 0 ? (lastName.match(/[A-Za-z]/)?.[0] ?? fInitial).toUpperCase() : fInitial;
-  } else if (fullName.length > 0) {
-    const parts = fullName.split(/\s+/).filter(Boolean);
-    if (parts.length === 1) {
-      fInitial = (parts[0].match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
-      lInitial = fInitial;
-    } else if (parts.length > 1) {
-      fInitial = (parts[0].match(/[A-Za-z]/)?.[0] ?? "X").toUpperCase();
-      lInitial = (parts[parts.length - 1].match(/[A-Za-z]/)?.[0] ?? fInitial).toUpperCase();
-    }
-  }
-
-  const initials = (fInitial + lInitial).toUpperCase();
-  const last4 = digits.length >= 4 ? digits.slice(-4) : digits.padStart(4, "0");
-
-  const baseCode = (initials + last4).toUpperCase();
-
-  let resolvedCode: string | null = null;
-
-  // ── Collision Handling: Incrementally append counter 0, 1, 2, 3... ────────
-  for (let counter = 0; counter < 50; counter++) {
-    const candidate = counter === 0 ? baseCode : `${baseCode}${counter}`;
-
-    try {
-      const resolved = await firestore.runTransaction(async (tx) => {
-        const codeRef = firestore.collection("referral_codes").doc(candidate);
-        const codeSnap = await tx.get(codeRef);
-
-        const canClaim = !codeSnap.exists || codeSnap.data()?.referrerId === userId;
-        if (!canClaim) return false;
-
-        tx.set(codeRef, {
-          referrerId: userId,
-          referralCode: candidate,
-          referralId: candidate,
-          collection,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        tx.update(profileRef, {
-          referralCode: candidate,
-          referralId: candidate,
-        });
-
-        // Dual-role sync across users and drivers collections
-        const altCollection = collection === "users" ? "drivers" : "users";
-        const altRef = firestore.collection(altCollection).doc(userId);
-        const altSnap = await tx.get(altRef);
-        if (altSnap.exists) {
-          tx.set(altRef, { referralCode: candidate, referralId: candidate }, { merge: true });
-        }
-
-        // Clean up retired placeholder code (e.g. XX0000) if upgrading
-        if (existingCode && existingCode !== candidate && existingCode.endsWith("0000")) {
-          const oldCodeRef = firestore.collection("referral_codes").doc(existingCode);
-          const oldCodeSnap = await tx.get(oldCodeRef);
-          if (oldCodeSnap.exists && oldCodeSnap.data()?.referrerId === userId) {
-            tx.delete(oldCodeRef);
-          }
-        }
-
-        return true;
-      });
-
-      if (resolved) {
-        resolvedCode = candidate;
-        break;
-      }
-    } catch (err) {
-      console.warn(
-        `_generateAndSaveReferralCode: transaction error for ${candidate}:`,
-        err
-      );
-    }
-  }
-
-  if (!resolvedCode) {
-    console.error(
-      `_generateAndSaveReferralCode: exhausted candidate attempts for ${collection}/${userId}.`
-    );
-  }
-
-  return resolvedCode;
+function _isDocVerified(data: Record<string, unknown> | undefined): boolean {
+  if (!data) return false;
+  return (
+    data.isProfileVerified === true ||
+    data.isVerifiedCustomer === true ||
+    data.verificationStatus === "approved" ||
+    data.verificationStatus === "verified" ||
+    data.customerVerificationStatus === "verified" ||
+    data.customerVerificationStatus === "approved"
+  );
 }
-
-export { _generateAndSaveReferralCode };
 
 /**
  * Trigger: onUserCreated
  *
  * Runs upon user registration document creation in users/{userId}.
+ * Unverified signups do NOT receive a sequential Member ID (`SC...`).
+ * The Member ID is assigned strictly when the account transitions to `verified`.
  */
 export const onUserCreated = onDocumentCreated(
   "users/{userId}",
   async (event) => {
     const userId = event.params.userId;
-    // Assign a human-readable sequential customer ID (e.g. "SC0001")
-    // immediately on registration, before any verification review.
-    try {
-      await _assignSequentialId(userId, "customer");
-    } catch (err) {
-      console.warn(`onUserCreated sequential ID assignment failed for ${userId}:`, err);
+    const data = event.data?.data();
+    if (_isDocVerified(data)) {
+      try {
+        await _assignSequentialId(userId, "customer");
+      } catch (err) {
+        console.warn(`onUserCreated sequential ID assignment failed for ${userId}:`, err);
+      }
     }
-    // Referral code is NOT generated here — it is deferred until the
-    // customer's profile is verified (see _generateAndSaveReferralCode gate).
   }
 );
 
@@ -209,68 +44,44 @@ export const onUserCreated = onDocumentCreated(
  * Trigger: onDriverCreated
  *
  * Runs upon driver registration document creation in drivers/{driverId}.
+ * Unverified signups do NOT receive a sequential Member ID (`SD...`).
+ * The Member ID is assigned strictly when the account transitions to `verified`.
  */
 export const onDriverCreated = onDocumentCreated(
   "drivers/{driverId}",
   async (event) => {
     const driverId = event.params.driverId;
-    // Assign a human-readable sequential driver ID (e.g. "SD0001")
-    // immediately on registration, before any verification review.
-    try {
-      await _assignSequentialId(driverId, "driver");
-    } catch (err) {
-      console.warn(`onDriverCreated sequential ID assignment failed for ${driverId}:`, err);
+    const data = event.data?.data();
+    if (_isDocVerified(data)) {
+      try {
+        await _assignSequentialId(driverId, "driver");
+      } catch (err) {
+        console.warn(`onDriverCreated sequential ID assignment failed for ${driverId}:`, err);
+      }
     }
-    // Referral code is NOT generated here — it is deferred until the
-    // driver's profile is verified (see _generateAndSaveReferralCode gate).
   }
 );
 
 /**
  * Trigger: onUserUpdated
  *
- * Runs on updates to users/{userId}. Generates or upgrades referral code if
- * phone number is linked, updated, or verified.
+ * Runs on updates to users/{userId}. Assigns the official sequential Member ID
+ * (`SC...`) once the account becomes verified if not already assigned.
  */
 export const onUserUpdated = onDocumentUpdated(
   "users/{userId}",
   async (event) => {
-    const before = event.data?.before.data();
     const after = event.data?.after.data();
-    if (!before || !after) return;
+    if (!after || !_isDocVerified(after)) return;
+
+    const existingSeq = String(after.sequentialId ?? "").trim();
+    if (existingSeq.startsWith("SC")) return;
 
     const userId = event.params.userId;
-    const beforePhone = String(
-      before.phoneNumberE164 ?? before.phoneNumber ?? before.phone ?? ""
-    ).trim();
-    const afterPhone = String(
-      after.phoneNumberE164 ?? after.phoneNumber ?? after.phone ?? ""
-    ).trim();
-
-    // Immutability guard: if a real (non-placeholder) referral code already
-    // exists on the before-state or after-state, never attempt to regenerate it.
-    const beforeCode = String(before.referralCode ?? before.referralId ?? "").trim();
-    if (beforeCode && !beforeCode.endsWith("0000")) {
-      return;
-    }
-    const afterCode = String(after.referralCode ?? after.referralId ?? "").trim();
-    if (afterCode && !afterCode.endsWith("0000")) {
-      return;
-    }
-
-    if (
-      beforePhone !== afterPhone ||
-      !afterCode ||
-      afterCode.endsWith("0000")
-    ) {
-      try {
-        await _generateAndSaveReferralCode(userId, "users");
-      } catch (err) {
-        console.warn(
-          `onUserUpdated referral code generation failed for ${userId}:`,
-          err
-        );
-      }
+    try {
+      await _assignSequentialId(userId, "customer");
+    } catch (err) {
+      console.warn(`onUserUpdated sequential ID assignment failed for ${userId}:`, err);
     }
   }
 );
@@ -278,48 +89,23 @@ export const onUserUpdated = onDocumentUpdated(
 /**
  * Trigger: onDriverUpdated
  *
- * Runs on updates to drivers/{driverId}. Generates or upgrades referral code if
- * phone number is linked, updated, or verified.
+ * Runs on updates to drivers/{driverId}. Assigns the official sequential Member ID
+ * (`SD...`) once the account becomes verified if not already assigned.
  */
 export const onDriverUpdated = onDocumentUpdated(
   "drivers/{driverId}",
   async (event) => {
-    const before = event.data?.before.data();
     const after = event.data?.after.data();
-    if (!before || !after) return;
+    if (!after || !_isDocVerified(after)) return;
+
+    const existingSeq = String(after.sequentialId ?? "").trim();
+    if (existingSeq.startsWith("SD")) return;
 
     const driverId = event.params.driverId;
-    const beforePhone = String(
-      before.phone ?? before.phoneNumberE164 ?? before.phoneNumber ?? ""
-    ).trim();
-    const afterPhone = String(
-      after.phone ?? after.phoneNumberE164 ?? after.phoneNumber ?? ""
-    ).trim();
-
-    // Immutability guard: if a real (non-placeholder) referral code already
-    // exists on the before-state or after-state, never attempt to regenerate it.
-    const beforeCode = String(before.referralCode ?? before.referralId ?? "").trim();
-    if (beforeCode && !beforeCode.endsWith("0000")) {
-      return;
-    }
-    const afterCode = String(after.referralCode ?? after.referralId ?? "").trim();
-    if (afterCode && !afterCode.endsWith("0000")) {
-      return;
-    }
-
-    if (
-      beforePhone !== afterPhone ||
-      !afterCode ||
-      afterCode.endsWith("0000")
-    ) {
-      try {
-        await _generateAndSaveReferralCode(driverId, "drivers");
-      } catch (err) {
-        console.warn(
-          `onDriverUpdated referral code generation failed for ${driverId}:`,
-          err
-        );
-      }
+    try {
+      await _assignSequentialId(driverId, "driver");
+    } catch (err) {
+      console.warn(`onDriverUpdated sequential ID assignment failed for ${driverId}:`, err);
     }
   }
 );
@@ -498,13 +284,13 @@ export const reviewCustomerVerification = guardedOnCall<ReviewCustomerData>(
         console.warn(`FCM send failed for ${userId}:`, err);
       }
 
-      // Generate referral code now that the user is verified.
-      // Wrapped in try/catch — a code generation failure must never
+      // Assign official sequential Member ID (SC...) now that the user is verified.
+      // Wrapped in try/catch — an ID assignment failure must never
       // roll back a successfully-completed verification approval.
       try {
-        await _generateAndSaveReferralCode(userId, "users");
+        await _assignSequentialId(userId, "customer");
       } catch (err) {
-        console.warn(`Referral code generation failed for user ${userId}:`, err);
+        console.warn(`Sequential ID assignment failed for user ${userId}:`, err);
       }
 
       return { success: true, status: "verified" };
@@ -640,11 +426,11 @@ export const reviewDriverVerification = guardedOnCall<ReviewDriverData>(
         console.warn(`FCM send failed for driver ${driverId}:`, err);
       }
 
-      // Generate referral code now that the driver is verified.
+      // Assign official sequential Driver ID (SD...) now that the driver is verified.
       try {
-        await _generateAndSaveReferralCode(driverId, "drivers");
+        await _assignSequentialId(driverId, "driver");
       } catch (err) {
-        console.warn(`Referral code generation failed for driver ${driverId}:`, err);
+        console.warn(`Sequential ID assignment failed for driver ${driverId}:`, err);
       }
 
       return { success: true, status: "approved" };
@@ -750,12 +536,12 @@ export const onUserVerificationUpdated = onDocumentUpdated(
       } catch (err) {
         console.warn(`Trigger FCM failed for ${userId}:`, err);
       }
-      // Idempotent referral code generation — handles admin console edits
+      // Idempotent sequential Member ID assignment — handles admin console edits
       // that bypass the reviewCustomerVerification callable.
       try {
-        await _generateAndSaveReferralCode(userId, "users");
+        await _assignSequentialId(userId, "customer");
       } catch (err) {
-        console.warn(`Trigger referral code generation failed for ${userId}:`, err);
+        console.warn(`Trigger sequential ID assignment failed for ${userId}:`, err);
       }
     } else if (afterStatus === "rejected") {
       const reason = after.kycRejectionReason || "Verification not approved";
@@ -831,12 +617,12 @@ export const onDriverVerificationUpdated = onDocumentUpdated(
       } catch (err) {
         console.warn(`Trigger FCM failed for driver ${driverId}:`, err);
       }
-      // Idempotent referral code generation — handles admin console edits
+      // Idempotent sequential Driver ID assignment — handles admin console edits
       // that bypass the reviewDriverVerification callable.
       try {
-        await _generateAndSaveReferralCode(driverId, "drivers");
+        await _assignSequentialId(driverId, "driver");
       } catch (err) {
-        console.warn(`Trigger referral code generation failed for driver ${driverId}:`, err);
+        console.warn(`Trigger sequential ID assignment failed for driver ${driverId}:`, err);
       }
     } else if (afterStatus === "rejected") {
       const reason = after.profileRejectionReason || "Profile not approved";

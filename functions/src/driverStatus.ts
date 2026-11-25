@@ -95,8 +95,12 @@ export const goOnline = onCall<GoOnlineData>({ enforceAppCheck: false }, async (
         "No verified vehicle found. Register a vehicle and wait for admin approval before going online."
       );
     }
-    // Auto-assign sequential driver ID if missing
-    if (!profile.sequentialId || !String(profile.sequentialId).startsWith("SD")) {
+    // Auto-assign sequential driver ID if verified and missing
+    const isDriverVerified =
+      profile.isProfileVerified === true ||
+      profile.verificationStatus === "approved" ||
+      profile.verificationStatus === "verified";
+    if (isDriverVerified && (!profile.sequentialId || !String(profile.sequentialId).startsWith("SD"))) {
       try {
         await _assignSequentialId(uid, "driver");
       } catch (seqErr) {

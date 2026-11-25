@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { assertHubStaffOrAdmin, _generateAndSaveReferralCode } from "./verification";
+import { assertHubStaffOrAdmin } from "./verification";
 
 const db = () => admin.firestore();
 
@@ -73,12 +73,19 @@ export async function _assignSequentialId(
   return firestore.runTransaction(async (tx) => {
     // 1. Check existing sequential ID on target document
     const snap = await tx.get(docRef);
-    if (snap.exists) {
-      const existing = (snap.data() as Record<string, unknown>)?.sequentialId as string | undefined;
-      if (existing && existing.startsWith(expectedPrefix)) {
-        return existing;
-      }
+    const snapData = snap.exists ? (snap.data() as Record<string, unknown>) : {};
+    const existing = snapData?.sequentialId as string | undefined;
+    if (existing && existing.startsWith(expectedPrefix)) {
+      return existing;
     }
+
+    const rawFirst = String(
+      snapData?.firstName ??
+        snapData?.fullName ??
+        snapData?.displayName ??
+        ""
+    ).trim();
+    const firstName = rawFirst ? rawFirst.split(/\s+/)[0] : "Member";
 
     // 2. Read dedicated counter document
     const counterSnap = await tx.get(counterRef);
@@ -104,11 +111,13 @@ export async function _assignSequentialId(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    // 5. Reserve unique sequential ID index
+    // 5. Reserve unique sequential ID index (also serves as verified referral lookup)
     tx.set(uniqueIndexRef, {
       ownerUid: uid,
       role: role === "hub" ? "staff" : role,
       sequentialId,
+      firstName,
+      isVerified: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -157,16 +166,14 @@ export const backfillSequentialIds = onCall(
 
     const results = {
       customersSequentialAssigned: 0,
-      customersReferralGenerated: 0,
       driversSequentialAssigned: 0,
-      driversReferralGenerated: 0,
       staffSequentialAssigned: 0,
       customerCounterSet: 0,
       driverCounterSet: 0,
       staffCounterSet: 0,
     };
 
-    // ── 1. Backfill Customers ────────────────────────────────────────────────
+    // ── 1. Backfill Verified Customers ───────────────────────────────────────
     const usersSnap = await firestore.collection("users").get();
     const sortedUsers = usersSnap.docs.slice().sort((a, b) => {
       const tA = extractRegistrationTimestamp(a.data());
@@ -177,10 +184,19 @@ export const backfillSequentialIds = onCall(
 
     let customerIndex = 0;
     for (const doc of sortedUsers) {
-      customerIndex++;
       const uData = doc.data() as Record<string, unknown>;
+      const isVerified =
+        uData.isProfileVerified === true ||
+        uData.verificationStatus === "verified" ||
+        uData.verificationStatus === "approved" ||
+        uData.isVerifiedCustomer === true;
+      if (!isVerified) continue;
+
+      customerIndex++;
       const existingSeqId = uData.sequentialId as string | undefined;
       const expectedSeqId = formatSequentialId("customer", customerIndex);
+      const rawFirst = String(uData.firstName ?? uData.fullName ?? uData.displayName ?? "").trim();
+      const firstName = rawFirst ? rawFirst.split(/\s+/)[0] : "Member";
 
       if (resetAll || !existingSeqId || !existingSeqId.startsWith("SC") || existingSeqId !== expectedSeqId) {
         await firestore.runTransaction(async (tx) => {
@@ -189,29 +205,13 @@ export const backfillSequentialIds = onCall(
             ownerUid: doc.id,
             role: "customer",
             sequentialId: expectedSeqId,
+            firstName,
+            isVerified: true,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
           tx.update(doc.ref, { sequentialId: expectedSeqId });
         });
         results.customersSequentialAssigned++;
-      }
-
-      // Check if eligible for referral code backfill (verified + phone + no code)
-      const isVerified =
-        uData.isProfileVerified === true ||
-        uData.verificationStatus === "verified" ||
-        uData.verificationStatus === "approved" ||
-        uData.isVerifiedCustomer === true;
-      const rawPhone = String(uData.phoneNumberE164 ?? uData.phoneNumber ?? uData.phone ?? "").trim();
-      const existingRefCode = String(uData.referralCode ?? uData.referralId ?? "").trim();
-
-      if (isVerified && rawPhone.length > 0 && (!existingRefCode || existingRefCode.endsWith("0000"))) {
-        try {
-          const code = await _generateAndSaveReferralCode(doc.id, "users");
-          if (code) results.customersReferralGenerated++;
-        } catch (err) {
-          console.warn(`Customer ${doc.id} referral code backfill failed:`, err);
-        }
       }
     }
 
@@ -224,7 +224,7 @@ export const backfillSequentialIds = onCall(
     }, { merge: true });
     results.customerCounterSet = customerIndex;
 
-    // ── 2. Backfill Drivers ──────────────────────────────────────────────────
+    // ── 2. Backfill Verified Drivers ─────────────────────────────────────────
     const driversSnap = await firestore.collection("drivers").get();
     const sortedDrivers = driversSnap.docs.slice().sort((a, b) => {
       const tA = extractRegistrationTimestamp(a.data());
@@ -235,10 +235,18 @@ export const backfillSequentialIds = onCall(
 
     let driverIndex = 0;
     for (const doc of sortedDrivers) {
-      driverIndex++;
       const dData = doc.data() as Record<string, unknown>;
+      const isVerified =
+        dData.isProfileVerified === true ||
+        dData.verificationStatus === "verified" ||
+        dData.verificationStatus === "approved";
+      if (!isVerified) continue;
+
+      driverIndex++;
       const existingSeqId = dData.sequentialId as string | undefined;
       const expectedSeqId = formatSequentialId("driver", driverIndex);
+      const rawFirst = String(dData.firstName ?? dData.fullName ?? dData.displayName ?? "").trim();
+      const firstName = rawFirst ? rawFirst.split(/\s+/)[0] : "Driver";
 
       if (resetAll || !existingSeqId || !existingSeqId.startsWith("SD") || existingSeqId !== expectedSeqId) {
         await firestore.runTransaction(async (tx) => {
@@ -247,28 +255,13 @@ export const backfillSequentialIds = onCall(
             ownerUid: doc.id,
             role: "driver",
             sequentialId: expectedSeqId,
+            firstName,
+            isVerified: true,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           });
           tx.update(doc.ref, { sequentialId: expectedSeqId });
         });
         results.driversSequentialAssigned++;
-      }
-
-      // Check if eligible for referral code backfill (verified + phone + no code)
-      const isVerified =
-        dData.isProfileVerified === true ||
-        dData.verificationStatus === "verified" ||
-        dData.verificationStatus === "approved";
-      const rawPhone = String(dData.phone ?? dData.phoneNumberE164 ?? dData.phoneNumber ?? "").trim();
-      const existingRefCode = String(dData.referralCode ?? dData.referralId ?? "").trim();
-
-      if (isVerified && rawPhone.length > 0 && (!existingRefCode || existingRefCode.endsWith("0000"))) {
-        try {
-          const code = await _generateAndSaveReferralCode(doc.id, "drivers");
-          if (code) results.driversReferralGenerated++;
-        } catch (err) {
-          console.warn(`Driver ${doc.id} referral code backfill failed:`, err);
-        }
       }
     }
 

@@ -10,7 +10,6 @@ import 'auth_repository.dart';
 import '../models/driver_verification.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
-import '../referral/referral_code.dart';
 import '../services/awareness_tooltip_service.dart';
 import '../services/call/call_service_manager.dart';
 import '../services/local_cache_service.dart';
@@ -372,15 +371,6 @@ class FirebaseAuthRepository implements AuthRepository {
         // ignore: discarded_futures
         _recordAuthProvider(
             firebaseUser.uid, UserRole.driver, 'google.com');
-        // Backfill deterministic referral code for Google driver sign-ups.
-        await ensureReferralCode(
-          collection: 'drivers',
-          uid: firebaseUser.uid,
-          fullName: displayName.isNotEmpty
-              ? displayName
-              : (firebaseUser.email ?? ''),
-          phoneNumber: firebaseUser.phoneNumber ?? '',
-        );
       }
 
       return AppUser(
@@ -423,15 +413,6 @@ class FirebaseAuthRepository implements AuthRepository {
         // ignore: discarded_futures
         _recordAuthProvider(
             firebaseUser.uid, UserRole.customer, 'google.com');
-        // Backfill deterministic referral code for Google customer sign-ups.
-        await ensureReferralCode(
-          collection: 'users',
-          uid: firebaseUser.uid,
-          fullName: displayName.isNotEmpty
-              ? displayName
-              : (firebaseUser.email ?? ''),
-          phoneNumber: firebaseUser.phoneNumber ?? '',
-        );
       }
 
       return AppUser(
@@ -706,126 +687,6 @@ class FirebaseAuthRepository implements AuthRepository {
     _recordAuthProvider(firebaseUser.uid, role, 'password');
 
     return appUser;
-  }
-
-  /// Generates and secures a unique referral ID upon user/driver registration.
-  ///
-  /// Deprecated: Referral IDs are generated strictly server-side by the
-  /// [_generateAndSaveReferralCode] Cloud Function once the profile is verified.
-  @Deprecated('Use server-side verification-gated referral code generation.')
-  Future<String?> generateAndSecureReferralCode({
-    required FirebaseFirestore firestore,
-    required String uid,
-    required String fullName,
-    required String phoneNumber,
-    required bool isDriver,
-  }) async {
-    try {
-      final baseCode = generateReferralCode(
-        fullName: fullName,
-        phoneNumber: phoneNumber,
-      );
-
-      for (int counter = 0; counter < 50; counter++) {
-        final candidate = withCounterUniqueness(baseCode, counter);
-        final codeRef = firestore.collection('referral_codes').doc(candidate);
-
-        try {
-          final secured = await firestore.runTransaction<bool>((tx) async {
-            final snap = await tx.get(codeRef);
-            if (!snap.exists) {
-              tx.set(codeRef, {
-                'referrerId': uid,
-                'collection': isDriver ? 'drivers' : 'users',
-                'createdAt': FieldValue.serverTimestamp(),
-              });
-              return true;
-            }
-            final owner = (snap.data()?['referrerId'] ?? '').toString();
-            if (owner == uid) return true;
-            return false;
-          });
-
-          if (secured) {
-            return candidate;
-          }
-        } catch (e) {
-          debugPrint('generateAndSecureReferralCode attempt $counter error: $e');
-        }
-      }
-      return baseCode;
-    } catch (e) {
-      debugPrint('generateAndSecureReferralCode outer error: $e');
-      return null;
-    }
-  }
-
-  /// Ensures a deterministic referral code exists on a profile document.
-  ///
-  /// @Deprecated Referral codes are now generated server-side by
-  /// `_generateAndSaveReferralCode` in `verification.ts` upon admin KYC
-  /// approval. This method is retained to avoid breaking any remaining call
-  /// sites during the transition and will be removed in a future cleanup.
-  @Deprecated(
-    'Referral codes are now minted server-side on admin KYC approval. '
-    'See _generateAndSaveReferralCode in functions/src/verification.ts.',
-  )
-  Future<String?> ensureReferralCode({
-    required String collection,
-    required String uid,
-    required String fullName,
-    required String phoneNumber,
-  }) async {
-    final firestore = _firestore;
-    if (firestore == null || uid.isEmpty) return null;
-    try {
-      final ref = firestore.collection(collection).doc(uid);
-      final snap = await ref.get();
-      final existing =
-          (snap.data()?['referralCode'] ?? '').toString();
-      if (existing.isNotEmpty) return existing;
-      final name = fullName.isEmpty ? 'SeSe User' : fullName;
-      final code = generateReferralCode(
-          fullName: name, phoneNumber: phoneNumber);
-      await ref.set({'referralCode': code}, SetOptions(merge: true));
-      // ignore: deprecated_member_use_from_same_package
-      await _mirrorReferralCode(firestore, code, uid, collection == 'drivers');
-      return code;
-    } catch (e) {
-      debugPrint('ensureReferralCode skipped: $e');
-      return null;
-    }
-  }
-
-  /// Mirrors a referral code into the `referral_codes/{code}` lookup index
-  /// using first-writer-wins semantics.
-  ///
-  /// @Deprecated The mirror write is now performed atomically server-side by
-  /// `_generateAndSaveReferralCode` in `verification.ts`. This method is
-  /// retained only to support the deprecated [ensureReferralCode] above.
-  @Deprecated(
-    'Use the server-side _generateAndSaveReferralCode in verification.ts '
-    'instead of writing referral_codes from the client.',
-  )
-  Future<void> _mirrorReferralCode(
-    FirebaseFirestore firestore,
-    String code,
-    String uid,
-    bool isDriver,
-  ) async {
-    try {
-      final ref = firestore.collection('referral_codes').doc(code);
-      final existing = await ref.get();
-      if (!existing.exists) {
-        await ref.set({
-          'referrerId': uid,
-          'collection': isDriver ? 'drivers' : 'users',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (e) {
-      debugPrint('referral code mirror skipped: $e');
-    }
   }
 
   @override

@@ -13,43 +13,55 @@ class ReferralHubScreen extends StatelessWidget {
 
   const ReferralHubScreen({super.key, required this.user});
 
-  Stream<String> _codeStream() {
-    // Drivers live under `drivers/`, everyone else under `users/`.
-    Stream<String> streamFor(String collection) {
+  Stream<({bool isVerified, String memberId})> _memberStatusStream() {
+    try {
+      final collection = user.role == UserRole.driver ? 'drivers' : 'users';
       return FirebaseFirestore.instance
           .collection(collection)
           .doc(user.uid)
           .snapshots()
-          .map((s) => (s.data()?['referralCode'] ?? '').toString());
-    }
-
-    if (user.role == UserRole.driver) {
-      return streamFor('drivers').asyncMap((code) async {
-        if (code.isNotEmpty) return code;
-        try {
-          final fallback = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .get();
-          return ((fallback.data()?['referralCode'] ?? '').toString());
-        } catch (_) {
-          return '';
+          .map((s) {
+        final data = s.data();
+        if (data == null) {
+          return (
+            isVerified: user.isVerified,
+            memberId: user.sequentialId,
+          );
         }
+        final status = (data['verificationStatus'] ?? '').toString().toLowerCase();
+        final custStatus =
+            (data['customerVerificationStatus'] ?? '').toString().toLowerCase();
+        final isVerified = data['isProfileVerified'] == true ||
+            data['isVerifiedCustomer'] == true ||
+            status == 'verified' ||
+            status == 'approved' ||
+            custStatus == 'verified' ||
+            custStatus == 'approved';
+        final memberId = (data['sequentialId'] ?? '').toString().trim();
+        return (isVerified: isVerified, memberId: memberId);
       });
+    } catch (_) {
+      return Stream.value((
+        isVerified: user.isVerified,
+        memberId: user.sequentialId,
+      ));
     }
-    return streamFor('users');
   }
 
   Stream<double> _seseCreditsStream() {
-    return FirebaseFirestore.instance
-        .collection('wallets')
-        .doc(user.uid)
-        .snapshots()
-        .map((s) {
-      final data = s.data();
-      if (data == null) return 0.0;
-      return (data['seseCredits'] as num?)?.toDouble() ?? 0.0;
-    });
+    try {
+      return FirebaseFirestore.instance
+          .collection('wallets')
+          .doc(user.uid)
+          .snapshots()
+          .map((s) {
+        final data = s.data();
+        if (data == null) return 0.0;
+        return (data['seseCredits'] as num?)?.toDouble() ?? 0.0;
+      });
+    } catch (_) {
+      return Stream.value(0.0);
+    }
   }
 
   Future<void> _copy(BuildContext context, String code) async {
@@ -151,12 +163,67 @@ class ReferralHubScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // ── Unique Referral Code Card ────────────────────────────────────
-          StreamBuilder<String>(
-            stream: _codeStream(),
+          // ── Unified Member ID / Referral Code Card (Verified Only) ────────
+          StreamBuilder<({bool isVerified, String memberId})>(
+            stream: _memberStatusStream(),
+            initialData: (
+              isVerified: user.isVerified,
+              memberId: user.sequentialId,
+            ),
             builder: (context, snap) {
-              final code = snap.data ?? '';
+              final state = snap.data ??
+                  (isVerified: user.isVerified, memberId: user.sequentialId);
+              final isVerifiedWithId =
+                  state.isVerified && state.memberId.isNotEmpty;
+
+              if (!isVerifiedWithId) {
+                return Card(
+                  key: const Key('referral_verification_prompt_card'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(color: Colors.amber.shade200),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.verified_user_outlined,
+                              color: Colors.amber.shade800,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 10),
+                            const Expanded(
+                              child: Text(
+                                'Account Verification Required',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Verify your account first to receive your official SeSe Member ID and refer friends to earn 1% Sese Credits.',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Colors.grey[700],
+                                height: 1.4,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              final code = state.memberId;
               return Card(
+                key: const Key('referral_code_card'),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
@@ -166,28 +233,19 @@ class ReferralHubScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Your Referral Code',
-                        style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
+                        'Your Referral Code (Member ID)',
+                        style: TextStyle(
+                            color: Colors.grey, fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        code.isEmpty ? 'Pending Verification' : code,
-                        style: TextStyle(
-                          fontSize: code.isEmpty ? 22 : 36,
+                        code,
+                        style: const TextStyle(
+                          fontSize: 36,
                           fontWeight: FontWeight.bold,
-                          letterSpacing: code.isEmpty ? 0 : 2,
-                          color: code.isEmpty ? Colors.amber[800] : null,
+                          letterSpacing: 2,
                         ),
                       ),
-                      if (code.isEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Your unique referral code is generated automatically once your account and phone number are verified.',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[600],
-                              ),
-                        ),
-                      ],
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -196,9 +254,7 @@ class ReferralHubScreen extends StatelessWidget {
                               key: const Key('referral_copy_button'),
                               icon: const Icon(Icons.copy),
                               label: const Text('Copy Code'),
-                              onPressed: code.isEmpty
-                                  ? null
-                                  : () => _copy(context, code),
+                              onPressed: () => _copy(context, code),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -207,9 +263,7 @@ class ReferralHubScreen extends StatelessWidget {
                               key: const Key('referral_share_button'),
                               icon: const Icon(Icons.share),
                               label: const Text('Share'),
-                              onPressed: code.isEmpty
-                                  ? null
-                                  : () => _share(context, code),
+                              onPressed: () => _share(context, code),
                             ),
                           ),
                         ],

@@ -83,11 +83,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ],
           ),
           content: Text(
-            'Sequential ID & Referral Code audit complete:\n\n'
-            '• Customers updated: ${results['customersSequentialAssigned'] ?? 0} (Counter: ${results['customerCounterSet'] ?? 0})\n'
-            '• Drivers updated: ${results['driversSequentialAssigned'] ?? 0} (Counter: ${results['driverCounterSet'] ?? 0})\n'
-            '• Staff updated: ${results['staffSequentialAssigned'] ?? 0} (Counter: ${results['staffCounterSet'] ?? 0})\n'
-            '• Verified referrals generated: ${(results['customersReferralGenerated'] ?? 0) + (results['driversReferralGenerated'] ?? 0)}',
+            'Sequential Member ID audit complete:\n\n'
+            '• Verified customers updated: ${results['customersSequentialAssigned'] ?? 0} (Counter: ${results['customerCounterSet'] ?? 0})\n'
+            '• Verified drivers updated: ${results['driversSequentialAssigned'] ?? 0} (Counter: ${results['driverCounterSet'] ?? 0})\n'
+            '• Staff updated: ${results['staffSequentialAssigned'] ?? 0} (Counter: ${results['staffCounterSet'] ?? 0})',
           ),
           actions: [
             FilledButton(

@@ -29,13 +29,9 @@ abstract final class DriverVerification {
   /// Overall rejection reason written by hub when profile is rejected.
   static const String fieldProfileRejectionReason = 'profileRejectionReason';
 
-  /// Firestore field holding the human-readable sequential driver ID
-  /// (e.g. "SD0001"). Assigned atomically by the Cloud Function on doc creation.
+  /// Firestore field holding the human-readable sequential Member ID
+  /// (e.g. "SD0001"). Assigned atomically by Cloud Functions upon verification.
   static const String sequentialId = 'sequentialId';
-
-  /// Firestore field holding the driver's verified referral code
-  /// (e.g. "MB1592"). Only populated after the profile is approved.
-  static const String referralCode = 'referralCode';
 
   /// Returns true if a driver document represents an active pending profile
   /// awaiting hub manual document audit (not already approved or rejected).

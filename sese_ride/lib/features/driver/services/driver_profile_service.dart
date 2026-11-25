@@ -41,13 +41,9 @@ class DriverProfile {
   /// `rejected`. Empty when not rejected or no reason provided.
   final String profileRejectionReason;
 
-  /// The human-readable sequential driver ID assigned at registration
-  /// (e.g. "SD0001"). Empty string until assigned by the Cloud Function.
+  /// The human-readable sequential driver ID assigned upon verification
+  /// (e.g. "SD0001"). Empty string until verified and assigned by Cloud Functions.
   final String sequentialId;
-
-  /// The verified referral code (e.g. "MB1592").
-  /// Empty string until the driver's profile is approved AND phone is present.
-  final String referralCode;
 
   const DriverProfile({
     required this.uid,
@@ -69,7 +65,6 @@ class DriverProfile {
     this.fieldReviewStatus = const {},
     this.profileRejectionReason = '',
     this.sequentialId = '',
-    this.referralCode = '',
   });
 
   factory DriverProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -132,7 +127,6 @@ class DriverProfile {
       profileRejectionReason:
           (map[DriverVerification.fieldProfileRejectionReason] ?? '').toString(),
       sequentialId: (map['sequentialId'] ?? '').toString(),
-      referralCode: (map['referralCode'] ?? map['referralId'] ?? '').toString(),
     );
   }
 

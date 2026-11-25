@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 
-/// Optional referral-code step for registration / Google sign-up onboarding.
+/// Optional referral User ID step for registration / Google sign-up onboarding.
 ///
 /// Behaviour (spec):
 /// - Blank / skipped input never blocks completion.
-/// - Non-blank input is validated against `/referral_codes` with a 400ms debouncer.
-/// - Valid codes resolve to a referrer uid and display: "Referred by [Name]".
-/// - Invalid codes show: "Invalid referral code. You can clear this field to proceed."
+/// - Non-blank input is validated against `/unique_sequential_ids` (verified Member IDs) with a 400ms debouncer.
+/// - Valid Member IDs resolve to a referrer uid and display: "Referred by [Name]".
+/// - Invalid IDs show: "Invalid User ID. You can clear this field to proceed."
 /// - Optional Skip/Continue action button for immediate registration.
 class ReferralInputWidget extends StatefulWidget {
   final ReferralService referralService;
@@ -64,7 +64,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
     if (!isPlausibleReferralCode(code)) {
       setState(() {
         _checking = false;
-        _error = 'Invalid referral code. You can clear this field to proceed.';
+        _error = 'Invalid User ID. Please enter a verified Member ID (e.g. SC0001, SD0001) or clear to proceed.';
         _referrerBadge = null;
       });
       widget.onResolved(null);
@@ -80,7 +80,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
 
     if (details == null) {
       setState(() {
-        _error = 'Invalid referral code. You can clear this field to proceed.';
+        _error = 'Invalid User ID. Please enter a verified Member ID (e.g. SC0001, SD0001) or clear to proceed.';
         _referrerBadge = null;
       });
       widget.onResolved(null);
@@ -106,8 +106,8 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
           textCapitalization: TextCapitalization.characters,
           decoration: (widget.decoration ??
                   const InputDecoration(
-                    labelText: 'Referral Code (Optional)',
-                    hintText: 'e.g. MB6789',
+                    labelText: 'Referrer User ID (Optional)',
+                    hintText: 'e.g. SC0001 or SD0001',
                     prefixIcon: Icon(Icons.card_giftcard_outlined),
                   ))
               .copyWith(

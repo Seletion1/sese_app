@@ -197,6 +197,19 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
     - Cleaned driver trip card notifications and customer support prompt strings from wallet/payout text.
     - Verified `sese_ride` passes `flutter analyze` (0 issues) and test suite (36/36 pass).
 
+## 2026-11-25 — 1% Accumulating Sese Credits Referral Engine & Security Rules (`functions`, `firestore.rules`, `sese_core`, `sese_hub`, `sese_ride`, `AGENTS.md`)
+
+- **1. 1% Accumulating Non-Withdrawable Referral Credit System**:
+  - *Shared Core (`sese_core`)*: Integrated `referralCommissionPercent` (default 1.0%), `standardReferralDurationDays` (default 365 days), and `adminReferralDurationDays` (default 548 days) into `DispatchTuning`. Added complete serialization unit test coverage in `dynamic_system_config_test.dart`.
+  - *Backend Functions (`functions`)*: In `tripSettlement.ts`, added 1% non-withdrawable `seseCredits` accumulation for referrers on completed trips. Verification-gated referral duration checks ensure 365 days for standard users and 548 days for Hub Admins/Staff. Keyed transactions idempotently (`${tripId}_referral_credit_customer` and `${tripId}_referral_credit_driver`) to eliminate double-crediting. In `trips.ts`, automatically applied eligible available `seseCredits` as a trip discount at booking checkout.
+  - *Hub Application (`sese_hub`)*: Added configurable referral settings (`referralCommissionPercent`, `standardReferralDurationDays`, `adminReferralDurationDays`) to `GlobalConfigScreen` under Dispatch Console. Updated Hub Staff/Owner profile card to display live non-withdrawable Sese Credits counter and unique referral code.
+  - *Customer & Driver App (`sese_ride`)*: Integrated automatic **Trip Discount** line item at booking checkout when `seseCredits > 0`. Updated referral hub and profile menus to non-financial labels (`Invite Friends`, `Sese Credits`, `Referral Credits`). Added gating test suite `test/referral_hub_gating_test.dart`.
+
+- **2. Security Rules & Deployment (`firestore.rules`, `functions`)**:
+  - *Firestore Security Rules*: Protected `seseCredits` balance field on `users` and `drivers` profile documents in `firestore.rules`, restricting client-side mutations and pre-seeding. Released rules successfully to Firebase Cloud Firestore.
+  - *Cloud Functions Deployment*: Deployed all 77 Gen-2 functions successfully to Firebase Cloud Functions.
+  - *Verification & Test Suite*: `functions` (163/163 pass), `sese_core` (155/155 pass), `sese_hub` (74/74 pass), `sese_ride` (gating tests pass).
+
 ## 2026-11-24 — Deep Deletion of Driver Streak, Bonus, Reward, Cashback & Referral-Payout Systems (`functions`, `firestore.rules`, `sese_core`, `sese_hub`, `sese_ride`)
 
 - **1. Zero Streak, Reward & Bonus Architecture**:

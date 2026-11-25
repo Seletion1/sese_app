@@ -23,16 +23,11 @@ class AppUser {
   final int totalRatingSum;
   final int totalRatingCount;
 
-  /// The human-readable sequential customer ID assigned at registration
-  /// (e.g. "SC0001"). Empty string until the Cloud Function assigns it.
-  /// This is a display-only identifier — the Firebase Auth UID is never changed.
+  /// The human-readable sequential Member ID assigned upon verification
+  /// (e.g. "SC0001" for customers, "SD0001" for drivers, "SH0001" for staff).
+  /// Empty string until verified and assigned by Cloud Functions.
+  /// Also serves as the user's sole referral code.
   final String sequentialId;
-
-  /// The verified referral code (e.g. "MB1592").
-  /// Empty string until the user's profile is approved AND they have a phone
-  /// number. Generated server-side by [_generateAndSaveReferralCode] after
-  /// the hub reviews and approves the KYC submission.
-  final String referralCode;
 
   AppUser({
     required this.uid,
@@ -48,7 +43,6 @@ class AppUser {
     this.totalRatingSum = 0,
     this.totalRatingCount = 0,
     this.sequentialId = '',
-    this.referralCode = '',
   });
 
   /// Drivers are created pending — require admin approval in sese_hub.
@@ -58,6 +52,12 @@ class AppUser {
   bool get isPendingOnboarding =>
       role == UserRole.driver &&
       verificationStatus == DriverVerification.pendingOnboarding;
+
+  /// True once the account has been verified (`verified` or `approved`).
+  bool get isVerified {
+    final s = verificationStatus.trim().toLowerCase();
+    return s == 'verified' || s == 'approved';
+  }
 
   Map<String, dynamic> toMap() {
     final map = <String, dynamic>{
@@ -73,8 +73,6 @@ class AppUser {
       'totalRatingSum': totalRatingSum,
       'totalRatingCount': totalRatingCount,
       'sequentialId': sequentialId,
-      'referralCode': referralCode,
-      'referralId': referralCode,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {
@@ -94,12 +92,16 @@ class AppUser {
       isActive: map['isActive'] ?? true,
       createdAt: _parseDateTime(map['createdAt']),
       photoUrl: (map['photoUrl'] ?? map['photoURL'] ?? '').toString(),
-      verificationStatus: (map['verificationStatus'] ?? '').toString(),
+      verificationStatus: (map['verificationStatus'] ??
+              map['customerVerificationStatus'] ??
+              (map['isVerifiedCustomer'] == true || map['isProfileVerified'] == true
+                  ? 'verified'
+                  : ''))
+          .toString(),
       averageRating: safeNum(map['averageRating'])?.toDouble() ?? 5.0,
       totalRatingSum: safeNum(map['totalRatingSum'])?.toInt() ?? 0,
       totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
       sequentialId: (map['sequentialId'] ?? '').toString(),
-      referralCode: (map['referralCode'] ?? map['referralId'] ?? '').toString(),
     );
   }
 
@@ -129,7 +131,6 @@ class AppUser {
     int? totalRatingSum,
     int? totalRatingCount,
     String? sequentialId,
-    String? referralCode,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -145,7 +146,6 @@ class AppUser {
       totalRatingSum: totalRatingSum ?? this.totalRatingSum,
       totalRatingCount: totalRatingCount ?? this.totalRatingCount,
       sequentialId: sequentialId ?? this.sequentialId,
-      referralCode: referralCode ?? this.referralCode,
     );
   }
 }

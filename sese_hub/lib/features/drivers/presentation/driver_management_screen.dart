@@ -598,9 +598,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
                       ),
                       const SizedBox(height: 10),
                       if ((data['sequentialId'] ?? '').toString().isNotEmpty)
-                        _detailRow(Icons.tag, 'Driver ID', (data['sequentialId'] ?? '').toString()),
-                      if ((data['referralCode'] ?? data['referralId'] ?? '').toString().isNotEmpty)
-                        _detailRow(Icons.card_giftcard, 'Referral ID', (data['referralCode'] ?? data['referralId'] ?? '').toString()),
+                        _detailRow(Icons.tag, 'Driver ID (Referral Code)', (data['sequentialId'] ?? '').toString()),
                       _detailRow(Icons.phone, 'Phone', phone, action: () async {
                         final uri = Uri(scheme: 'tel', path: phone);
                         if (await canLaunchUrl(uri)) await launchUrl(uri);

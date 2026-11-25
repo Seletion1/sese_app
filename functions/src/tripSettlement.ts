@@ -656,10 +656,26 @@ export async function processTripReferralAccumulation(
       if (!rawReferredBy) continue;
 
       let referrerId = "";
-      const codeSnap = await db().collection("referral_codes").doc(rawReferredBy.toUpperCase()).get();
-      if (codeSnap.exists) {
-        referrerId = String(codeSnap.data()?.referrerId ?? "").trim();
+      const normalizedRef = rawReferredBy.toUpperCase();
+      // 1. Resolve via official verified Member ID index (unique_sequential_ids/{SC0001|SD0001|SH0001})
+      const seqSnap = await db().collection("unique_sequential_ids").doc(normalizedRef).get();
+      if (seqSnap.exists) {
+        referrerId = String(seqSnap.data()?.ownerUid ?? "").trim();
       }
+      // 2. Fallback: query users / drivers by sequentialId directly
+      if (!referrerId) {
+        const uQuery = await db().collection("users").where("sequentialId", "==", normalizedRef).limit(1).get();
+        if (!uQuery.empty) {
+          referrerId = uQuery.docs[0].id;
+        }
+      }
+      if (!referrerId) {
+        const dQuery = await db().collection("drivers").where("sequentialId", "==", normalizedRef).limit(1).get();
+        if (!dQuery.empty) {
+          referrerId = dQuery.docs[0].id;
+        }
+      }
+      // 3. Fallback: direct UID (if already stored as UID)
       if (!referrerId) {
         referrerId = rawReferredBy;
       }

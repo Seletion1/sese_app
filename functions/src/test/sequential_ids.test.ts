@@ -103,71 +103,51 @@ describe("Sequential User ID & Verification-Gated Referral System", () => {
     });
   });
 
-  describe("4. Verification Gating & Referral ID Rules", () => {
-    function evaluateReferralEligibility(user: {
+  describe("4. Verification Gating & Unified Member ID Rules", () => {
+    function evaluateMemberIdEligibility(user: {
       isProfileVerified?: boolean;
+      isVerifiedCustomer?: boolean;
       verificationStatus?: string;
-      phoneNumber?: string;
-      referralCode?: string;
     }): { eligible: boolean; reason?: string } {
       const isVerified =
         user.isProfileVerified === true ||
+        user.isVerifiedCustomer === true ||
         user.verificationStatus === "approved" ||
         user.verificationStatus === "verified";
       if (!isVerified) {
-        return { eligible: false, reason: "Profile not verified" };
-      }
-      const rawPhone = (user.phoneNumber ?? "").trim();
-      const digits = rawPhone.replace(/\D/g, "");
-      if (digits.length === 0) {
-        return { eligible: false, reason: "No phone number on record" };
+        return { eligible: false, reason: "Account not verified" };
       }
       return { eligible: true };
     }
 
-    test("blocks referral code generation for unverified users", () => {
+    test("blocks sequential Member ID assignment for unverified users", () => {
       const unverifiedUser = {
         isProfileVerified: false,
         verificationStatus: "pending_verification",
-        phoneNumber: "+2348161561592",
       };
-      const result = evaluateReferralEligibility(unverifiedUser);
+      const result = evaluateMemberIdEligibility(unverifiedUser);
       assert.strictEqual(result.eligible, false);
-      assert.strictEqual(result.reason, "Profile not verified");
+      assert.strictEqual(result.reason, "Account not verified");
     });
 
-    test("blocks referral code generation when user is verified but has no phone", () => {
-      const verifiedNoPhone = {
+    test("allows sequential Member ID assignment when account is verified", () => {
+      const verifiedDriver = {
         isProfileVerified: true,
         verificationStatus: "verified",
-        phoneNumber: "",
       };
-      const result = evaluateReferralEligibility(verifiedNoPhone);
-      assert.strictEqual(result.eligible, false);
-      assert.strictEqual(result.reason, "No phone number on record");
-    });
-
-    test("allows referral code generation when BOTH verified and phone is present", () => {
-      const eligibleUser = {
-        isProfileVerified: true,
-        verificationStatus: "verified",
-        phoneNumber: "+2348161561592",
-      };
-      const result = evaluateReferralEligibility(eligibleUser);
+      const result = evaluateMemberIdEligibility(verifiedDriver);
       assert.strictEqual(result.eligible, true);
     });
 
-    test("enforces immutability: existing non-placeholder referral code is never overwritten even on phone change", () => {
+    test("enforces idempotency: existing sequential Member ID is retained permanently", () => {
       const existingUser = {
-        referralCode: "MB1592",
-        phoneNumber: "+2348161561592",
+        sequentialId: "SD0001",
+        isProfileVerified: true,
       };
-      const updatedUser = {
-        ...existingUser,
-        phoneNumber: "+2349012345678",
-      };
+      const expectedPrefix = "SD";
       const shouldRetain =
-        Boolean(updatedUser.referralCode) && !updatedUser.referralCode.endsWith("0000");
+        Boolean(existingUser.sequentialId) &&
+        existingUser.sequentialId.startsWith(expectedPrefix);
       assert.strictEqual(shouldRetain, true);
     });
   });

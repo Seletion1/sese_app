@@ -29,8 +29,6 @@ import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
-import { _generateAndSaveReferralCode } from "./verification";
-import { _assignSequentialId } from "./sequentialIds";
 
 const db = () => admin.firestore();
 
@@ -570,22 +568,10 @@ export const registerUser = guardedOnCall<RegisterUserData>(async (request) => {
     }
   });
 
-  try {
-    await _assignSequentialId(uid, "customer");
-  } catch (err) {
-    console.warn(`registerUser: sequential ID assignment failed for ${uid}:`, err);
-  }
-
-  try {
-    await _generateAndSaveReferralCode(uid, "users");
-  } catch (err) {
-    console.warn(`registerUser: referral code generation failed for ${uid}:`, err);
-  }
-
   return {
     success: true,
     uid,
-    message: "User profile registered successfully with verified unique credentials.",
+    message: "User profile registered successfully.",
   };
 });
 
@@ -711,12 +697,6 @@ export const updateProfile = guardedOnCall<UpdateProfileData>(async (request) =>
       tx.set(driverRef, driverUpdates, { merge: true });
     }
   });
-
-  try {
-    await _generateAndSaveReferralCode(uid, "users");
-  } catch (err) {
-    console.warn(`updateProfile: referral code generation failed for ${uid}:`, err);
-  }
 
   return {
     success: true,

@@ -541,7 +541,7 @@ service cloud.firestore {
               'sequentialId', 'referralCode', 'referralId',
               // Referral attribution is server-minted exclusively by the
               // verification-gated `_generateAndSaveReferralCode` flow.
-              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt'
+              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt', 'seseCredits'
             ]);
       }
 
@@ -557,7 +557,7 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['isVehicleVerified']) || request.resource.data.isVehicleVerified == false) &&
         (!request.resource.data.keys().hasAny(['canGoOnline']) || request.resource.data.canGoOnline == false) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
-        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt']));
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt', 'seseCredits']));
       // Owner may update their profile, but cannot self-approve verification or alter safety/ratings
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidDriverProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
@@ -699,7 +699,7 @@ service cloud.firestore {
               'sequentialId', 'referralCode', 'referralId',
               // Referral attribution is server-minted exclusively — see the
               // note on `drivers` above.
-              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt'
+              'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt', 'seseCredits'
             ]);
       }
 
@@ -717,7 +717,7 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['customerVerificationStatus']) || request.resource.data.customerVerificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance'])) &&
-        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt']));
+        (!request.resource.data.keys().hasAny(['sequentialId', 'referralCode', 'referralId', 'referredBy', 'referred_by_code', 'referrerId', 'referralSignupAt', 'seseCredits']));
       // Owner may update their profile, but cannot wipe debt, self-unsuspend, or alter completed trips
       allow update: if (isAuthenticated() && request.auth.uid == userId && isValidUserProfileUpdate()) ||
         (request.auth != null && (request.auth.token.admin == true || isAgent() || isAdminAuthClaim() || isSuperAdmin() || isHubStaff() || isOperationsAdmin()));
