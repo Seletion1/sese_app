@@ -402,15 +402,13 @@ async function notifyDriver(
       },
       android: {
         priority: "high",
-        ...(isOrderPing
-          ? {}
-          : {
-              notification: {
-                sound: "sese_alert_chime",
-                channelId: "sese_orders",
-                clickAction: "FLUTTER_NOTIFICATION_CLICK",
-              },
-            }),
+        notification: {
+          title,
+          body,
+          sound: "sese_alert_chime",
+          channelId: isOrderPing ? "sese_driver_offers" : "sese_orders",
+          clickAction: "FLUTTER_NOTIFICATION_CLICK",
+        },
       },
       apns: {
         headers: {
@@ -425,7 +423,7 @@ async function notifyDriver(
           },
         },
       },
-      ...(isOrderPing ? {} : { notification: { title, body } }),
+      notification: { title, body },
     };
 
     await admin.messaging().send(fcmMessage);

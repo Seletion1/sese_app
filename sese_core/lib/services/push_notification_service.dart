@@ -741,7 +741,9 @@ class PushNotificationService {
             importance: (isCall || isOffer || isOrder || isBroadcast)
                 ? Importance.max
                 : Importance.high,
-            priority: Priority.high,
+            priority: (isCall || isOffer || isOrder)
+                ? Priority.max
+                : Priority.high,
             // Broadcasts use the OS default sound per spec; other channels
             // keep the branded SeSe chime.
             playSound: true,
@@ -754,9 +756,11 @@ class PushNotificationService {
                 ? BigTextStyleInformation(body, contentTitle: title)
                 : null,
             timeoutAfter: isOffer ? timeoutAfterMs : null,
-            category: (isCall || isOffer || isOrder)
+            category: isCall
                 ? AndroidNotificationCategory.call
-                : AndroidNotificationCategory.message,
+                : (isOffer || isOrder)
+                    ? AndroidNotificationCategory.alarm
+                    : AndroidNotificationCategory.message,
             visibility: NotificationVisibility.public,
             enableVibration: true,
             vibrationPattern: (isCall || isOffer || isOrder)
