@@ -147,8 +147,8 @@ void main() {
         home: CallingConfigScreen(),
       ),
     );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
     final monthlyCallsFinder =
         find.text('Monthly Call Minutes (Current Billing Cycle)');
     await tester.dragUntilVisible(
@@ -156,7 +156,7 @@ void main() {
       find.byType(Scrollable).first,
       const Offset(0, -300),
     );
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(monthlyCallsFinder, findsOneWidget);
     expect(find.textContaining('minutes used'), findsOneWidget);
 
