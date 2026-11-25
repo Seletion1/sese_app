@@ -153,7 +153,7 @@ void main() {
         find.text('Monthly Call Minutes (Current Billing Cycle)');
     await tester.dragUntilVisible(
       monthlyCallsFinder,
-      find.byType(ListView),
+      find.byType(Scrollable).first,
       const Offset(0, -300),
     );
     await tester.pump();
