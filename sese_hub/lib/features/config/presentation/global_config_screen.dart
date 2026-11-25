@@ -1480,39 +1480,43 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 12),
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.tag, size: 20, color: AppColors.seseGold),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
+                const Row(
+                  children: [
+                    Icon(Icons.tag, size: 20, color: AppColors.seseGold),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
                         'Sequential IDs & Referral Codes Audit',
                         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                       ),
-                      Text(
-                        'Sorts all Customer (SC), Driver (SD), and Hub (SH) records strictly by earliest registration date, guarantees zero duplicates, and syncs dedicated counters (counters/SC, counters/SD, counters/SH).',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: _runningBackfill ? null : () => _triggerSequentialIdBackfill(resetAll: true),
-                  icon: _runningBackfill
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.sync, size: 16),
-                  label: Text(_runningBackfill ? 'Syncing...' : 'Sync & Audit IDs'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.seseGold,
-                    foregroundColor: Colors.black,
+                const SizedBox(height: 6),
+                const Text(
+                  'Sorts all Customer (SC), Driver (SD), and Hub (SH) records strictly by earliest registration date, guarantees zero duplicates, and syncs dedicated counters (counters/SC, counters/SD, counters/SH).',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton.icon(
+                    onPressed: _runningBackfill ? null : () => _triggerSequentialIdBackfill(resetAll: true),
+                    icon: _runningBackfill
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.sync, size: 16),
+                    label: Text(_runningBackfill ? 'Syncing...' : 'Sync & Audit IDs'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.seseGold,
+                      foregroundColor: Colors.black,
+                    ),
                   ),
                 ),
               ],
