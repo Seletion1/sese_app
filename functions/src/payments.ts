@@ -719,6 +719,12 @@ export const paystackWebhook = onRequest(async (req, res) => {
     if (event.event === "charge.success" && event.data) {
       const reference = String(event.data["reference"] ?? "");
       const amountKobo = Number(event.data["amount"] ?? 0);
+      const currency = String(event.data["currency"] ?? "NGN").toUpperCase();
+      if (currency !== "NGN") {
+        console.warn(`paystackWebhook rejected non-NGN currency: ${currency}`);
+        res.status(400).send("Unsupported currency");
+        return;
+      }
       if (reference && amountKobo > 0) {
         await settleIntent(reference, amountKobo);
       }
@@ -788,6 +794,12 @@ export const opayWebhook = onRequest(async (req, res) => {
     // Direct status confirmation with OPay status API to prevent replay/tampering
     const statusData = await opayGetStatus(reference, orderNo, config);
     if (statusData["status"] === "SUCCESS") {
+      const currency = String(statusData["currency"] ?? "NGN").toUpperCase();
+      if (currency !== "NGN") {
+        console.warn(`opayWebhook rejected non-NGN currency: ${currency}`);
+        res.status(400).send("Unsupported currency");
+        return;
+      }
       const rawAmt = statusData["amount"];
       const paidNaira =
         typeof rawAmt === "number" ? rawAmt : parseFloat(String(rawAmt ?? "0"));

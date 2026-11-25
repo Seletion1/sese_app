@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { enforceAppCheck } from "./accountGuard";
 import { assertHubStaffOrAdmin } from "./verification";
 
 const db = () => admin.firestore();
@@ -154,6 +155,7 @@ interface BackfillRequestData {
 export const backfillSequentialIds = onCall(
   { timeoutSeconds: 540, memory: "512MiB" },
   async (request) => {
+    enforceAppCheck(request);
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Authentication required.");
     }
