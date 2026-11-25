@@ -174,6 +174,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Google Maps'), findsOneWidget);
     expect(find.text('Mapbox'), findsOneWidget);
-    expect(find.byKey(const Key('reset_usage_counters_btn')), findsOneWidget);
+    final resetBtnFinder = find.byKey(const Key('reset_usage_counters_btn'));
+    await tester.dragUntilVisible(
+      resetBtnFinder,
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
+    expect(resetBtnFinder, findsOneWidget);
   });
 }

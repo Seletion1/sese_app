@@ -406,11 +406,13 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     children: [
                       const Icon(Icons.security_rounded, size: 20, color: Colors.green),
                       const SizedBox(width: 8),
-                      Text(
-                        'Backend Isolated Credentials',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                      Expanded(
+                        child: Text(
+                          'Backend Isolated Credentials',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
                       ),
                     ],
                   ),
@@ -473,11 +475,13 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                       children: [
                         const Icon(Icons.timer_outlined, size: 20, color: Colors.blueGrey),
                         const SizedBox(width: 8),
-                        Text(
-                          'Connection Timeout Trigger',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                        Expanded(
+                          child: Text(
+                            'Connection Timeout Trigger',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
                         ),
                       ],
                     ),
@@ -520,11 +524,13 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     children: [
                       const Icon(Icons.public_rounded, size: 20, color: Colors.blueGrey),
                       const SizedBox(width: 8),
-                      Text(
-                        'Google Public STUN Servers',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                      Expanded(
+                        child: Text(
+                          'Google Public STUN Servers',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
                       ),
                     ],
                   ),
@@ -536,12 +542,14 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                         children: [
                           const Icon(Icons.check_circle_outline, size: 14, color: Colors.green),
                           const SizedBox(width: 6),
-                          Text(
-                            stun,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontFamily: 'monospace',
-                              color: scheme.onSurfaceVariant,
+                          Expanded(
+                            child: Text(
+                              stun,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontFamily: 'monospace',
+                                color: scheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ],
