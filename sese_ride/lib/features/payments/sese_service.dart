@@ -580,7 +580,8 @@ class SeseService {
     // configured): tell the user what is actually wrong instead of
     // "Invalid key". Matches both gateway's own rejection and the
     // backend's NOT_CONFIGURED fail-fast codes.
-    final msg = (message ?? '').toLowerCase();
+    final rawMsg = (message ?? '').trim();
+    final msg = rawMsg.toLowerCase();
     if (msg.contains('invalid key') ||
         msg.contains('paystack_not_configured')) {
       return 'Online payment is not set up yet. Please top up via bank '
@@ -599,23 +600,19 @@ class SeseService {
         return 'Could not reach the payment server. Check your connection '
             'and try again.';
       case 'invalid-argument':
-        return message ?? 'Invalid payment details.';
+        return rawMsg.isNotEmpty ? rawMsg : 'Invalid payment details.';
       case 'not-found':
         return 'Payment not found. Start a new top-up.';
       case 'failed-precondition':
-        return message ?? 'This payment can no longer be completed.';
+        return rawMsg.isNotEmpty ? rawMsg : 'This payment can no longer be completed.';
       case 'permission-denied':
         return 'This payment belongs to a different account.';
       case 'internal':
-        if (msg.contains('opay')) {
-          return message ?? 'OPay payment initialization failed. Please try again.';
-        }
-        return 'Payment received by gateway. Tap Verify to complete credit update.';
       default:
-        if (msg == 'internal') {
-          return 'Payment received by Paystack. Tap Verify to complete credit update.';
+        if (rawMsg.isNotEmpty && !msg.contains('internal')) {
+          return rawMsg;
         }
-        return message ?? 'Payment failed. Please try again.';
+        return 'Could not initialize payment. Please check your network or try again.';
     }
   }
 }

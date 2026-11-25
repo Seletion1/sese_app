@@ -141,30 +141,61 @@ export async function opayConfig(): Promise<OPayConfig> {
 
 async function opayPost(path: string, body: unknown, config: OPayConfig) {
   const jsonBody = JSON.stringify(body);
-  const signature = createHmac("sha512", config.secretKey)
-    .update(Buffer.from(jsonBody))
-    .digest("hex");
 
-  const res = await fetch(`${OPAY_BASE}${path}`, {
+  // Attempt 1: Standard OPay Secret Key Bearer Authorization
+  let res = await fetch(`${OPAY_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${signature}`,
+      Authorization: `Bearer ${config.secretKey}`,
       MerchantId: config.merchantId,
       "Content-Type": "application/json",
     },
     body: jsonBody,
   });
-  const json = (await res.json()) as {
+
+  let json = (await res.json().catch(() => ({}))) as {
     code?: string;
     message?: string;
     data?: Record<string, unknown>;
   };
+
+  // If initial attempt fails with signature or auth error, fallback to HMAC-SHA512 payload signature
   if (!res.ok || (json.code !== "00000" && json.code !== "SUCCESS")) {
+    const signature = createHmac("sha512", config.secretKey)
+      .update(Buffer.from(jsonBody))
+      .digest("hex");
+
+    const res2 = await fetch(`${OPAY_BASE}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${signature}`,
+        MerchantId: config.merchantId,
+        "Content-Type": "application/json",
+      },
+      body: jsonBody,
+    });
+
+    const json2 = (await res2.json().catch(() => ({}))) as {
+      code?: string;
+      message?: string;
+      data?: Record<string, unknown>;
+    };
+
+    if (res2.ok && (json2.code === "00000" || json2.code === "SUCCESS")) {
+      return json2.data ?? {};
+    }
+
+    const finalMessage =
+      json2.message ??
+      json.message ??
+      (res2.ok ? `HTTP ${res.status}` : `HTTP ${res2.status}`);
+    const finalCode = json2.code ?? json.code ?? String(res2.status);
     throw new HttpsError(
       "internal",
-      `OPay error: ${json.message ?? `HTTP ${res.status}`}`
+      `OPay error (${finalCode}): ${finalMessage}`
     );
   }
+
   return json.data ?? {};
 }
 

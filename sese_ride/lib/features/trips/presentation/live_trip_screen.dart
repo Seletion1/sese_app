@@ -1502,6 +1502,17 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
       ),
     ];
 
+    final screenHeight = MediaQuery.of(context).size.height;
+    final hasApprovalPrompt = trip.isDropoffApprovalPending ||
+        trip.status == TripStatus.pendingCustomerApproval ||
+        trip.dropoffApprovalStatus == 'EXPIRED';
+
+    final double recenterBottom = hasApprovalPrompt
+        ? (screenHeight * 0.60 + 12)
+        : (_mapInteractionController.isImmersive
+            ? (screenHeight * 0.20 + 12)
+            : (_isSearching ? (screenHeight * 0.32 + 12) : (screenHeight * 0.42 + 12)));
+
     return Stack(
       children: [
         // 1. Edge-to-edge Live Map View (zero top status banners or floating pills)
@@ -1514,7 +1525,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
               // When drop-off approval is pending, lock sheet open and avoid collapsing map into immersive mode
               if (!trip.isDropoffApprovalPending &&
                   trip.status != TripStatus.pendingCustomerApproval &&
-                  trip.dropoffApprovalStatus != 'EXPIRED') {
+                  trip.dropoffApprovalStatus == 'EXPIRED') {
                 _mapInteractionController.notifyInteractionStarted(
                   currentLat: focus.latitude,
                   currentLng: focus.longitude,
@@ -1536,16 +1547,10 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
           right: 16,
-          bottom: (trip.isDropoffApprovalPending ||
-                  trip.status == TripStatus.pendingCustomerApproval ||
-                  trip.dropoffApprovalStatus == 'EXPIRED')
-              ? 340
-              : (_mapInteractionController.isImmersive
-                  ? 50
-                  : (_isSearching ? 240 : 220)),
+          bottom: recenterBottom,
           child: MapRecenterButton(
             key: const Key('live_trip_recenter'),
-            icon: Icons.fit_screen,
+            icon: Icons.my_location,
             onTap: () {
               _mapInteractionController.restoreUI();
               _pauseCameraLoopForUser();
