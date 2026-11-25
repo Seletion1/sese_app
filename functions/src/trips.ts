@@ -235,18 +235,13 @@ const LIVE_STATUSES: TripStatusWire[] = [
  *   - support_reply              — agent replied to support ticket
  */
 const INBOX_TYPES = new Set([
-  "delivery_pin_issued",
-  "cash_settlement_requested",
-  "trip_needs_customer_action",
-  "driver_counter_bid",
-  "trip_chat_message",
   "broadcast",
   "split_payment_request",
   "support_escalated",
   "support_reply",
-  "dropoff_approval_request",
-  "dropoff_approved",
-  "dropoff_rejected",
+  "trip_needs_customer_action",
+  "verification_status",
+  "account_security",
 ]);
 
 /**

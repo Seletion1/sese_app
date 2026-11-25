@@ -573,8 +573,8 @@ class PushNotificationService {
     final rawCurrency = (data['currency'] ?? '').toString().trim();
     final currency =
         (rawCurrency.isEmpty || rawCurrency == 'NGN') ? '₦' : rawCurrency;
-    final pickup = (data['pickupAddress'] ?? '').toString().trim();
-    final dropoff = (data['dropoffAddress'] ?? '').toString().trim();
+    final pickup = (data['pickupAddress'] ?? data['pickup'] ?? '').toString().trim();
+    final dropoff = (data['dropoffAddress'] ?? data['dropoff'] ?? '').toString().trim();
 
     final title = fare.isNotEmpty
         ? 'New Order • $currency$fare'
@@ -602,8 +602,36 @@ class PushNotificationService {
     );
   }
 
+  static Future<void> _ensureChannelsForBackground() async {
+    if (_channelsReady) return;
+    try {
+      const androidSettings =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      await _local.initialize(
+        settings: const InitializationSettings(android: androidSettings),
+      );
+      final android = _local.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      for (final c in [
+        _driverOffersChannel,
+        _orderChannel,
+        _chatChannel,
+        _systemChannel,
+        _driverOnlineChannel,
+        _broadcastChannel,
+        _callChannel,
+      ]) {
+        await android?.createNotificationChannel(c);
+      }
+      _channelsReady = true;
+    } catch (e) {
+      debugPrint('PushNotificationService background init error: $e');
+    }
+  }
+
   static Future<void> showFromMessage(RemoteMessage message) async {
     try {
+      await _ensureChannelsForBackground();
       final data = Map<String, dynamic>.from(message.data);
       if (data['type'] == 'DRIVER_SESSION_TERMINATED') {
         driverSessionTerminatedEvents.value = data;

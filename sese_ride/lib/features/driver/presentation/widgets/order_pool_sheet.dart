@@ -245,10 +245,36 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<ActiveTrip>>(
-      stream: widget.streakService
-          .marketplaceStream(driverId: widget.driverId),
-      builder: (context, snap) {
+    final effectiveDriverId =
+        widget.driverId ?? widget.streakService.driverId ?? '';
+    Stream<ActiveTrip?>? activeStream;
+    try {
+      if (effectiveDriverId.isNotEmpty) {
+        activeStream =
+            widget.streakService.activeTripStream(effectiveDriverId);
+      }
+    } catch (_) {}
+
+    return StreamBuilder<ActiveTrip?>(
+      stream: activeStream ?? Stream<ActiveTrip?>.value(null),
+      builder: (context, activeSnap) {
+        final activeTrip = activeSnap.data;
+        if (activeTrip != null &&
+            (activeTrip.status == TripStatus.driverAccepted ||
+                activeTrip.status == TripStatus.driverArriving ||
+                activeTrip.status == TripStatus.driverArrived ||
+                activeTrip.status == TripStatus.inProgress)) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              Navigator.of(context).pop(activeTrip.tripId);
+            }
+          });
+        }
+
+        return StreamBuilder<List<ActiveTrip>>(
+          stream: widget.streakService
+              .marketplaceStream(driverId: widget.driverId),
+          builder: (context, snap) {
         final trips = (snap.data ?? const <ActiveTrip>[])
             .where((t) =>
                 t.status != TripStatus.returnedToCustomer &&
@@ -414,6 +440,8 @@ class _OrderPoolSheetState extends State<OrderPoolSheet>
             );
           },
         );
+      },
+    );
   }
 }
 
@@ -1131,9 +1159,12 @@ class _PoolOrderDetailSheetState extends State<PoolOrderDetailSheet> {
             final bool isTripCancelled = trip.status == TripStatus.cancelled || isTripExpired;
 
             return PopScope(
-              canPop: !isBidPending,
+              canPop: !isBidPending ||
+                  isAccepted ||
+                  isTripCancelled ||
+                  isClaimedByAnotherDriver,
               onPopInvokedWithResult: (didPop, result) {
-                if (!didPop && isBidPending) {
+                if (!didPop && isBidPending && !isAccepted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(

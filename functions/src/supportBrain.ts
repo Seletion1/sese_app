@@ -86,6 +86,9 @@ export function classifyIntent(text: string): IntentCategory {
       norm,
       "top up",
       "topup",
+      "credit",
+      "fund",
+      "recharge",
       "wallet",
       "balance",
       "money",
@@ -176,6 +179,7 @@ const HUMAN_PHRASES = [
   "human", "agent", "real person", "customer service", "support agent",
   "speak to human", "speak to someone", "talk to human", "talk to someone",
   "representative", "manager", "escalate", "complaint", "supervisor", "customer care",
+  "connect me to agent", "connect to agent", "human representative",
 ];
 
 export function explicitlyWantsHuman(raw: string): boolean {
@@ -192,7 +196,7 @@ export function needsHuman(raw: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Dynamic Backend Tool Calling & Automated Resolutions
+// Dynamic Backend Tool Calling & Automated Resolutions
 // ---------------------------------------------------------------------------
 
 export interface HistoryTurn {
@@ -208,8 +212,6 @@ export interface BrainContext {
 
 /**
  * Tool 1: check_trip_refund_status
- * Queries recent canceled trips for the user. If a fare was pre-deducted on a driver-initiated
- * cancellation (or eligible canceled trip), executes an atomic Firestore wallet credit refund.
  */
 export async function checkTripRefundStatus(userId: string): Promise<string | null> {
   if (!userId) return null;
@@ -240,7 +242,6 @@ export async function checkTripRefundStatus(userId: string): Promise<string | nu
         );
       }
 
-      // If online card payment on driver-initiated cancellation or unfulfilled dispatch:
       if (canceledBy === "driver" || paymentMethod === "card" || paymentMethod === "paystack" || data["prePaid"] === true) {
         const refundKobo = fareKobo > 0 ? fareKobo : Math.round((data["estimatedFareKobo"] ?? 0) as number);
         if (refundKobo > 0) {
@@ -266,7 +267,6 @@ export async function checkTripRefundStatus(userId: string): Promise<string | nu
 
 /**
  * Tool 2: check_verification_status
- * Queries user/driver profile verification status, returning exact pending or missing documents.
  */
 export async function checkVerificationStatus(userId: string): Promise<string | null> {
   if (!userId) return null;
@@ -327,7 +327,6 @@ export async function checkVerificationStatus(userId: string): Promise<string | 
 
 /**
  * Tool 3: check_wallet_history
- * Queries driver Sese Credits transaction history.
  */
 export async function checkWalletHistory(userId: string): Promise<string | null> {
   if (!userId) return null;
@@ -382,10 +381,40 @@ interface Article {
 
 const ARTICLES: Article[] = [
   {
+    topic: "topup",
+    triggers: [
+      "top up", "topup", "credit account", "credit my account", "fund account",
+      "fund wallet", "add credits", "credits topup", "sese credits topup",
+      "minimum topup", "how do i credit", "how to credit", "how do i fund",
+      "how to fund", "recharge wallet", "paystack topup", "opay topup", "buy credits",
+    ],
+    answer:
+      `To top up your Driver Sese Credits:\n\n` +
+      `1. Open Sese Credits from the driver menu and tap "Top Up Sese Credits".\n` +
+      `2. Select your gateway (Paystack or OPay Checkout).\n` +
+      `3. Enter the amount (Minimum top-up is ${naira(MIN_TOPUP_KOBO)}, maximum is ${naira(MAX_TOPUP_KOBO)}).\n` +
+      `4. Pay securely via Paystack or OPay.\n\n` +
+      `Your dispatch credits balance is updated immediately upon payment confirmation.\n\n` +
+      `Note: Driver Sese Credits are strictly non-withdrawable platform service credits used to settle dispatch commissions.`,
+  },
+  {
+    topic: "customer_payment_rules",
+    triggers: [
+      "customer payment", "how customer pays", "card payment", "pay for trip",
+      "pay for delivery", "customer wallet", "customer deposit", "do customers have wallet",
+      "paystack card", "opay card", "how does customer pay",
+    ],
+    answer:
+      `Customer Trip Payment Rules:\n\n` +
+      `• Direct Trip Payments: Customer trips are paid directly per booking via Cash or Paystack/OPay online card payment at checkout.\n` +
+      `• No Customer Stored Wallet: SESE does not operate a stored-value customer wallet or customer deposit system.\n` +
+      `• PCI-DSS Gateway Security: Online card payments are processed directly through licensed PCI-DSS Level 1 payment gateways (Paystack/OPay). SESE never stores raw card details.`,
+  },
+  {
     topic: "cancellation_policy",
     triggers: [
       "cancellation fee", "cancel policy", "cancellation policy", "canceled trip",
-      "cancel fee", "why was i charged cancel", "cancellation penalty",
+      "cancel fee", "why was i charged cancel", "cancellation penalty", "cancel ride",
     ],
     answer:
       `Our Cancellation & Fare Refund Policy:\n\n` +
@@ -398,12 +427,14 @@ const ARTICLES: Article[] = [
     triggers: [
       "online balance", "minimum balance driver", "driver online rule", "online threshold",
       "hold dispatch", "dispatch hold", "why am i not getting trips", "driver balance requirement",
+      "commission rate", "platform commission",
     ],
     answer:
       `Driver Online Status & Sese Credits Rules:\n\n` +
-      `• You can toggle your status to ONLINE at any credit balance.\n` +
+      `• Toggle Status: You can toggle your status to ONLINE at any credit balance.\n` +
       `• Minimum Dispatch Credits: If your Sese Credits fall below ₦1.00, a warning is displayed and trip dispatches are held.\n` +
-      `• To receive new trip offers immediately, top up your Sese Credits.`,
+      `• Commission Rate: Standard platform commission is 20% on completed trips, settled via Sese Credits.\n` +
+      `• Top Up: To receive new trip offers immediately, top up your Sese Credits.`,
   },
   {
     topic: "sese_coin_rules",
@@ -415,8 +446,92 @@ const ARTICLES: Article[] = [
       `Direct Trip Payments & Driver Sese Credits:\n\n` +
       `• Direct Trip Payments: Customer trips are paid directly per order via Cash or Paystack card checkout. SESE does not operate a stored-value customer wallet or withdrawal system.\n` +
       `• Non-Withdrawable Dispatch Credits: Driver Sese Credits are strictly non-withdrawable platform service credits used to settle trip commissions.\n` +
-      `• Paystack Top-Up: Drivers can top up their Sese Credits balance via Paystack whenever required to cover commissions.\n` +
+      `• Paystack/OPay Top-Up: Drivers can top up their Sese Credits balance via Paystack or OPay whenever required to cover commissions.\n` +
       `• Zero Cash-Out: Sese Credits carry zero cash value and cannot be withdrawn, transferred, or cashed out.`,
+  },
+  {
+    topic: "terms_of_service",
+    triggers: [
+      "terms of service", "terms of use", "terms and conditions", "platform rules",
+      "rules of use", "legal terms", "prohibited goods", "contractor status", "our rules",
+    ],
+    answer:
+      `SESE Technology LTD — Terms of Service Highlights:\n\n` +
+      `• Intermediary Technology Platform: SESE connects passengers and senders with independent third-party driver partners.\n` +
+      `• Single Unified Account: Every user or driver is permitted exactly one account tied to a verified identity (NIN/BVN) across both customer and driver modes.\n` +
+      `• Prohibited Goods: Deliveries must contain no illegal drugs, weapons, toxic materials, stolen items, or counterfeit property.\n` +
+      `• Independent Contractors: Driver partners are independent contractors solely responsible for local taxes and vehicle maintenance.\n` +
+      `• Full Terms of Service: https://sesetech.com/terms`,
+  },
+  {
+    topic: "privacy_policy",
+    triggers: [
+      "privacy policy", "privacy", "data protection", "phone number masking",
+      "location tracking", "is my data safe", "sell my data", "privacy rules",
+    ],
+    answer:
+      `SESE Technology LTD — Privacy & Data Protection Policy:\n\n` +
+      `• Data Security: SESE never sells your personal information or raw location data to third parties.\n` +
+      `• Phone Number Masking: Phone numbers can be masked into placeholders (e.g. 080****5678) to keep your personal contact private during trips.\n` +
+      `• Location Privacy: GPS location tracking is active only when you are online or during an active trip.\n` +
+      `• Full Privacy Policy: https://sesetech.com/PrivacyPolicy`,
+  },
+  {
+    topic: "account_deletion",
+    triggers: [
+      "delete account", "how to delete account", "remove my account", "close account",
+      "erase data", "account deletion",
+    ],
+    answer:
+      `Account & Data Deletion Policy:\n\n` +
+      `• In-App Deletion: Open Settings → Legal & Compliance → Delete Account.\n` +
+      `• Web Portal: https://sesetech.com/delete\n` +
+      `• Requirements: No active trips or pending deliveries in progress.\n` +
+      `• 30-Day Archival: Deleted accounts enter a 30-day soft archive for regulatory compliance before permanent PII erasure.`,
+  },
+  {
+    topic: "verification_requirements",
+    triggers: [
+      "verification requirement", "how to get verified", "kyc document",
+      "driver document", "vehicle document", "selfie requirement", "nin requirement",
+      "how to verify", "account verification",
+    ],
+    answer:
+      `Account Verification & Driver KYC Requirements:\n\n` +
+      `• Customer Verification: National Identification Number (NIN) or Government ID, ID Front & Back photos, and a Live Selfie capture.\n` +
+      `• Driver Verification: Valid Driver's License, Vehicle Licence, Proof of Insurance, Vehicle Inspection Certificate, and Live Selfie.\n` +
+      `• Unified Member ID: Sequential ID (e.g. SC0001 for customers, SD0001 for drivers) is assigned automatically once verification is complete.`,
+  },
+  {
+    topic: "referral_rules",
+    triggers: [
+      "referral code", "referral reward", "referral bonus", "invite friend",
+      "how referral works", "1% referral", "residual revenue",
+    ],
+    answer:
+      `SESE Referral Program Rules:\n\n` +
+      `• Unified Code: You share a single referral code (e.g. MB4321) across customer and driver modes.\n` +
+      `• Residual Revenue: Referrers earn 1% residual revenue from completed base fares.\n` +
+      `• Active Windows: Standard users enjoy a 365-day active referral window (548 days for elevated staff).`,
+  },
+  {
+    topic: "calling_and_chat",
+    triggers: [
+      "in app call", "voice call", "call driver", "call customer", "chat rule", "voice note",
+    ],
+    answer:
+      `In-App Audio Calling & Chat Standards:\n\n` +
+      `• In-App VoIP Calling: Calls are powered by encrypted WebRTC / Agora RTC without revealing raw cellular phone numbers.\n` +
+      `• Trip Chat: Restricted to text messages and photos (no audio notes on trip chat).\n` +
+      `• Support Chat: Supports text, photos, and voice notes up to 5MB.`,
+  },
+  {
+    topic: "safety_emergency",
+    triggers: ["sos", "panic button", "safety tools", "emergency number", "safety features"],
+    answer:
+      `Safety & Emergency Procedures:\n\n` +
+      `• In-App SOS Panic Button: Tap the SOS icon during any active trip to alert SeSe Safety coordinators with live GPS location.\n` +
+      `• Emergency Services: In immediate life-safety emergencies, please contact local emergency services (112/199) directly.`,
   },
   {
     topic: "single_account_architecture",
@@ -431,16 +546,6 @@ const ARTICLES: Article[] = [
       `• Verification completed as a customer carries over when registering a vehicle to drive!`,
   },
   {
-    topic: "topup",
-    triggers: ["top up", "topup", "add credits", "credits topup", "sese credits topup", "minimum topup"],
-    answer:
-      `To top up your Driver Sese Credits:\n\n` +
-      `1. Open Sese Credits from the driver menu and tap "Top Up Sese Credits".\n` +
-      `2. Enter the amount (Minimum top-up is ${naira(MIN_TOPUP_KOBO)}, maximum is ${naira(MAX_TOPUP_KOBO)}).\n` +
-      `3. Pay securely via Paystack.\n\n` +
-      `Your dispatch credits balance is updated immediately upon payment confirmation.`,
-  },
-  {
     topic: "payments_and_credits",
     triggers: [
       "withdraw", "withdrawal", "cash out", "cashout", "payout", "payout desk",
@@ -448,8 +553,8 @@ const ARTICLES: Article[] = [
     ],
     answer:
       `Payment & Sese Credits Policy:\n\n` +
-      `• Direct Trip Payments: Customer trips are paid directly per order via Cash or Paystack card/online payment. SESE does not operate a stored-value customer wallet or bank withdrawal system.\n` +
-      `• Sese Credits: Driver service credits are non-withdrawable platform credits strictly used to settle dispatch commissions. Drivers can top up their Sese Credits balance via Paystack whenever needed.\n` +
+      `• Direct Trip Payments: Customer trips are paid directly per order via Cash or Paystack/OPay card/online payment. SESE does not operate a stored-value customer wallet or bank withdrawal system.\n` +
+      `• Sese Credits: Driver service credits are non-withdrawable platform credits strictly used to settle dispatch commissions. Drivers can top up their Sese Credits balance via Paystack or OPay whenever needed.\n` +
       `• Zero Cash-Out: Sese Credits cannot be withdrawn, transferred, or cashed out.`,
   },
   {
@@ -466,7 +571,7 @@ const ARTICLES: Article[] = [
     triggers: ["hello", "hey there", "good morning", "good evening", "good afternoon", "hiya"],
     standalone: true,
     answer:
-      "Hi! I am the SeSe Assistant. I can help you with trip bookings, driver status, cancellation refunds, Sese Credits top-ups, and account verification. How can I assist you today?",
+      "Hi! I am the SeSe Virtual Assistant. I can help you with trip bookings, wallet top-ups, fares, verification status, Terms of Service, and Privacy Policies. How can I assist you today?",
   },
   {
     topic: "thanks",
@@ -503,7 +608,7 @@ function bestArticle(text: string): Article | null {
       best = article;
     }
   }
-  return bestScore >= 2 ? best : null;
+  return bestScore >= 1 ? best : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -617,7 +722,6 @@ export async function respondTo(
     const lastTurn = ctx.history[ctx.history.length - 1];
     const previousText = normalize(lastTurn?.text ?? "");
 
-    // If previous message discussed conversion and user asks "how?" or "can I withdraw?"
     if (
       has(previousText, "sese coin", "convert", "bonus balance") &&
       has(norm, "how", "can i", "withdraw", "process")
@@ -640,10 +744,17 @@ export async function respondTo(
     return { kind: "reply", topic: article.topic, intent, reply };
   }
 
-  // 6. Default Fallback — Honest Handover to Live Support Agent
+  // 6. Interactive AI Guidance Response — Active AI Retention
   return {
-    kind: "escalate",
-    reason: "no-match",
+    kind: "reply",
+    topic: "general_help_guidance",
     intent,
+    reply:
+      "I am the SeSe Virtual Assistant and I can help you with:\n" +
+      "1. Wallet Top-Up & Sese Credits (Paystack/OPay)\n" +
+      "2. Trip Fares, Booking & Delivery PINs\n" +
+      "3. Account Verification & Document Uploads\n" +
+      "4. Terms of Service, Privacy Policy & Platform Rules\n\n" +
+      "Could you please rephrase or specify your question? If you prefer to speak directly with a human support agent, just reply 'Agent'.",
   };
 }

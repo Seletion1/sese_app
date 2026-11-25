@@ -89,7 +89,11 @@ class FleetRepository {
           emit();
         },
         onError: (Object e) {
-          if (latestLegacy.isEmpty) {
+          debugPrint('FleetRepository canonical stream error: $e');
+          if (e.toString().contains('failed-precondition') ||
+              e.toString().contains('FAILED_PRECONDITION')) {
+            emit();
+          } else if (latestLegacy.isEmpty) {
             controller.addError(e);
           }
         },
@@ -107,7 +111,11 @@ class FleetRepository {
           emit();
         },
         onError: (Object e) {
-          if (latestCanonical.isEmpty) {
+          debugPrint('FleetRepository legacy stream error: $e');
+          if (e.toString().contains('failed-precondition') ||
+              e.toString().contains('FAILED_PRECONDITION')) {
+            emit();
+          } else if (latestCanonical.isEmpty) {
             controller.addError(e);
           }
         },

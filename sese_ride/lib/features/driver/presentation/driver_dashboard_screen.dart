@@ -1989,6 +1989,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 _isFollowingUser = true;
                 _mapController.recenterTo(_driverPosition, 16.5);
               }
+              // Dismiss any open modal bottom sheets, dialogs, or sub-overlays (e.g. pool sheets/counter-offer dialogs)
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && Navigator.of(context).canPop()) {
+                  try {
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  } catch (e) {
+                    debugPrint('DriverDashboardScreen: popUntil error: $e');
+                  }
+                }
+              });
             } else if (active.status == TripStatus.cancelledWaitingCashSettlement) {
               _expandActiveTripSheetToStandard();
             }

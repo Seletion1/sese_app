@@ -13,15 +13,15 @@ import '../trips/services/trip_service.dart';
 /// FCM-push-only and are intentionally excluded from the inbox so that
 /// both customer and driver notification bells stay uncluttered.
 const Set<String> _kInboxTypes = {
-  'delivery_pin_issued',
-  'cash_settlement_requested',
-  'trip_needs_customer_action',
-  'driver_counter_bid',
-  'trip_chat_message',
   'broadcast',
   'split_payment_request',
   'support_escalated',
   'support_reply',
+  'account_security',
+  'verification_status',
+  'referral_reward',
+  'account_alert',
+  'system_announcement',
 };
 
 /// Returns the icon most relevant for [type].
@@ -224,6 +224,7 @@ class NotificationInboxScreen extends StatelessWidget {
           }
           final items = (snap.data?.docs ?? [])
               .map(InboxNotification.fromDoc)
+              .where((n) => _kInboxTypes.contains(n.type))
               .toList();
           if (items.isEmpty) {
             return const Center(
@@ -633,7 +634,11 @@ class NotificationBellButton extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _unreadStream(),
       builder: (context, snap) {
-        final unread = snap.hasData ? snap.data!.docs.length : 0;
+        final docs = snap.hasData ? snap.data!.docs : [];
+        final unread = docs.where((doc) {
+          final type = (doc.data()['type'] ?? '').toString();
+          return _kInboxTypes.contains(type);
+        }).length;
         if (unread <= 0) return bell;
         return Badge(
           label: Text(unread > 99 ? '99+' : '$unread'),

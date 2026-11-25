@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +33,7 @@ import 'features/trips/presentation/customer_bid_overlay.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
 import 'features/trips/presentation/live_trip_screen.dart';
+import 'features/trips/presentation/trip_chat_screen.dart';
 import 'features/trips/services/trip_service.dart';
 import 'widgets/map_provider.dart' show GmsAvailability, SeseUniversalMap;
 
@@ -265,16 +267,62 @@ Future<void> _handlePushTap(Map<String, String> data) async {
     return;
   }
 
-  if (type == 'new_trip_offer' ||
+  if (type == 'trip_chat_message' ||
+      type == 'chat_message' ||
+      type == 'chat') {
+    debugPrint('sese_ride: trip chat message tap ($type) — opening chat screen.');
+    final tripId = (data['tripId'] ?? '').trim();
+    if (tripId.isNotEmpty) {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final senderRole = (data['senderRole'] ?? data['role'] ?? '').trim();
+      final peerName =
+          (data['peerName'] ?? data['senderName'] ?? data['name'] ?? 'Chat')
+              .trim();
+      final peerPhone = (data['peerPhone'] ?? data['phone'] ?? '').trim();
+      final navState = IncomingCallOverlay.navigatorKey.currentState;
+      if (navState != null) {
+        navState.push(
+          MaterialPageRoute(
+            builder: (_) => TripChatScreen(
+              tripId: tripId,
+              currentUid: currentUid,
+              senderRole: senderRole == 'customer' ? 'driver' : 'customer',
+              peerName: peerName.isNotEmpty ? peerName : 'Chat',
+              peerPhone: peerPhone,
+            ),
+          ),
+        );
+      }
+    }
+    return;
+  }
+
+  if (type == 'driver_counter_bid' ||
+      type == 'new_trip_offer' ||
       type == 'trip_offer' ||
       type == 'direct_ping' ||
       type == 'tier_ping' ||
       type == 'marketplace_broadcast') {
-    debugPrint('sese_ride: driver trip offer tap ($type) — main UI takes over.');
+    debugPrint('sese_ride: driver trip offer / counter-bid tap ($type) — main UI takes over.');
     PushNotificationService.incomingOfferNotifier.value = data;
     try {
       PushNotificationService.onMessageDataStream.add(data);
     } catch (_) {}
+    unawaited(AppLauncher().bringToForeground());
+    final tripId = (data['tripId'] ?? '').trim();
+    if (tripId.isNotEmpty) {
+      final navState = IncomingCallOverlay.navigatorKey.currentState;
+      if (navState != null) {
+        navState.push(
+          MaterialPageRoute(
+            builder: (_) => LiveTripScreen(
+              tripId: tripId,
+              repository: FirestoreTripRepository(),
+            ),
+          ),
+        );
+      }
+    }
     return;
   }
 
