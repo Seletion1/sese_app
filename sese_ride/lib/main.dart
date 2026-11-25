@@ -290,77 +290,50 @@ Future<void> _handlePushTap(Map<String, String> data) async {
 /// 3. Fallback / Safety:
 ///    - If Firestore fetch fails or times out, falls back gracefully to the build-time injected environment variables
 ///      (`GOOGLE_MAPS_API_KEY`) to prevent app crashes or blank maps.
-Future<void> _initDynamicMapCredentials() async {
+Future<void> _injectNativeMapCredentials(GlobalMapConfig cfg) async {
+  if (kIsWeb) return;
   const channel = MethodChannel('com.sesetech.sese_ride/map_credentials');
+  try {
+    if (cfg.isGoogle) {
+      final key = cfg.apiKey?.trim() ?? '';
+      if (key.isNotEmpty) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
+          await channel.invokeMethod('injectGoogleMapsApiKey', {'apiKey': key});
+        } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+          await channel.invokeMethod('provideGMSServicesApiKey', {'apiKey': key});
+        }
+      }
+    } else if (cfg.isMapbox) {
+      final token = cfg.mapboxToken?.trim() ?? '';
+      if (token.isNotEmpty) {
+        await channel.invokeMethod('initializeMapbox', {'token': token});
+      }
+    }
+  } catch (e) {
+    debugPrint('sese_ride: platform map credentials injection non-fatal warning: $e');
+  }
+}
+
+Future<void> _initDynamicMapCredentials() async {
   try {
     final apiKeys = await const ApiKeysService()
         .fetchApiKeys()
         .timeout(const Duration(seconds: 4));
-    final activeProvider = apiKeys.normalizedProvider;
 
-    String? apiKey;
-    String? mapboxToken;
+    MapConfigController.instance.applyApiKeysConfig(apiKeys);
+    await _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
 
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      apiKey = apiKeys.googleAndroidKey.isNotEmpty
-          ? apiKeys.googleAndroidKey
-          : null;
-      mapboxToken = apiKeys.mapboxAndroidToken.isNotEmpty
-          ? apiKeys.mapboxAndroidToken
-          : null;
-    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-      apiKey =
-          apiKeys.googleIosKey.isNotEmpty ? apiKeys.googleIosKey : null;
-      mapboxToken =
-          apiKeys.mapboxIosToken.isNotEmpty ? apiKeys.mapboxIosToken : null;
-    } else {
-      apiKey =
-          apiKeys.googleWebKey.isNotEmpty ? apiKeys.googleWebKey : null;
-      mapboxToken =
-          apiKeys.mapboxWebToken.isNotEmpty ? apiKeys.mapboxWebToken : null;
-    }
+    // Keep native credentials in sync with real-time system_config/api_keys updates.
+    MapConfigController.instance.configNotifier.addListener(() {
+      // ignore: discarded_futures
+      _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
+    });
 
-    final effectiveGoogleKey = apiKey ?? GlobalMapConfig.defaultGoogleMapsApiKey;
-    final effectiveMapboxToken = mapboxToken ?? '';
-
-    // Platform-Specific Injection
-    if (!kIsWeb) {
-      try {
-        if (activeProvider == 'google') {
-          if (effectiveGoogleKey.isNotEmpty) {
-            if (defaultTargetPlatform == TargetPlatform.android) {
-              await channel.invokeMethod('injectGoogleMapsApiKey', {'apiKey': effectiveGoogleKey});
-            } else if (defaultTargetPlatform == TargetPlatform.iOS) {
-              await channel.invokeMethod('provideGMSServicesApiKey', {'apiKey': effectiveGoogleKey});
-            }
-          }
-        } else if (activeProvider == 'mapbox') {
-          if (effectiveMapboxToken.isNotEmpty) {
-            await channel.invokeMethod('initializeMapbox', {'token': effectiveMapboxToken});
-          }
-        }
-      } catch (e) {
-        debugPrint('sese_ride: platform map credentials injection non-fatal warning: $e');
-      }
-    }
-
-    final globalConfig = GlobalMapConfig(
-      activeProvider: activeProvider,
-      apiKey: effectiveGoogleKey,
-      mapboxToken: effectiveMapboxToken.isNotEmpty ? effectiveMapboxToken : null,
-    );
-
-    MapConfigController.instance.updateConfig(globalConfig);
     debugPrint(
-        'sese_ride: Dynamic map credentials initialized (provider: $activeProvider)');
+        'sese_ride: Dynamic map credentials initialized (provider: ${apiKeys.effectiveProvider})');
   } catch (e) {
     debugPrint('sese_ride: _initDynamicMapCredentials fallback warning: $e');
-    // Fallback gracefully to build-time injected environment variables
-    final fallbackConfig = const GlobalMapConfig(
-      activeProvider: 'google',
-      apiKey: GlobalMapConfig.defaultGoogleMapsApiKey,
-    );
-    MapConfigController.instance.updateConfig(fallbackConfig);
+    MapConfigController.instance.applyApiKeysConfig(const ApiKeysConfig());
   }
 }
 

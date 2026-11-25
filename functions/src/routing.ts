@@ -11,7 +11,7 @@
  * or `auto` (the chain).
  */
 
-import { nextEngine, recordCall } from "./mapQuotas";
+import { recordCall } from "./mapQuotas";
 import * as admin from "firebase-admin";
 
 const quotaDb = () => admin.firestore();
@@ -41,18 +41,6 @@ export interface RouteResult {
   durationMins: number;
 }
 
-interface GoogleDirectionsResponse {
-  status: string;
-  routes?: Array<{
-    legs?: Array<{
-      distance?: { value?: number }; // metres
-      duration?: { value?: number }; // seconds
-      duration_in_traffic?: { value?: number }; // seconds
-    }>;
-  }>;
-  error_message?: string;
-}
-
 /**
  * Fetches the fastest driving route between two coordinates, following the
  * Hub routing pin + quota chain (Google → Mapbox → PAYG overflow).
@@ -63,106 +51,60 @@ export async function fetchRoute(
   dropoffLat: number,
   dropoffLng: number
 ): Promise<RouteResult> {
+  // Zero server-side billable Google Maps calls: use Mapbox if configured,
+  // otherwise fall back to free OSRM public routing.
   const pin = await routingPin();
-
-  const ordered =
-    pin === "google"
-      ? (["google", "googlePayg"] as const)
-      : pin === "mapbox"
-        ? (["mapbox"] as const)
-        : ((await nextEngine()).engine === "mapbox"
-            ? (["mapbox", "googlePayg"] as const)
-            : (["google", "mapbox", "googlePayg"] as const));
-
-  const errors: string[] = [];
-  for (const engine of ordered) {
+  if (pin !== "google" && process.env.MAPBOX_TOKEN) {
     try {
-      if (engine === "mapbox") {
-        const result = await fetchMapboxRoute(
-          pickupLat,
-          pickupLng,
-          dropoffLat,
-          dropoffLng
-        );
-        await recordCall("mapbox");
-        return result;
-      }
-      const result = await fetchGoogleRoute(
+      const result = await fetchMapboxRoute(
         pickupLat,
         pickupLng,
         dropoffLat,
         dropoffLng
       );
-      await recordCall(engine === "googlePayg" ? "googlePayg" : "google");
+      await recordCall("mapbox");
       return result;
-    } catch (e) {
-      errors.push(`${engine}: ${e instanceof Error ? e.message : e}`);
+    } catch {
+      // Fall through to OSRM
     }
   }
-  throw new Error(`All routing engines failed — ${errors.join(" | ")}`);
+
+  return fetchOsrmRoute(pickupLat, pickupLng, dropoffLat, dropoffLng);
 }
 
-/**
- * Google Maps Directions engine (free-tier AND pay-as-you-go overflow).
- */
-async function fetchGoogleRoute(
+async function fetchOsrmRoute(
   pickupLat: number,
   pickupLng: number,
   dropoffLat: number,
   dropoffLng: number
 ): Promise<RouteResult> {
-  const apiKey =
-    process.env.GOOGLE_MAPS_API_KEY ?? process.env.MAPS_API_KEY ?? "";
-  if (!apiKey) {
-    throw new Error(
-      "GOOGLE_MAPS_API_KEY is not configured — cannot compute route."
-    );
-  }
-
-  const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
-  url.searchParams.set("origin", `${pickupLat},${pickupLng}`);
-  url.searchParams.set("destination", `${dropoffLat},${dropoffLng}`);
-  url.searchParams.set("mode", "driving");
-  url.searchParams.set("departure_time", "now");
-  url.searchParams.set("traffic_model", "best_guess");
-  url.searchParams.set("language", "en");
-  url.searchParams.set("key", apiKey);
+  const url = new URL(
+    `https://router.project-osrm.org/route/v1/driving/${pickupLng},${pickupLat};${dropoffLng},${dropoffLat}`
+  );
+  url.searchParams.set("overview", "false");
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10_000);
-
-  let body: GoogleDirectionsResponse;
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      throw new Error(
-        `Directions API HTTP error ${res.status}: ${res.statusText}`
-      );
+      throw new Error(`OSRM HTTP ${res.status}`);
     }
-    body = (await res.json()) as GoogleDirectionsResponse;
+    const body = (await res.json()) as {
+      code?: string;
+      routes?: Array<{ distance?: number; duration?: number }>;
+    };
+    if (body.code !== "Ok" || !body.routes?.length) {
+      throw new Error(`OSRM error (${body.code ?? "unknown"})`);
+    }
+    const route = body.routes[0];
+    return {
+      distanceKm: (route.distance ?? 0) / 1000,
+      durationMins: (route.duration ?? 0) / 60,
+    };
   } finally {
     clearTimeout(timer);
   }
-
-  if (
-    body.status !== "OK" ||
-    !body.routes?.length ||
-    !body.routes[0].legs?.length
-  ) {
-    throw new Error(
-      `Google Maps Directions error (${body.status}): ${
-        body.error_message ?? "no route"
-      }`
-    );
-  }
-
-  const leg = body.routes[0].legs[0];
-  const distanceKm = (leg.distance?.value ?? 0) / 1000;
-  const durationSec =
-    leg.duration_in_traffic?.value ?? leg.duration?.value ?? 0;
-  const durationMins = durationSec / 60;
-
-  return { distanceKm, durationMins };
 }
 
 interface MapboxDirectionsResponse {

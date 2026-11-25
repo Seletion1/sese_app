@@ -114,9 +114,16 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    // Enter updated key
+    // Scroll to and enter updated key
+    final androidKeyFinder = find.byKey(const Key('input_google_maps_android_key'));
+    await tester.dragUntilVisible(
+      androidKeyFinder,
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.pumpAndSettle();
     await tester.enterText(
-      find.byKey(const Key('input_google_maps_android_key')),
+      androidKeyFinder,
       'AIzaUpdatedAndroidKey123',
     );
 

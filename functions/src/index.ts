@@ -107,6 +107,7 @@ export { sendTargetedBroadcast } from "./broadcast";
 // key never ships in client code. See googleMaps.ts for the key-delivery
 // and quota-discipline notes.
 export { googleMapsProxy } from "./googleMaps";
+export { recordMapUsage } from "./mapQuotas";
 
 // Pub/Sub Cloud Billing budget notification alert & emergency circuit breaker.
 export { handleBillingBudgetAlert } from "./billingAlert";

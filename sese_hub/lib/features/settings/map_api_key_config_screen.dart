@@ -37,11 +37,16 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
   late final TextEditingController _mapboxIosCtrl;
   late final TextEditingController _mapboxWebCtrl;
 
+  late final TextEditingController _googleCapCtrl;
+  late final TextEditingController _mapboxCapCtrl;
+
   String _activeProvider = 'google';
+  bool _autoFallback = true;
   bool _obscureGoogleKeys = true;
   bool _obscureMapboxTokens = true;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isResetting = false;
 
   @override
   void initState() {
@@ -55,6 +60,9 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
     _mapboxIosCtrl = TextEditingController();
     _mapboxWebCtrl = TextEditingController();
 
+    _googleCapCtrl = TextEditingController(text: '20000');
+    _mapboxCapCtrl = TextEditingController(text: '50000');
+
     _loadConfiguration();
   }
 
@@ -66,6 +74,8 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
     _mapboxAndroidCtrl.dispose();
     _mapboxIosCtrl.dispose();
     _mapboxWebCtrl.dispose();
+    _googleCapCtrl.dispose();
+    _mapboxCapCtrl.dispose();
     super.dispose();
   }
 
@@ -76,6 +86,10 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
 
       setState(() {
         _activeProvider = config.normalizedProvider;
+        _autoFallback = config.autoFallback;
+        _googleCapCtrl.text = config.googleMonthlyCap.toString();
+        _mapboxCapCtrl.text = config.mapboxMonthlyCap.toString();
+
         _googleAndroidCtrl.text = config.googleAndroidKey;
         _googleIosCtrl.text = config.googleIosKey;
         _googleWebCtrl.text = config.googleWebKey;
@@ -132,8 +146,16 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
     setState(() => _isSaving = true);
 
     try {
+      final gCap = int.tryParse(_googleCapCtrl.text.trim()) ??
+          ApiKeysConfig.defaultGoogleMonthlyCap;
+      final mCap = int.tryParse(_mapboxCapCtrl.text.trim()) ??
+          ApiKeysConfig.defaultMapboxMonthlyCap;
+
       final updatedConfig = ApiKeysConfig(
         activeMapProvider: _activeProvider,
+        autoFallback: _autoFallback,
+        googleMonthlyCap: gCap > 0 ? gCap : ApiKeysConfig.defaultGoogleMonthlyCap,
+        mapboxMonthlyCap: mCap > 0 ? mCap : ApiKeysConfig.defaultMapboxMonthlyCap,
         googleAndroidKey: gAndroid,
         googleIosKey: gIos,
         googleWebKey: gWeb,
@@ -143,6 +165,7 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
       );
 
       await _service.saveApiKeys(updatedConfig);
+      MapConfigController.instance.applyApiKeysConfig(updatedConfig);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -276,6 +299,7 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
                         ),
                         const SizedBox(height: 12),
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
                               child: _ProviderRadioOption(
@@ -309,6 +333,231 @@ class _MapApiKeyConfigScreenState extends State<MapApiKeyConfigScreen> {
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 12),
+                        const Divider(height: 1),
+                        SwitchListTile(
+                          key: const Key('map_api_keys_auto_fallback_switch'),
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(
+                            'Auto-Fallback (Recommended)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Automatically switch client maps to Mapbox when Google Monthly Call Cap is reached, and revert on counter reset or new month.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          value: _autoFallback,
+                          onChanged: (val) => setState(() => _autoFallback = val),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // ── Section 1b: Monthly Call Caps & Live Usage Counters ──────
+                const _SectionLabel('Monthly Call Caps & Live Usage'),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                key: const Key('input_google_monthly_cap'),
+                                controller: _googleCapCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Google Monthly Call Cap',
+                                  helperText: 'Default: 20000',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                key: const Key('input_mapbox_monthly_cap'),
+                                controller: _mapboxCapCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  labelText: 'Mapbox Monthly Call Cap',
+                                  helperText: 'Default: 50000',
+                                  border: OutlineInputBorder(),
+                                  isDense: true,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        StreamBuilder<ApiKeysConfig>(
+                          stream: _service.streamApiKeys(),
+                          builder: (context, snapshot) {
+                            final live = snapshot.data;
+                            final gCalls = live?.effectiveGoogleCalls ?? 0;
+                            final mCalls = live?.effectiveMapboxCalls ?? 0;
+                            final gCap = int.tryParse(_googleCapCtrl.text.trim()) ??
+                                (live?.googleMonthlyCap ??
+                                    ApiKeysConfig.defaultGoogleMonthlyCap);
+                            final mCap = int.tryParse(_mapboxCapCtrl.text.trim()) ??
+                                (live?.mapboxMonthlyCap ??
+                                    ApiKeysConfig.defaultMapboxMonthlyCap);
+                            final gRatio =
+                                (gCalls / (gCap > 0 ? gCap : 1)).clamp(0.0, 1.0);
+                            final mRatio =
+                                (mCalls / (mCap > 0 ? mCap : 1)).clamp(0.0, 1.0);
+                            final gExceeded = gCap > 0 && gCalls >= gCap;
+                            final mExceeded = mCap > 0 && mCalls >= mCap;
+
+                            return Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.4),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: scheme.outlineVariant),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.sync_alt_rounded,
+                                        color: Colors.blueAccent,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'Billing Fallback Chain: Google Maps (Free Tier) ➔ Mapbox (Free Buffer)',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Google Maps Free Tier: $gCalls / $gCap calls',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: gExceeded
+                                                    ? Colors.red
+                                                    : null,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            LinearProgressIndicator(
+                                              value: gRatio,
+                                              color: gExceeded
+                                                  ? Colors.orange
+                                                  : Colors.blue,
+                                              backgroundColor:
+                                                  Colors.grey.shade200,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Mapbox Buffer Usage: $mCalls / $mCap calls',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: mExceeded
+                                                    ? Colors.red
+                                                    : null,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            LinearProgressIndicator(
+                                              value: mRatio,
+                                              color: mExceeded
+                                                  ? Colors.red
+                                                  : Colors.purple,
+                                              backgroundColor:
+                                                  Colors.grey.shade200,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: OutlinedButton.icon(
+                                      key: const Key('reset_usage_counters_btn'),
+                                      icon: _isResetting
+                                          ? const SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const Icon(
+                                              Icons.refresh_rounded,
+                                              size: 16,
+                                            ),
+                                      label: const Text(
+                                        'Reset Usage Counters & Circuit Breaker',
+                                      ),
+                                      onPressed: _isResetting
+                                          ? null
+                                          : () async {
+                                              setState(() => _isResetting = true);
+                                              try {
+                                                await _service.resetUsageCounters();
+                                                MapConfigController.instance
+                                                    .resetUsageCounters(
+                                                        persist: false);
+                                                if (!context.mounted) return;
+                                                ScaffoldMessenger.of(context)
+                                                    .showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Usage counters and circuit breaker reset successfully.',
+                                                    ),
+                                                  ),
+                                                );
+                                              } finally {
+                                                if (mounted) {
+                                                  setState(
+                                                      () => _isResetting = false);
+                                                }
+                                              }
+                                            },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -525,7 +774,7 @@ class _ProviderRadioOption extends StatelessWidget {
       onTap: () => onChanged(value),
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
@@ -536,34 +785,41 @@ class _ProviderRadioOption extends StatelessWidget {
               ? scheme.primaryContainer.withValues(alpha: 0.25)
               : Colors.transparent,
         ),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Radio<String>(
-              value: value,
-              groupValue: groupValue,
-              onChanged: onChanged,
+            Row(
+              children: [
+                Radio<String>(
+                  value: value,
+                  groupValue: groupValue,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: onChanged,
+                ),
+                const SizedBox(width: 4),
+                Icon(icon, color: iconColor, size: 22),
+              ],
             ),
-            Icon(icon, color: iconColor, size: 24),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 6),
+            Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: scheme.onSurfaceVariant,
               ),
             ),
           ],

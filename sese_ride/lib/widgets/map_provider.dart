@@ -465,6 +465,10 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
   /// surfaces stay live (null snapshot → resolve from the notifier).
   GlobalMapConfig? _frozenConfig;
 
+  /// Tracks the last provider recorded for this map session so we increment
+  /// live Firestore usage counters once per session/engine switch.
+  MapProvider? _lastRecordedProvider;
+
   @override
   void initState() {
     super.initState();
@@ -634,64 +638,77 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
                 color:
                     isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E3DF),
               );
-            } else if (targetProvider == MapProvider.googleMaps) {
-              mapCanvas = _GoogleMapBranch(
-                key: ValueKey('map_branch_$providerKey'),
-                providerKey: providerKey,
-                mapController: widget.mapController,
-                initialCenter: widget.initialCenter,
-                initialZoom: widget.initialZoom,
-                markers: baseMarkers,
-                polylines: widget.polylines,
-                isDarkOverride: widget.isDarkOverride,
-                showMyLocation: widget.showMyLocation,
-                myLocationButtonEnabled: widget.myLocationButtonEnabled,
-                onTileError: _handleGoogleTileError,
-                onCameraMove: _handleGoogleCameraMove,
-                onCameraIdle: widget.onCameraIdle,
-                onTap: widget.onTap,
-                mapBottomPadding: widget.mapBottomPadding,
-                mapTopPadding: widget.mapTopPadding,
-              );
             } else {
-              // Mapbox rendered via OsmMapView (flutter_map TileLayer)
-              final tileUrl = mapConfig.resolveMapboxTileUrl(isDark: isDark);
+              if (_lastRecordedProvider != targetProvider) {
+                _lastRecordedProvider = targetProvider;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  MapConfigController.instance.incrementUsage(
+                    targetProvider == MapProvider.googleMaps
+                        ? MapProviderType.google
+                        : MapProviderType.mapbox,
+                  );
+                });
+              }
+              if (targetProvider == MapProvider.googleMaps) {
+                mapCanvas = _GoogleMapBranch(
+                  key: ValueKey('map_branch_$providerKey'),
+                  providerKey: providerKey,
+                  mapController: widget.mapController,
+                  initialCenter: widget.initialCenter,
+                  initialZoom: widget.initialZoom,
+                  markers: baseMarkers,
+                  polylines: widget.polylines,
+                  isDarkOverride: widget.isDarkOverride,
+                  showMyLocation: widget.showMyLocation,
+                  myLocationButtonEnabled: widget.myLocationButtonEnabled,
+                  onTileError: _handleGoogleTileError,
+                  onCameraMove: _handleGoogleCameraMove,
+                  onCameraIdle: widget.onCameraIdle,
+                  onTap: widget.onTap,
+                  mapBottomPadding: widget.mapBottomPadding,
+                  mapTopPadding: widget.mapTopPadding,
+                );
+              } else {
+                // Mapbox rendered via OsmMapView (flutter_map TileLayer)
+                final tileUrl = mapConfig.resolveMapboxTileUrl(isDark: isDark);
 
-              // Single authoritative live blue-dot pin for raster engines
-              final rasterMarkers = List<MapPin>.from(baseMarkers);
-              final hasNavMarker = baseMarkers.any(
-                (m) => m.label == 'NAV' || m.label == 'NAVIGATION_ARROW',
-              );
-              if (widget.showMyLocation && !hasNavMarker) {
-                rasterMarkers.insert(
-                  0,
-                  MapPin(
-                    id: 'live_user_blue_dot',
-                    point: widget.userLocation ?? widget.initialCenter,
-                    color: Colors.blue,
-                    label: null,
-                  ),
+                // Single authoritative live blue-dot pin for raster engines
+                final rasterMarkers = List<MapPin>.from(baseMarkers);
+                final hasNavMarker = baseMarkers.any(
+                  (m) => m.label == 'NAV' || m.label == 'NAVIGATION_ARROW',
+                );
+                if (widget.showMyLocation && !hasNavMarker) {
+                  rasterMarkers.insert(
+                    0,
+                    MapPin(
+                      id: 'live_user_blue_dot',
+                      point: widget.userLocation ?? widget.initialCenter,
+                      color: Colors.blue,
+                      label: null,
+                    ),
+                  );
+                }
+
+                mapCanvas = OsmMapView(
+                  key: ValueKey('map_raster_$currentEngine'),
+                  providerKey: currentEngine,
+                  mapController: widget.mapController,
+                  initialCenter: widget.initialCenter,
+                  initialZoom: widget.initialZoom,
+                  markers: rasterMarkers,
+                  polylines: widget.polylines,
+                  isDarkOverride: widget.isDarkOverride,
+                  localMbtilePath: widget.localMbtilePath,
+                  customTileUrlTemplate: tileUrl,
+                  showMyLocation: widget.showMyLocation,
+                  userLocation: widget.userLocation,
+                  onTileError: _handleTileError,
+                  onCameraMove: widget.onCameraMove,
+                  onCameraIdle: widget.onCameraIdle,
+                  onTap: widget.onTap,
                 );
               }
-
-              mapCanvas = OsmMapView(
-                key: ValueKey('map_raster_$currentEngine'),
-                providerKey: currentEngine,
-                mapController: widget.mapController,
-                initialCenter: widget.initialCenter,
-                initialZoom: widget.initialZoom,
-                markers: rasterMarkers,
-                polylines: widget.polylines,
-                isDarkOverride: widget.isDarkOverride,
-                localMbtilePath: widget.localMbtilePath,
-                customTileUrlTemplate: tileUrl,
-                showMyLocation: widget.showMyLocation,
-                userLocation: widget.userLocation,
-                onTileError: _handleTileError,
-                onCameraMove: widget.onCameraMove,
-                onCameraIdle: widget.onCameraIdle,
-                onTap: widget.onTap,
-              );
             }
 
             return Stack(

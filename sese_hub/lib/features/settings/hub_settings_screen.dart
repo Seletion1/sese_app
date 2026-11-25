@@ -132,7 +132,8 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Flexible(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 115),
                         child: Text(
                           mode.label,
                           style: TextStyle(
@@ -169,25 +170,41 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                       title: 'Layout View Mode',
                       infoDescription:
                           'Switch between Auto (System Default), Mobile View, or Desktop View ("Request Desktop Site" with 1280px viewport and pinch-to-zoom).',
-                      trailing: DropdownButton<HubViewMode>(
-                        value: currentMode,
-                        underline: const SizedBox.shrink(),
-                        items: HubViewMode.values
-                            .map(
-                              (m) => DropdownMenuItem(
-                                value: m,
-                                child: Text(
-                                  m.label,
-                                  style: const TextStyle(fontSize: 13),
+                      trailing: const SizedBox.shrink(),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                        ),
+                        child: DropdownButton<HubViewMode>(
+                          value: currentMode,
+                          isExpanded: true,
+                          underline: const SizedBox.shrink(),
+                          items: HubViewMode.values
+                              .map(
+                                (m) => DropdownMenuItem(
+                                  value: m,
+                                  child: Text(
+                                    m.label,
+                                    style: const TextStyle(fontSize: 13),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            ViewModeController.instance.setViewMode(val);
-                          }
-                        },
+                              )
+                              .toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              ViewModeController.instance.setViewMode(val);
+                            }
+                          },
+                        ),
                       ),
                     ),
                     Padding(

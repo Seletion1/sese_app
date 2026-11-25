@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 
 import '../models/api_keys_config.dart';
@@ -59,5 +60,35 @@ class ApiKeysService {
         .collection('system_config')
         .doc('api_keys')
         .set(data, SetOptions(merge: true));
+  }
+
+  /// Resets live monthly usage counters (`google_calls`, `mapbox_calls`) on
+  /// `system_config/api_keys` (Hub admin operation).
+  Future<void> resetUsageCounters() async {
+    final db = _db;
+    if (db == null) return;
+    await db.collection('system_config').doc('api_keys').set({
+      'google_calls': 0,
+      'mapbox_calls': 0,
+      'last_synced_month': ApiKeysConfig.currentUtcMonthKey(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Increments the live monthly usage counter (`google_calls` or
+  /// `mapbox_calls`) in `system_config/api_keys` via the `recordMapUsage`
+  /// Cloud Function. Degrades silently when Firebase is unavailable.
+  Future<void> recordMapUsage(String provider, {int delta = 1}) async {
+    try {
+      final normalized =
+          provider.trim().toLowerCase() == 'mapbox' ? 'mapbox' : 'google';
+      await FirebaseFunctions.instance
+          .httpsCallable('recordMapUsage')
+          .call({'provider': normalized, 'delta': delta});
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('ApiKeysService.recordMapUsage skipped: $e');
+      }
+    }
   }
 }

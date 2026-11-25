@@ -795,6 +795,20 @@
       "callableTrigger": {},
       "entryPoint": "googleMapsProxy"
     },
+    "recordMapUsage": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "recordMapUsage"
+    },
     "handleBillingBudgetAlert": {
       "platform": "gcfv2",
       "availableMemoryMb": null,

@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
-import '../services/remote_keys_service.dart';
+import '../models/api_keys_config.dart';
+import '../services/api_keys_service.dart';
 import 'global_map_config.dart';
 
 /// Centralized state manager for the global map engine configuration and billing hierarchy.
@@ -30,7 +31,13 @@ class MapConfigController {
   final ValueNotifier<GlobalMapConfig> configNotifier =
       ValueNotifier<GlobalMapConfig>(const GlobalMapConfig());
 
-  StreamSubscription<GlobalMapConfig>? _subscription;
+  StreamSubscription<ApiKeysConfig>? _subscription;
+  ApiKeysConfig _latestApiKeys = const ApiKeysConfig();
+  bool _hasApiKeysSnapshot = false;
+  bool _autoFallback = true;
+
+  ApiKeysConfig get latestApiKeys => _latestApiKeys;
+  bool get autoFallbackEnabled => _autoFallback;
 
   // ── Google fallback state ──────────────────────────────────────────────────
 
@@ -63,8 +70,12 @@ class MapConfigController {
   int get mapboxUsageCount => _mapboxUsageCount;
 
   bool get isGoogleQuotaExceeded =>
+      _autoFallback &&
+      currentConfig.googleMonthlyCap > 0 &&
       _googleUsageCount >= currentConfig.googleMonthlyCap;
   bool get isMapboxQuotaExceeded =>
+      _autoFallback &&
+      currentConfig.mapboxMonthlyCap > 0 &&
       _mapboxUsageCount >= currentConfig.mapboxMonthlyCap;
 
   bool get isGoogleFallbackActive =>
@@ -88,28 +99,41 @@ class MapConfigController {
     return _mapboxFallbackReason;
   }
 
-  /// Increments usage counter for [provider] and triggers fallback if cap is hit.
-  void incrementUsage(MapProviderType provider) {
+  /// Increments usage counter for [provider], triggers fallback if cap is hit,
+  /// and persists the increment to `system_config/api_keys` via Cloud Function.
+  void incrementUsage(MapProviderType provider, {bool persist = true}) {
     switch (provider) {
       case MapProviderType.google:
         _googleUsageCount++;
-        if (_googleUsageCount >= currentConfig.googleMonthlyCap) {
+        if (persist) {
+          // ignore: discarded_futures
+          const ApiKeysService().recordMapUsage('google');
+        }
+        if (isGoogleQuotaExceeded) {
           debugPrint('MapConfigController: Google Maps free cap reached ($_googleUsageCount). Switching to Mapbox buffer.');
-          configNotifier.value = configNotifier.value;
+          configNotifier.value = _hasApiKeysSnapshot
+              ? _buildEffectiveConfigFromApiKeys(_latestApiKeys)
+              : configNotifier.value;
         }
         break;
       case MapProviderType.mapbox:
         _mapboxUsageCount++;
-        if (_mapboxUsageCount >= currentConfig.mapboxMonthlyCap) {
+        if (persist) {
+          // ignore: discarded_futures
+          const ApiKeysService().recordMapUsage('mapbox');
+        }
+        if (isMapboxQuotaExceeded) {
           debugPrint('MapConfigController: Mapbox buffer cap reached ($_mapboxUsageCount). Switching to Google Pay-As-You-Go.');
-          configNotifier.value = configNotifier.value;
+          configNotifier.value = _hasApiKeysSnapshot
+              ? _buildEffectiveConfigFromApiKeys(_latestApiKeys)
+              : configNotifier.value;
         }
         break;
     }
   }
 
-  /// Manually resets usage counters (e.g. from Admin Hub).
-  void resetUsageCounters() {
+  /// Manually resets usage counters (locally and in `system_config/api_keys`).
+  void resetUsageCounters({bool persist = true}) {
     _googleUsageCount = 0;
     _mapboxUsageCount = 0;
     _isGoogleFallbackActive = false;
@@ -117,7 +141,13 @@ class MapConfigController {
     _googleFallbackReason = null;
     _mapboxFallbackReason = null;
     resetCircuitBreaker();
-    configNotifier.value = configNotifier.value;
+    if (persist) {
+      // ignore: discarded_futures
+      const ApiKeysService().resetUsageCounters();
+    }
+    configNotifier.value = _hasApiKeysSnapshot
+        ? _buildEffectiveConfigFromApiKeys(_latestApiKeys)
+        : configNotifier.value;
     debugPrint('MapConfigController: Usage counters and fallbacks reset.');
   }
 
@@ -129,14 +159,8 @@ class MapConfigController {
 
   void _initStream() {
     try {
-      _subscription = const RemoteKeysService().streamGlobalMapConfig().listen(
-        (config) {
-          configNotifier.value = config;
-          if (!config.isGoogle || config.hasValidApiKey) {
-            _isGoogleFallbackActive = false;
-            _googleFallbackReason = null;
-          }
-        },
+      _subscription = const ApiKeysService().streamApiKeys().listen(
+        applyApiKeysConfig,
         onError: (e) {
           debugPrint('MapConfigController stream error: $e');
         },
@@ -146,10 +170,42 @@ class MapConfigController {
     }
   }
 
+  GlobalMapConfig _buildEffectiveConfigFromApiKeys(ApiKeysConfig apiKeys) {
+    final googleKey = apiKeys.googleKeyForPlatform(defaultTargetPlatform);
+    final mapboxToken = apiKeys.mapboxTokenForPlatform(defaultTargetPlatform);
+    final effective = apiKeys.effectiveProvider;
+    return GlobalMapConfig(
+      activeProvider: effective,
+      apiKey: googleKey,
+      mapboxToken: mapboxToken.isNotEmpty ? mapboxToken : null,
+      manualOverrideProvider: apiKeys.autoFallback ? '' : apiKeys.normalizedProvider,
+      googleMonthlyCap: apiKeys.googleMonthlyCap,
+      mapboxMonthlyCap: apiKeys.mapboxMonthlyCap,
+    );
+  }
+
+  /// Applies an [ApiKeysConfig] snapshot from `system_config/api_keys`,
+  /// syncing live counters, auto-fallback state, and platform credentials.
+  void applyApiKeysConfig(ApiKeysConfig apiKeys) {
+    _hasApiKeysSnapshot = true;
+    _latestApiKeys = apiKeys;
+    _autoFallback = apiKeys.autoFallback;
+    _googleUsageCount = apiKeys.effectiveGoogleCalls;
+    _mapboxUsageCount = apiKeys.effectiveMapboxCalls;
+
+    final config = _buildEffectiveConfigFromApiKeys(apiKeys);
+    configNotifier.value = config;
+    if (!config.isGoogle || config.hasValidApiKey) {
+      _isGoogleFallbackActive = false;
+      _googleFallbackReason = null;
+    }
+  }
+
   // ── Config update ──────────────────────────────────────────────────────────
 
   /// Manually updates or overrides the configuration (used by Hub or tests).
   void updateConfig(GlobalMapConfig newConfig) {
+    _hasApiKeysSnapshot = false;
     configNotifier.value = newConfig;
     if (!newConfig.isGoogle || newConfig.hasValidApiKey) {
       _isGoogleFallbackActive = false;

@@ -1,4 +1,6 @@
 import * as admin from "firebase-admin";
+import { HttpsError } from "firebase-functions/v2/https";
+import { guardedOnCall } from "./accountGuard";
 
 /**
  * mapQuotas.ts — Tiered map-API quota tracking + sequential fallback order.
@@ -118,3 +120,62 @@ export async function recordCall(
     console.warn(`mapQuotas: recordCall(${provider}) failed: ${e}`);
   }
 }
+
+interface RecordMapUsageRequest {
+  provider?: string;
+  delta?: number;
+}
+
+/**
+ * Client-callable telemetry endpoint that atomically increments
+ * `google_calls` or `mapbox_calls` in `system_config/api_keys` (with automatic
+ * UTC monthly rollover via `last_synced_month`).
+ */
+export const recordMapUsage = guardedOnCall<RecordMapUsageRequest>(
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const rawProvider = String(request.data?.provider ?? "")
+      .trim()
+      .toLowerCase();
+    if (rawProvider !== "google" && rawProvider !== "mapbox") {
+      throw new HttpsError(
+        "invalid-argument",
+        "provider must be 'google' or 'mapbox'."
+      );
+    }
+
+    const rawDelta = Number(request.data?.delta ?? 1);
+    const delta =
+      Number.isFinite(rawDelta) && rawDelta >= 1
+        ? Math.min(50, Math.floor(rawDelta))
+        : 1;
+
+    const ref = db().collection("system_config").doc("api_keys");
+    const now = monthKey(Date.now());
+    const field = rawProvider === "google" ? "google_calls" : "mapbox_calls";
+
+    let updatedCount = delta;
+    await db().runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const d = snap.exists ? snap.data()! : {};
+      const sameMonth = String(d.last_synced_month ?? "") === now;
+      const current = sameMonth ? num(d[field], 0) : 0;
+      updatedCount = current + delta;
+
+      const patch: Record<string, unknown> = {
+        [field]: updatedCount,
+        last_synced_month: now,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      if (!sameMonth) {
+        patch[rawProvider === "google" ? "mapbox_calls" : "google_calls"] = 0;
+      }
+      tx.set(ref, patch, { merge: true });
+    });
+
+    return { ok: true, provider: rawProvider, count: updatedCount, month: now };
+  }
+);

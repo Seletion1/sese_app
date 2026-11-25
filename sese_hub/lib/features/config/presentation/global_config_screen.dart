@@ -178,7 +178,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _dispatchAdminReferralDurationDaysCtrl = TextEditingController(text: '548');
 
   // Map & API Key Management Controllers (/system_config/api_keys)
-  String _apiKeysActiveProvider = 'google';
   final _googleAndroidKeyCtrl = TextEditingController();
   final _googleIosKeyCtrl = TextEditingController();
   final _googleWebKeyCtrl = TextEditingController();
@@ -226,8 +225,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _obscurePaystackSecret = true;
   bool _obscureOpayPublic = true;
   bool _obscureOpaySecret = true;
-  bool _obscureGoogleMapsKey = true;
-  bool _obscureMapboxKey = true;
   bool _obscureResendKey = true;
 
   // Driver Resting Break & Timer Configuration
@@ -421,7 +418,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _dispatchStandardReferralDurationDaysCtrl.text = tuning.standardReferralDurationDays.toString();
       _dispatchAdminReferralDurationDaysCtrl.text = tuning.adminReferralDurationDays.toString();
 
-      _apiKeysActiveProvider = apiKeys.normalizedProvider;
       _googleAndroidKeyCtrl.text = apiKeys.googleAndroidKey;
       _googleIosKeyCtrl.text = apiKeys.googleIosKey;
       _googleWebKeyCtrl.text = apiKeys.googleWebKey;
@@ -616,49 +612,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         ),
       );
 
-      final newApiKeys = ApiKeysConfig(
-        activeMapProvider: _apiKeysActiveProvider,
-        googleAndroidKey: _googleAndroidKeyCtrl.text.trim(),
-        googleIosKey: _googleIosKeyCtrl.text.trim(),
-        googleWebKey: _googleWebKeyCtrl.text.trim(),
-        mapboxAndroidToken: _mapboxAndroidTokenCtrl.text.trim(),
-        mapboxIosToken: _mapboxIosTokenCtrl.text.trim(),
-        mapboxWebToken: _mapboxWebTokenCtrl.text.trim(),
-      );
-
-      if (newApiKeys.isGoogle &&
-          newApiKeys.googleAndroidKey.isEmpty &&
-          newApiKeys.googleIosKey.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Please enter at least one valid Google Maps API Key before saving.',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      if (newApiKeys.isMapbox &&
-          newApiKeys.mapboxAndroidToken.isEmpty &&
-          newApiKeys.mapboxIosToken.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Please enter at least one valid Mapbox Access Token before saving.',
-              ),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
-      await ApiKeysService().saveApiKeys(newApiKeys);
+      // Persist OPay & Paystack gateway settings cleanly without blocking on map keys.
       await const VehicleRecommendationService().saveConfig(
         VehicleRecommendationConfig(
           bicycleMaxDistanceKm:
@@ -697,22 +651,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         ),
       );
 
-      if ((_activeMapProvider == 'google' || _activeMapProvider == 'google_maps') &&
-          _googleMapsApiKeyCtrl.text.trim().isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Admin Notice: Google Maps is selected without an API key. Client apps will cascade to Mapbox (if token is set).',
-              ),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 4),
-            ),
-          );
-        }
-      }
-
-      // Save Remote Keys & API Config.
+      // Save Remote Keys & API Config (payment gateways, email, and general flags).
       final remoteKeysConfig = RemoteKeysConfig(
         paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
         opayMerchantId: _opayMerchantIdCtrl.text.trim(),
@@ -803,27 +742,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         debugPrint('GlobalConfigScreen: dispatch gateway toggles save warning: $e');
       }
 
-      MapConfigController.instance.updateConfig(
-        GlobalMapConfig(
-          activeProvider: _activeMapProvider,
-          apiKey: _googleMapsApiKeyCtrl.text.trim().isNotEmpty
-              ? _googleMapsApiKeyCtrl.text.trim()
-              : GlobalMapConfig.defaultGoogleMapsApiKey,
-          mapboxToken: _mapboxApiKeyCtrl.text.trim().isNotEmpty
-              ? _mapboxApiKeyCtrl.text.trim()
-              : null,
-          mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
-              ? _mapboxStyleCtrl.text.trim()
-              : GlobalMapConfig.defaultMapboxStyle,
-          featureProviders: Map<String, String>.from(_featureProviders),
-          googleMonthlyCap:
-              int.tryParse(_googleQuotaCapCtrl.text.trim()) ?? 20000,
-          mapboxMonthlyCap:
-              int.tryParse(_mapboxQuotaCapCtrl.text.trim()) ?? 50000,
-          manualOverrideProvider:
-              _manualOverrideProvider == 'auto' ? null : _manualOverrideProvider,
-        ),
-      );
+      // Map provider, keys, caps, and live usage counters are managed
+      // exclusively in Map & API Key Management (system_config/api_keys).
 
       try {
         final googleCap =
@@ -1179,56 +1099,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                 _CappedField(
                   preferredWidth: 320,
                   child: TextFormField(
-                    controller: _googleMapsApiKeyCtrl,
-                    obscureText: _obscureGoogleMapsKey,
-                    decoration: InputDecoration(
-                      labelText: 'Google Maps API Key',
-                      helperText: 'Required when Google Maps is the active provider.',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureGoogleMapsKey
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureGoogleMapsKey = !_obscureGoogleMapsKey;
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 320,
-                  child: TextFormField(
-                    controller: _mapboxApiKeyCtrl,
-                    obscureText: _obscureMapboxKey,
-                    decoration: InputDecoration(
-                      labelText: 'Mapbox Access Token (pk.eyJ1…)',
-                      helperText:
-                          'Required for Mapbox (secondary provider). Leave blank to skip Mapbox in fallback.',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureMapboxKey
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscureMapboxKey = !_obscureMapboxKey;
-                          });
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-
-                _CappedField(
-                  preferredWidth: 320,
-                  child: TextFormField(
                     controller: _resendApiKeyCtrl,
                     obscureText: _obscureResendKey,
                     decoration: InputDecoration(
@@ -1247,372 +1117,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                           });
                         },
                       ),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 360,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Active Map Engine (All Screens)',
-                      helperText:
-                          'Billing chain: Google Maps (Free Tier) → Mapbox (Free Buffer) → Google Maps (PAYG).',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                    ),
-                    child: DropdownButton<String>(
-                      value: (_activeMapProvider == 'google_maps' || _activeMapProvider == 'google')
-                          ? 'google'
-                          : 'mapbox',
-                      isExpanded: true,
-                      underline: const SizedBox.shrink(),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'google',
-                          child: Text('Google Maps (Primary — Free Tier)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'mapbox',
-                          child: Text('Mapbox (Secondary — Buffer)'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() => _activeMapProvider = val);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 360,
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Manual Provider Override (Admin Pin)',
-                      helperText:
-                          'Auto-Fallback: normal billing chain. Pinning a provider bypasses automatic fallback.',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 4,
-                      ),
-                    ),
-                    child: DropdownButton<String>(
-                      value: _manualOverrideProvider,
-                      isExpanded: true,
-                      underline: const SizedBox.shrink(),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'auto',
-                          child: Text('Auto-Fallback (Recommended)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'google',
-                          child: Text('Force Google Maps'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'mapbox',
-                          child: Text('Force Mapbox'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() => _manualOverrideProvider = val);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                // ── Per-feature provider pins ──────────────────────────
-                for (final feature in MapFeature.values)
-                  _CappedField(
-                    preferredWidth: 360,
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                        labelText: feature.displayName,
-                        helperText: 'Auto = follow global engine.',
-                        border: const OutlineInputBorder(),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                      ),
-                      child: DropdownButton<String>(
-                        value: _featureProviders[feature.code] ?? 'auto',
-                        isExpanded: true,
-                        underline: const SizedBox.shrink(),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'auto',
-                            child: Text('Auto (follow global engine)'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'google',
-                            child: Text('Force Google Maps'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'mapbox',
-                            child: Text('Force Mapbox'),
-                          ),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() {
-                              if (val == 'auto') {
-                                _featureProviders.remove(feature.code);
-                              } else {
-                                _featureProviders[feature.code] = val;
-                              }
-                            });
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                // ── Mapbox Style Theme (Dropdown conditional on Mapbox active) ──
-                if (_activeMapProvider == 'mapbox' ||
-                    _manualOverrideProvider == 'mapbox' ||
-                    _featureProviders.values.contains('mapbox'))
-                  _CappedField(
-                    preferredWidth: 360,
-                    child: InputDecorator(
-                      decoration: const InputDecoration(
-                        labelText: 'Mapbox Style ID',
-                        helperText:
-                            'Select Mapbox map style ID. Automatically switches to Dark mode in night view.',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                      ),
-                      child: DropdownButton<String>(
-                        value: MapboxStyles.availableStyles.contains(_mapboxStyleCtrl.text.trim())
-                            ? _mapboxStyleCtrl.text.trim()
-                            : (_mapboxStyleCtrl.text.trim().isNotEmpty
-                                ? _mapboxStyleCtrl.text.trim()
-                                : MapboxStyles.streetsV12),
-                        isExpanded: true,
-                        underline: const SizedBox.shrink(),
-                        items: [
-                          for (final style in MapboxStyles.availableStyles)
-                            DropdownMenuItem<String>(
-                              value: style,
-                              child: Text('${MapboxStyles.styleLabels[style] ?? style} ($style)'),
-                            ),
-                          if (!MapboxStyles.availableStyles.contains(_mapboxStyleCtrl.text.trim()) &&
-                              _mapboxStyleCtrl.text.trim().isNotEmpty)
-                            DropdownMenuItem<String>(
-                              value: _mapboxStyleCtrl.text.trim(),
-                              child: Text('Custom (${_mapboxStyleCtrl.text.trim()})'),
-                            ),
-                        ],
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() => _mapboxStyleCtrl.text = val);
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                // ── Monthly API-call quota caps
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: _googleQuotaCapCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Google Monthly Call Cap',
-                      helperText: 'Free-tier allowance before Mapbox buffer rollover.',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 200,
-                  child: TextFormField(
-                    controller: _mapboxQuotaCapCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Mapbox Monthly Call Cap',
-                      helperText: 'Free buffer allowance before Google PAYG fallback.',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                if (_activeMapProvider == 'google' &&
-                    _googleMapsApiKeyCtrl.text.trim().isEmpty)
-                  _CappedField(
-                    preferredWidth: 360,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.orange.shade300),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Admin Alert: Google Maps is active without an API key. Client apps cascade to Mapbox.',
-                              style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                if (_activeMapProvider == 'mapbox' &&
-                    _mapboxApiKeyCtrl.text.trim().isEmpty)
-                  _CappedField(
-                    preferredWidth: 360,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.orange.shade300),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Admin Alert: Mapbox is active without an access token.',
-                              style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                // ── Live Map Provider Usage Stats & Billing Hierarchy Controls ──
-                _CappedField(
-                  preferredWidth: 700,
-                  child: ValueListenableBuilder<GlobalMapConfig>(
-                    valueListenable: MapConfigController.instance.configNotifier,
-                    builder: (context, _, _) {
-                      final ctrl = MapConfigController.instance;
-                      final gCap = int.tryParse(_googleQuotaCapCtrl.text) ?? 20000;
-                      final mCap = int.tryParse(_mapboxQuotaCapCtrl.text) ?? 50000;
-
-                      final gRatio = (ctrl.googleUsageCount / (gCap > 0 ? gCap : 1)).clamp(0.0, 1.0);
-                      final mRatio = (ctrl.mapboxUsageCount / (mCap > 0 ? mCap : 1)).clamp(0.0, 1.0);
-
-                      return Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.sync_alt_rounded, color: Colors.blueAccent),
-                                const SizedBox(width: 8),
-                                const Expanded(
-                                  child: Text(
-                                    'Billing Fallback Chain: Google Maps (Free Tier) ➔ Mapbox (Free Buffer) ➔ Google Maps (PAYG)',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Google Maps Free Tier: ${ctrl.googleUsageCount} / $gCap calls',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: ctrl.isGoogleQuotaExceeded ? Colors.red : null,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      LinearProgressIndicator(
-                                        value: gRatio,
-                                        color: ctrl.isGoogleQuotaExceeded ? Colors.orange : Colors.blue,
-                                        backgroundColor: Colors.grey.shade200,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Mapbox Buffer Usage: ${ctrl.mapboxUsageCount} / $mCap calls',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600,
-                                          color: ctrl.isMapboxQuotaExceeded ? Colors.red : null,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      LinearProgressIndicator(
-                                        value: mRatio,
-                                        color: ctrl.isMapboxQuotaExceeded ? Colors.red : Colors.purple,
-                                        backgroundColor: Colors.grey.shade200,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: OutlinedButton.icon(
-                                icon: const Icon(Icons.refresh_rounded, size: 16),
-                                label: const Text('Reset Usage Counters & Circuit Breaker'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.blue.shade800,
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                ),
-                                onPressed: () {
-                                  MapConfigController.instance.resetUsageCounters();
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Usage counters and circuit breaker reset successfully.',
-                                      ),
-                                      duration: Duration(seconds: 3),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                _CappedField(
-                  preferredWidth: 320,
-                  child: TextFormField(
-                    controller: _osmTileServerUrlCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Custom Tile Server URL Template (Optional)',
-                      helperText: 'Optional custom tile server endpoint URL template.',
-                      border: OutlineInputBorder(),
                     ),
                   ),
                 ),
@@ -2699,26 +2203,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
     );
   }
 
-  /// Dedicated Map & API Key Management section (stored in system_config/api_keys)
+  /// Dedicated Map & API Key Management link card (consolidated in MapApiKeyConfigScreen / system_config/api_keys)
   Widget _buildApiKeysCard() {
-    Widget txtField(
-      TextEditingController controller,
-      String label,
-      String helper,
-    ) =>
-        _CappedField(
-          preferredWidth: 320,
-          child: TextFormField(
-            controller: controller,
-            obscureText: true,
-            decoration: InputDecoration(
-              labelText: label,
-              helperText: helper,
-              isDense: true,
-            ),
-          ),
-        );
-
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2731,177 +2217,27 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Dynamically managed map credentials streamed to sese_ride on app launch. '
-              'Keys are stored securely in system_config/api_keys with automatic environment fallback.',
+              'All map providers, platform-restricted Google Maps / Mapbox keys, monthly call caps, '
+              'auto-fallback, and live usage counters are managed in Map & API Key Management.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                const Text('Active Map Provider: ', style: TextStyle(fontWeight: FontWeight.bold)),
-                DropdownButton<String>(
-                  value: _apiKeysActiveProvider,
-                  items: const [
-                    DropdownMenuItem(value: 'google', child: Text('Google Maps')),
-                    DropdownMenuItem(value: 'mapbox', child: Text('Mapbox')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() => _apiKeysActiveProvider = val);
-                    }
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text('Google Maps API Keys', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 16,
-              runSpacing: 12,
-              children: [
-                txtField(_googleAndroidKeyCtrl, 'Android API Key', 'google_maps.android_key'),
-                txtField(_googleIosKeyCtrl, 'iOS API Key', 'google_maps.ios_key'),
-                txtField(_googleWebKeyCtrl, 'Web API Key', 'google_maps.web_key'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text('Mapbox Access Tokens', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 16,
-              runSpacing: 12,
-              children: [
-                txtField(_mapboxAndroidTokenCtrl, 'Android Access Token', 'mapbox.android_token'),
-                txtField(_mapboxIosTokenCtrl, 'iOS Access Token', 'mapbox.ios_token'),
-                txtField(_mapboxWebTokenCtrl, 'Web Access Token', 'mapbox.web_token'),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  key: const Key('global_config_save_api_keys_btn'),
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.save_rounded, size: 16),
-                  label: Text(_saving ? 'Saving...' : 'Save Configuration'),
-                  onPressed: _saving ? null : _saveApiKeysConfigOnly,
-                ),
-                OutlinedButton.icon(
-                  key: const Key('global_config_open_api_keys_screen_btn'),
-                  icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                  label: const Text('Open Dedicated Management Screen'),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const MapApiKeyConfigScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ],
+            OutlinedButton.icon(
+              key: const Key('global_config_open_api_keys_screen_btn'),
+              icon: const Icon(Icons.map_rounded, size: 18),
+              label: const Text('Open Map & API Key Management'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const MapApiKeyConfigScreen(),
+                  ),
+                );
+              },
             ),
           ],
         ),
       ),
     );
-  }
-
-  Future<void> _saveApiKeysConfigOnly() async {
-    final newApiKeys = ApiKeysConfig(
-      activeMapProvider: _apiKeysActiveProvider,
-      googleAndroidKey: _googleAndroidKeyCtrl.text.trim(),
-      googleIosKey: _googleIosKeyCtrl.text.trim(),
-      googleWebKey: _googleWebKeyCtrl.text.trim(),
-      mapboxAndroidToken: _mapboxAndroidTokenCtrl.text.trim(),
-      mapboxIosToken: _mapboxIosTokenCtrl.text.trim(),
-      mapboxWebToken: _mapboxWebTokenCtrl.text.trim(),
-    );
-
-    final allGoogleEmpty = newApiKeys.googleAndroidKey.isEmpty &&
-        newApiKeys.googleIosKey.isEmpty &&
-        newApiKeys.googleWebKey.isEmpty;
-    final allMapboxEmpty = newApiKeys.mapboxAndroidToken.isEmpty &&
-        newApiKeys.mapboxIosToken.isEmpty &&
-        newApiKeys.mapboxWebToken.isEmpty;
-
-    if (allGoogleEmpty && allMapboxEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Cannot save empty configuration. Please provide at least one valid API key or token.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (newApiKeys.isGoogle && allGoogleEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Google Maps is active, but all Google API keys are empty. Provide at least one key before saving.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    if (newApiKeys.isMapbox && allMapboxEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Mapbox is active, but all Mapbox access tokens are empty. Provide at least one token before saving.',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-      return;
-    }
-
-    setState(() => _saving = true);
-    try {
-      await ApiKeysService().saveApiKeys(newApiKeys);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Map & API Key Configuration saved successfully to system_config/api_keys!',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save API keys: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
   }
 
   /// 8. Vehicle recommendation thresholds: distance bands for the Smart

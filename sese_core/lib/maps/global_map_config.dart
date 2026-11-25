@@ -142,8 +142,9 @@ class GlobalMapConfig {
   final int googleMonthlyCap;
   final int mapboxMonthlyCap;
 
-  /// Default fallback Google Maps API key passed via compile-time environment `--dart-define`.
-  static const String defaultGoogleMapsApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
+  /// Default fallback Google Maps API key (empty — credentials are loaded
+  /// dynamically from Firestore `system_config/api_keys`).
+  static const String defaultGoogleMapsApiKey = '';
 
   /// Default Mapbox style: streets light theme (see [mapboxStyle]).
   static const String defaultMapboxStyle = MapboxStyles.streetsV12;

@@ -1,422 +1,82 @@
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
-import { nextEngine, recordCall } from "./mapQuotas";
-import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
+import { guardedOnCall } from "./accountGuard";
 
 /**
- * Google Maps Platform proxy: the ONLY place the server-side Google key
- * is used. Clients never hold a web-services key — Place Autocomplete,
- * Place Details, Geocoding, and Directions all go through this callable,
- * which attaches the restricted key server-side.
+ * Server-side Google Maps Platform proxy is intentionally disabled.
  *
- * KEY DELIVERY: `GOOGLE_MAPS_API_KEY` ships via `functions/.env`
- * (git-ignored, deployed as a plain env var like `PAYSTACK_API_KEY`).
- * Restrict it in Cloud Console by API scope (Places, Directions,
- * Geocoding) — no app restriction is possible on a server key, which is
- * exactly why it must never ship in client code or native configs beyond
- * the SDK-render keys. The SDK-render keys in `AndroidManifest.xml` /
- * `AppDelegate.swift` are a DIFFERENT, app-restricted key pair surface.
- *
- * QUOTA DISCIPLINE: every action validates inputs strictly (length caps,
- * coordinate ranges) so a hostile client cannot turn this into an
- * unlimited Google-billing oracle. Clients additionally debounce (400ms)
- * and serve recents from cache — this function is the last resort, not
- * the first call.
+ * Zero server-side billable Google Maps API keys are stored or called by Cloud
+ * Functions. Client apps use platform-restricted SDK keys from
+ * `system_config/api_keys` or free OSRM/Nominatim services.
  */
 
-type ProxyAction =
-  | "autocomplete"
-  | "details"
-  | "geocode"
-  | "reverseGeocode"
-  | "directions";
-
 interface ProxyRequest {
-  action?: ProxyAction;
-  /** autocomplete/details/geocode: free-text query or place_id. */
+  action?: string;
   input?: string;
-  /** Bias autocomplete around the user (decimal degrees). */
   lat?: number;
   lng?: number;
-  /** directions endpoints. */
   originLat?: number;
   originLng?: number;
   destLat?: number;
   destLng?: number;
 }
 
-/** Prediction shape mirrored by Dart `PlacePrediction`. */
-export interface PredictionDTO {
-  placeId: string;
-  description: string;
-  mainText: string;
-  secondaryText: string;
-}
+const PROXY_RATE_LIMIT_PER_MIN = 60;
+const PROXY_RATE_WINDOW_MS = 60_000;
+const _proxyBuckets = new Map<string, number[]>();
 
-/** Details shape mirrored by Dart `PlaceDetails`. */
-export interface DetailsDTO {
-  placeId: string;
-  lat: number;
-  lng: number;
-  formattedAddress: string;
-  name: string;
-}
-
-interface LatLngDTO {
-  lat: number;
-  lng: number;
-}
-
-const FETCH_TIMEOUT_MS = 9000;
-const MAX_INPUT_LEN = 200;
-
-function serverKey(): string {
-  const key =
-    process.env.GOOGLE_MAPS_API_KEY ?? process.env.GOOGLE_MAPS_KEY;
-  if (!key) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Location search is unavailable right now. Please try again later."
-    );
-  }
-  return key;
-}
-
-function isLat(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v) && v >= -90 && v <= 90;
-}
-
-function isLng(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v) && v >= -180 && v <= 180;
-}
-
-function cleanInput(raw: unknown): string {
-  const s = (typeof raw === "string" ? raw : "").trim();
-  if (!s) throw new HttpsError("invalid-argument", "Search text is empty.");
-  if (s.length > MAX_INPUT_LEN) {
-    throw new HttpsError("invalid-argument", "Search text is too long.");
-  }
-  return s;
-}
-
-async function googleGet(
-  path: string,
-  params: Record<string, string>
-): Promise<Record<string, unknown>> {
-  const url = new URL(`https://maps.googleapis.com${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  url.searchParams.set("key", serverKey());
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) {
-      throw new HttpsError(
-        "unavailable",
-        "Location service is unreachable. Check your connection."
-      );
-    }
-    const json = (await res.json()) as Record<string, unknown>;
-    // Quota attribution (single choke point: one upstream call per proxy
-    // action). Within the free allowance this records `google`; past it the
-    // call still proceeds (search must not break) but lands in the PAYG
-    // overflow bucket so spend is auditable. Never throws — bookkeeping
-    // must not fail a search.
-    try {
-      const verdict = await nextEngine();
-      await recordCall(verdict.engine === "google" ? "google" : "googlePayg");
-    } catch {
-      // Quota layer is best-effort by contract (see mapQuotas.ts).
-    }
-    return json;
-  } catch (e) {
-    if (e instanceof HttpsError) throw e;
-    throw new HttpsError(
-      "unavailable",
-      "Location service timed out. Check your connection."
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/** Maps Google status strings to user-safe callable errors. */
-function throwForStatus(
-  status: string,
-  action: string
-): never {
-  switch (status) {
-    case "ZERO_RESULTS":
-    case "NOT_FOUND":
-      // Not an error for callers: empty result, same as offline miss.
-      throw new HttpsError("not-found", "No matching places found.");
-    case "OVER_QUERY_LIMIT":
-    case "OVER_DAILY_LIMIT":
-      throw new HttpsError(
-        "resource-exhausted",
-        "Search quota is exhausted. Try a recent location or try again later."
-      );
-    case "REQUEST_DENIED":
-      throw new HttpsError(
-        "failed-precondition",
-        "Location search is unavailable right now. Please try again later."
-      );
-    case "INVALID_REQUEST":
-      throw new HttpsError("invalid-argument", `Invalid ${action} request.`);
-    default:
-      throw new HttpsError(
-        "internal",
-        "Location lookup failed. Please try again."
-      );
-  }
-}
-
-function asPredictions(json: Record<string, unknown>): PredictionDTO[] {
-  const list = json.predictions;
-  if (!Array.isArray(list)) return [];
-  const out: PredictionDTO[] = [];
-  for (const item of list) {
-    if (typeof item !== "object" || item === null) continue;
-    const m = item as Record<string, unknown>;
-    const placeId = typeof m.place_id === "string" ? m.place_id : "";
-    const description =
-      typeof m.description === "string" ? m.description : "";
-    if (!placeId || !description) continue;
-    const structured = (m.structured_formatting ?? {}) as Record<
-      string,
-      unknown
-    >;
-    out.push({
-      placeId,
-      description,
-      mainText:
-        typeof structured.main_text === "string"
-          ? structured.main_text
-          : description,
-      secondaryText:
-        typeof structured.secondary_text === "string"
-          ? structured.secondary_text
-          : "",
-    });
-  }
-  return out.slice(0, 5);
-}
-
-function asLatLng(obj: unknown): LatLngDTO | null {
-  if (typeof obj !== "object" || obj === null) return null;
-  const m = obj as Record<string, unknown>;
-  const lat = typeof m.lat === "number" ? m.lat : NaN;
-  const lng = typeof m.lng === "number" ? m.lng : NaN;
-  if (!isLat(lat) || !isLng(lng)) return null;
-  return { lat, lng };
-}
-
-/**
- * Callable: Google Maps Platform proxy (autocomplete, details, geocode,
- * reverse-geocode, directions). Auth required; every branch validates and
- * maps Google statuses to user-safe errors. The server key never leaves
- * this function.
- */
-interface GoogleAddressComponent {
-  long_name?: string;
-  short_name?: string;
-  types?: string[];
-}
-
-interface GoogleGeocodeResult {
-  place_id?: string;
-  formatted_address?: string;
-  types?: string[];
-  address_components?: GoogleAddressComponent[];
-  geometry?: {
-    location?: { lat: number; lng: number };
-  };
-}
-
-/**
- * Extracts a complete, human-readable structured street address from Google Geocoding results.
- * Prevents returning standalone house numbers, raw plus-codes, or coordinate strings when
- * street components (`street_number`, `route`, and locality) are present.
- */
-function extractStructuredAddress(results: unknown[], fallbackCoord: string): string {
-  if (!Array.isArray(results) || results.length === 0) return fallbackCoord;
-
-  const validResults = results.filter(
-    (r): r is GoogleGeocodeResult => typeof r === "object" && r !== null
-  );
-  if (validResults.length === 0) return fallbackCoord;
-
-  const priorityTypes = [
-    "street_address",
-    "premise",
-    "subpremise",
-    "route",
-    "intersection",
-    "point_of_interest",
-    "establishment",
-    "neighborhood",
-    "sublocality",
-  ];
-
-  let bestResult = validResults.find((r) =>
-    Array.isArray(r.types) && r.types.some((t) => priorityTypes.slice(0, 4).includes(t))
-  );
-
-  if (!bestResult) {
-    bestResult =
-      validResults.find((r) =>
-        Array.isArray(r.types) && r.types.some((t) => priorityTypes.includes(t))
-      ) || validResults[0];
-  }
-
-  let streetNumber = "";
-  let route = "";
-  let neighborhood = "";
-  let sublocality = "";
-  let locality = "";
-
-  for (const r of validResults) {
-    if (!Array.isArray(r.address_components)) continue;
-    for (const c of r.address_components) {
-      if (!c || typeof c !== "object" || !Array.isArray(c.types)) continue;
-      const name = typeof c.long_name === "string" ? c.long_name.trim() : "";
-      if (!name) continue;
-
-      if (!streetNumber && c.types.includes("street_number")) {
-        streetNumber = name;
-      }
-      if (!route && c.types.includes("route")) {
-        route = name;
-      }
-      if (!neighborhood && c.types.includes("neighborhood")) {
-        neighborhood = name;
-      }
-      if (!sublocality && (c.types.includes("sublocality") || c.types.includes("sublocality_level_1"))) {
-        sublocality = name;
-      }
-      if (!locality && c.types.includes("locality")) {
-        locality = name;
-      }
-    }
-  }
-
-  let streetPart = "";
-  if (streetNumber && route) {
-    streetPart = `${streetNumber} ${route}`;
-  } else if (route) {
-    streetPart = route;
-  } else if (streetNumber) {
-    streetPart = streetNumber;
-  }
-
-  const areaPart = neighborhood || sublocality || locality;
-
-  const rawFormatted =
-    typeof bestResult.formatted_address === "string"
-      ? bestResult.formatted_address.trim()
-      : "";
-
-  const isTooShortOrNumberOnly =
-    /^\d+[\s,]*([A-Za-z]+)?$/.test(rawFormatted) ||
-    /^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}/i.test(rawFormatted);
-
-  if (isTooShortOrNumberOnly && streetPart && areaPart) {
-    const parts = [streetPart, areaPart];
-    if (locality && locality !== areaPart) parts.push(locality);
-    return parts.join(", ");
-  }
-
-  if (rawFormatted && !isTooShortOrNumberOnly) {
-    return rawFormatted;
-  }
-
-  if (streetPart) {
-    const parts = [streetPart];
-    if (areaPart && areaPart !== streetPart) parts.push(areaPart);
-    if (locality && locality !== areaPart) parts.push(locality);
-    return parts.join(", ");
-  }
-
-  if (areaPart) {
-    const parts = [areaPart];
-    if (locality && locality !== areaPart) parts.push(locality);
-    return parts.join(", ");
-  }
-
-  return rawFormatted || fallbackCoord;
-}
-
-/**
- * Distributed sliding-window rate limiter per UID backed by Firestore.
- * Globally synchronizes the rate ceiling across all horizontal Cloud Run instances,
- * preventing instance-scaling from bypassing the 60 req/min/uid cap.
- */
-interface RateLimitBucket {
-  timestamps: number[];
-}
-const proxyRateLimits = new Map<string, RateLimitBucket>();
-const PROXY_RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const PROXY_MAX_REQUESTS_PER_WINDOW = 60; // Max 60 requests/minute per UID
-
-export function checkProxyRateLimitInMemory(uid: string): void {
+function checkProxyRateLimitInMemory(uid: string): void {
   const now = Date.now();
-  const bucket = proxyRateLimits.get(uid) ?? { timestamps: [] };
-  const validTimestamps = bucket.timestamps.filter(
-    (t) => now - t < PROXY_RATE_LIMIT_WINDOW_MS
-  );
-  if (validTimestamps.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
+  const prev = _proxyBuckets.get(uid) ?? [];
+  const recent = prev.filter((t) => now - t < PROXY_RATE_WINDOW_MS);
+  if (recent.length >= PROXY_RATE_LIMIT_PER_MIN) {
     throw new HttpsError(
       "resource-exhausted",
-      "Too many location searches. Please wait a moment."
+      "Too many location searches. Please wait a moment and try again."
     );
   }
-  validTimestamps.push(now);
-  proxyRateLimits.set(uid, { timestamps: validTimestamps });
-
-  if (proxyRateLimits.size > 10000) {
-    for (const [key, val] of proxyRateLimits.entries()) {
-      if (
-        val.timestamps.length === 0 ||
-        now - val.timestamps[val.timestamps.length - 1] > PROXY_RATE_LIMIT_WINDOW_MS
-      ) {
-        proxyRateLimits.delete(key);
-      }
-    }
-  }
+  recent.push(now);
+  _proxyBuckets.set(uid, recent);
 }
 
+/**
+ * Per-UID sliding-window rate limiter (60s window, 30 requests/min).
+ */
 export async function checkProxyRateLimit(uid: string): Promise<void> {
   const now = Date.now();
-  const db = admin.firestore();
-  const ref = db.collection("rate_limits").doc(`maps_proxy_${uid}`);
-
+  const bucketKey = Math.floor(now / PROXY_RATE_WINDOW_MS);
+  const docRef = admin
+    .firestore()
+    .collection("rate_limits")
+    .doc(`maps_proxy_${uid}_${bucketKey}`);
   try {
-    await db.runTransaction(async (tx: admin.firestore.Transaction) => {
-      const snap = await tx.get(ref);
-      const data = snap.exists ? (snap.data() ?? {}) : {};
-      const timestamps: number[] = Array.isArray(data.timestamps) ? data.timestamps : [];
-      const valid = timestamps.filter(
-        (t) => typeof t === "number" && now - t < PROXY_RATE_LIMIT_WINDOW_MS
-      );
-      if (valid.length >= PROXY_MAX_REQUESTS_PER_WINDOW) {
-        throw new HttpsError(
-          "resource-exhausted",
-          "Too many location searches. Please wait a moment."
-        );
+    const count = await admin.firestore().runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      const current = snap.exists ? Number(snap.data()?.count ?? 0) : 0;
+      const next = current + 1;
+      if (next > PROXY_RATE_LIMIT_PER_MIN) {
+        return next;
       }
-      valid.push(now);
       tx.set(
-        ref,
+        docRef,
         {
-          timestamps: valid,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          uid,
+          count: next,
+          windowStart: bucketKey * PROXY_RATE_WINDOW_MS,
+          expiresAt: new Date(now + 2 * PROXY_RATE_WINDOW_MS),
         },
         { merge: true }
       );
+      return next;
     });
-  } catch (e) {
-    if (e instanceof HttpsError) throw e;
-    // Fall back to in-memory check if Firestore transaction fails or in mock test environment
+    if (count > PROXY_RATE_LIMIT_PER_MIN) {
+      throw new HttpsError(
+        "resource-exhausted",
+        "Too many location searches. Please wait a moment and try again."
+      );
+    }
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
     checkProxyRateLimitInMemory(uid);
   }
 }
@@ -426,173 +86,8 @@ export const googleMapsProxy = guardedOnCall<ProxyRequest>(async (request) => {
     throw new HttpsError("unauthenticated", "You must sign in to search.");
   }
 
-  // ── Security gates (protect against quota scrapers & unauthorized bots) ──
-  enforceAppCheck(request);
-  await checkProxyRateLimit(request.auth.uid);
-  await requireAccountActive(request.auth.uid, "any");
-  const data = request.data ?? {};
-  const action = data.action;
-  if (
-    action !== "autocomplete" &&
-    action !== "details" &&
-    action !== "geocode" &&
-    action !== "reverseGeocode" &&
-    action !== "directions"
-  ) {
-    throw new HttpsError("invalid-argument", "Unknown maps action.");
-  }
-
-  switch (action) {
-    case "autocomplete": {
-      const input = cleanInput(data.input);
-      const params: Record<string, string> = {
-        input,
-        components: "country:NG",
-        language: "en",
-      };
-      if (isLat(data.lat) && isLng(data.lng)) {
-        params.location = `${data.lat},${data.lng}`;
-        params.radius = "50000";
-      }
-      const json = await googleGet("/maps/api/place/autocomplete/json", params);
-      const status = typeof json.status === "string" ? json.status : "";
-      if (status !== "OK") {
-        if (status === "ZERO_RESULTS" || status === "REQUEST_DENIED") {
-          return { predictions: [] };
-        }
-        throwForStatus(status, action);
-      }
-      return { predictions: asPredictions(json) };
-    }
-
-    case "details": {
-      const placeId = cleanInput(data.input);
-      const json = await googleGet("/maps/api/place/details/json", {
-        place_id: placeId,
-        fields: "place_id,geometry,name,formatted_address,address_components",
-        language: "en",
-      });
-      const status = typeof json.status === "string" ? json.status : "";
-      if (status !== "OK") throwForStatus(status, action);
-      const result = (json.result ?? {}) as Record<string, unknown>;
-      const geometry = (result.geometry ?? {}) as Record<string, unknown>;
-      const point = asLatLng(geometry.location);
-      if (!point) {
-        throw new HttpsError("not-found", "That place has no coordinates.");
-      }
-      const rawFormatted = typeof result.formatted_address === "string" ? result.formatted_address : "";
-      const structured = extractStructuredAddress([result], rawFormatted);
-      const dto: DetailsDTO = {
-        placeId:
-          typeof result.place_id === "string" ? result.place_id : placeId,
-        lat: point.lat,
-        lng: point.lng,
-        formattedAddress: structured || rawFormatted,
-        name: typeof result.name === "string" ? result.name : "",
-      };
-      return { details: dto };
-    }
-
-    case "geocode": {
-      const input = cleanInput(data.input);
-      const json = await googleGet("/maps/api/geocode/json", {
-        address: input,
-        components: "country:NG",
-        language: "en",
-      });
-      const status = typeof json.status === "string" ? json.status : "";
-      if (status !== "OK") {
-        if (status === "ZERO_RESULTS") return { address: null };
-        throwForStatus(status, action);
-      }
-      const first = Array.isArray(json.results) ? json.results[0] : null;
-      const m =
-        typeof first === "object" && first !== null
-          ? (first as Record<string, unknown>)
-          : {};
-      const geometry = (m.geometry ?? {}) as Record<string, unknown>;
-      const point = asLatLng(geometry.location);
-      if (!point) throw new HttpsError("not-found", "No matching places found.");
-      return {
-        address: {
-          placeId: typeof m.place_id === "string" ? m.place_id : "",
-          lat: point.lat,
-          lng: point.lng,
-          formattedAddress:
-            typeof m.formatted_address === "string"
-              ? m.formatted_address
-              : input,
-          name: "",
-        } satisfies DetailsDTO,
-      };
-    }
-
-    case "reverseGeocode": {
-      if (!isLat(data.lat) || !isLng(data.lng)) {
-        throw new HttpsError("invalid-argument", "Invalid coordinates.");
-      }
-      const json = await googleGet("/maps/api/geocode/json", {
-        latlng: `${data.lat},${data.lng}`,
-        language: "en",
-      });
-      const status = typeof json.status === "string" ? json.status : "";
-      if (status !== "OK") {
-        if (status === "ZERO_RESULTS") {
-          return { address: `${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}` };
-        }
-        throwForStatus(status, action);
-      }
-      const fallback = `${data.lat.toFixed(5)}, ${data.lng.toFixed(5)}`;
-      const results = Array.isArray(json.results) ? json.results : [];
-      const structured = extractStructuredAddress(results, fallback);
-      return { address: structured };
-    }
-
-    case "directions": {
-      if (
-        !isLat(data.originLat) ||
-        !isLng(data.originLng) ||
-        !isLat(data.destLat) ||
-        !isLng(data.destLng)
-      ) {
-        throw new HttpsError("invalid-argument", "Invalid route endpoints.");
-      }
-      const json = await googleGet("/maps/api/directions/json", {
-        origin: `${data.originLat},${data.originLng}`,
-        destination: `${data.destLat},${data.destLng}`,
-        mode: "driving",
-        language: "en",
-      });
-      const status = typeof json.status === "string" ? json.status : "";
-      if (status !== "OK") {
-        if (status === "ZERO_RESULTS" || status === "NOT_FOUND") {
-          return { points: [], distanceM: 0, durationS: 0 };
-        }
-        throwForStatus(status, action);
-      }
-      const routes = Array.isArray(json.routes) ? json.routes : [];
-      const first =
-        typeof routes[0] === "object" && routes[0] !== null
-          ? (routes[0] as Record<string, unknown>)
-          : {};
-      const poly =
-        (first.overview_polyline ?? {}) as Record<string, unknown>;
-      let distanceM = 0;
-      let durationS = 0;
-      const legs = Array.isArray(first.legs) ? first.legs : [];
-      for (const leg of legs) {
-        if (typeof leg !== "object" || leg === null) continue;
-        const lm = leg as Record<string, unknown>;
-        const d = (lm.distance ?? {}) as Record<string, unknown>;
-        const t = (lm.duration ?? {}) as Record<string, unknown>;
-        if (typeof d.value === "number") distanceM += d.value;
-        if (typeof t.value === "number") durationS += t.value;
-      }
-      return {
-        polyline: typeof poly.points === "string" ? poly.points : "",
-        distanceM,
-        durationS,
-      };
-    }
-  }
+  throw new HttpsError(
+    "failed-precondition",
+    "Server-side Google Maps proxy is disabled."
+  );
 });
