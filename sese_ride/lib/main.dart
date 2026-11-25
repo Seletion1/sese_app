@@ -134,6 +134,7 @@ void main() async {
   PushNotificationService.init(
     onTap: _handlePushTap,
     backgroundMessageHandler: driverBackgroundHandler,
+    onBackgroundNotificationResponse: driverNotificationActionBackgroundHandler,
     requestPermissionImmediately: false,
   );
 
@@ -201,8 +202,23 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   final actionId = (data['actionId'] ?? '').toString();
 
   // Handle explicit notification action button clicks
-  if (actionId == 'decline_order' || actionId == 'decline') {
+  if (actionId == 'decline_offer' ||
+      actionId == 'decline_order' ||
+      actionId == 'decline') {
     debugPrint('sese_ride: driver declined order from notification banner.');
+    final tripId = (data['tripId'] ?? '').trim();
+    if (tripId.isNotEmpty) {
+      unawaited(
+        FirebaseFunctions.instance
+            .httpsCallable('declineTrip')
+            .call(<String, dynamic>{
+          'tripId': tripId,
+          'action': 'rejected',
+        }).then<void>((_) {}, onError: (Object e) {
+          debugPrint('sese_ride: declineTrip failed: $e');
+        }),
+      );
+    }
     return;
   }
 
@@ -249,7 +265,8 @@ Future<void> _handlePushTap(Map<String, String> data) async {
     return;
   }
 
-  if (type == 'trip_offer' ||
+  if (type == 'new_trip_offer' ||
+      type == 'trip_offer' ||
       type == 'direct_ping' ||
       type == 'tier_ping' ||
       type == 'marketplace_broadcast') {
@@ -380,6 +397,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    PushNotificationService.isAppInForeground = true;
     WidgetsBinding.instance.addObserver(this);
     // Best-effort restore of the persisted theme (defaults to system).
     ThemeController.instance.load();
@@ -400,12 +418,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    PushNotificationService.isAppInForeground = false;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    PushNotificationService.isAppInForeground =
+        state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumeKilledStateOffer());
     }

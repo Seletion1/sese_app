@@ -294,6 +294,7 @@ async function notifyCustomer(
   try {
     const isOrderPing =
       type.startsWith("order") ||
+      type === "new_trip_offer" ||
       type === "trip_offer" ||
       type === "direct_ping" ||
       type === "tier_ping" ||
@@ -303,7 +304,7 @@ async function notifyCustomer(
       extra.fullScreen === "true";
 
     const channelId = isOrderPing
-      ? "sese_orders"
+      ? "sese_driver_offers"
       : type === "broadcast"
       ? "sese_high_priority_alerts"
       : type.includes("chat") || type.includes("reply") || type.includes("escalated")
@@ -339,10 +340,14 @@ async function notifyCustomer(
             }),
       },
       apns: {
+        headers: {
+          "apns-priority": "10",
+        },
         payload: {
           aps: {
             alert: { title, body },
             sound: isOrderPing ? "sese_alert_chime.caf" : "default",
+            ...(isOrderPing ? { category: "sese_driver_offers" } : {}),
             contentAvailable: true,
           },
         },
@@ -383,6 +388,7 @@ async function notifyDriver(
   try {
     const isOrderPing =
       type.startsWith("order") ||
+      type === "new_trip_offer" ||
       type === "trip_offer" ||
       type === "direct_ping" ||
       type === "tier_ping" ||
@@ -412,10 +418,14 @@ async function notifyDriver(
             }),
       },
       apns: {
+        headers: {
+          "apns-priority": "10",
+        },
         payload: {
           aps: {
             alert: { title, body },
             sound: isOrderPing ? "sese_alert_chime.caf" : "default",
+            ...(isOrderPing ? { category: "sese_driver_offers" } : {}),
             contentAvailable: true,
           },
         },
@@ -1758,6 +1768,7 @@ async function advanceSequentialDispatch(
     data.fareAmount ??
     0
   );
+  const currency = String(data.currencySymbol ?? "₦");
   const offerExtras: Record<string, string> = {
     tripId: tripRef.id,
     dispatchStep: String(nextStep),
@@ -1765,8 +1776,11 @@ async function advanceSequentialDispatch(
     dropoffAddress: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
     pickup: String(data.pickupAddress ?? data.pickup?.address ?? ""),
     dropoff: String(data.dropoffAddress ?? data.dropoff?.address ?? ""),
+    fare: String(broadcastFareAmount),
+    currency,
+    expiresAtMs: String(stepExpiresAt),
     broadcast_fare: String(broadcastFareAmount),
-    fareFormatted: `₦${broadcastFareAmount.toLocaleString()}`,
+    fareFormatted: `${currency}${broadcastFareAmount.toLocaleString()}`,
     fareAmount: String(broadcastFareAmount),
     distanceKm: String(data.distanceKm ?? targetDriver.distanceKm ?? 0),
     pickupLat: String(data.pickupLat ?? data.pickup?.lat ?? 0),
@@ -1777,31 +1791,34 @@ async function advanceSequentialDispatch(
     serviceType: String(data.serviceType ?? data.category ?? "ride"),
   };
 
+  const offerTitle = `New Order • ${currency}${broadcastFareAmount.toLocaleString()}`;
+  const offerBody = `Pickup: ${offerExtras.pickupAddress}\nDrop-off: ${offerExtras.dropoffAddress}`;
+
   await Promise.allSettled([
     notifyCustomer(
       targetDriver.id,
       tripRef.id,
-      "New Order Request",
-      "You have an exclusive order request! Tap to review and accept.",
-      "trip_offer",
+      offerTitle,
+      offerBody,
+      "new_trip_offer",
       offerExtras,
       `driver_${targetDriver.id}`
     ),
     notifyCustomer(
       targetDriver.id,
       tripRef.id,
-      "New Order Request",
-      "You have an exclusive order request! Tap to review and accept.",
-      "trip_offer",
+      offerTitle,
+      offerBody,
+      "new_trip_offer",
       offerExtras,
       `user_${targetDriver.id}`
     ),
     notifyDriver(
       targetDriver.id,
       tripRef.id,
-      "New Order Request",
-      "You have an exclusive order request! Tap to review and accept.",
-      "trip_offer",
+      offerTitle,
+      offerBody,
+      "new_trip_offer",
       offerExtras
     ),
   ]);

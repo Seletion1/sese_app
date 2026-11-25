@@ -2922,14 +2922,24 @@ class _PingListenerState extends State<_PingListener>
           }
         }
       } else if (const {
+        'new_trip_offer',
         'trip_offer',
         'direct_ping',
         'tier_ping',
         'marketplace_broadcast',
       }.contains(type)) {
+        final actionId = (data['actionId'] ?? '').toString();
+        if (actionId == 'decline_offer' ||
+            actionId == 'decline_order' ||
+            actionId == 'decline') {
+          return;
+        }
         if (!_sheetOpen && tripId.isNotEmpty && tripId != _sheetForTrip) {
           // ignore: discarded_futures
-          _fetchAndShowOffer(tripId);
+          _fetchAndShowOffer(
+            tripId,
+            autoAccept: actionId == 'accept_offer',
+          );
         }
       }
     });
@@ -2938,9 +2948,13 @@ class _PingListenerState extends State<_PingListener>
       final data = PushNotificationService.incomingOfferNotifier.value;
       if (data != null) {
         final tripId = data['tripId'] ?? '';
+        final actionId = data['actionId'] ?? '';
         if (tripId.isNotEmpty && !_sheetOpen && tripId != _sheetForTrip) {
           // ignore: discarded_futures
-          _fetchAndShowOffer(tripId);
+          _fetchAndShowOffer(
+            tripId,
+            autoAccept: actionId == 'accept_offer',
+          );
         }
       }
     };
@@ -2950,8 +2964,12 @@ class _PingListenerState extends State<_PingListener>
       final initialData = PushNotificationService.incomingOfferNotifier.value;
       if (initialData != null) {
         final tripId = initialData['tripId'] ?? '';
+        final actionId = initialData['actionId'] ?? '';
         if (tripId.isNotEmpty) {
-          await _fetchAndShowOffer(tripId);
+          await _fetchAndShowOffer(
+            tripId,
+            autoAccept: actionId == 'accept_offer',
+          );
           return;
         }
       }
@@ -3005,7 +3023,10 @@ class _PingListenerState extends State<_PingListener>
     } catch (_) {}
   }
 
-  Future<void> _fetchAndShowOffer(String tripId) async {
+  Future<void> _fetchAndShowOffer(
+    String tripId, {
+    bool autoAccept = false,
+  }) async {
     if (tripId.isEmpty || _sheetOpen || !mounted || widget.isOnBreak()) return;
     if (_sheetForTrip == tripId) return;
 
@@ -3018,6 +3039,15 @@ class _PingListenerState extends State<_PingListener>
           trip.status == TripStatus.marketplaceOpen ||
           trip.status == TripStatus.marketplaceList;
       if (!isOfferActive) return;
+
+      if (autoAccept) {
+        try {
+          await widget.service.acceptTrip(tripId);
+          return;
+        } catch (e) {
+          debugPrint('autoAccept from notification failed for $tripId: $e');
+        }
+      }
 
       if (mounted && !_sheetOpen) {
         await _showPing(trip);

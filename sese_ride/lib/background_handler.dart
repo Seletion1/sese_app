@@ -1,23 +1,24 @@
-import 'package:app_launcher/app_launcher.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:sese_core/services/push_notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'firebase_options.dart';
+
 /// Driver-side background FCM handler for `sese_ride`.
 ///
-/// For incoming order pings (`trip_offer`, `direct_ping`, `tier_ping`,
-/// `marketplace_broadcast`), this:
+/// For incoming order pings (`new_trip_offer`, `trip_offer`, `direct_ping`,
+/// `tier_ping`, `marketplace_broadcast`), this:
 /// 1. Persists the payload to [SharedPreferences] for instant handoff.
-/// 2. Fires the high-priority full-screen intent notification via
-///    [PushNotificationService.showFromMessage] (for audio alert & lockscreen banner).
-/// 3. Directly brings `MainActivity` to the foreground via [AppLauncher.bringToForeground],
-///    popping up the full-screen order sheet (`IncomingOfferSheet`) instantly over the
-///    home screen or whatever app the driver is using.
+/// 2. Fires the Play-Store-compliant heads-up notification with `Accept` and
+///    `Decline` action buttons via [PushNotificationService.showFromMessage].
 @pragma('vm:entry-point')
 Future<void> driverBackgroundHandler(RemoteMessage message) async {
   final type = (message.data['type'] ?? '').toString();
   const offerTypes = {
+    'new_trip_offer',
     'trip_offer',
     'direct_ping',
     'tier_ping',
@@ -43,7 +44,7 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
     }
 
     // 2. Fire the native high-priority heads-up notification with audible
-    //    chime and Open Order / Decline action buttons.
+    //    chime and Accept / Decline action buttons.
     try {
       await PushNotificationService.showFromMessage(message);
       debugPrint(
@@ -51,23 +52,6 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
     } catch (e) {
       debugPrint(
           'driverBackgroundHandler: showFromMessage heads-up alert failed: $e');
-    }
-
-    // 3. Best-effort bring MainActivity to foreground if SYSTEM_ALERT_WINDOW is active (e.g. driver bubble).
-    // On Android 10+ / targetSdk 36, background launches without user touch are blocked by OS policy;
-    // the heads-up notification with action buttons (showsUserInterface: true) is the primary reliable trigger.
-    try {
-      final brought = await AppLauncher().bringToForeground(
-        extras: {
-          'tripId': (message.data['tripId'] ?? '').toString(),
-          'type': type,
-        },
-      );
-      debugPrint(
-          'driverBackgroundHandler: brought MainActivity to foreground ($brought) for trip ${message.data['tripId']}');
-    } catch (e) {
-      debugPrint(
-          'driverBackgroundHandler: bringToForeground error: $e');
     }
     return;
   }
@@ -77,5 +61,48 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
     await PushNotificationService.showFromMessage(message);
   } catch (e) {
     debugPrint('driverBackgroundHandler: showFromMessage failed: $e');
+  }
+}
+
+/// Background action handler for local notification buttons (`Decline`) when
+/// the driver taps an action without bringing the app UI to the foreground.
+@pragma('vm:entry-point')
+Future<void> driverNotificationActionBackgroundHandler(
+  NotificationResponse response,
+) async {
+  final actionId = response.actionId;
+  if (actionId != 'decline_offer' && actionId != 'decline_order') {
+    return;
+  }
+  final payload = response.payload;
+  if (payload == null || payload.isEmpty) return;
+
+  String tripId = '';
+  try {
+    final data = Uri.splitQueryString(payload);
+    tripId = (data['tripId'] ?? '').trim();
+  } catch (_) {}
+  if (tripId.isEmpty) return;
+
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+    await FirebaseFunctions.instance
+        .httpsCallable('declineTrip')
+        .call(<String, dynamic>{
+      'tripId': tripId,
+      'action': 'rejected',
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final pending = prefs.getString('pending_offer_payload');
+    if (pending != null && pending.contains(tripId)) {
+      await prefs.remove('pending_offer_payload');
+    }
+  } catch (e) {
+    debugPrint(
+        'driverNotificationActionBackgroundHandler: declineTrip failed: $e');
   }
 }

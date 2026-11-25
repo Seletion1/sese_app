@@ -5,12 +5,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+export 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show NotificationResponse, NotificationResponseType;
+
 /// Notification channels (Android importance max + custom chime).
 class PushChannels {
   PushChannels._();
 
   /// Order pings: heads-up + full-screen intent capable + custom chime.
   static const orders = 'sese_orders';
+
+  /// Play-Store-compliant heads-up driver offer banners with Accept/Decline actions.
+  static const driverOffers = 'sese_driver_offers';
 
   /// Trip/support chat messages.
   static const chat = 'sese_chat';
@@ -121,9 +127,24 @@ class PushNotificationService {
   static final ValueNotifier<Map<String, String>?> incomingOfferNotifier =
       ValueNotifier(null);
 
+  /// Whether the app is currently in the foreground (resumed).
+  ///
+  /// When true, incoming driver offer heads-up banners are suppressed because
+  /// the active dashboard renders the offer directly via [onMessageDataStream].
+  static bool isAppInForeground = false;
+
   /// Whether local channels were created (false in tests / on failure).
   static bool get channelsReady => _channelsReady;
 
+  static const _driverOffersChannel = AndroidNotificationChannel(
+    PushChannels.driverOffers,
+    'Driver order offers',
+    description: 'High-priority incoming ride and delivery offers',
+    importance: Importance.max,
+    playSound: true,
+    sound: RawResourceAndroidNotificationSound(PushChannels.alertSound),
+    enableVibration: true,
+  );
   static const _orderChannel = AndroidNotificationChannel(
     PushChannels.orders,
     'Order alerts',
@@ -211,6 +232,8 @@ class PushNotificationService {
   static Future<void> init({
     void Function(Map<String, String> data)? onTap,
     BackgroundMessageHandler? backgroundMessageHandler,
+    DidReceiveBackgroundNotificationResponseCallback?
+        onBackgroundNotificationResponse,
     bool requestPermissionImmediately = false,
   }) async {
     _onTap = onTap;
@@ -221,6 +244,27 @@ class PushNotificationService {
         requestAlertPermission: requestPermissionImmediately,
         requestBadgePermission: requestPermissionImmediately,
         requestSoundPermission: requestPermissionImmediately,
+        notificationCategories: <DarwinNotificationCategory>[
+          DarwinNotificationCategory(
+            PushChannels.driverOffers,
+            actions: <DarwinNotificationAction>[
+              DarwinNotificationAction.plain(
+                'accept_offer',
+                'Accept',
+                options: <DarwinNotificationActionOption>{
+                  DarwinNotificationActionOption.foreground,
+                },
+              ),
+              DarwinNotificationAction.plain(
+                'decline_offer',
+                'Decline',
+                options: <DarwinNotificationActionOption>{
+                  DarwinNotificationActionOption.destructive,
+                },
+              ),
+            ],
+          ),
+        ],
       );
       await _local.initialize(
         settings: InitializationSettings(
@@ -228,10 +272,13 @@ class PushNotificationService {
         onDidReceiveNotificationResponse: (response) {
           _handleTap(response.payload, actionId: response.actionId);
         },
+        onDidReceiveBackgroundNotificationResponse:
+            onBackgroundNotificationResponse,
       );
       final android = _local.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       for (final c in [
+        _driverOffersChannel,
         _orderChannel,
         _chatChannel,
         _systemChannel,
@@ -435,6 +482,7 @@ class PushNotificationService {
     }
     final type = data['type'] ?? '';
     const offerTypes = {
+      'new_trip_offer',
       'trip_offer',
       'direct_ping',
       'tier_ping',
@@ -442,7 +490,8 @@ class PushNotificationService {
     };
     if (offerTypes.contains(type) &&
         actionId != 'decline' &&
-        actionId != 'decline_order') {
+        actionId != 'decline_order' &&
+        actionId != 'decline_offer') {
       incomingOfferNotifier.value = data;
     }
     try {
@@ -461,11 +510,14 @@ class PushNotificationService {
     }
     // Order offer & dispatch pings MUST be evaluated BEFORE generic 'trip_' prefix
     // check so that 'trip_offer' is not trapped in the chat channel!
-    if (type == 'trip_offer' ||
+    if (type == 'new_trip_offer' ||
+        type == 'trip_offer' ||
         type == 'direct_ping' ||
         type == 'tier_ping' ||
-        type == 'marketplace_broadcast' ||
-        type.startsWith('order') ||
+        type == 'marketplace_broadcast') {
+      return PushChannels.driverOffers;
+    }
+    if (type.startsWith('order') ||
         type == 'dropoff_approval_request' ||
         type == 'drop_off_confirmation' ||
         type == 'dropoff_approval' ||
@@ -489,6 +541,67 @@ class PushNotificationService {
   /// USE_FULL_SCREEN_INTENT is stripped to comply with Google Play Console declarations.
   /// Heads-up notifications with action buttons (showsUserInterface: true) reliably bring
   /// the app to the foreground on user interaction without background activity launch blocks.
+  /// Formats a driver offer notification banner and computes its remaining
+  /// [timeoutAfterMs] window.
+  ///
+  /// Returns `null` when `expiresAtMs` is present and already expired relative
+  /// to [now]. Uses a deterministic positive 31-bit notification ID derived
+  /// from `tripId` so duplicate topic deliveries update instead of stacking.
+  static ({int id, String title, String body, int? timeoutAfterMs})?
+      buildDriverOfferBanner(
+    Map<String, dynamic> data, {
+    DateTime? now,
+    String? fallbackTitle,
+    String? fallbackBody,
+  }) {
+    final current = now ?? DateTime.now();
+    final expiresRaw = (data['expiresAtMs'] ?? '').toString().trim();
+    int? timeoutAfterMs;
+    if (expiresRaw.isNotEmpty) {
+      final expiresAtMs = int.tryParse(expiresRaw);
+      if (expiresAtMs != null) {
+        final remaining = expiresAtMs - current.millisecondsSinceEpoch;
+        if (remaining <= 0) {
+          return null;
+        }
+        timeoutAfterMs = remaining;
+      }
+    }
+
+    final tripId = (data['tripId'] ?? '').toString().trim();
+    final fare = (data['fare'] ?? '').toString().trim();
+    final rawCurrency = (data['currency'] ?? '').toString().trim();
+    final currency =
+        (rawCurrency.isEmpty || rawCurrency == 'NGN') ? '₦' : rawCurrency;
+    final pickup = (data['pickupAddress'] ?? '').toString().trim();
+    final dropoff = (data['dropoffAddress'] ?? '').toString().trim();
+
+    final title = fare.isNotEmpty
+        ? 'New Order • $currency$fare'
+        : ((data['offerTitle'] ?? data['title'] ?? fallbackTitle ?? 'New Order')
+            .toString());
+
+    final body = (pickup.isNotEmpty || dropoff.isNotEmpty)
+        ? 'Pickup: ${pickup.isNotEmpty ? pickup : "See map"}\n'
+            'Drop-off: ${dropoff.isNotEmpty ? dropoff : "See map"}'
+        : ((data['offerBody'] ??
+                data['body'] ??
+                fallbackBody ??
+                'Tap to view order details.')
+            .toString());
+
+    final id = tripId.isNotEmpty
+        ? (tripId.hashCode & 0x7fffffff)
+        : (current.millisecondsSinceEpoch ~/ 1000);
+
+    return (
+      id: id,
+      title: title,
+      body: body,
+      timeoutAfterMs: timeoutAfterMs,
+    );
+  }
+
   static Future<void> showFromMessage(RemoteMessage message) async {
     try {
       final data = Map<String, dynamic>.from(message.data);
@@ -497,15 +610,41 @@ class PushNotificationService {
         await cancelOnlineAlert();
         return;
       }
-      final title = message.notification?.title ??
-          (data['title'] ?? 'SeSe').toString();
-      final body = message.notification?.body ??
-          (data['body'] ?? 'You have a new update.').toString();
       final channel = _channelFor(data);
       final isCall = channel == PushChannels.calls;
+      final isOffer = channel == PushChannels.driverOffers;
       final isOrder = channel == PushChannels.orders;
       final isBroadcast = channel == PushChannels.broadcast;
-      final id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+      if (isOffer && isAppInForeground) {
+        return;
+      }
+
+      late final String title;
+      late final String body;
+      late final int id;
+      int? timeoutAfterMs;
+
+      if (isOffer) {
+        final banner = buildDriverOfferBanner(
+          data,
+          fallbackTitle: message.notification?.title,
+          fallbackBody: message.notification?.body,
+        );
+        if (banner == null) {
+          return;
+        }
+        title = banner.title;
+        body = banner.body;
+        id = banner.id;
+        timeoutAfterMs = banner.timeoutAfterMs;
+      } else {
+        title = message.notification?.title ??
+            (data['title'] ?? 'SeSe').toString();
+        body = message.notification?.body ??
+            (data['body'] ?? 'You have a new update.').toString();
+        id = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      }
 
       final List<AndroidNotificationAction>? actions;
       if (isCall) {
@@ -518,6 +657,21 @@ class PushNotificationService {
           AndroidNotificationAction(
             'decline_call',
             'Decline',
+            cancelNotification: true,
+          ),
+        ];
+      } else if (isOffer) {
+        actions = const <AndroidNotificationAction>[
+          AndroidNotificationAction(
+            'accept_offer',
+            'Accept',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+          AndroidNotificationAction(
+            'decline_offer',
+            'Decline',
+            showsUserInterface: false,
             cancelNotification: true,
           ),
         ];
@@ -547,14 +701,16 @@ class PushNotificationService {
             channel,
             isCall
                 ? 'Incoming calls'
-                : isOrder
-                    ? 'Order alerts'
-                    : channel == PushChannels.chat
-                        ? 'Chat messages'
-                        : isBroadcast
-                            ? 'Announcements'
-                            : 'System announcements',
-            importance: (isCall || isOrder || isBroadcast)
+                : isOffer
+                    ? 'Driver order offers'
+                    : isOrder
+                        ? 'Order alerts'
+                        : channel == PushChannels.chat
+                            ? 'Chat messages'
+                            : isBroadcast
+                                ? 'Announcements'
+                                : 'System announcements',
+            importance: (isCall || isOffer || isOrder || isBroadcast)
                 ? Importance.max
                 : Importance.high,
             priority: Priority.high,
@@ -566,24 +722,29 @@ class PushNotificationService {
                 : const RawResourceAndroidNotificationSound(
                     PushChannels.alertSound),
             fullScreenIntent: false,
-            category: (isCall || isOrder)
+            styleInformation: isOffer
+                ? BigTextStyleInformation(body, contentTitle: title)
+                : null,
+            timeoutAfter: isOffer ? timeoutAfterMs : null,
+            category: (isCall || isOffer || isOrder)
                 ? AndroidNotificationCategory.call
                 : AndroidNotificationCategory.message,
             visibility: NotificationVisibility.public,
             enableVibration: true,
-            vibrationPattern: (isCall || isOrder)
+            vibrationPattern: (isCall || isOffer || isOrder)
                 ? Int64List.fromList([0, 1000, 500, 1000, 500, 1000])
                 : null,
-            audioAttributesUsage: (isCall || isOrder)
+            audioAttributesUsage: (isCall || isOffer || isOrder)
                 ? AudioAttributesUsage.notificationRingtone
                 : AudioAttributesUsage.notification,
             actions: actions,
           ),
-          iOS: const DarwinNotificationDetails(
+          iOS: DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,
             interruptionLevel: InterruptionLevel.timeSensitive,
+            categoryIdentifier: isOffer ? PushChannels.driverOffers : null,
           ),
         ),
         payload: _payloadOf(message),
