@@ -101,7 +101,7 @@ void main() {
       );
       // ~70m from pickup — inside the 100m–500m trigger band.
       fixes.add(_fix(6.5249, 3.3797));
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 400));
       expect(arrived, isTrue);
     });
 

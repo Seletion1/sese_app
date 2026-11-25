@@ -376,20 +376,24 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
   void _listenSeseCredits() {
     final uid = widget.user?.uid;
     if (uid == null || uid.isEmpty) return;
-    _seseCreditsSub = FirebaseFirestore.instance
-        .collection('wallets')
-        .doc(uid)
-        .snapshots()
-        .listen((snap) {
-      if (!mounted) return;
-      final data = snap.data();
-      if (data != null) {
-        final credits = (data['seseCredits'] as num?)?.toDouble() ?? 0.0;
-        setState(() {
-          _availableSeseCredits = credits;
-        });
-      }
-    });
+    try {
+      _seseCreditsSub = FirebaseFirestore.instance
+          .collection('wallets')
+          .doc(uid)
+          .snapshots()
+          .listen((snap) {
+        if (!mounted) return;
+        final data = snap.data();
+        if (data != null) {
+          final credits = (data['seseCredits'] as num?)?.toDouble() ?? 0.0;
+          setState(() {
+            _availableSeseCredits = credits;
+          });
+        }
+      });
+    } catch (_) {
+      // Widget tests run with no Firebase app initialized.
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────

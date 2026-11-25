@@ -172,9 +172,10 @@ void main() {
       expect(find.text('Trip Details'), findsOneWidget);
       expect(find.text('Completed'), findsWidgets);
 
-      // Audit log in sheet should show the superseded skip clearly
-      expect(find.text('Dispatch Audit Log'), findsOneWidget);
-      expect(find.text('Skipped by Driver (Superseded)'), findsOneWidget);
+      // Internal Dispatch Audit Log is intentionally suppressed from completed
+      // customer trip details so drivers/customers never see superseded skip noise.
+      expect(find.text('Dispatch Audit Log'), findsNothing);
+      expect(find.text('Skipped by Driver (Superseded)'), findsNothing);
     });
 
     testWidgets(
