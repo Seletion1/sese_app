@@ -25,6 +25,11 @@ import 'live_trip_screen.dart';
 /// - **No expired-state rendering** — there is no "Expired" card, no disabled
 ///   Accept button on a stale offer; expired bids simply vanish.
 class CustomerBidOverlay extends StatefulWidget {
+  /// Global notifier updated by the auth gate with the currently signed-in
+  /// user's UID so the root [MaterialApp.builder] overlay stays in sync.
+  static final ValueNotifier<String?> activeCustomerUidNotifier =
+      ValueNotifier<String?>(null);
+
   final String userId;
   final TripRepository? tripRepository;
   final Widget child;
@@ -220,7 +225,10 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
     try {
       await _repo.acceptBid(pair.tripId, pair.bid.driverId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        // Immediately clear all remaining bid cards for this trip once a driver
+        // is accepted (before Firestore stream propagation catches up).
+        _removeBidsForTrip(pair.tripId);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           const SnackBar(
             content: Text('Offer accepted! Driver is on the way.'),
             backgroundColor: Color(0xFF059669),
@@ -232,7 +240,7 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
       if (mounted) {
         // If the server rejected due to expiry, the banner is already gone;
         // show a brief snack for user awareness.
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(e.userMessage)),
         );
         // Force-remove the stale card regardless of Firestore stream lag.
@@ -252,7 +260,7 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
       await _repo.rejectBid(pair.tripId, pair.bid.driverId);
     } on TripException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(content: Text(e.userMessage)),
         );
       }
@@ -262,6 +270,7 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
   }
 
   void _navigateToLiveTrip(String tripId) {
+    if (LiveTripScreen.activeTripIdNotifier.value == tripId) return;
     final navState = IncomingCallOverlay.navigatorKey.currentState ??
         Navigator.maybeOf(context);
     navState?.push(
@@ -291,18 +300,25 @@ class _CustomerBidOverlayState extends State<CustomerBidOverlay> {
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (int i = 0; i < _pendingBids.length; i++)
-                      _BidBannerCard(
-                        key: ValueKey('bid_banner_${_pendingBids[i].bid.bidId}'),
-                        pair: _pendingBids[i],
-                        isBusy: _actionBusy,
-                        onAccept: () => _acceptBid(_pendingBids[i]),
-                        onReject: () => _rejectBid(_pendingBids[i]),
-                      ),
-                  ],
+                child: ConstrainedBox(
+                  // Cap stack height to 45% of screen height so multiple
+                  // simultaneous offers scroll smoothly without covering the
+                  // entire viewport.
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+                  ),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    itemCount: _pendingBids.length,
+                    itemBuilder: (context, i) => _BidBannerCard(
+                      key: ValueKey('bid_banner_${_pendingBids[i].bid.bidId}'),
+                      pair: _pendingBids[i],
+                      isBusy: _actionBusy,
+                      onAccept: () => _acceptBid(_pendingBids[i]),
+                      onReject: () => _rejectBid(_pendingBids[i]),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -551,6 +567,7 @@ class _BidBannerCardState extends State<_BidBannerCard> {
                   children: [
                     Expanded(
                       child: FilledButton.icon(
+                        key: Key('accept_bid_button_${bid.driverId}'),
                         onPressed: widget.onAccept,
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.green.shade700,
@@ -572,6 +589,7 @@ class _BidBannerCardState extends State<_BidBannerCard> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton.icon(
+                        key: Key('reject_bid_button_${bid.driverId}'),
                         onPressed: widget.onReject,
                         style: OutlinedButton.styleFrom(
                           padding: EdgeInsets.zero,

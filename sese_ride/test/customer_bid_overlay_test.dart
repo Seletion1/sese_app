@@ -233,4 +233,118 @@ void main() {
     expect(repo.rejectedTripId, equals('trip-101'));
     expect(repo.rejectedDriverId, equals('driver-777'));
   });
+
+  testWidgets(
+      'CustomerBidOverlay constrains multiple simultaneous bids to a scrollable 45%-height ListView and clears remaining bids on Accept',
+      (tester) async {
+    final repo = _FakeOverlayTripRepo();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          useMaterial3: false,
+          splashFactory: InkRipple.splashFactory,
+        ),
+        home: Scaffold(
+          body: CustomerBidOverlay(
+            userId: 'cust-101',
+            tripRepository: repo,
+            child: const Center(child: Text('Underlying Screen Content')),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    repo.activeTripsController.add([
+      const ActiveTrip(
+        tripId: 'trip-101',
+        customerId: 'cust-101',
+        status: TripStatus.bidding,
+        fareAmount: 3300,
+        pickupAddress: '10 Olafiranye St',
+        dropoffAddress: '15 Ikorodu Rd',
+      ),
+    ]);
+    await tester.pump();
+
+    final now = DateTime.now();
+    final bids = [
+      for (int i = 1; i <= 5; i++)
+        BidModel(
+          bidId: 'driver-$i',
+          tripId: 'trip-101',
+          driverId: 'driver-$i',
+          driverName: 'Driver $i',
+          offeredFare: 3400 + (i * 100.0),
+          fareFormatted: '₦${3400 + (i * 100)}',
+          status: BidStatus.pending,
+          expiresAt: now.add(Duration(seconds: 20 + i)),
+          bidCountdownSeconds: 30,
+        ),
+    ];
+
+    repo.bidsController.add(bids);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Scrollable ListView is present and constrained to 45% of screen height
+    expect(find.byType(ListView), findsOneWidget);
+    final listRenderBox = tester.renderObject<RenderBox>(find.byType(ListView));
+    final screenHeight = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    expect(listRenderBox.size.height, lessThanOrEqualTo(screenHeight * 0.45 + 1.0));
+
+    // First bid is visible; tapping Accept clears all remaining bids immediately
+    expect(find.text('Driver 1'), findsOneWidget);
+    await tester.tap(find.text('Accept').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(repo.acceptedTripId, equals('trip-101'));
+    expect(repo.acceptedDriverId, equals('driver-1'));
+    // All remaining bid cards for trip-101 were cleared
+    expect(find.text('Driver 2'), findsNothing);
+    expect(find.text('Driver 5'), findsNothing);
+  });
+
+  testWidgets(
+      'LiveTripScreen bottom sheet does not render duplicate inline driver bid cards',
+      (tester) async {
+    final repo = _FakeOverlayTripRepo();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          useMaterial3: false,
+          splashFactory: InkRipple.splashFactory,
+        ),
+        home: LiveTripScreen(
+          tripId: 'trip-101',
+          repository: repo,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Emit a pending bid on the repo
+    repo.bidsController.add([
+      BidModel(
+        bidId: 'driver-777',
+        tripId: 'trip-101',
+        driverId: 'driver-777',
+        driverName: 'Bamiduro Micheal (Seletion)',
+        offeredFare: 3500,
+        fareFormatted: '₦3500',
+        status: BidStatus.pending,
+        expiresAt: DateTime.now().add(const Duration(seconds: 30)),
+      ),
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // No inline bid header or duplicate bid card inside the LiveTripScreen sheet
+    expect(find.textContaining('offered a fare'), findsNothing);
+    expect(find.text('Bamiduro Micheal (Seletion)'), findsNothing);
+  });
 }

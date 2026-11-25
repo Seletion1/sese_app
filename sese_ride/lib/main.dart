@@ -28,6 +28,7 @@ import 'features/driver/presentation/driver_onboarding_screen.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
+import 'features/trips/presentation/customer_bid_overlay.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
 import 'features/trips/presentation/live_trip_screen.dart';
@@ -459,7 +460,22 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           themeMode: themeMode,
           builder: (context, child) => IncomingCallOverlay(
             child: NetworkStatusBannerWrapper(
-              child: child ?? const SizedBox.shrink(),
+              child: ListenableBuilder(
+                listenable: Listenable.merge([
+                  CustomerBidOverlay.activeCustomerUidNotifier,
+                  RoleController.instance,
+                ]),
+                builder: (context, _) {
+                  final uid =
+                      CustomerBidOverlay.activeCustomerUidNotifier.value ?? '';
+                  final isDriverMode =
+                      RoleController.instance.currentRole == UserRole.driver;
+                  return CustomerBidOverlay(
+                    userId: isDriverMode ? '' : uid,
+                    child: child ?? const SizedBox.shrink(),
+                  );
+                },
+              ),
             ),
           ),
           home: widget.showSplash
@@ -553,6 +569,14 @@ class _AuthGateState extends State<_AuthGate> {
         }
 
         final user = snapshot.data;
+        final nextUid = user?.uid;
+        if (CustomerBidOverlay.activeCustomerUidNotifier.value != nextUid) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (CustomerBidOverlay.activeCustomerUidNotifier.value != nextUid) {
+              CustomerBidOverlay.activeCustomerUidNotifier.value = nextUid;
+            }
+          });
+        }
 
         if (user == null) {
           _modeRestoreUid = null;

@@ -11,7 +11,6 @@ import 'package:sese_core/sese_core.dart';
 import '../../../core/services/call_service.dart';
 import '../../../widgets/map_provider.dart';
 import '../../customer/services/location_service.dart';
-import '../models/bid_models.dart';
 import '../models/trip_models.dart';
 import '../services/trip_service.dart';
 import 'cancel_trip_dialog.dart';
@@ -21,7 +20,6 @@ import 'trip_rating_dialog.dart';
 import '../services/trip_chat_service.dart';
 import '../services/trip_rating_service.dart';
 import '../../customer/presentation/customer_dispatch_screen.dart';
-import 'customer_bid_overlay.dart';
 
 /// Pops or returns to the home screen when a trip is closed or cancelled.
 void _navigateBackToHomeOrPop(
@@ -101,7 +99,12 @@ void _navigateToEditBooking(
 /// (status banner, driver sheet, live OpenStreetMap driver marker). The backend owns
 /// every transition — matchmaking, ping timeouts, re-broadcasts — so the
 /// customer may close the app and restore this screen later from Trips.
-class LiveTripScreen extends StatelessWidget {
+class LiveTripScreen extends StatefulWidget {
+  /// Tracks the tripId currently displayed by an active [LiveTripScreen] so
+  /// global overlays can avoid pushing duplicate routes when already on-screen.
+  static final ValueNotifier<String?> activeTripIdNotifier =
+      ValueNotifier<String?>(null);
+
   final String tripId;
   final TripRepository repository;
   final bool isPushedFromDispatch;
@@ -113,8 +116,35 @@ class LiveTripScreen extends StatelessWidget {
     this.isPushedFromDispatch = false,
   });
 
+  @override
+  State<LiveTripScreen> createState() => _LiveTripScreenState();
+}
+
+class _LiveTripScreenState extends State<LiveTripScreen> {
+  @override
+  void initState() {
+    super.initState();
+    LiveTripScreen.activeTripIdNotifier.value = widget.tripId;
+  }
+
+  @override
+  void didUpdateWidget(LiveTripScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tripId != widget.tripId) {
+      LiveTripScreen.activeTripIdNotifier.value = widget.tripId;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (LiveTripScreen.activeTripIdNotifier.value == widget.tripId) {
+      LiveTripScreen.activeTripIdNotifier.value = null;
+    }
+    super.dispose();
+  }
+
   void _handleBackPress(BuildContext context) {
-    if (isPushedFromDispatch && Navigator.of(context).canPop()) {
+    if (widget.isPushedFromDispatch && Navigator.of(context).canPop()) {
       Navigator.of(context).pop('minimize_to_home');
     } else if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -137,18 +167,9 @@ class LiveTripScreen extends StatelessWidget {
             onPressed: () => _handleBackPress(context),
           ),
         ),
-        body: CustomerBidOverlay(
-          userId: () {
-            try {
-              return FirebaseAuth.instance.currentUser?.uid ?? '';
-            } catch (_) {
-              return '';
-            }
-          }(),
-          tripRepository: repository,
-          child: StreamBuilder<ActiveTrip?>(
-            stream: repository.tripStream(tripId),
-            builder: (context, snapshot) {
+        body: StreamBuilder<ActiveTrip?>(
+          stream: widget.repository.tripStream(widget.tripId),
+          builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
               return const SeseDetailSkeleton();
             }
@@ -229,7 +250,7 @@ class LiveTripScreen extends StatelessWidget {
                 body: reason,
                 onClose: () => _navigateBackToHomeOrPop(
                   context,
-                  isPushedFromDispatch: isPushedFromDispatch,
+                  isPushedFromDispatch: widget.isPushedFromDispatch,
                   trip: trip,
                 ),
               );
@@ -240,20 +261,19 @@ class LiveTripScreen extends StatelessWidget {
                 trip.status == TripStatus.needsCustomerAction) {
               return _OrderRecoveryBody(
                 trip: trip,
-                repository: repository,
-                isPushedFromDispatch: isPushedFromDispatch,
+                repository: widget.repository,
+                isPushedFromDispatch: widget.isPushedFromDispatch,
               );
             }
             return _LiveTripBody(
               trip: trip,
-              repository: repository,
-              isPushedFromDispatch: isPushedFromDispatch,
+              repository: widget.repository,
+              isPushedFromDispatch: widget.isPushedFromDispatch,
             );
           },
         ),
       ),
-    ),
-  );
+    );
   }
 }
 
@@ -1601,405 +1621,7 @@ class _LiveTripBodyState extends State<_LiveTripBody> {
   }
 }
 
-// ── Bid carousel & queue manager ──────────────────────────────────────────────
-
-/// Multi-driver bidding list manager (default max 5 visible, Sese Hub configurable).
-/// Automatically triggers bottom sheet expansion animation when a new bid arrives
-/// while the sheet is minimized.
-class _BidCarousel extends StatefulWidget {
-  final ActiveTrip trip;
-  final TripRepository repository;
-  final int maxConcurrentBids;
-  final DraggableScrollableController? sheetController;
-
-  const _BidCarousel({
-    required this.trip,
-    required this.repository,
-    this.maxConcurrentBids = 5,
-    this.sheetController,
-  });
-
-  @override
-  State<_BidCarousel> createState() => _BidCarouselState();
-}
-
-class _BidCarouselState extends State<_BidCarousel> {
-  int _previousPendingCount = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<BidModel>>(
-      stream: widget.repository.bidsStream(widget.trip.tripId),
-      builder: (context, snapshot) {
-        final allPendingBids = snapshot.data
-                ?.where((b) => b.status == BidStatus.pending && !b.isExpired)
-                .toList() ??
-            const [];
-
-        // Auto-expanding bottom sheet on incoming bid
-        if (allPendingBids.length > _previousPendingCount) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (widget.sheetController != null &&
-                widget.sheetController!.isAttached &&
-                widget.sheetController!.size < 0.65) {
-              widget.sheetController!.animateTo(
-                0.70,
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.easeOutCubic,
-              );
-            }
-          });
-          try {
-            HapticFeedback.heavyImpact();
-            SystemSound.play(SystemSoundType.alert);
-          } catch (_) {}
-        }
-        _previousPendingCount = allPendingBids.length;
-
-        // Requirement 3: Cap visible bids to maxConcurrentBids (default 5 or Sese Hub setting)
-        final visibleBids =
-            allPendingBids.take(widget.maxConcurrentBids).toList();
-
-        if (visibleBids.isEmpty) return const SizedBox.shrink();
-
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  '${allPendingBids.length} driver${allPendingBids.length == 1 ? '' : 's'} offered a fare',
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.seseGold,
-                      ),
-                ),
-              ),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: visibleBids.length,
-                itemBuilder: (ctx, i) {
-                  final bid = visibleBids[i];
-                  return _BidCard(
-                    key: ValueKey('bid_card_${bid.bidId}'),
-                    bid: bid,
-                    onAccept: () => _accept(ctx, bid.driverId),
-                    onReject: () => _reject(ctx, bid.driverId),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _accept(BuildContext context, String driverId) async {
-    try {
-      await widget.repository.acceptBid(widget.trip.tripId, driverId);
-    } on TripException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.userMessage)));
-      }
-    }
-  }
-
-  Future<void> _reject(BuildContext context, String driverId) async {
-    try {
-      await widget.repository.rejectBid(widget.trip.tripId, driverId);
-    } on TripException catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.userMessage)));
-      }
-    }
-  }
-}
-
-/// Compact multi-bid row item card with live ticking synchronized countdown.
-class _BidCard extends StatefulWidget {
-  final BidModel bid;
-  final VoidCallback onAccept;
-  final VoidCallback onReject;
-
-  const _BidCard({
-    super.key,
-    required this.bid,
-    required this.onAccept,
-    required this.onReject,
-  });
-
-  @override
-  State<_BidCard> createState() => _BidCardState();
-}
-
-class _BidCardState extends State<_BidCard> {
-  /// High-frequency display ticker (500 ms) for smooth countdown numerals.
-  Timer? _displayTicker;
-
-  /// One-shot precision timer that fires at the exact expiry millisecond and
-  /// triggers the [StreamBuilder] above to drop this card from the list.
-  /// No "0s" expired state is ever rendered.
-  Timer? _expiryTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _startTimers();
-  }
-
-  @override
-  void didUpdateWidget(_BidCard old) {
-    super.didUpdateWidget(old);
-    if (old.bid.bidId != widget.bid.bidId ||
-        old.bid.expiresAt != widget.bid.expiresAt) {
-      _cancelTimers();
-      _startTimers();
-    }
-  }
-
-  void _startTimers() {
-    // Display ticker: redraw every 500 ms for a smooth countdown.
-    _displayTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (!mounted) return;
-      setState(() {});
-    });
-
-    // Precision expiry timer: triggers an empty rebuild so the StreamBuilder
-    // re-evaluates and drops this card the instant time is up.
-    if (widget.bid.expiresAt != null) {
-      final delay = widget.bid.expiresAt!.difference(DateTime.now());
-      if (!delay.isNegative) {
-        _expiryTimer = Timer(delay, () {
-          _cancelTimers();
-          if (mounted) setState(() {});
-        });
-      }
-    }
-  }
-
-  void _cancelTimers() {
-    _displayTicker?.cancel();
-    _displayTicker = null;
-    _expiryTimer?.cancel();
-    _expiryTimer = null;
-  }
-
-  @override
-  void dispose() {
-    _cancelTimers();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Guard: once expired, render nothing — no "Expired" state, no dead buttons.
-    if (widget.bid.isExpired) return const SizedBox.shrink();
-    final remainingSec = widget.bid.remainingSeconds;
-    final cs = Theme.of(context).colorScheme;
-    final fareLabel = widget.bid.fareFormatted.isNotEmpty
-        ? widget.bid.fareFormatted
-        : '₦${widget.bid.offeredFare.toStringAsFixed(0)}';
-
-    final vehicleDetails = [
-      if (widget.bid.etaMinutes != null) '~${widget.bid.etaMinutes} min away',
-      widget.bid.vehicleModel,
-      widget.bid.plateNumber,
-    ].where((s) => s.trim().isNotEmpty).join(' · ');
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: cs.outline.withValues(alpha: 0.15)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Row 1: Avatar + Driver Name + Bid Price & Live Countdown
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                UserAvatar(
-                  displayName: widget.bid.driverName,
-                  photoUrl: widget.bid.photoUrl,
-                  radius: 16,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Flexible(
-                        child: Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                widget.bid.driverName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (widget.bid.isVerifiedDriver) ...[
-                              const SizedBox(width: 4),
-                              const Icon(
-                                Icons.verified,
-                                size: 14,
-                                color: AppColors.seseGold,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: remainingSec <= 3
-                                  ? Colors.red.withValues(alpha: 0.15)
-                                  : AppColors.seseGold.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.timer_outlined,
-                                  size: 11,
-                                  color: remainingSec <= 3
-                                      ? Colors.red
-                                      : AppColors.seseGold,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${remainingSec}s',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: remainingSec <= 3
-                                        ? Colors.red
-                                        : AppColors.seseGold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            fareLabel,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: AppColors.seseGold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-
-            // Row 2: Distance, Vehicle Model & Plate details
-            Row(
-              children: [
-                if (widget.bid.rating > 0) ...[
-                  const Icon(Icons.star, size: 12, color: Colors.amber),
-                  const SizedBox(width: 2),
-                  Text(
-                    widget.bid.rating.toStringAsFixed(1),
-                    style: const TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(width: 6),
-                  Text('·', style: TextStyle(color: cs.onSurfaceVariant)),
-                  const SizedBox(width: 6),
-                ],
-                Expanded(
-                  child: Text(
-                    vehicleDetails.isNotEmpty
-                        ? vehicleDetails
-                        : 'Vehicle details available',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Row 3: Compact inline Accept and Reject buttons
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    key: Key('accept_bid_button_${widget.bid.driverId}'),
-                    onPressed: widget.onAccept,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 32),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    icon: const Icon(Icons.check, size: 14),
-                    label: const Text('Accept',
-                        style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: Key('reject_bid_button_${widget.bid.driverId}'),
-                    onPressed: widget.onReject,
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 32),
-                      side: BorderSide.none,
-                      backgroundColor: cs.surfaceContainerHighest,
-                      foregroundColor: cs.onSurface,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    icon: const Icon(Icons.close, size: 14),
-                    label: const Text('Reject', style: TextStyle(fontSize: 12)),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// ── Delivery PIN stream helper ──────────────────────────────────────────────
 
 Stream<DocumentSnapshot<Map<String, dynamic>>> _deliveryPinStream(String tripId) {
   try {
@@ -2089,7 +1711,7 @@ class _DeliveryPinBanner extends StatelessWidget {
 /// Full-width draggable bottom sheet for trip searching and matchmaking.
 ///
 /// Houses the live matchmaking status indicator, real-time nearby drivers count,
-/// fare boost pencil and split fare actions, pending bids carousel, route summary,
+/// fare boost pencil and split fare actions, route summary,
 /// and privacy-protected cancellation option revealed by dragging upwards.
 class _LiveTripSearchingSheet extends StatefulWidget {
   final ActiveTrip trip;
@@ -2168,7 +1790,7 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
       case TripStatus.bidding:
         message = widget.trip.allowBidding == false
             ? 'Fixed-fare order: searching for drivers to accept...'
-            : 'Drivers are submitting bids — choose the best offer below';
+            : 'Drivers are submitting bids — review offers above';
       case TripStatus.driverAccepted:
       case TripStatus.driverArriving:
         final name = widget.trip.driver?.fullName ?? 'Your driver';
@@ -2362,17 +1984,6 @@ class _LiveTripSearchingSheetState extends State<_LiveTripSearchingSheet> {
                     if (pin.isEmpty) return const SizedBox.shrink();
                     return _DeliveryPinBanner(pin: pin);
                   },
-                ),
-              ],
-
-              // Pending driver bids carousel
-              if (widget.trip.allowBidding != false) ...[
-                const SizedBox(height: 12),
-                _BidCarousel(
-                  trip: widget.trip,
-                  repository: widget.repository,
-                  maxConcurrentBids: widget.dispatchTuning.maxConcurrentBids,
-                  sheetController: _sheetController,
                 ),
               ],
 

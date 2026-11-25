@@ -7,6 +7,7 @@ import 'package:sese_ride/features/driver/presentation/widgets/order_pool_sheet.
 import 'package:sese_ride/features/driver/services/driver_dispatch_service.dart';
 import 'package:sese_ride/features/trips/models/bid_models.dart';
 import 'package:sese_ride/features/trips/models/trip_models.dart';
+import 'package:sese_ride/features/trips/presentation/customer_bid_overlay.dart';
 import 'package:sese_ride/features/trips/presentation/live_trip_screen.dart';
 import 'package:sese_ride/features/trips/services/trip_service.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
@@ -14,6 +15,7 @@ import 'package:sese_ride/widgets/osm_map_view.dart';
 class _FakeBiddingTripRepo implements TripRepository {
   final controller = StreamController<List<BidModel>>.broadcast();
   final tripController = StreamController<ActiveTrip?>.broadcast();
+  final activeTripsController = StreamController<List<ActiveTrip>>.broadcast();
   final driverBidController = StreamController<BidModel?>.broadcast();
   String? acceptedTripId;
   String? acceptedDriverId;
@@ -30,7 +32,7 @@ class _FakeBiddingTripRepo implements TripRepository {
 
   @override
   Stream<List<ActiveTrip>> activeTripsStream(String customerId) =>
-      Stream.value(const []);
+      activeTripsController.stream;
 
   @override
   Stream<List<ActiveTrip>> userTripHistoryStream(String userId,
@@ -164,12 +166,13 @@ void main() {
     });
 
     testWidgets(
-        'Customer BidCarousel renders active bids with ticking countdown and auto-vanishes expired bids',
+        'CustomerBidOverlay renders active bids above LiveTripScreen without duplicating them in the bottom sheet',
         (tester) async {
       final repo = _FakeBiddingTripRepo();
 
       final bid1 = BidModel(
         bidId: 'driver_1',
+        tripId: 'trip-1',
         driverId: 'driver_1',
         driverName: 'Driver Alex',
         offeredFare: 3200,
@@ -182,6 +185,7 @@ void main() {
 
       final bid2 = BidModel(
         bidId: 'driver_2',
+        tripId: 'trip-1',
         driverId: 'driver_2',
         driverName: 'Driver Bob',
         offeredFare: 3000,
@@ -211,25 +215,31 @@ void main() {
             useMaterial3: false,
             splashFactory: InkRipple.splashFactory,
           ),
-          home: LiveTripScreen(
-            tripId: 'trip-1',
-            repository: repo,
+          home: CustomerBidOverlay(
+            userId: 'customer_999',
+            tripRepository: repo,
+            child: LiveTripScreen(
+              tripId: 'trip-1',
+              repository: repo,
+            ),
           ),
         ),
       );
       await tester.pump();
 
+      repo.activeTripsController.add([trip]);
       repo.tripController.add(trip);
       await tester.pump();
       repo.controller.add([bid1, bid2]);
       await tester.pump();
 
-      // Verify both driver bid cards render with countdown badge
+      // Verify both driver bid cards render exactly once (only in the top overlay, never in the sheet)
       expect(find.text('Driver Alex'), findsOneWidget);
       expect(find.text('Driver Bob'), findsOneWidget);
+      expect(find.textContaining('offered a fare'), findsNothing);
       expect(find.textContaining('s'), findsWidgets);
 
-      // Tap Accept on Driver Bob (1-second mark / rapid tap test)
+      // Tap Accept on Driver Bob
       await tester.tap(find.byKey(const Key('accept_bid_button_driver_2')));
       await tester.pump();
 
