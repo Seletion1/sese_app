@@ -133,7 +133,7 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 115),
+                        constraints: const BoxConstraints(maxWidth: 92),
                         child: Text(
                           mode.label,
                           style: TextStyle(

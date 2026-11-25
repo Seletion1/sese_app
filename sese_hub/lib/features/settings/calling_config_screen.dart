@@ -299,31 +299,44 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.analytics_outlined, size: 22, color: Colors.blueGrey),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Monthly Call Minutes (Current Billing Cycle)',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                      const Padding(
+                        padding: EdgeInsets.only(top: 2),
+                        child: Icon(Icons.analytics_outlined, size: 22, color: Colors.blueGrey),
                       ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: isFailoverActive
-                              ? Colors.amber.shade900.withValues(alpha: 0.15)
-                              : Colors.green.shade700.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          isFailoverActive ? 'Failover Active: Native WebRTC' : 'Active: Agora Free Tier',
-                          style: TextStyle(
-                            color: isFailoverActive ? Colors.amber.shade900 : Colors.green.shade700,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              'Monthly Call Minutes (Current Billing Cycle)',
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isFailoverActive
+                                    ? Colors.amber.shade900.withValues(alpha: 0.15)
+                                    : Colors.green.shade700.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                isFailoverActive ? 'Failover Active: Native WebRTC' : 'Active: Agora Free Tier',
+                                style: TextStyle(
+                                  color: isFailoverActive ? Colors.amber.shade900 : Colors.green.shade700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -339,22 +352,27 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '$_agoraUsedMins / $_agoraCapMins minutes used',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      Text(
-                        'Auto-failover threshold: $_agoraThresholdMins mins',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                      ),
-                    ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '$_agoraUsedMins / $_agoraCapMins minutes used',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        Text(
+                          'Auto-failover threshold: $_agoraThresholdMins mins',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
                   const Divider(height: 24),
                   TextField(

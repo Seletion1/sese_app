@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:sese_hub/features/settings/calling_config_screen.dart';
 import 'package:sese_hub/features/settings/map_api_key_config_screen.dart';
 
 class _FakeApiKeysService extends ApiKeysService {
@@ -133,5 +134,46 @@ void main() {
     expect(fakeService.saveCalled, isTrue);
     expect(fakeService.config.googleAndroidKey, 'AIzaUpdatedAndroidKey123');
     expect(find.text('Map & API Key configuration saved successfully!'), findsOneWidget);
+  });
+
+  testWidgets('CallingConfigScreen and MapApiKeyConfigScreen render without overflow on 360px narrow screen', (tester) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: CallingConfigScreen(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    final monthlyCallsFinder =
+        find.text('Monthly Call Minutes (Current Billing Cycle)');
+    await tester.dragUntilVisible(
+      monthlyCallsFinder,
+      find.byType(ListView),
+      const Offset(0, -300),
+    );
+    await tester.pump();
+    expect(monthlyCallsFinder, findsOneWidget);
+    expect(find.textContaining('minutes used'), findsOneWidget);
+
+    final fakeService = _FakeApiKeysService(
+      const ApiKeysConfig(
+        activeMapProvider: 'google',
+        googleAndroidKey: 'AIzaTest',
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MapApiKeyConfigScreen(apiKeysService: fakeService),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Google Maps'), findsOneWidget);
+    expect(find.text('Mapbox'), findsOneWidget);
+    expect(find.byKey(const Key('reset_usage_counters_btn')), findsOneWidget);
   });
 }
