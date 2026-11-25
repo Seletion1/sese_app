@@ -352,27 +352,25 @@ class _CallingConfigScreenState extends State<CallingConfigScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      alignment: WrapAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '$_agoraUsedMins / $_agoraCapMins minutes used',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                        ),
-                        Text(
-                          'Auto-failover threshold: $_agoraThresholdMins mins',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: scheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ),
+                  // Two lines stacked vertically — avoids horizontal overflow
+                  // on narrow viewports where both texts exceed card width.
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$_agoraUsedMins / $_agoraCapMins minutes used',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Auto-failover threshold: $_agoraThresholdMins mins',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
                   ),
                   const Divider(height: 24),
                   TextField(

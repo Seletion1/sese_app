@@ -1549,13 +1549,13 @@ service cloud.firestore {
     // Never readable by mobile client apps.
     match /system_config/paystack_secrets {
       allow read: if false;
-      allow write: if isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
+      allow write: if isHubStaff() || isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
     }
     // `opay_secrets`: server-only OPay Checkout API credentials (OPAYPRV...).
     // Write-only from authorized Hub admins; never readable by any client.
     match /system_config/opay_secrets {
       allow read: if false;
-      allow write: if isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
+      allow write: if isHubStaff() || isSuperAdmin() || (isAdminAuthClaim() && claimsScopeContains(scopeCodeOf('manageSystemSettings')));
     }
     // `financial_limits`: hub admin/ops read; super admin writes.
     match /system_config/financial_limits {

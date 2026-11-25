@@ -271,9 +271,14 @@ class SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Always guard the base text with ellipsis so ListTile never word-wraps
+    // mid-character on narrow mobile viewports (e.g. hub_settings_screen on
+    // compact phones where the leading icon + trailing chip leave little room).
     Widget titleWidget = Text(
       title,
       style: titleStyle,
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
     );
 
     if (infoDescription != null && infoDescription!.isNotEmpty) {
@@ -285,6 +290,8 @@ class SettingsTile extends StatelessWidget {
             child: Text(
               title,
               style: titleStyle,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
           const SizedBox(width: 4),

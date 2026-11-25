@@ -607,7 +607,10 @@ class SeseService {
       case 'permission-denied':
         return 'This payment belongs to a different account.';
       case 'internal':
-        return 'Payment received by Paystack. Tap Verify to complete credit update.';
+        if (msg.contains('opay')) {
+          return message ?? 'OPay payment initialization failed. Please try again.';
+        }
+        return 'Payment received by gateway. Tap Verify to complete credit update.';
       default:
         if (msg == 'internal') {
           return 'Payment received by Paystack. Tap Verify to complete credit update.';

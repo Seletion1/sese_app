@@ -12,6 +12,8 @@ class RemoteKeysConfig {
   final String opayPublicKey;
   final bool enablePaystack;
   final bool enableOpay;
+  final bool opaySecretConfigured;
+  final bool paystackSecretConfigured;
   final String googleMapsApiKey;
 
   /// Mapbox public access token (`pk.eyJ1…`). Empty when not configured.
@@ -61,6 +63,8 @@ class RemoteKeysConfig {
     this.opayPublicKey = '',
     this.enablePaystack = true,
     this.enableOpay = true,
+    this.opaySecretConfigured = false,
+    this.paystackSecretConfigured = false,
     this.googleMapsApiKey = GlobalMapConfig.defaultGoogleMapsApiKey,
     this.mapboxToken = '',
     this.mapboxStyle = GlobalMapConfig.defaultMapboxStyle,
@@ -171,6 +175,12 @@ class RemoteKeysConfig {
           : (map['enable_opay'] is bool
               ? map['enable_opay'] as bool
               : true),
+      opaySecretConfigured: map['opaySecretConfigured'] == true ||
+          map['opay_secret_configured'] == true ||
+          map['hasOpaySecret'] == true,
+      paystackSecretConfigured: map['paystackSecretConfigured'] == true ||
+          map['paystack_secret_configured'] == true ||
+          map['hasPaystackSecret'] == true,
       googleMapsApiKey: rawGoogleKey.isNotEmpty
           ? rawGoogleKey
           : GlobalMapConfig.defaultGoogleMapsApiKey,
@@ -266,6 +276,10 @@ class RemoteKeysConfig {
       'enable_paystack': enablePaystack,
       'enableOpay': enableOpay,
       'enable_opay': enableOpay,
+      'opaySecretConfigured': opaySecretConfigured,
+      'opay_secret_configured': opaySecretConfigured,
+      'paystackSecretConfigured': paystackSecretConfigured,
+      'paystack_secret_configured': paystackSecretConfigured,
       'googleMapsApiKey': googleMapsApiKey.trim(),
       'mapApiKey': googleMapsApiKey.trim(),
       'apiKey': googleMapsApiKey.trim(),

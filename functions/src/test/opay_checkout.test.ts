@@ -70,4 +70,19 @@ describe("OPay Checkout Integration & Cryptographic Security", () => {
     const koboFromString = Math.round(parseFloat(rawAmtString) * 100);
     assert.strictEqual(koboFromString, 200000);
   });
+
+  it("4. Throws OPAY_NOT_CONFIGURED error when secret or merchantId is missing", async () => {
+    delete process.env.OPAY_SECRET_KEY;
+    delete process.env.OPAY_MERCHANT_ID;
+    try {
+      await opayConfig();
+      assert.fail("Should have thrown OPAY_NOT_CONFIGURED");
+    } catch (e: any) {
+      assert.strictEqual(e?.code, "failed-precondition");
+      assert.strictEqual(e?.message, "OPAY_NOT_CONFIGURED");
+    } finally {
+      process.env.OPAY_SECRET_KEY = "test_opay_secret_key_12345";
+      process.env.OPAY_MERCHANT_ID = "256600001122334";
+    }
+  });
 });

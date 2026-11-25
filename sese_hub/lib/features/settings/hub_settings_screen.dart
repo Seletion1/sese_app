@@ -6,10 +6,7 @@ import '../config/presentation/global_config_screen.dart';
 import '../config/services/system_config_service.dart';
 import '../dashboard/presentation/hub_dashboard_screen.dart'
     show showHubThemePickerSheet;
-import '../dashboard/services/hub_route_persistence.dart';
 import '../dashboard/services/view_mode_controller.dart';
-import 'calling_config_screen.dart';
-import 'map_api_key_config_screen.dart';
 
 /// Dedicated Settings screen for `sese_hub` staff.
 ///
@@ -287,74 +284,6 @@ class _HubSettingsScreenState extends State<HubSettingsScreen> {
                     duration: Duration(seconds: 2),
                   ),
                 );
-              },
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // ── 4. Quick System Config ─────────────────────────────────────────
-          _SectionHeader('Quick Config'),
-          Card(
-            child: SettingsTile(
-              tileKey: const Key('hub_settings_quick_config_tile'),
-              leading: const Icon(Icons.tune_outlined),
-              title: 'System Configuration',
-              infoDescription:
-                  'Configure real-time pricing models, driver commissions, and regional dispatch rules.',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => GlobalConfigScreen(
-                    configService: widget.configService,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // ── 5. In-App Calling & VoIP ────────────────────────────────────────
-          _SectionHeader('In-App Calling & VoIP'),
-          Card(
-            child: SettingsTile(
-              tileKey: const Key('hub_settings_calling_config_tile'),
-              leading: const Icon(Icons.phone_in_talk_rounded),
-              title: 'Calling Providers & Credentials',
-              infoDescription:
-                  'Configure Agora RTC Engine and self-hosted WebRTC calling providers, API keys, and failover rules.',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                HubRoutePersistence.saveSubRoute('calling_config');
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CallingConfigScreen(),
-                  ),
-                ).then((_) {
-                  HubRoutePersistence.saveSubRoute('settings');
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // ── 6. Map & API Key Management ──────────────────────────────────────
-          _SectionHeader('Map & API Key Management'),
-          Card(
-            child: SettingsTile(
-              tileKey: const Key('hub_settings_map_api_keys_tile'),
-              leading: const Icon(Icons.map_outlined),
-              title: 'Map & API Key Management',
-              infoDescription:
-                  'Manage dynamic API keys and access tokens for Google Maps and Mapbox across Android, iOS, and Web.',
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                HubRoutePersistence.saveSubRoute('map_api_keys');
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const MapApiKeyConfigScreen(),
-                  ),
-                ).then((_) {
-                  HubRoutePersistence.saveSubRoute('settings');
-                });
               },
             ),
           ),

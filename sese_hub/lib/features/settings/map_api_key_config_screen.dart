@@ -785,11 +785,14 @@ class _ProviderRadioOption extends StatelessWidget {
               ? scheme.primaryContainer.withValues(alpha: 0.25)
               : Colors.transparent,
         ),
-        child: Column(
+        // Horizontal layout: Radio + Icon on the left, title/subtitle
+        // in Expanded on the right — prevents mid-word breaks on narrow tiles.
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
+            // Left column: radio + icon stacked
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Radio<String>(
                   value: value,
@@ -798,28 +801,39 @@ class _ProviderRadioOption extends StatelessWidget {
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   onChanged: onChanged,
                 ),
-                const SizedBox(width: 4),
-                Icon(icon, color: iconColor, size: 22),
+                Icon(icon, color: iconColor, size: 20),
               ],
             ),
-            const SizedBox(height: 6),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                color: scheme.onSurfaceVariant,
+            const SizedBox(width: 6),
+            // Right column: title + subtitle, flex-shrinks cleanly.
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

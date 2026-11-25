@@ -331,7 +331,27 @@ Future<void> _injectNativeMapCredentials(GlobalMapConfig cfg) async {
   }
 }
 
+StreamSubscription<ApiKeysConfig>? _apiKeysSub;
+
 Future<void> _initDynamicMapCredentials() async {
+  // Keep native credentials in sync with real-time system_config/api_keys updates.
+  MapConfigController.instance.configNotifier.addListener(() {
+    // ignore: discarded_futures
+    _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
+  });
+
+  // Subscribe to live Firestore snapshots so even if cold-start fetch times out,
+  // credentials, caps, and usage counters apply as soon as Firestore connects.
+  await _apiKeysSub?.cancel();
+  _apiKeysSub = const ApiKeysService().streamApiKeys().listen(
+    (liveKeys) {
+      MapConfigController.instance.applyApiKeysConfig(liveKeys);
+    },
+    onError: (Object e) {
+      debugPrint('sese_ride: streamApiKeys listener warning: $e');
+    },
+  );
+
   try {
     final apiKeys = await const ApiKeysService()
         .fetchApiKeys()
@@ -339,12 +359,6 @@ Future<void> _initDynamicMapCredentials() async {
 
     MapConfigController.instance.applyApiKeysConfig(apiKeys);
     await _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
-
-    // Keep native credentials in sync with real-time system_config/api_keys updates.
-    MapConfigController.instance.configNotifier.addListener(() {
-      // ignore: discarded_futures
-      _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
-    });
 
     debugPrint(
         'sese_ride: Dynamic map credentials initialized (provider: ${apiKeys.effectiveProvider})');

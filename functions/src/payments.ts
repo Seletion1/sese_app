@@ -70,29 +70,69 @@ export async function opayConfig(): Promise<OPayConfig> {
   let publicKey = (process.env.OPAY_PUBLIC_KEY ?? process.env.OPAY_PUB_KEY ?? "").trim();
   let merchantId = (process.env.OPAY_MERCHANT_ID ?? "").trim();
 
-  if (!secret) {
-    try {
-      const snap = await db().collection("system_config").doc("opay_secrets").get();
-      if (snap.exists) {
-        secret = String(snap.data()?.secretKey ?? "").trim();
-        if (!merchantId) merchantId = String(snap.data()?.merchantId ?? "").trim();
-        if (!publicKey) publicKey = String(snap.data()?.publicKey ?? "").trim();
+  // 1. Check system_config/opay_secrets
+  try {
+    const snap = await db().collection("system_config").doc("opay_secrets").get();
+    if (snap.exists) {
+      const d = snap.data() ?? {};
+      if (!secret) {
+        const s = String(
+          d.secretKey ?? d.secret_key ?? d.opaySecretKey ?? d.opay_secret_key ?? ""
+        ).trim();
+        if (s) secret = s;
       }
-    } catch (_) {}
+      if (!merchantId) {
+        const m = String(
+          d.merchantId ?? d.merchant_id ?? d.opayMerchantId ?? d.opay_merchant_id ?? ""
+        ).trim();
+        if (m) merchantId = m;
+      }
+      if (!publicKey) {
+        const p = String(
+          d.publicKey ?? d.public_key ?? d.opayPublicKey ?? d.opay_public_key ?? ""
+        ).trim();
+        if (p) publicKey = p;
+      }
+    }
+  } catch (e) {
+    console.warn("opayConfig: error reading system_config/opay_secrets:", e);
   }
 
-  if (!merchantId || !publicKey) {
+  // 2. Check system_config/remote_keys and system_configs/global_default
+  const configDocs = ["system_config/remote_keys", "system_configs/global_default", "system_config/global_default"];
+  for (const docPath of configDocs) {
+    if (secret && merchantId && publicKey) break;
     try {
-      const keySnap = await db().collection("system_config").doc("remote_keys").get();
+      const [coll, docId] = docPath.split("/");
+      const keySnap = await db().collection(coll).doc(docId).get();
       if (keySnap.exists) {
         const d = keySnap.data() ?? {};
-        if (!merchantId) merchantId = String(d.opayMerchantId ?? d.opay_merchant_id ?? "").trim();
-        if (!publicKey) publicKey = String(d.opayPublicKey ?? d.opay_public_key ?? "").trim();
+        if (!secret) {
+          const s = String(
+            d.opaySecretKey ?? d.opay_secret_key ?? d.secretKey ?? d.secret_key ?? ""
+          ).trim();
+          if (s) secret = s;
+        }
+        if (!merchantId) {
+          const m = String(
+            d.opayMerchantId ?? d.opay_merchant_id ?? d.merchantId ?? d.merchant_id ?? ""
+          ).trim();
+          if (m) merchantId = m;
+        }
+        if (!publicKey) {
+          const p = String(
+            d.opayPublicKey ?? d.opay_public_key ?? d.publicKey ?? d.public_key ?? ""
+          ).trim();
+          if (p) publicKey = p;
+        }
       }
     } catch (_) {}
   }
 
   if (!secret || !merchantId) {
+    console.error(
+      `opayConfig failed: secret=${secret ? "PRESENT" : "MISSING"}, merchantId=${merchantId ? merchantId : "MISSING"}, publicKey=${publicKey ? "PRESENT" : "MISSING"}`
+    );
     throw new HttpsError("failed-precondition", "OPAY_NOT_CONFIGURED");
   }
 
@@ -100,21 +140,26 @@ export async function opayConfig(): Promise<OPayConfig> {
 }
 
 async function opayPost(path: string, body: unknown, config: OPayConfig) {
+  const jsonBody = JSON.stringify(body);
+  const signature = createHmac("sha512", config.secretKey)
+    .update(Buffer.from(jsonBody))
+    .digest("hex");
+
   const res = await fetch(`${OPAY_BASE}${path}`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${config.secretKey}`,
+      Authorization: `Bearer ${signature}`,
       MerchantId: config.merchantId,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(body),
+    body: jsonBody,
   });
   const json = (await res.json()) as {
     code?: string;
     message?: string;
     data?: Record<string, unknown>;
   };
-  if (!res.ok || json.code !== "00000") {
+  if (!res.ok || (json.code !== "00000" && json.code !== "SUCCESS")) {
     throw new HttpsError(
       "internal",
       `OPay error: ${json.message ?? `HTTP ${res.status}`}`

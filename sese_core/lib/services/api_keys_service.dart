@@ -33,20 +33,29 @@ class ApiKeysService {
   }
 
   Future<ApiKeysConfig> fetchApiKeys() async {
+    final db = _db;
+    if (db == null) return const ApiKeysConfig();
     try {
-      final db = _db;
-      if (db == null) return const ApiKeysConfig();
       final snap = await db
           .collection('system_config')
           .doc('api_keys')
           .get()
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 6));
       if (snap.exists && snap.data() != null) {
         return ApiKeysConfig.fromMap(snap.data());
       }
       return const ApiKeysConfig();
     } catch (e) {
       debugPrint('ApiKeysService.fetchApiKeys error: $e');
+      try {
+        final cached = await db
+            .collection('system_config')
+            .doc('api_keys')
+            .get(const GetOptions(source: Source.cache));
+        if (cached.exists && cached.data() != null) {
+          return ApiKeysConfig.fromMap(cached.data());
+        }
+      } catch (_) {}
       return const ApiKeysConfig();
     }
   }

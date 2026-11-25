@@ -6,6 +6,7 @@ import '../services/system_config_service.dart';
 import '../../dashboard/presentation/hub_module_shell.dart';
 import '../../staff/services/hub_access_service.dart';
 import '../../settings/map_api_key_config_screen.dart';
+import '../../settings/calling_config_screen.dart';
 
 class GlobalConfigScreen extends StatefulWidget {
   final SystemConfigService configService;
@@ -221,6 +222,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   bool _requireDriverCashVerification = true;
   bool _enablePaystack = true;
   bool _enableOpay = true;
+  bool _opaySecretConfigured = false;
+  bool _paystackSecretConfigured = false;
   bool _obscurePaystackPublic = true;
   bool _obscurePaystackSecret = true;
   bool _obscureOpayPublic = true;
@@ -372,6 +375,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         _opayPublicKeyCtrl.text = remoteKeys.opayPublicKey;
         _enablePaystack = remoteKeys.enablePaystack;
         _enableOpay = remoteKeys.enableOpay;
+        _opaySecretConfigured = remoteKeys.opaySecretConfigured;
+        _paystackSecretConfigured = remoteKeys.paystackSecretConfigured;
         _googleMapsApiKeyCtrl.text = remoteKeys.googleMapsApiKey;
       _mapboxApiKeyCtrl.text = remoteKeys.mapboxToken;
       _resendApiKeyCtrl.text = remoteKeys.resendApiKey;
@@ -651,6 +656,16 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         ),
       );
 
+      final enteredSecret = _paystackSecretKeyCtrl.text.trim();
+      final enteredOpaySecret = _opaySecretKeyCtrl.text.trim();
+
+      final paystackSecretSaved = _paystackSecretConfigured ||
+          (enteredSecret.isNotEmpty &&
+              (enteredSecret.startsWith('sk_test_') ||
+                  enteredSecret.startsWith('sk_live_')));
+      final opaySecretSaved =
+          _opaySecretConfigured || enteredOpaySecret.isNotEmpty;
+
       // Save Remote Keys & API Config (payment gateways, email, and general flags).
       final remoteKeysConfig = RemoteKeysConfig(
         paystackPublicKey: _paystackPublicKeyCtrl.text.trim(),
@@ -658,6 +673,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
         opayPublicKey: _opayPublicKeyCtrl.text.trim(),
         enablePaystack: _enablePaystack,
         enableOpay: _enableOpay,
+        opaySecretConfigured: opaySecretSaved,
+        paystackSecretConfigured: paystackSecretSaved,
         googleMapsApiKey: _googleMapsApiKeyCtrl.text.trim(),
         mapboxToken: _mapboxApiKeyCtrl.text.trim(),
         mapboxStyle: _mapboxStyleCtrl.text.trim().isNotEmpty
@@ -691,7 +708,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       );
       await const RemoteKeysService().saveRemoteKeys(remoteKeysConfig);
 
-      final enteredSecret = _paystackSecretKeyCtrl.text.trim();
       if (enteredSecret.isNotEmpty &&
           (enteredSecret.startsWith('sk_test_') ||
               enteredSecret.startsWith('sk_live_'))) {
@@ -704,24 +720,31 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
           _paystackSecretKeyCtrl.clear();
+          setState(() => _paystackSecretConfigured = true);
         } catch (e) {
           debugPrint('GlobalConfigScreen: paystack secret key save warning: $e');
         }
       }
 
-      final enteredOpaySecret = _opaySecretKeyCtrl.text.trim();
-      if (enteredOpaySecret.isNotEmpty) {
+      final opayMerchantId = _opayMerchantIdCtrl.text.trim();
+      final opayPublicKey = _opayPublicKeyCtrl.text.trim();
+
+      if (enteredOpaySecret.isNotEmpty || opayMerchantId.isNotEmpty || opayPublicKey.isNotEmpty) {
         try {
+          final Map<String, dynamic> opayData = {
+            if (opayMerchantId.isNotEmpty) 'merchantId': opayMerchantId,
+            if (opayPublicKey.isNotEmpty) 'publicKey': opayPublicKey,
+            if (enteredOpaySecret.isNotEmpty) 'secretKey': enteredOpaySecret,
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
           await FirebaseFirestore.instance
               .collection('system_config')
               .doc('opay_secrets')
-              .set({
-            'secretKey': enteredOpaySecret,
-            'merchantId': _opayMerchantIdCtrl.text.trim(),
-            'publicKey': _opayPublicKeyCtrl.text.trim(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-          _opaySecretKeyCtrl.clear();
+              .set(opayData, SetOptions(merge: true));
+          if (enteredOpaySecret.isNotEmpty) {
+            _opaySecretKeyCtrl.clear();
+            setState(() => _opaySecretConfigured = true);
+          }
         } catch (e) {
           debugPrint('GlobalConfigScreen: opay secret key save warning: $e');
         }
@@ -889,6 +912,15 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
           ]),
         ),
         HubModuleSection(
+          id: 'map_and_call',
+          title: 'Map & Call Settings',
+          icon: Icons.map_outlined,
+          permission: secConfigApiKeys,
+          child: sectionScroll([
+            _buildMapAndCallSettingsCard(),
+          ]),
+        ),
+        HubModuleSection(
           id: 'financials',
           title: 'Credits & Commissions',
           icon: Icons.confirmation_number_outlined,
@@ -1013,10 +1045,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     controller: _paystackSecretKeyCtrl,
                     obscureText: _obscurePaystackSecret,
                     decoration: InputDecoration(
-                      labelText: 'Paystack Secret Key (write-only)',
-                      helperText:
-                          'Leave blank to keep current server value. '
-                          'Only sk_test_… or sk_live_… accepted.',
+                      labelText: _paystackSecretConfigured
+                          ? 'Paystack Secret Key [✓ Configured on Server]'
+                          : 'Paystack Secret Key (write-only)',
+                      helperText: _paystackSecretConfigured
+                          ? '✓ Secret key is securely saved on the server. Leave blank to keep existing key, or enter a new value to update.'
+                          : 'Leave blank to keep current server value. Only sk_test_… or sk_live_… accepted.',
                       helperMaxLines: 2,
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
@@ -1075,10 +1109,12 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     controller: _opaySecretKeyCtrl,
                     obscureText: _obscureOpaySecret,
                     decoration: InputDecoration(
-                      labelText: 'OPay Secret Key (write-only)',
-                      helperText:
-                          'Leave blank to keep current server value. '
-                          'Only OPAYPRV... or private key accepted.',
+                      labelText: _opaySecretConfigured
+                          ? 'OPay Secret Key [✓ Configured on Server]'
+                          : 'OPay Secret Key (write-only)',
+                      helperText: _opaySecretConfigured
+                          ? '✓ Secret key is securely saved on the server. Leave blank to keep existing key, or enter a new value to update.'
+                          : 'Leave blank to keep current server value. Only OPAYPRV... or private key accepted.',
                       helperMaxLines: 2,
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
@@ -2367,6 +2403,150 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                   ),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapAndCallSettingsCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.map_outlined, color: AppColors.seseGold),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Map Engine & In-App Calling Configuration',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    softWrap: true,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Unified management hub for Google Maps & Mapbox rendering engines, platform API keys, monthly call caps, and in-app VoIP calling architecture (Agora RTC & WebRTC).',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+
+            // Card 1: Map & API Key Management
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.map_rounded, color: Colors.blueAccent),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Map Engine & API Keys',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Text(
+                                'Active Provider: ${_activeMapProvider.toUpperCase()} | Google Cap: ${_googleQuotaCapCtrl.text} | Mapbox Cap: ${_mapboxQuotaCapCtrl.text}',
+                                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      key: const Key('global_config_open_map_keys_btn'),
+                      icon: const Icon(Icons.tune),
+                      label: const Text('Configure Map Engines & API Keys'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.seseGold,
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const MapApiKeyConfigScreen(),
+                          ),
+                        ).then((_) => _loadConfigurations(silent: true));
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Card 2: In-App Calling & VoIP Configuration
+            Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.phone_in_talk_rounded, color: Colors.green),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'In-App Calling & VoIP Engine',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                              ),
+                              Text(
+                                'Manage Agora RTC Engine credentials, self-hosted WebRTC, failover minutes & loopback diagnostics.',
+                                style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      key: const Key('global_config_open_calling_btn'),
+                      icon: const Icon(Icons.settings_phone),
+                      label: const Text('Configure Calling Routing & VoIP Keys'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.seseGold,
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const CallingConfigScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
