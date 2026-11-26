@@ -56,8 +56,12 @@ async function paystackSecret(): Promise<string> {
   throw new HttpsError("failed-precondition", "PAYSTACK_NOT_CONFIGURED");
 }
 
+// OPay Cashier API base URL.
+// Live (production): https://liveapi.opaycheckout.com
+// Sandbox (testing): https://testapi.opaycheckout.com
+// The old "cashierapi.opaycheckout.com" domain no longer resolves (NXDOMAIN).
 const OPAY_BASE =
-  process.env.OPAY_BASE_URL ?? "https://cashierapi.opaycheckout.com";
+  process.env.OPAY_BASE_URL ?? "https://liveapi.opaycheckout.com";
 
 export interface OPayConfig {
   secretKey: string;
@@ -139,64 +143,108 @@ export async function opayConfig(): Promise<OPayConfig> {
   return { secretKey: secret, publicKey, merchantId };
 }
 
+/**
+ * Recursively sorts an object's keys alphabetically, as required by OPay's
+ * HMAC-SHA512 signature algorithm for status/query endpoints.
+ */
+function sortObjectKeys(obj: unknown): unknown {
+  if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+  if (obj !== null && typeof obj === "object") {
+    return Object.keys(obj as Record<string, unknown>)
+      .sort()
+      .reduce((acc: Record<string, unknown>, key) => {
+        acc[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);
+        return acc;
+      }, {});
+  }
+  return obj;
+}
+
+/**
+ * POSTs to the OPay Cashier API with the correct authentication strategy:
+ *
+ *  - Cashier Create  (/cashier/create):  `Authorization: Bearer {publicKey}`
+ *    OPay accepts the raw Public Key as the Bearer token for payment initiation.
+ *
+ *  - Cashier Status  (/cashier/status):  `Authorization: Bearer {HMAC-SHA512}`
+ *    Keys of the JSON payload must be sorted alphabetically before hashing.
+ *
+ * Both variants also require the `MerchantId` header.
+ * Any network-level error (DNS, timeout, refused) is re-thrown as an
+ * `HttpsError('unavailable', …)` so the Flutter client shows a human-readable
+ * message rather than a generic "internal" fallback.
+ */
 async function opayPost(path: string, body: unknown, config: OPayConfig) {
-  const jsonBody = JSON.stringify(body);
+  // Determine the correct Authorization strategy for this endpoint.
+  const isCashierCreate = path.endsWith("/cashier/create");
 
-  // Attempt 1: Standard OPay Secret Key Bearer Authorization
-  let res = await fetch(`${OPAY_BASE}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.secretKey}`,
-      MerchantId: config.merchantId,
-      "Content-Type": "application/json",
-    },
-    body: jsonBody,
-  });
+  // For status/query endpoints OPay requires the payload keys sorted
+  // alphabetically before computing the HMAC-SHA512 signature.
+  const sortedBody = isCashierCreate ? body : sortObjectKeys(body);
+  const jsonBody = JSON.stringify(sortedBody);
 
-  let json = (await res.json().catch(() => ({}))) as {
-    code?: string;
-    message?: string;
-    data?: Record<string, unknown>;
+  // Build the Authorization header value.
+  // • Cashier Create → raw Public Key Bearer token (OPay docs §Cashier Create)
+  // • Cashier Status → HMAC-SHA512 of sorted JSON using the Secret Key
+  const authToken = isCashierCreate
+    ? config.publicKey
+    : createHmac("sha512", config.secretKey)
+        .update(Buffer.from(jsonBody))
+        .digest("hex");
+
+  const headers = {
+    Authorization: `Bearer ${authToken}`,
+    MerchantId: config.merchantId,
+    "Content-Type": "application/json",
   };
 
-  // If initial attempt fails with signature or auth error, fallback to HMAC-SHA512 payload signature
-  if (!res.ok || (json.code !== "00000" && json.code !== "SUCCESS")) {
-    const signature = createHmac("sha512", config.secretKey)
-      .update(Buffer.from(jsonBody))
-      .digest("hex");
-
-    const res2 = await fetch(`${OPAY_BASE}${path}`, {
+  // Wrap the entire call in a try/catch so DNS failures (ENOTFOUND) and
+  // network timeouts are surfaced as a typed HttpsError rather than an
+  // unhandled JS TypeError that would render as a generic "internal" error
+  // on the client without a human-readable message.
+  try {
+    const res = await fetch(`${OPAY_BASE}${path}`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${signature}`,
-        MerchantId: config.merchantId,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: jsonBody,
     });
 
-    const json2 = (await res2.json().catch(() => ({}))) as {
+    const json = (await res.json().catch(() => ({}))) as {
       code?: string;
       message?: string;
       data?: Record<string, unknown>;
     };
 
-    if (res2.ok && (json2.code === "00000" || json2.code === "SUCCESS")) {
-      return json2.data ?? {};
+    console.log(`opayPost ${path} → code=${json.code} message=${json.message ?? "(none)"}`);
+
+    if (json.code === "00000" || json.code === "SUCCESS") {
+      return json.data ?? {};
     }
 
-    const finalMessage =
-      json2.message ??
-      json.message ??
-      (res2.ok ? `HTTP ${res.status}` : `HTTP ${res2.status}`);
-    const finalCode = json2.code ?? json.code ?? String(res2.status);
+    // OPay returned a non-success response code — surface it as a
+    // failed-precondition so the Flutter _mapError case can display the
+    // actual OPay error message to the driver instead of a generic fallback.
+    const finalMessage = json.message ?? (res.ok ? `HTTP ${res.status}` : `HTTP ${res.status}`);
+    const finalCode = json.code ?? String(res.status);
+    console.error(`opayPost ${path} non-success: code=${finalCode} message=${finalMessage}`);
     throw new HttpsError(
-      "internal",
+      "failed-precondition",
       `OPay error (${finalCode}): ${finalMessage}`
     );
+  } catch (e) {
+    // Re-throw typed HttpsErrors unchanged so callers see the right code/message.
+    if (e instanceof HttpsError) throw e;
+    // Network-level failures (DNS ENOTFOUND, connection refused, timeout).
+    const cause = (e as NodeJS.ErrnoException)?.code ?? "";
+    const isNetwork = ["ENOTFOUND", "ECONNREFUSED", "ETIMEDOUT", "ECONNRESET"].includes(cause);
+    console.error(`opayPost ${path} network error (${cause}):`, e);
+    throw new HttpsError(
+      "unavailable",
+      isNetwork
+        ? `OPay API unreachable. Check OPay service status or contact support.`
+        : `OPay request failed: ${(e as Error)?.message ?? "unknown error"}`
+    );
   }
-
-  return json.data ?? {};
 }
 
 async function opayGetStatus(reference: string, orderNo: string, config: OPayConfig) {

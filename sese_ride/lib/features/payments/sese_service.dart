@@ -593,17 +593,35 @@ class SeseService {
     if (msg.contains('gateway_not_supported') || msg.contains('unsupported gateway')) {
       return 'The selected payment gateway is not supported.';
     }
+    // OPay API authentication / credential errors — guide the admin to fix keys
+    // rather than showing a raw OPay error code to the driver.
+    if (msg.contains('opay error') &&
+        (msg.contains('02003') ||
+            msg.contains('02004') ||
+            msg.contains('signature') ||
+            msg.contains('merchant') ||
+            msg.contains('unauthorized') ||
+            msg.contains('authentication'))) {
+      return 'OPay credentials are invalid or not configured correctly. '
+          'Please contact support or use Paystack instead.';
+    }
     switch (code) {
       case 'unauthenticated':
         return 'Your session has expired. Please sign in again.';
       case 'unavailable':
-        return 'Could not reach the payment server. Check your connection '
-            'and try again.';
+        // Backend surfaces OPay API network failures with 'unavailable' + a
+        // human-readable message; prefer that over the generic fallback.
+        return rawMsg.isNotEmpty && !msg.contains('unavailable')
+            ? rawMsg
+            : 'Could not reach the payment server. Check your connection and try again.';
       case 'invalid-argument':
         return rawMsg.isNotEmpty ? rawMsg : 'Invalid payment details.';
       case 'not-found':
         return 'Payment not found. Start a new top-up.';
       case 'failed-precondition':
+        // OPay API rejection errors are surfaced as failed-precondition with
+        // a message like "OPay error (XXXXX): some description". Show the
+        // message directly so the driver/admin can act on it.
         return rawMsg.isNotEmpty ? rawMsg : 'This payment can no longer be completed.';
       case 'permission-denied':
         return 'This payment belongs to a different account.';
