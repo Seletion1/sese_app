@@ -493,6 +493,38 @@
       "callableTrigger": {},
       "entryPoint": "hubSetDriverOnlineStatus"
     },
+    "sweepAutoOnlineSchedule": {
+      "platform": "gcfv2",
+      "availableMemoryMb": 256,
+      "timeoutSeconds": 540,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "scheduleTrigger": {
+        "schedule": "* * * * *",
+        "retryConfig": {},
+        "timeZone": "Africa/Lagos"
+      },
+      "entryPoint": "sweepAutoOnlineSchedule"
+    },
+    "saveAutoScheduleSettings": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "saveAutoScheduleSettings"
+    },
     "getAgoraToken": {
       "platform": "gcfv2",
       "availableMemoryMb": null,
@@ -1248,6 +1280,20 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "registerVehicle"
+    },
+    "resolveUnifiedAccount": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "resolveUnifiedAccount"
     },
     "calculateFare": {
       "platform": "gcfv2",

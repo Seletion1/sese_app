@@ -65,6 +65,11 @@ export {
 export { goOnline, goOffline, hubSetDriverOnlineStatus } from "./driverStatus";
 
 export {
+  sweepAutoOnlineSchedule,
+  saveAutoScheduleSettings,
+} from "./autoOnlineSchedule";
+
+export {
   getAgoraToken,
   recordCallDuration,
   terminateCall,

@@ -10,6 +10,7 @@ import '../../auth/login_page.dart';
 import '../../driver/presentation/driver_fleet_screen.dart';
 import '../../driver/services/driver_fleet_service.dart';
 import '../../driver/services/driver_presence_service.dart';
+import '../auto_online_schedule_card.dart';
 import '../delete_account_dialog.dart';
 import '../mode_switcher.dart';
 import '../role_controller.dart';
@@ -67,6 +68,9 @@ class SettingsScreen extends StatelessWidget {
             const _SectionHeader('Preferences & Sound'),
             const AlertSoundSection(),
             const SizedBox(height: 16),
+            const _SectionHeader('Auto Online Schedule'),
+            AutoOnlineScheduleCard(driverId: user.uid),
+            const SizedBox(height: 20),
             const _SectionHeader('Navigation & Quick-Return'),
             const QuickReturnBubbleSection(),
             const SizedBox(height: 8),
