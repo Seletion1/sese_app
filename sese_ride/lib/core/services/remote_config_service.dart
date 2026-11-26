@@ -29,6 +29,10 @@ abstract final class RemoteConfigKeys {
 
   // App maintenance & versions
   static const String minSupportedAppVersion = 'min_supported_app_version';
+  static const String latestBuildNumber = 'latest_build_number';
+  static const String updatePromptLagThreshold =
+      'update_prompt_lag_threshold';
+  static const String forceUpdateLagThreshold = 'force_update_lag_threshold';
   static const String inMaintenanceMode = 'in_maintenance_mode';
   static const String maintenanceMessage = 'maintenance_message';
 }
@@ -62,6 +66,9 @@ class RemoteConfigService {
     RemoteConfigKeys.requireCustomerNinVerification: false,
     // App maintenance & versions
     RemoteConfigKeys.minSupportedAppVersion: '1.0.0',
+    RemoteConfigKeys.latestBuildNumber: 0,
+    RemoteConfigKeys.updatePromptLagThreshold: 3,
+    RemoteConfigKeys.forceUpdateLagThreshold: 0,
     RemoteConfigKeys.inMaintenanceMode: false,
     RemoteConfigKeys.maintenanceMessage:
         'Sese Ride is under quick maintenance. Back shortly!',
@@ -252,6 +259,23 @@ class RemoteConfigService {
   /// string. Compared against the installed build via [isAppVersionSupported].
   static String get minSupportedAppVersion =>
       _string(RemoteConfigKeys.minSupportedAppVersion);
+
+  /// Latest published Play Store build number (e.g. `25`).
+  ///
+  /// When `0` (the compiled default), build-lag update prompts are disabled.
+  static int get latestBuildNumber =>
+      _int(RemoteConfigKeys.latestBuildNumber);
+
+  /// Number of builds behind [latestBuildNumber] before showing the update
+  /// prompt (default `3`, giving users 1–2 updates of breathing room).
+  static int get updatePromptLagThreshold =>
+      _int(RemoteConfigKeys.updatePromptLagThreshold);
+
+  /// Optional build-lag threshold at which the update prompt becomes
+  /// non-dismissible (e.g. `5`). When `<= 0` (the compiled default), prompts
+  /// remain dismissible.
+  static int get forceUpdateLagThreshold =>
+      _int(RemoteConfigKeys.forceUpdateLagThreshold);
 
   /// When true the app is locked behind [maintenanceMessage].
   static bool get inMaintenanceMode =>

@@ -23,6 +23,7 @@ import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
 import 'core/services/remote_config_service.dart';
 import 'core/services/shorebird_update_service.dart';
+import 'core/services/update_prompt_service.dart';
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
@@ -610,6 +611,10 @@ class _AuthGateState extends State<_AuthGate> {
   void initState() {
     super.initState();
     _auth = widget.authRepository ?? FirebaseAuthRepository();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(UpdatePromptService.checkUsingRemoteConfig(context: context));
+    });
   }
 
   @override
