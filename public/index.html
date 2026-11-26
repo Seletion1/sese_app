@@ -740,6 +740,202 @@
       color: var(--seseGold);
     }
 
+    /* ── SESE App Launcher Box (Ecosystem Hub) ────────────────────────────── */
+    .app-launcher-box {
+      background: var(--darkCard);
+      border: 1px solid var(--seseGoldBorder);
+      border-radius: var(--radiusLg);
+      padding: 36px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.16);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .app-launcher-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--cardBorder);
+    }
+
+    .app-launcher-bar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: var(--textHeader);
+    }
+
+    .app-launcher-dots {
+      display: grid;
+      grid-template-columns: repeat(3, 5px);
+      gap: 3px;
+    }
+
+    .app-launcher-dots span {
+      width: 5px;
+      height: 5px;
+      border-radius: 2px;
+      background: var(--seseGold);
+    }
+
+    .app-launcher-bar-note {
+      font-size: 0.82rem;
+      color: var(--textMuted);
+      font-weight: 600;
+    }
+
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+    }
+
+    .app-tile {
+      background: var(--darkSurface);
+      border: 1px solid var(--cardBorder);
+      border-radius: var(--radiusMd);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      transition: transform var(--transitionFast), border-color var(--transitionFast), box-shadow var(--transitionFast);
+    }
+
+    .app-tile:hover {
+      transform: translateY(-4px);
+      border-color: var(--seseGoldBorder);
+      box-shadow: 0 14px 32px rgba(0, 0, 0, 0.14);
+    }
+
+    .app-tile-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .app-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 1.25rem;
+      color: #121212;
+      background: linear-gradient(135deg, #FFC107 0%, #FF9800 100%);
+      box-shadow: 0 8px 20px var(--seseGoldGlow);
+      flex-shrink: 0;
+    }
+
+    .app-icon--play {
+      background: linear-gradient(135deg, #7C4DFF 0%, #00B0FF 100%);
+      color: #FFFFFF;
+      box-shadow: 0 8px 20px rgba(124, 77, 255, 0.25);
+    }
+
+    .app-icon--access {
+      background: linear-gradient(135deg, #00E676 0%, #00BFA5 100%);
+      color: #121212;
+      box-shadow: 0 8px 20px rgba(0, 230, 118, 0.22);
+    }
+
+    .app-icon--hub {
+      background: linear-gradient(135deg, #2C2C38 0%, #1A1A20 100%);
+      color: var(--seseGold);
+      border: 1px solid var(--seseGoldBorder);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .app-badge {
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(0, 230, 118, 0.14);
+      color: #00E676;
+      border: 1px solid rgba(0, 230, 118, 0.35);
+    }
+
+    .app-badge--soon {
+      background: var(--seseGoldSoftBg);
+      color: var(--seseGold);
+      border-color: var(--seseGoldBorder);
+    }
+
+    .app-tile h3 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--textHeader);
+      margin-bottom: 2px;
+    }
+
+    .app-tile-cat {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--seseGold);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .app-tile p {
+      font-size: 0.88rem;
+      color: var(--textMuted);
+      line-height: 1.5;
+      flex: 1;
+    }
+
+    .app-open-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 11px 16px;
+      border-radius: var(--radiusSm);
+      font-size: 0.9rem;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all var(--transitionFast);
+    }
+
+    .app-open-btn--live {
+      background: var(--seseGold);
+      color: #121212;
+    }
+
+    .app-open-btn--live:hover {
+      background: var(--seseGoldHover);
+    }
+
+    .app-open-btn--soon {
+      background: transparent;
+      color: var(--textBody);
+      border: 1px solid var(--cardBorder);
+    }
+
+    .app-open-btn--soon:hover {
+      border-color: var(--seseGoldBorder);
+      color: var(--seseGold);
+    }
+
+    @media (max-width: 640px) {
+      .app-launcher-box {
+        padding: 22px 16px;
+      }
+    }
+
     /* ── Footer ───────────────────────────────────────────────────────────── */
     .site-footer {
       background: var(--darkSurface);
@@ -933,7 +1129,7 @@
         </nav>
 
         <div class="nav-actions">
-          <a href="#contact" class="btn btn-gold">Corporate Portal</a>
+          <a href="#platforms" class="btn btn-gold">Launch Apps</a>
         </div>
       </div>
     </div>
@@ -992,12 +1188,12 @@
 
           <!-- Action Buttons -->
           <div class="hero-actions">
-            <a href="#solutions" class="btn btn-gold">
-              <span>Explore Enterprise Solutions</span>
+            <a href="#platforms" class="btn btn-gold">
+              <span>Launch SESE Apps</span>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </a>
-            <a href="#architecture" class="btn btn-ghost">
-              <span>Digital Architecture Blueprint</span>
+            <a href="#solutions" class="btn btn-ghost">
+              <span>Explore Enterprise Solutions</span>
             </a>
           </div>
 
@@ -1021,6 +1217,113 @@
             </div>
           </div>
 
+        </div>
+      </div>
+    </section>
+
+    <!-- SESE Ecosystem App Launcher Box -->
+    <section id="platforms" class="section" aria-labelledby="platforms-title">
+      <div class="container">
+        <div class="section-header">
+          <div class="badge-gold">
+            <span class="badge-dot" aria-hidden="true"></span>
+            <span>Direct Web Ecosystem</span>
+          </div>
+          <h2 id="platforms-title" class="section-title">SESE App Hub</h2>
+          <p class="section-desc">
+            Full access to every SESE application directly from your browser — no app store downloads or third-party gatekeepers required.
+          </p>
+        </div>
+
+        <div class="app-launcher-box">
+          <div class="app-launcher-bar">
+            <div class="app-launcher-bar-title">
+              <div class="app-launcher-dots" aria-hidden="true">
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+                <span></span><span></span><span></span>
+              </div>
+              <span>All SESE Applications</span>
+            </div>
+            <div class="app-launcher-bar-note">
+              Instant Web Access &bull; Shared SESE Account
+            </div>
+          </div>
+
+          <div class="app-grid">
+            <!-- 1. SeseRide (Live) -->
+            <article class="app-tile">
+              <div class="app-tile-top">
+                <div class="app-icon" aria-hidden="true">SR</div>
+                <span class="app-badge">Live on Web</span>
+              </div>
+              <div>
+                <div class="app-tile-cat">Mobility &amp; Delivery</div>
+                <h3>SeseRide</h3>
+              </div>
+              <p>
+                Book rides, send &amp; receive packages, track live trips, and manage driver dispatch directly from the web.
+              </p>
+              <a href="/apps/seseride/" class="app-open-btn app-open-btn--live">
+                <span>Open SeseRide</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </a>
+            </article>
+
+            <!-- 2. SesePlay -->
+            <article class="app-tile">
+              <div class="app-tile-top">
+                <div class="app-icon app-icon--play" aria-hidden="true">SP</div>
+                <span class="app-badge app-badge--soon">Rolling Out</span>
+              </div>
+              <div>
+                <div class="app-tile-cat">Media &amp; Entertainment</div>
+                <h3>SesePlay</h3>
+              </div>
+              <p>
+                Stream audio, video, and creator entertainment powered by the SESE digital media fabric.
+              </p>
+              <button type="button" class="app-open-btn app-open-btn--soon" onclick="alert('SesePlay Web Portal is rolling out soon. Stay tuned!')">
+                <span>Web Portal Coming Soon</span>
+              </button>
+            </article>
+
+            <!-- 3. Access Code -->
+            <article class="app-tile">
+              <div class="app-tile-top">
+                <div class="app-icon app-icon--access" aria-hidden="true">AC</div>
+                <span class="app-badge app-badge--soon">Rolling Out</span>
+              </div>
+              <div>
+                <div class="app-tile-cat">Smart Estate &amp; Access</div>
+                <h3>Access Code</h3>
+              </div>
+              <p>
+                Resident &amp; visitor pass generation, QR gate verification, and estate security management.
+              </p>
+              <button type="button" class="app-open-btn app-open-btn--soon" onclick="alert('Access Code Web Portal is rolling out soon. Stay tuned!')">
+                <span>Web Portal Coming Soon</span>
+              </button>
+            </article>
+
+            <!-- 4. SeseHub -->
+            <article class="app-tile">
+              <div class="app-tile-top">
+                <div class="app-icon app-icon--hub" aria-hidden="true">SH</div>
+                <span class="app-badge app-badge--soon">Internal Ops</span>
+              </div>
+              <div>
+                <div class="app-tile-cat">Operations &amp; Admin</div>
+                <h3>SeseHub</h3>
+              </div>
+              <p>
+                Centralized operations desk for fleet verification, support resolution, and platform governance.
+              </p>
+              <button type="button" class="app-open-btn app-open-btn--soon" onclick="alert('SeseHub Web Portal is restricted to authorized operations staff.')">
+                <span>Operations Portal</span>
+              </button>
+            </article>
+          </div>
         </div>
       </div>
     </section>

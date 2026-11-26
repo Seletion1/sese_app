@@ -2,7 +2,7 @@ name: sese_ride
 description: "SeSe Ride Customer & Driver Application."
 publish_to: 'none'
 
-version: 1.0.19+21
+version: 1.0.21+23
 
 environment:
   sdk: ^3.13.2
@@ -54,6 +54,7 @@ dev_dependencies:
 
 dependency_overrides:
   record_platform_interface: 1.2.0
+  record_web: 1.1.7
 
 flutter:
   uses-material-design: true

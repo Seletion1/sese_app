@@ -48,6 +48,14 @@
     ],
     "rewrites": [
       {
+        "source": "/apps/seseride",
+        "destination": "/apps/seseride/index.html"
+      },
+      {
+        "source": "/apps/seseride/**",
+        "destination": "/apps/seseride/index.html"
+      },
+      {
         "source": "/payment/callback",
         "destination": "/payment/callback.html"
       },
