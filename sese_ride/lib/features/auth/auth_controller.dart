@@ -65,6 +65,11 @@ class AuthController extends ChangeNotifier {
       if (e is fb.FirebaseAuthException) {
         if (e.code == 'network-request-failed' || e.code == 'network_error') {
           setError('Network connection error. Please check your internet connection.');
+        } else if (e.code == 'account-exists-with-different-credential') {
+          setError(
+            e.message ??
+                'An account already exists with this email. Enter your password to link Google.',
+          );
         } else {
           setError(e.message ?? 'Unable to complete Google sign-in. Please try again.');
         }

@@ -36,7 +36,9 @@ class IdentifierAvailabilityResult {
       available: available,
       selfOwned: map['selfOwned'] == true,
       maskedValue: (map['maskedValue'] ?? '').toString(),
-      message: available ? rawMsg : (rawMsg ?? 'Please check your details and try again.'),
+      message: available
+          ? rawMsg
+          : (rawMsg ?? 'This value is already registered with another account.'),
     );
   }
 }
@@ -120,9 +122,10 @@ class UniquenessService {
     } on FirebaseFunctionsException catch (e) {
       debugPrint('UniquenessService.checkAvailability functions error: $e');
       if (e.code == 'already-exists') {
-        return const IdentifierAvailabilityResult(
+        return IdentifierAvailabilityResult(
           available: false,
-          message: 'Please check your details and try again.',
+          message:
+              'This ${type.wireName.replaceAll('_', ' ')} is already registered.',
         );
       }
       return IdentifierAvailabilityResult(

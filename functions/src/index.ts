@@ -150,6 +150,7 @@ export {
   registerUser,
   updateProfile,
   registerVehicle,
+  resolveUnifiedAccount,
 } from "./uniqueIdentifiers";
 
 interface CalculateFareData {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -13,6 +14,7 @@ import '../models/user_role.dart';
 import '../services/awareness_tooltip_service.dart';
 import '../services/call/call_service_manager.dart';
 import '../services/local_cache_service.dart';
+import '../services/uniqueness_service.dart';
 
 /// Production [AuthRepository] backed by Firebase Auth + Cloud Firestore.
 ///
@@ -274,20 +276,6 @@ class FirebaseAuthRepository implements AuthRepository {
 
     if (!isSignUp) {
       // ─── Sign-In Mode ───────────────────────────────────────────────────────
-      if (isDriver && firestore != null) {
-        final driverDoc =
-            await firestore.collection('drivers').doc(firebaseUser.uid).get();
-        if (!driverDoc.exists || driverDoc.data() == null) {
-          try {
-            await auth.signOut();
-          } catch (_) {}
-          throw fb.FirebaseAuthException(
-            code: 'driver-account-missing',
-            message:
-                "Account does not exist. Please tap 'Create Account' to register as a driver.",
-          );
-        }
-      }
       return _fetchAppUser(firebaseUser, selectedRole: effectiveRole);
     }
 
@@ -347,6 +335,8 @@ class FirebaseAuthRepository implements AuthRepository {
         final driverData = <String, dynamic>{
           'uid': firebaseUser.uid,
           'email': firebaseUser.email ?? '',
+          'normalizedEmail':
+              UniquenessService.normalizeEmail(firebaseUser.email ?? ''),
           'displayName': displayName,
           'fullName': displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
           'firstName': firstName,
@@ -394,6 +384,8 @@ class FirebaseAuthRepository implements AuthRepository {
         final userData = <String, dynamic>{
           'uid': firebaseUser.uid,
           'email': firebaseUser.email ?? '',
+          'normalizedEmail':
+              UniquenessService.normalizeEmail(firebaseUser.email ?? ''),
           'displayName': displayName,
           'fullName': displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
           'firstName': firstName,
@@ -426,6 +418,49 @@ class FirebaseAuthRepository implements AuthRepository {
         photoUrl: firebaseUser.photoURL ?? '',
       );
     }
+  }
+
+  /// Signs in with an existing email + password and links a pending Google
+  /// [AuthCredential] to that same Firebase Auth UID so both sign-in methods
+  /// share one unified account.
+  Future<AppUser> linkGoogleCredentialWithPassword({
+    required String email,
+    required String password,
+    required fb.AuthCredential pendingCredential,
+    UserRole? selectedRole,
+  }) async {
+    final auth = _auth;
+    if (auth == null) {
+      throw fb.FirebaseAuthException(
+        code: 'firebase-uninitialized',
+        message: 'Firebase is not initialized. Please restart the app.',
+      );
+    }
+    final userCredential = await auth.signInWithEmailAndPassword(
+      email: email.trim(),
+      password: password,
+    );
+    final user = userCredential.user;
+    if (user == null) {
+      throw fb.FirebaseAuthException(
+        code: 'user-not-found',
+        message: 'Unable to retrieve user account after sign in.',
+      );
+    }
+    try {
+      await user.linkWithCredential(pendingCredential);
+    } on fb.FirebaseAuthException catch (e) {
+      if (e.code != 'provider-already-linked' &&
+          e.code != 'credential-already-in-use') {
+        rethrow;
+      }
+    }
+    final appUser = await _fetchAppUser(user, selectedRole: selectedRole);
+    if (appUser.role == UserRole.customer || appUser.role == UserRole.driver) {
+      // ignore: discarded_futures
+      _recordAuthProvider(user.uid, appUser.role, 'google.com');
+    }
+    return appUser;
   }
 
   /// Shared Google authentication flow (web popup / mobile GMS), returning
@@ -605,14 +640,37 @@ class FirebaseAuthRepository implements AuthRepository {
       );
     }
 
-    final fb.UserCredential credential;
+    fb.UserCredential? credential;
+    bool recoveredExistingAuth = false;
     try {
       credential = await auth.createUserWithEmailAndPassword(
         email: trimmedEmail,
         password: password,
       );
-    } on fb.FirebaseAuthException {
-      rethrow;
+    } on fb.FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        // Attempt to sign in with the supplied password in case this user
+        // already created their Auth account in a previous interrupted signup.
+        try {
+          credential = await auth.signInWithEmailAndPassword(
+            email: trimmedEmail,
+            password: password,
+          );
+          recoveredExistingAuth = true;
+        } on fb.FirebaseAuthException catch (signInErr) {
+          if (signInErr.code == 'wrong-password' ||
+              signInErr.code == 'invalid-credential') {
+            throw fb.FirebaseAuthException(
+              code: 'email-already-in-use',
+              message:
+                  'An account with this email already exists. Please sign in with your password or continue with Google.',
+            );
+          }
+          rethrow;
+        }
+      } else {
+        rethrow;
+      }
     } on PlatformException catch (e) {
       debugPrint(
         'FirebaseAuthRepository.registerWithReferral platform error: '
@@ -631,7 +689,31 @@ class FirebaseAuthRepository implements AuthRepository {
       );
     }
     final firebaseUser = credential.user!;
-    await firebaseUser.updateDisplayName(fullName);
+    if ((firebaseUser.displayName ?? '').trim().isEmpty && fullName.isNotEmpty) {
+      try {
+        await firebaseUser.updateDisplayName(fullName);
+      } catch (_) {}
+    }
+
+    if (recoveredExistingAuth) {
+      final targetCol = role == UserRole.driver ? 'drivers' : 'users';
+      final existingSnap =
+          await firestore.collection(targetCol).doc(firebaseUser.uid).get();
+      if (existingSnap.exists && existingSnap.data() != null) {
+        return _fetchAppUser(firebaseUser, selectedRole: role);
+      }
+      // Also check unified lookup by email/phone before creating a new doc.
+      try {
+        final existingUnified =
+            await _fetchAppUser(firebaseUser, selectedRole: role);
+        if (existingUnified.role == role ||
+            existingUnified.uid != firebaseUser.uid) {
+          return existingUnified;
+        }
+      } on fb.FirebaseAuthException catch (e) {
+        if (e.code != 'driver-account-missing') rethrow;
+      } catch (_) {}
+    }
 
     final now = DateTime.now();
     final isDriver = role == UserRole.driver;
@@ -663,6 +745,7 @@ class FirebaseAuthRepository implements AuthRepository {
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
+        'normalizedEmail': UniquenessService.normalizeEmail(trimmedEmail),
         'authProviders': ['password'],
         DriverVerification.fieldStatus:
             DriverVerification.pendingOnboarding,
@@ -672,15 +755,19 @@ class FirebaseAuthRepository implements AuthRepository {
         'initialVehicleType': vehicleType,
         'licenseNo': licenseNo,
       };
-      await firestore.collection('drivers').doc(firebaseUser.uid).set(data);
+      await firestore
+          .collection('drivers')
+          .doc(firebaseUser.uid)
+          .set(data, SetOptions(merge: true));
     } else {
       await firestore
           .collection('users')
           .doc(firebaseUser.uid)
           .set({
         ...appUser.toMap(),
+        'normalizedEmail': UniquenessService.normalizeEmail(trimmedEmail),
         'authProviders': ['password'],
-      });
+      }, SetOptions(merge: true));
     }
 
     // ignore: discarded_futures
@@ -1244,6 +1331,39 @@ class FirebaseAuthRepository implements AuthRepository {
         }
       } catch (e) {
         debugPrint('FirebaseAuthRepository._fetchAppUser users error: $e');
+      }
+
+      // 5.4. Server-authoritative unified account lookup by normalized email
+      // and phone number (bypasses client query restrictions on other UIDs).
+      if (!isHubApp &&
+          ((firebaseUser.email ?? '').trim().isNotEmpty ||
+              (firebaseUser.phoneNumber ?? '').trim().isNotEmpty)) {
+        try {
+          final callable =
+              FirebaseFunctions.instance.httpsCallable('resolveUnifiedAccount');
+          final res = await callable.call<Map<String, dynamic>>({
+            'email': firebaseUser.email ?? '',
+            'phoneNumber': firebaseUser.phoneNumber ?? '',
+            'preferredRole': (selectedRole ?? _pendingSelectedRole) ==
+                    UserRole.driver
+                ? 'driver'
+                : 'customer',
+          });
+          final resData = Map<String, dynamic>.from(res.data);
+          if (resData['found'] == true && resData['data'] is Map) {
+            final data = Map<String, dynamic>.from(resData['data'] as Map);
+            final appUser = AppUser.fromMap(data);
+            _logRoleSelection(appUser.role, selectedRole);
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              appUser.toMap(),
+            );
+            return appUser;
+          }
+        } catch (e) {
+          debugPrint(
+              'FirebaseAuthRepository._fetchAppUser resolveUnifiedAccount error: $e');
+        }
       }
 
       // 5.5. Check for existing profile by email across drivers and users

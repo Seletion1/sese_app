@@ -64,6 +64,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  String? _selectedPhoneIsoCode;
   bool _obscurePassword = true;
 
   static const Color _seseGold = AppColors.seseGold;
@@ -343,6 +344,14 @@ class _AuthScreenState extends State<AuthScreen> {
           await _auth.signOut();
         } catch (_) {}
         _showError(_accountMissingMessage);
+      } else if (e.code == 'account-exists-with-different-credential' &&
+          e.credential != null &&
+          _auth is FirebaseAuthRepository &&
+          mounted) {
+        await _showLinkGoogleWithPasswordDialog(
+          email: (e.email ?? _emailController.text).trim(),
+          pendingCredential: e.credential!,
+        );
       } else if (e.code != 'google-sign-in-cancelled' && e.code != 'canceled') {
         _showError(_mapAuthError(e.code, message: e.message));
       }
@@ -450,6 +459,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
         final phoneNormalized = SesePhoneSanitizer.normalize(
           _phoneController.text.trim(),
+          defaultIsoCode: _selectedPhoneIsoCode,
         );
 
         final repo = _auth is FirebaseAuthRepository
@@ -494,10 +504,11 @@ class _AuthScreenState extends State<AuthScreen> {
               behavior: SnackBarBehavior.floating,
             ),
           );
-          Navigator.of(context).pushReplacement(
+          Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(
               builder: (_) => DriverOnboardingScreen(user: appUser, auth: _auth),
             ),
+            (route) => false,
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -519,10 +530,12 @@ class _AuthScreenState extends State<AuthScreen> {
       } else {
         _showError(_mapAuthError(e.code, message: e.message));
       }
+    } on FirebaseException catch (e) {
+      _showError(_mapAuthError(e.code, message: e.message));
     } on PlatformException catch (e) {
       _showError(_mapAuthError(e.code, message: e.message));
     } catch (e) {
-      _showError('Authentication failed. Please check your credentials and connection.');
+      _showError('Authentication failed. Please check your internet connection and try again.');
     } finally {
       if (mounted) _controller.setLoading(false);
     }
@@ -569,11 +582,19 @@ class _AuthScreenState extends State<AuthScreen> {
         return 'Please enter a valid email address.';
       case 'email-already-in-use':
       case 'already-exists':
-        return 'Please check your details and try again.';
+        return (message != null && message.trim().isNotEmpty)
+            ? message.trim()
+            : 'An account with this email already exists. Please sign in or use Forgot Password.';
       case 'account-exists-with-different-credential':
       case 'credential-already-in-use':
       case 'provider-already-linked':
-        return 'Please verify your information and try again.';
+        return (message != null && message.trim().isNotEmpty)
+            ? message.trim()
+            : 'This email is already registered with another sign-in method. Please sign in with your password to link Google.';
+      case 'permission-denied':
+        return 'Unable to save profile due to a permission error. Please try again or contact support.';
+      case 'unavailable':
+        return 'Service temporarily unavailable. Please check your internet connection and try again.';
       case 'requires-recent-login':
       case 'reauth-required':
         return 'For security, please sign out and sign back in, then try again.';
@@ -611,6 +632,143 @@ class _AuthScreenState extends State<AuthScreen> {
         }
         return 'Authentication failed. Please verify your details and try again.';
     }
+  }
+
+  Future<void> _showLinkGoogleWithPasswordDialog({
+    required String email,
+    required fb.AuthCredential pendingCredential,
+  }) async {
+    final passwordCtrl = TextEditingController();
+    bool linking = false;
+    String? dialogError;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.link_rounded, color: AppColors.seseGold),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Link Google Account',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'An account already exists for $email. Enter your password once to sign in and link your Google account.',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('link_google_password_field'),
+                controller: passwordCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Account Password',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
+                ),
+              ),
+              if (dialogError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  dialogError!,
+                  style: TextStyle(
+                    color: Theme.of(ctx).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: linking ? null : () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('link_google_submit_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.seseGold,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: linking
+                  ? null
+                  : () async {
+                      final pwd = passwordCtrl.text;
+                      if (pwd.isEmpty) {
+                        setDialogState(
+                          () => dialogError = 'Please enter your password.',
+                        );
+                        return;
+                      }
+                      setDialogState(() {
+                        linking = true;
+                        dialogError = null;
+                      });
+                      try {
+                        final repo = _auth as FirebaseAuthRepository;
+                        final linkedUser =
+                            await repo.linkGoogleCredentialWithPassword(
+                          email: email,
+                          password: pwd,
+                          pendingCredential: pendingCredential,
+                          selectedRole: _controller.selectedRole,
+                        );
+                        if (!ctx.mounted) return;
+                        Navigator.of(ctx).pop();
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text(
+                              'Google account linked! Signing you in...',
+                            ),
+                            backgroundColor: Colors.green.shade800,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                        _routeToHome(linkedUser);
+                      } on fb.FirebaseAuthException catch (e) {
+                        if (!ctx.mounted) return;
+                        setDialogState(() {
+                          linking = false;
+                          dialogError = _mapAuthError(e.code, message: e.message);
+                        });
+                      } catch (_) {
+                        if (!ctx.mounted) return;
+                        setDialogState(() {
+                          linking = false;
+                          dialogError =
+                              'Unable to link Google account. Please check your password and try again.';
+                        });
+                      }
+                    },
+              child: linking
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : const Text('Sign In & Link'),
+            ),
+          ],
+        ),
+      ),
+    );
+    passwordCtrl.dispose();
   }
 
   void _showForgotPasswordDialog() {
@@ -923,6 +1081,9 @@ class _AuthScreenState extends State<AuthScreen> {
                         controller: _phoneController,
                         labelText: 'Phone Number',
                         hintText: '8012345678',
+                        onPhoneNumberChanged: (pn) {
+                          _selectedPhoneIsoCode = pn.isoCode;
+                        },
                         validator: (v) {
                           if (v == null || v.trim().isEmpty) {
                             return 'Phone number is required';

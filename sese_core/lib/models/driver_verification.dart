@@ -14,6 +14,7 @@
 abstract final class DriverVerification {
   static const String pendingOnboarding = 'pending_onboarding';
   static const String pending = 'pending';
+  static const String pendingReview = 'pending_review';
   static const String approved = 'approved';
   static const String rejected = 'rejected';
 
@@ -34,15 +35,16 @@ abstract final class DriverVerification {
   static const String sequentialId = 'sequentialId';
 
   /// Returns true if a driver document represents an active pending profile
-  /// awaiting hub manual document audit (not already approved or rejected).
+  /// awaiting hub manual document audit (submitted Step 2 KYC, not
+  /// `pending_onboarding`, and not already approved or rejected).
   static bool isPendingDriverKycDoc(Map<String, dynamic> data) {
     if (data[fieldProfileVerified] == true || data['isVerified'] == true) {
       return false;
     }
     final status =
-        (data[fieldStatus] ?? '').toString().toLowerCase();
+        (data[fieldStatus] ?? '').toString().trim().toLowerCase();
     final profileStatus =
-        (data['profileStatus'] ?? '').toString().toLowerCase();
+        (data['profileStatus'] ?? '').toString().trim().toLowerCase();
     if (status == 'approved' ||
         status == 'verified' ||
         profileStatus == 'approved' ||
@@ -52,14 +54,29 @@ abstract final class DriverVerification {
     if (status == 'rejected' || profileStatus == 'rejected') {
       return false;
     }
+    if (status == pendingOnboarding) {
+      return false;
+    }
     if (status == 'pending' ||
-        status == 'pending_onboarding' ||
+        status == 'pending_review' ||
         status == 'submitted' ||
         profileStatus == 'pending_verification' ||
         data['isPendingReview'] == true) {
       return true;
     }
     return false;
+  }
+
+  /// Returns true if a driver document is still in `pending_onboarding`
+  /// (account created, Step 2 KYC form not yet submitted).
+  static bool isIncompleteOnboardingDoc(Map<String, dynamic> data) {
+    if (isPendingDriverKycDoc(data)) return false;
+    if (data[fieldProfileVerified] == true || data['isVerified'] == true) {
+      return false;
+    }
+    final status =
+        (data[fieldStatus] ?? '').toString().trim().toLowerCase();
+    return status == pendingOnboarding;
   }
 }
 

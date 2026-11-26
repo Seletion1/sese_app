@@ -817,3 +817,179 @@ export const registerVehicle = guardedOnCall<RegisterVehicleData>(async (request
     message: "Vehicle registered successfully and submitted for hub verification.",
   };
 });
+
+// ── 7. Callable: resolveUnifiedAccount ──────────────────────────────────────
+
+function serializeDocData(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v && typeof (v as { toDate?: () => Date }).toDate === "function") {
+      out[k] = (v as { toDate: () => Date }).toDate().toISOString();
+    } else if (v && typeof v === "object" && !Array.isArray(v)) {
+      out[k] = serializeDocData(v as Record<string, unknown>);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * Callable: resolveUnifiedAccount
+ * Server-side unified account lookup by normalized email and normalized phone
+ * across `drivers` and `users`. Links secondary Auth UIDs to the canonical
+ * profile via `linkedUid` so Email/Password and Google Sign-In always resolve
+ * to one unified account without duplicate profiles.
+ */
+export const resolveUnifiedAccount = guardedOnCall<{
+  email?: string;
+  phoneNumber?: string;
+  preferredRole?: "customer" | "driver";
+}>(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Authentication required.");
+  }
+
+  const callerUid = request.auth.uid;
+  const rawEmail = String(
+    request.data?.email ?? request.auth.token.email ?? ""
+  ).trim();
+  const rawPhone = String(
+    request.data?.phoneNumber ?? request.auth.token.phone_number ?? ""
+  ).trim();
+  const preferredRole = request.data?.preferredRole === "driver" ? "driver" : "customer";
+  const signInProvider = String(
+    (request.auth.token as { firebase?: { sign_in_provider?: string } })?.firebase
+      ?.sign_in_provider ?? ""
+  ).trim();
+
+  const normEmail = rawEmail ? normalizeIdentifier("email", rawEmail) : "";
+  const lowerEmail = rawEmail.toLowerCase();
+  const normPhone = rawPhone ? normalizeIdentifier("phone", rawPhone) : "";
+
+  const collectionsOrder: Array<"drivers" | "users"> =
+    preferredRole === "driver" ? ["drivers", "users"] : ["drivers", "users"];
+
+  let foundCol: "drivers" | "users" | null = null;
+  let foundSnap: FirebaseFirestore.DocumentSnapshot | null = null;
+
+  // 1. Check unique_identifiers registry first (O(1))
+  for (const [type, val] of [
+    ["email", normEmail],
+    ["phone", normPhone],
+  ] as const) {
+    if (!val) continue;
+    const hash = hashIdentifier(type, val);
+    const idSnap = await db().collection("unique_identifiers").doc(hash).get();
+    if (idSnap.exists) {
+      const ownerUid = String(idSnap.data()?.ownerUid ?? "").trim();
+      if (ownerUid) {
+        for (const col of collectionsOrder) {
+          const doc = await db().collection(col).doc(ownerUid).get();
+          if (doc.exists && doc.data()) {
+            foundCol = col;
+            foundSnap = doc;
+            break;
+          }
+        }
+        if (foundSnap) break;
+      }
+    }
+  }
+
+  // 2. Fallback query by normalizedEmail, email, phoneNumber, phoneNumberE164
+  if (!foundSnap) {
+    for (const col of collectionsOrder) {
+      if (normEmail) {
+        for (const field of ["normalizedEmail", "email"]) {
+          const val = field === "normalizedEmail" ? normEmail : lowerEmail;
+          const q = await db().collection(col).where(field, "==", val).limit(1).get();
+          if (!q.empty) {
+            foundCol = col;
+            foundSnap = q.docs[0];
+            break;
+          }
+          if (rawEmail && rawEmail !== val) {
+            const qRaw = await db().collection(col).where(field, "==", rawEmail).limit(1).get();
+            if (!qRaw.empty) {
+              foundCol = col;
+              foundSnap = qRaw.docs[0];
+              break;
+            }
+          }
+        }
+        if (foundSnap) break;
+      }
+      if (normPhone) {
+        for (const field of ["phoneNumber", "phoneNumberE164"]) {
+          const q = await db().collection(col).where(field, "==", normPhone).limit(1).get();
+          if (!q.empty) {
+            foundCol = col;
+            foundSnap = q.docs[0];
+            break;
+          }
+        }
+        if (foundSnap) break;
+      }
+    }
+  }
+
+  if (!foundSnap || !foundCol || !foundSnap.data()) {
+    return { found: false };
+  }
+
+  let canonicalDoc = foundSnap;
+  let canonicalUid = canonicalDoc.id;
+  const linked = String(canonicalDoc.data()?.linkedUid ?? "").trim();
+  if (linked && linked !== canonicalUid) {
+    const target = await db().collection(foundCol).doc(linked).get();
+    if (target.exists && target.data()) {
+      canonicalDoc = target;
+      canonicalUid = target.id;
+    }
+  }
+
+  const canonicalData: Record<string, unknown> = {
+    ...(canonicalDoc.data() as Record<string, unknown>),
+  };
+
+  // Record auth provider + normalizedEmail on canonical doc
+  const canonicalUpdate: Record<string, unknown> = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+  if (signInProvider) {
+    canonicalUpdate.authProviders = admin.firestore.FieldValue.arrayUnion(signInProvider);
+  }
+  if (normEmail && !canonicalData.normalizedEmail) {
+    canonicalUpdate.normalizedEmail = normEmail;
+  }
+  await db().collection(foundCol).doc(canonicalUid).set(canonicalUpdate, { merge: true });
+
+  // Link secondary UID -> canonicalUid if caller signed in under a different UID
+  if (callerUid !== canonicalUid) {
+    await db().collection(foundCol).doc(callerUid).set(
+      {
+        linkedUid: canonicalUid,
+        email: rawEmail || canonicalData.email || "",
+        normalizedEmail: normEmail || canonicalData.normalizedEmail || "",
+        role: foundCol === "drivers" ? "driver" : "customer",
+        ...(signInProvider
+          ? { authProviders: admin.firestore.FieldValue.arrayUnion(signInProvider) }
+          : {}),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
+  return {
+    found: true,
+    collection: foundCol,
+    canonicalUid,
+    data: serializeDocData({
+      ...canonicalData,
+      uid: canonicalUid,
+      role: canonicalData.role ?? (foundCol === "drivers" ? "driver" : "customer"),
+    }),
+  };
+});

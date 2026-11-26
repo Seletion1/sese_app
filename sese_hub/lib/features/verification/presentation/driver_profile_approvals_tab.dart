@@ -29,6 +29,7 @@ class DriverProfileApprovalsTab extends StatefulWidget {
 class _DriverProfileApprovalsTabState
     extends State<DriverProfileApprovalsTab> {
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
+  bool _showIncompleteOnboarding = false;
 
   @override
   void initState() {
@@ -37,7 +38,9 @@ class _DriverProfileApprovalsTabState
     ensureFreshHubIdToken();
   }
 
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queue() {
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _queue({
+    required bool showIncomplete,
+  }) {
     try {
       final stream1 = _db
           .collection('drivers')
@@ -51,6 +54,7 @@ class _DriverProfileApprovalsTabState
           .collection('drivers')
           .where(DriverVerification.fieldStatus, whereIn: [
             DriverVerification.pending,
+            DriverVerification.pendingReview,
             'submitted',
             DriverVerification.pendingOnboarding,
             'PENDING',
@@ -69,7 +73,10 @@ class _DriverProfileApprovalsTabState
       void emit() {
         final combined = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
         for (final doc in [...map1.values, ...map2.values, ...map3.values]) {
-          if (!DriverVerification.isPendingDriverKycDoc(doc.data())) {
+          final matches = showIncomplete
+              ? DriverVerification.isIncompleteOnboardingDoc(doc.data())
+              : DriverVerification.isPendingDriverKycDoc(doc.data());
+          if (!matches) {
             continue;
           }
           combined[doc.id] = doc;
@@ -202,69 +209,114 @@ class _DriverProfileApprovalsTabState
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-      stream: _queue(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-          return const SeseListSkeleton(itemCount: 4);
-        }
-        if (snapshot.hasError) {
-          if (isHubSessionExpiredError(snapshot.error)) {
-            return const HubSessionExpiredView(
-                contextLabel: 'driver profiles');
-          }
-          return Center(
-            child: Text('Failed to load driver profiles: ${snapshot.error}'),
-          );
-        }
-        final docs = snapshot.data ?? [];
-        if (docs.isEmpty) {
-          return const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.check_circle_outline, size: 64, color: Colors.green),
-                SizedBox(height: 16),
-                Text('No pending driver profiles. All queues cleared!'),
-              ],
-            ),
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: docs.length + 1,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    const Text(
-                      'Driver Profile Verification Queue',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    HubCountBadge(count: docs.length),
-                  ],
-                ),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              FilterChip(
+                key: const Key('filter_ready_for_review'),
+                label: const Text('Ready for Review'),
+                selected: !_showIncompleteOnboarding,
+                onSelected: (_) {
+                  if (_showIncompleteOnboarding) {
+                    setState(() => _showIncompleteOnboarding = false);
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              FilterChip(
+                key: const Key('filter_incomplete_signups'),
+                label: const Text('Incomplete Sign-Ups'),
+                selected: _showIncompleteOnboarding,
+                onSelected: (_) {
+                  if (!_showIncompleteOnboarding) {
+                    setState(() => _showIncompleteOnboarding = true);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            stream: _queue(showIncomplete: _showIncompleteOnboarding),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return const SeseListSkeleton(itemCount: 4);
+              }
+              if (snapshot.hasError) {
+                if (isHubSessionExpiredError(snapshot.error)) {
+                  return const HubSessionExpiredView(
+                      contextLabel: 'driver profiles');
+                }
+                return Center(
+                  child: Text('Failed to load driver profiles: ${snapshot.error}'),
+                );
+              }
+              final docs = snapshot.data ?? [];
+              if (docs.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.check_circle_outline,
+                          size: 64, color: Colors.green),
+                      const SizedBox(height: 16),
+                      Text(
+                        _showIncompleteOnboarding
+                            ? 'No incomplete driver sign-ups.'
+                            : 'No pending driver profiles ready for review.',
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: docs.length + 1,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          Text(
+                            _showIncompleteOnboarding
+                                ? 'Incomplete Sign-Ups (KYC Not Submitted)'
+                                : 'Driver Profile Verification Queue',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          HubCountBadge(count: docs.length),
+                        ],
+                      ),
+                    );
+                  }
+                  final doc = docs[index - 1];
+                  final data = doc.data();
+                  final name = (data['fullName'] ?? '').toString().isNotEmpty
+                      ? data['fullName'].toString()
+                      : doc.id;
+                  return _DriverProfileCard(
+                    key: Key('driver_profile_card_${doc.id}'),
+                    driverId: doc.id,
+                    data: data,
+                    firestore: _db,
+                    onRecomputeCanGoOnline: _recomputeCanGoOnline,
+                    onQuickApprove: _showIncompleteOnboarding
+                        ? null
+                        : () => _approve(doc.id, name),
+                    onQuickReject: () => _reject(doc.id, name),
+                  );
+                },
               );
-            }
-            final doc = docs[index - 1];
-            final data = doc.data();
-            final name = (data['fullName'] ?? '').toString().isNotEmpty
-                ? data['fullName'].toString()
-                : doc.id;
-            return _DriverProfileCard(
-              key: Key('driver_profile_card_${doc.id}'),
-              driverId: doc.id,
-              data: data,
-              firestore: _db,
-              onRecomputeCanGoOnline: _recomputeCanGoOnline,
-              onQuickApprove: () => _approve(doc.id, name),
-              onQuickReject: () => _reject(doc.id, name),
-            );
-          },
-        );
-      },
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -519,17 +571,65 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
     );
   }
 
+  String _formatAddress(Map<String, dynamic> data) {
+    final street =
+        (data['homeAddress'] ?? data['address'] ?? '').toString().trim();
+    final region = (data['stateOrRegion'] ?? '').toString().trim();
+    final country = (data['country'] ?? '').toString().trim();
+    final parts = [street, region, country].where((p) => p.isNotEmpty).toList();
+    return parts.join(', ');
+  }
+
+  String _formatDate(dynamic raw) {
+    final s = (raw ?? '').toString().trim();
+    if (s.isEmpty) return '';
+    final parsed = DateTime.tryParse(s);
+    if (parsed != null) {
+      final m = parsed.month.toString().padLeft(2, '0');
+      final d = parsed.day.toString().padLeft(2, '0');
+      return '${parsed.year}-$m-$d';
+    }
+    return s;
+  }
+
+  String _formatId(Map<String, dynamic> data) {
+    final idType = (data['idType'] ?? '').toString().trim();
+    final idNumber = (data['idNumber'] ?? '').toString().trim();
+    if (idType.isEmpty && idNumber.isEmpty) return '';
+    if (idType.isEmpty) return idNumber;
+    if (idNumber.isEmpty) return idType;
+    return '$idType: $idNumber';
+  }
+
+  String _formatKin(Map<String, dynamic> kin) {
+    final name = (kin['name'] ?? '').toString().trim();
+    final rel = (kin['relationship'] ?? '').toString().trim();
+    final phone = (kin['phone'] ?? '').toString().trim();
+    final left = rel.isNotEmpty && name.isNotEmpty
+        ? '$name ($rel)'
+        : (name.isNotEmpty ? name : rel);
+    final parts = [left, phone].where((p) => p.isNotEmpty).toList();
+    return parts.join(' • ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
     final name = (data['fullName'] ?? '').toString().isNotEmpty
         ? data['fullName'].toString()
         : widget.driverId;
-    final status =
-        (data[DriverVerification.fieldStatus] ?? '').toString();
+    final isIncomplete = DriverVerification.isIncompleteOnboardingDoc(data);
     final kin = data['emergencyContact'] is Map
         ? Map<String, dynamic>.from(data['emergencyContact'] as Map)
         : <String, dynamic>{};
+    final selfieOrProfileUrl =
+        (data['selfieUrl'] ?? data['photoUrl'] ?? data['photoURL'] ?? '')
+            .toString()
+            .trim();
+    final contactParts = [
+      (data['phoneNumber'] ?? data['phoneNumberE164'] ?? '').toString().trim(),
+      (data['email'] ?? '').toString().trim(),
+    ].where((p) => p.isNotEmpty).toList();
 
     return Card(
       key: Key('driver_profile_${widget.driverId}'),
@@ -585,99 +685,133 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
                           ],
                         ],
                       ),
-                      Text(
-                        '${data['phoneNumber'] ?? ''} • ${data['email'] ?? ''}',
-                        style: const TextStyle(
-                            color: Colors.grey, fontSize: 12),
-                      ),
+                      if (contactParts.isNotEmpty)
+                        Text(
+                          contactParts.join(' • '),
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 12),
+                        ),
                     ],
                   ),
                 ),
                 Chip(
-                  label: Text(status),
-                  backgroundColor: Colors.orange.shade100,
+                  label: Text(
+                    isIncomplete
+                        ? 'Incomplete Sign-Up'
+                        : 'KYC Submitted',
+                  ),
+                  backgroundColor: isIncomplete
+                      ? Colors.grey.shade200
+                      : Colors.orange.shade100,
                   labelStyle: TextStyle(
-                      color: Colors.orange.shade900, fontSize: 11),
+                    color: isIncomplete
+                        ? Colors.grey.shade800
+                        : Colors.orange.shade900,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
+            if (isIncomplete) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Text(
+                  'Account created only — driver has not submitted Step 2 KYC details yet.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.amber.shade900,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             const Text('Per-Field Review',
                 style: TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 13)),
             const Divider(),
-            _fieldReviewRow('homeAddress', 'Address',
-                '${data['homeAddress'] ?? ''}'),
+            _fieldReviewRow('homeAddress', 'Address', _formatAddress(data)),
             _fieldReviewRow('dateOfBirth', 'Date of Birth',
-                '${data['dateOfBirth'] ?? ''}'),
+                _formatDate(data['dateOfBirth'])),
             _fieldReviewRow(
-                'gender', 'Gender', '${data['gender'] ?? ''}'),
-            _fieldReviewRow(
-                'id',
-                'ID',
-                '${data['idType'] ?? ''}: '
-                    '${data['idNumber'] ?? ''}'),
-            if ((data['idExpiryDate'] ?? '').toString().isNotEmpty)
+                'gender', 'Gender', (data['gender'] ?? '').toString().trim()),
+            _fieldReviewRow('id', 'ID', _formatId(data)),
+            if ((data['idExpiryDate'] ?? '').toString().trim().isNotEmpty)
               _fieldReviewRow('idExpiry', 'ID Expiry',
-                  '${data['idExpiryDate']}'),
+                  _formatDate(data['idExpiryDate'])),
             _fieldReviewRow(
-                'emergencyContact',
-                'Next of Kin',
-                '${kin['name'] ?? ''} '
-                    '(${kin['relationship'] ?? ''}) • '
-                    '${kin['phone'] ?? ''}'),
-            if ((kin['address'] ?? '').toString().isNotEmpty)
+                'emergencyContact', 'Next of Kin', _formatKin(kin)),
+            if ((kin['address'] ?? '').toString().trim().isNotEmpty)
               _fieldReviewRow('kinAddress', 'Kin Address',
-                  '${kin['address']}'),
+                  kin['address'].toString().trim()),
             const SizedBox(height: 8),
-            // Document thumbnail chips with per-field approve/reject
-            if ((data['idFrontUrl'] ?? '').toString().isNotEmpty) ...[
+            // Document thumbnail chips with per-field approve/reject (tappable/zoomable)
+            if ((data['idFrontUrl'] ?? '').toString().trim().isNotEmpty) ...[
               _fieldReviewRow('idFront', 'ID Front', ''),
               CachedDocumentThumbnailChip(
-                imageUrl: data['idFrontUrl'].toString(),
+                imageUrl: data['idFrontUrl'].toString().trim(),
                 label: 'ID Front',
                 fallbackIcon: Icons.badge_outlined,
               ),
               const SizedBox(height: 6),
             ],
-            if ((data['idBackUrl'] ?? '').toString().isNotEmpty) ...[
+            if ((data['idBackUrl'] ?? '').toString().trim().isNotEmpty) ...[
               _fieldReviewRow('idBack', 'ID Back', ''),
               CachedDocumentThumbnailChip(
-                imageUrl: data['idBackUrl'].toString(),
+                imageUrl: data['idBackUrl'].toString().trim(),
                 label: 'ID Back',
                 fallbackIcon: Icons.badge_outlined,
               ),
               const SizedBox(height: 6),
             ],
-            if ((data['selfieUrl'] ?? '').toString().isNotEmpty) ...[
-              _fieldReviewRow('selfie', 'Live Selfie', ''),
+            if (selfieOrProfileUrl.isNotEmpty) ...[
+              _fieldReviewRow('selfie', 'Live Selfie / Profile Photo', ''),
               CachedDocumentThumbnailChip(
-                imageUrl: data['selfieUrl'].toString(),
-                label: 'Live Selfie',
+                imageUrl: selfieOrProfileUrl,
+                label: 'Live Selfie / Profile Photo',
                 fallbackIcon: Icons.photo_camera_outlined,
               ),
               const SizedBox(height: 6),
             ],
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: Key('submit_review_${widget.driverId}'),
-                icon: _submitting
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white),
-                      )
-                    : const Icon(Icons.rate_review_outlined),
-                label: Text(_submitting
-                    ? 'Submitting…'
-                    : 'Submit Field Review'),
-                onPressed: _submitting ? null : _submitReview,
-              ),
+            // Vehicle / Bike Details section
+            _DriverVehiclesSummary(
+              driverId: widget.driverId,
+              firestore: widget.firestore,
+              fallbackVehicleType:
+                  (data['initialVehicleType'] ?? data['vehicleType'] ?? '')
+                      .toString()
+                      .trim(),
+              fallbackLicenseNo:
+                  (data['licenseNo'] ?? '').toString().trim(),
             ),
+            const SizedBox(height: 12),
+            if (!isIncomplete)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: Key('submit_review_${widget.driverId}'),
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white),
+                        )
+                      : const Icon(Icons.rate_review_outlined),
+                  label: Text(_submitting
+                      ? 'Submitting…'
+                      : 'Submit Field Review'),
+                  onPressed: _submitting ? null : _submitReview,
+                ),
+              ),
             if (widget.onQuickApprove != null || widget.onQuickReject != null) ...[
               const SizedBox(height: 8),
               Row(
@@ -755,6 +889,111 @@ class _DriverProfileRejectionDialogState
           child: const Text('Reject'),
         ),
       ],
+    );
+  }
+}
+
+/// Renders a driver's submitted vehicle/bike details and zoomable document/photo
+/// thumbnails from `drivers/{driverId}/vehicles`, with fallback to root fields.
+class _DriverVehiclesSummary extends StatelessWidget {
+  final String driverId;
+  final FirebaseFirestore firestore;
+  final String fallbackVehicleType;
+  final String fallbackLicenseNo;
+
+  const _DriverVehiclesSummary({
+    required this.driverId,
+    required this.firestore,
+    required this.fallbackVehicleType,
+    required this.fallbackLicenseNo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: firestore
+          .collection('drivers')
+          .doc(driverId)
+          .collection('vehicles')
+          .snapshots(),
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        if (docs.isEmpty &&
+            fallbackVehicleType.isEmpty &&
+            fallbackLicenseNo.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 8),
+            const Text('Vehicle / Bike Details',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const SizedBox(height: 4),
+            if (docs.isEmpty)
+              Text(
+                [
+                  if (fallbackVehicleType.isNotEmpty) fallbackVehicleType,
+                  if (fallbackLicenseNo.isNotEmpty)
+                    'License: $fallbackLicenseNo',
+                ].join(' • '),
+                style: const TextStyle(fontSize: 12, color: Colors.black87),
+              )
+            else
+              ...docs.map((vDoc) {
+                final v = vDoc.data();
+                final category = (v['category'] ?? '').toString().trim();
+                final makeModel =
+                    '${v['make'] ?? ''} ${v['model'] ?? ''}'.trim();
+                final plate = (v['licensePlate'] ?? '').toString().trim();
+                final vStatus =
+                    (v['verificationStatus'] ?? v['status'] ?? '')
+                        .toString()
+                        .trim();
+                final summary = [
+                  if (category.isNotEmpty) category.toUpperCase(),
+                  if (makeModel.isNotEmpty) makeModel,
+                  if (plate.isNotEmpty) 'Plate: $plate',
+                  if (vStatus.isNotEmpty) '($vStatus)',
+                ].join(' • ');
+                final docsMap = v['documents'] is Map
+                    ? Map<String, dynamic>.from(v['documents'] as Map)
+                    : <String, dynamic>{};
+                final photoUrls = docsMap.entries
+                    .where((e) => e.value.toString().trim().isNotEmpty)
+                    .toList();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        summary.isEmpty ? vDoc.id : summary,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      if (photoUrls.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          children: photoUrls
+                              .map(
+                                (e) => CachedDocumentThumbnailChip(
+                                  imageUrl: e.value.toString().trim(),
+                                  label: e.key,
+                                  fallbackIcon: Icons.directions_bike_outlined,
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              }),
+          ],
+        );
+      },
     );
   }
 }

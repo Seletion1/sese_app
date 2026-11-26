@@ -131,4 +131,47 @@ void main() {
       expect(restored.fieldReviewStatus['inspection']?.isApproved, isTrue);
     });
   });
+
+  group('DriverVerification queue helpers & AppUser.toMap invariants', () {
+    test('isPendingDriverKycDoc excludes pending_onboarding', () {
+      expect(
+        DriverVerification.isPendingDriverKycDoc({
+          DriverVerification.fieldStatus: DriverVerification.pendingOnboarding,
+        }),
+        isFalse,
+      );
+      expect(
+        DriverVerification.isIncompleteOnboardingDoc({
+          DriverVerification.fieldStatus: DriverVerification.pendingOnboarding,
+        }),
+        isTrue,
+      );
+      expect(
+        DriverVerification.isPendingDriverKycDoc({
+          DriverVerification.fieldStatus: DriverVerification.pending,
+        }),
+        isTrue,
+      );
+      expect(
+        DriverVerification.isPendingDriverKycDoc({
+          DriverVerification.fieldStatus: DriverVerification.pendingReview,
+        }),
+        isTrue,
+      );
+    });
+
+    test('AppUser.toMap omits empty sequentialId and verificationStatus', () {
+      final customer = AppUser(
+        uid: 'u1',
+        fullName: 'Test User',
+        email: 'test@example.com',
+        phoneNumber: '+2348012345678',
+        role: UserRole.customer,
+        createdAt: DateTime(2026, 1, 1),
+      );
+      final map = customer.toMap();
+      expect(map.containsKey('sequentialId'), isFalse);
+      expect(map.containsKey('verificationStatus'), isFalse);
+    });
+  });
 }

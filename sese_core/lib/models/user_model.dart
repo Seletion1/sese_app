@@ -68,11 +68,12 @@ class AppUser {
       'isActive': isActive,
       'createdAt': createdAt.toIso8601String(),
       'photoUrl': photoUrl,
-      'verificationStatus': verificationStatus,
+      if (verificationStatus.isNotEmpty)
+        'verificationStatus': verificationStatus,
       'averageRating': averageRating,
       'totalRatingSum': totalRatingSum,
       'totalRatingCount': totalRatingCount,
-      'sequentialId': sequentialId,
+      if (sequentialId.isNotEmpty) 'sequentialId': sequentialId,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {

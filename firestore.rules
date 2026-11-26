@@ -531,10 +531,18 @@ service cloud.firestore {
     // ===== DRIVERS — onboarding owner write + admin queue read + admin approve =====
     match /drivers/{userId} {
       function isValidDriverProfileUpdate() {
+        let affected = request.resource.data.diff(resource.data).affectedKeys();
+        let canTransitionVerification =
+          !affected.hasAny(['verificationStatus']) ||
+          (resource.data.verificationStatus in ['pending_onboarding', 'rejected'] &&
+           request.resource.data.verificationStatus == 'pending' &&
+           request.resource.data.isProfileVerified == false &&
+           request.resource.data.isVehicleVerified == false &&
+           request.resource.data.canGoOnline == false);
         return isAuthenticated() && isNotSuspended() &&
-          !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny([
-              'verificationStatus', 'isVerified', 'isProfileVerified',
+          canTransitionVerification &&
+          !affected.hasAny([
+              'isVerified', 'isProfileVerified',
               'rating', 'averageRating', 'totalRatings', 'totalRatingSum',
               'totalRatingCount', 'completedTrips', 'safetyBlocked',
               'status', 'isSuspended',
@@ -551,7 +559,7 @@ service cloud.firestore {
       );
       // On creation, driver cannot pre-seed approved verification, sequential ID, or referral ID
       allow create: if isAuthenticated() && request.auth.uid == userId && isNotSuspended() &&
-        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
+        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding', '']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['isProfileVerified']) || request.resource.data.isProfileVerified == false) &&
         (!request.resource.data.keys().hasAny(['isVehicleVerified']) || request.resource.data.isVehicleVerified == false) &&
@@ -713,7 +721,7 @@ service cloud.firestore {
         (!request.resource.data.keys().hasAny(['outstandingNegativeBalance']) || request.resource.data.outstandingNegativeBalance == 0) &&
         (!request.resource.data.keys().hasAny(['completedTrips']) || request.resource.data.completedTrips == 0) &&
         (!request.resource.data.keys().hasAny(['role']) || request.resource.data.role in ['customer', 'user']) &&
-        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
+        (!request.resource.data.keys().hasAny(['verificationStatus']) || request.resource.data.verificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding', '']) &&
         (!request.resource.data.keys().hasAny(['customerVerificationStatus']) || request.resource.data.customerVerificationStatus in ['pending', 'unverified', 'PENDING', 'pending_onboarding']) &&
         (!request.resource.data.keys().hasAny(['isVerified']) || request.resource.data.isVerified == false) &&
         (!request.resource.data.keys().hasAny(['cancelStats', 'balance', 'mainWalletBalance'])) &&
