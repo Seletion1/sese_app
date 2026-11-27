@@ -73,6 +73,8 @@ export {
 export {
   getAgoraToken,
   getIceServers,
+  onCallCreated,
+  onCallUpdated,
   recordCallDuration,
   terminateCall,
   cleanupTripCalls,

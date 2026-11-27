@@ -567,6 +567,54 @@
       "callableTrigger": {},
       "entryPoint": "getIceServers"
     },
+    "onCallCreated": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "eventTrigger": {
+        "eventType": "google.cloud.firestore.document.v1.created",
+        "eventFilters": {
+          "database": "(default)",
+          "namespace": "(default)"
+        },
+        "eventFilterPathPatterns": {
+          "document": "calls/{callId}"
+        },
+        "retry": false
+      },
+      "entryPoint": "onCallCreated"
+    },
+    "onCallUpdated": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "eventTrigger": {
+        "eventType": "google.cloud.firestore.document.v1.updated",
+        "eventFilters": {
+          "database": "(default)",
+          "namespace": "(default)"
+        },
+        "eventFilterPathPatterns": {
+          "document": "calls/{callId}"
+        },
+        "retry": false
+      },
+      "entryPoint": "onCallUpdated"
+    },
     "recordCallDuration": {
       "platform": "gcfv2",
       "availableMemoryMb": null,

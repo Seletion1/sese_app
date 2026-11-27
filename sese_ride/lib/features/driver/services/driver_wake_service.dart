@@ -19,11 +19,18 @@ class DriverWakeService {
 
   final StreamController<String> _orderWakeController =
       StreamController<String>.broadcast();
+  final StreamController<Map<String, String>> _callActionController =
+      StreamController<Map<String, String>>.broadcast();
   bool _initialized = false;
 
   /// Emits validated `orderId`s delivered by `MainActivity` (`onNewIntent` or
   /// cold-start `getInitialWakeOrder`).
   Stream<String> get incomingOrderIdStream => _orderWakeController.stream;
+
+  /// Emits incoming call notification actions (`callId`, `action`, `callerId`,
+  /// `callerName`, `callerAvatar`) delivered by `MainActivity`.
+  Stream<Map<String, String>> get incomingCallActionStream =>
+      _callActionController.stream;
 
   void initialize() {
     if (_initialized || kIsWeb || !Platform.isAndroid) return;
@@ -37,8 +44,35 @@ class DriverWakeService {
             _orderWakeController.add(orderId);
           }
         }
+      } else if (call.method == 'onIncomingCallAction') {
+        final args = call.arguments;
+        if (args is Map) {
+          final payload = <String, String>{};
+          for (final entry in args.entries) {
+            payload[entry.key.toString()] = (entry.value ?? '').toString();
+          }
+          if ((payload['callId'] ?? '').trim().isNotEmpty) {
+            _callActionController.add(payload);
+          }
+        }
       }
     });
+  }
+
+  /// Fetches and clears any cold-start call action held by [MainActivity].
+  Future<Map<String, String>?> consumeInitialCallAction() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMethod<dynamic>('getInitialCallAction');
+      if (res is Map) {
+        final payload = <String, String>{};
+        for (final entry in res.entries) {
+          payload[entry.key.toString()] = (entry.value ?? '').toString();
+        }
+        return (payload['callId'] ?? '').trim().isNotEmpty ? payload : null;
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Fetches and clears any cold-start wake `orderId` held by [MainActivity].

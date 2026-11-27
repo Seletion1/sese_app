@@ -1555,8 +1555,8 @@ service cloud.firestore {
     // Standard authenticated users (riders/drivers) MUST NOT read secrets.
     match /system_config/call_secrets {
       allow read: if isHubStaff() || isAdminAuthClaim() || isSuperAdmin();
-      allow write: if isAdminAuthClaim() &&
-        claimsScopeContains(scopeCodeOf('manageSystemSettings'));
+      allow write: if isHubStaff() || isSuperAdmin() || (isAdminAuthClaim() &&
+        claimsScopeContains(scopeCodeOf('manageSystemSettings')));
     }
     // `call_usage`: tracking global monthly call minutes.
     // Standard authenticated users and hub staff may read usage metrics.

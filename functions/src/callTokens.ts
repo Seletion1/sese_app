@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
+import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { RtcTokenBuilder, RtcRole } from "agora-token";
 import { enforceAppCheck, guardedOnCall } from "./accountGuard";
 
@@ -384,4 +385,115 @@ export const getIceServers = guardedOnCall(async (request) => {
     iceServers,
     hasTurn,
   };
+});
+
+async function resolveUserFcmToken(uid: string): Promise<string> {
+  if (!uid) return "";
+  try {
+    const userSnap = await db().collection("users").doc(uid).get();
+    const userToken = String(userSnap.data()?.fcmToken || "").trim();
+    if (userToken) return userToken;
+    const driverSnap = await db().collection("drivers").doc(uid).get();
+    return String(driverSnap.data()?.fcmToken || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Sends a high-priority data-only FCM push when a new ringing call is created
+ * in `calls/{callId}` so recipients outside the app or with a killed process
+ * immediately receive the Accept / Reject call notification banner.
+ */
+export const onCallCreated = onDocumentCreated("calls/{callId}", async (event) => {
+  const data = event.data?.data();
+  if (!data) return;
+
+  const status = String(data.status || "").trim();
+  const receiverId = String(data.receiverId || "").trim();
+  if (status !== "ringing" || !receiverId) return;
+
+  const token = await resolveUserFcmToken(receiverId);
+  if (!token) return;
+
+  const callId = event.params.callId;
+  const callerId = String(data.callerId || "").trim();
+  const callerName = String(data.callerName || "SeSe User").trim() || "SeSe User";
+  const callerAvatar = String(data.callerAvatar || "").trim();
+  const tripId = String(data.tripId || "").trim();
+
+  try {
+    await admin.messaging().send({
+      token,
+      data: {
+        type: "incoming_call",
+        callId,
+        callerId,
+        callerName,
+        callerAvatar,
+        receiverId,
+        tripId,
+        sentAtMs: String(Date.now()),
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+      },
+      android: {
+        priority: "high",
+      },
+      apns: {
+        headers: {
+          "apns-priority": "10",
+        },
+        payload: {
+          aps: {
+            alert: {
+              title: callerName,
+              body: "Incoming audio call...",
+            },
+            sound: "sese_alert_chime.caf",
+            contentAvailable: true,
+          },
+        },
+      },
+    });
+  } catch (err) {
+    console.warn(`onCallCreated: FCM send failed for ${receiverId}:`, err);
+  }
+});
+
+/**
+ * Dismisses the receiver's incoming-call notification immediately when a ringing
+ * call transitions to ended/cancelled/rejected/missed/connected.
+ */
+export const onCallUpdated = onDocumentUpdated("calls/{callId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after) return;
+
+  const prevStatus = String(before.status || "").trim();
+  const nextStatus = String(after.status || "").trim();
+  if (prevStatus !== "ringing" || nextStatus === "ringing") return;
+
+  const receiverId = String(after.receiverId || "").trim();
+  if (!receiverId) return;
+
+  const token = await resolveUserFcmToken(receiverId);
+  if (!token) return;
+
+  const callId = event.params.callId;
+  try {
+    await admin.messaging().send({
+      token,
+      data: {
+        type: "call_ended",
+        callId,
+        status: nextStatus,
+        sentAtMs: String(Date.now()),
+      },
+      android: {
+        priority: "high",
+      },
+    });
+  } catch (err) {
+    console.warn(`onCallUpdated: FCM dismiss failed for ${receiverId}:`, err);
+  }
 });

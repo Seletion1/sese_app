@@ -701,7 +701,7 @@ class PushNotificationService {
           ),
           AndroidNotificationAction(
             'decline_call',
-            'Decline',
+            'Reject',
             cancelNotification: true,
           ),
         ];
@@ -857,7 +857,7 @@ class PushNotificationService {
               ),
               AndroidNotificationAction(
                 'decline_call',
-                'Decline',
+                'Reject',
                 cancelNotification: true,
               ),
             ],

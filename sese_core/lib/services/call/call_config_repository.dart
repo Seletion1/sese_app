@@ -30,10 +30,15 @@ class CallConfig {
   /// Whether WebRTC diagnostic stats are enabled.
   final bool enableDiagnostics;
 
+  /// Monotonic/server timestamp token bumped whenever `/system_config/call_secrets`
+  /// TURN credentials are updated in SeseHub, signaling clients to refresh ICE servers.
+  final int turnConfigVersion;
+
   const CallConfig({
     this.stunServers = defaultGoogleStunServers,
     this.turnServers = const [],
     this.enableDiagnostics = false,
+    this.turnConfigVersion = 0,
   });
 
   CallProviderType get providerType => CallProviderType.webrtc;
@@ -42,11 +47,13 @@ class CallConfig {
     List<String>? stunServers,
     List<Map<String, dynamic>>? turnServers,
     bool? enableDiagnostics,
+    int? turnConfigVersion,
   }) {
     return CallConfig(
       stunServers: stunServers ?? this.stunServers,
       turnServers: turnServers ?? this.turnServers,
       enableDiagnostics: enableDiagnostics ?? this.enableDiagnostics,
+      turnConfigVersion: turnConfigVersion ?? this.turnConfigVersion,
     );
   }
 
@@ -56,6 +63,7 @@ class CallConfig {
       'stunServers': stunServers,
       'turnServers': turnServers,
       'enableDiagnostics': enableDiagnostics,
+      'turnConfigVersion': turnConfigVersion,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -83,10 +91,14 @@ class CallConfig {
           .toList();
     }
 
+    final rawVersion = map['turnConfigVersion'];
+    final version = rawVersion is num ? rawVersion.toInt() : 0;
+
     return CallConfig(
       stunServers: stuns,
       turnServers: turns,
       enableDiagnostics: map['enableDiagnostics'] == true,
+      turnConfigVersion: version,
     );
   }
 }
@@ -104,11 +116,32 @@ class CallConfigRepository {
 
   final _controller = StreamController<CallConfig>.broadcast();
   CallConfig _currentConfig = const CallConfig();
+  List<Map<String, dynamic>> _cachedRemoteIceServers = const [];
+  int _cachedIceVersion = -1;
   bool _initialized = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _firestoreSub;
 
   /// Current cached configuration.
   CallConfig get currentConfig => _currentConfig;
+
+  /// Latest ICE server list fetched from `getIceServers` (or empty if not fetched yet).
+  List<Map<String, dynamic>> get cachedRemoteIceServers =>
+      _cachedRemoteIceServers;
+
+  int get cachedIceVersion => _cachedIceVersion;
+
+  void updateCachedRemoteIceServers(
+    List<Map<String, dynamic>> servers, {
+    int? version,
+  }) {
+    _cachedRemoteIceServers = List<Map<String, dynamic>>.unmodifiable(servers);
+    _cachedIceVersion = version ?? _currentConfig.turnConfigVersion;
+  }
+
+  void invalidateRemoteIceCache() {
+    _cachedRemoteIceServers = const [];
+    _cachedIceVersion = -1;
+  }
 
   /// Stream of configuration changes for reactive UI bindings.
   Stream<CallConfig> get configStream => _controller.stream;
@@ -172,7 +205,12 @@ class CallConfigRepository {
               jsonEncode(remoteConfig.turnServers) !=
                   jsonEncode(_currentConfig.turnServers) ||
               remoteConfig.enableDiagnostics !=
-                  _currentConfig.enableDiagnostics) {
+                  _currentConfig.enableDiagnostics ||
+              remoteConfig.turnConfigVersion !=
+                  _currentConfig.turnConfigVersion) {
+            if (remoteConfig.turnConfigVersion != _currentConfig.turnConfigVersion) {
+              invalidateRemoteIceCache();
+            }
             _currentConfig = remoteConfig;
             _controller.add(_currentConfig);
             _persistToLocal(_currentConfig);
@@ -199,8 +237,16 @@ class CallConfigRepository {
   }
 
   /// Persists [config] to local [SharedPreferences] and syncs to Firestore.
-  Future<void> saveConfig(CallConfig config) async {
+  ///
+  /// When [throwOnRemoteError] is true (e.g. SeseHub admin saves), any Firestore
+  /// write error or timeout is rethrown instead of swallowed so the UI never
+  /// shows a false-success message.
+  Future<void> saveConfig(
+    CallConfig config, {
+    bool throwOnRemoteError = false,
+  }) async {
     _currentConfig = config;
+    invalidateRemoteIceCache();
     _controller.add(config);
 
     await _persistToLocal(config);
@@ -209,9 +255,11 @@ class CallConfigRepository {
       await FirebaseFirestore.instance
           .collection('system_settings')
           .doc('calling')
-          .set(config.toMap(), SetOptions(merge: true));
+          .set(config.toMap(), SetOptions(merge: true))
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('CallConfigRepository: remote sync deferred: $e');
+      if (throwOnRemoteError) rethrow;
     }
   }
 

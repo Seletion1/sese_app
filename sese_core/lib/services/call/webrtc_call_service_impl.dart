@@ -255,8 +255,8 @@ class WebRtcCallServiceImpl implements ICallService {
     };
   }
 
-  /// Fetches ICE servers (STUN + TURN) from local config and falls back to the
-  /// `getIceServers` Cloud Function when no TURN servers are cached locally.
+  /// Fetches ICE servers (STUN + TURN) from local config or cached `getIceServers`
+  /// response, refreshing automatically whenever SeseHub bumps `turnConfigVersion`.
   Future<Map<String, dynamic>> _fetchIceServersConfig() async {
     final baseConfig = _buildIceServersConfig();
     final localTurns = _configRepo.currentConfig.turnServers;
@@ -264,11 +264,20 @@ class WebRtcCallServiceImpl implements ICallService {
       return baseConfig;
     }
 
+    final currentVersion = _configRepo.currentConfig.turnConfigVersion;
+    final cached = _configRepo.cachedRemoteIceServers;
+    if (cached.isNotEmpty && _configRepo.cachedIceVersion == currentVersion) {
+      return {
+        ...baseConfig,
+        'iceServers': cached,
+      };
+    }
+
     try {
       final callable = _safeFunctions!.httpsCallable('getIceServers');
       final res = await callable
           .call<Map<String, dynamic>>()
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 6));
       final rawList = res.data['iceServers'];
       if (rawList is List && rawList.isNotEmpty) {
         final serverList = rawList
@@ -276,6 +285,10 @@ class WebRtcCallServiceImpl implements ICallService {
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
         if (serverList.isNotEmpty) {
+          _configRepo.updateCachedRemoteIceServers(
+            serverList,
+            version: currentVersion,
+          );
           debugPrint(
             'WebRtcCallServiceImpl: loaded ${serverList.length} ICE servers from backend (hasTurn=${res.data['hasTurn']})',
           );

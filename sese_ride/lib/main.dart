@@ -26,6 +26,7 @@ import 'core/services/update_prompt_service.dart';
 import 'firebase_options.dart';
 import 'features/auth/login_page.dart';
 import 'features/driver/presentation/driver_onboarding_screen.dart';
+import 'features/driver/services/driver_wake_service.dart';
 import 'features/home/customer_home_shell.dart';
 import 'features/home/driver_home_shell.dart';
 import 'features/permissions/permission_onboarding_gate.dart';
@@ -315,13 +316,14 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   }
 
   if (type == 'incoming_call' || type == 'call' || type == 'voip_call') {
-    debugPrint('sese_ride: incoming call tap ($type) — opening call screen.');
+    debugPrint('sese_ride: incoming call tap ($type, action=$actionId) — opening call screen.');
     final callId = data['callId'] ?? '';
     final callerId = data['callerId'] ?? '';
     final callerName = data['callerName'] ?? 'Caller';
     final callerAvatar = data['callerAvatar'];
 
     if (callId.isNotEmpty) {
+      unawaited(PushNotificationService.cancelIncomingCallNotification());
       final navState = IncomingCallOverlay.navigatorKey.currentState;
       if (navState != null) {
         navState.push(
@@ -336,7 +338,8 @@ Future<void> _handlePushTap(Map<String, String> data) async {
             ),
           ),
         );
-      } else {
+      }
+      if (actionId == 'accept_call') {
         unawaited(CallServiceManager.instance.answerCall(callId));
       }
     }
@@ -439,6 +442,49 @@ Future<void> _injectNativeMapCredentials(GlobalMapConfig cfg) async {
     }
   } catch (e) {
     debugPrint('sese_ride: platform map credentials injection non-fatal warning: $e');
+  }
+}
+
+StreamSubscription<Map<String, String>>? _nativeCallActionSub;
+
+void _ensureNativeCallActionListener() {
+  DriverWakeService.instance.initialize();
+  _nativeCallActionSub ??= DriverWakeService.instance.incomingCallActionStream
+      .listen(_handleNativeCallAction);
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final initial = await DriverWakeService.instance.consumeInitialCallAction();
+    if (initial != null) {
+      _handleNativeCallAction(initial);
+    }
+  });
+}
+
+void _handleNativeCallAction(Map<String, String> payload) {
+  final callId = (payload['callId'] ?? '').trim();
+  if (callId.isEmpty) return;
+  final action = (payload['action'] ?? 'open').trim();
+  final callerId = (payload['callerId'] ?? '').trim();
+  final rawCallerName = (payload['callerName'] ?? '').trim();
+  final callerName = rawCallerName.isEmpty ? 'Caller' : rawCallerName;
+  final callerAvatar = (payload['callerAvatar'] ?? '').trim();
+
+  final navState = IncomingCallOverlay.navigatorKey.currentState;
+  if (navState != null) {
+    navState.push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => InAppCallScreen(
+          callId: callId,
+          targetUserId: callerId,
+          targetUserName: callerName,
+          targetUserAvatar: callerAvatar.isEmpty ? null : callerAvatar,
+          isIncoming: true,
+        ),
+      ),
+    );
+  }
+  if (action == 'accept') {
+    unawaited(CallServiceManager.instance.answerCall(callId));
   }
 }
 
@@ -718,6 +764,7 @@ class _AuthGateState extends State<_AuthGate> {
           displayName: user.fullName,
           avatarUrl: user.photoUrl,
         );
+        _ensureNativeCallActionListener();
 
         // Driver onboarding gate:
         // - `pending_onboarding` (fresh Create Account, Step 2 not yet

@@ -19,12 +19,14 @@ class MainActivity : FlutterActivity() {
 
     private var driverWakeChannel: MethodChannel? = null
     private var pendingWakeOrder: Map<String, String>? = null
+    private var pendingCallAction: Map<String, String>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pinAppCheckDebugToken()
         configureLockScreenFlags()
         wakeScreen()
         captureWakeIntent(intent)
+        captureCallIntent(intent)
         super.onCreate(savedInstanceState)
     }
 
@@ -56,6 +58,26 @@ class MainActivity : FlutterActivity() {
         val payload = mapOf("orderId" to orderId, "type" to type)
         pendingWakeOrder = payload
         driverWakeChannel?.invokeMethod("onIncomingOrderWake", payload)
+    }
+
+    private fun captureCallIntent(incomingIntent: Intent?) {
+        val callId = incomingIntent?.getStringExtra(EXTRA_CALL_ID)?.trim().orEmpty()
+        if (callId.isEmpty()) return
+        val notifId = incomingIntent?.getIntExtra(
+            CallActionReceiver.EXTRA_NOTIFICATION_ID,
+            SeseFirebaseMessagingService.CALL_NOTIFICATION_ID_BASE + (callId.hashCode() and 0x0FFF),
+        ) ?: (SeseFirebaseMessagingService.CALL_NOTIFICATION_ID_BASE + (callId.hashCode() and 0x0FFF))
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(notifId)
+
+        val payload = mapOf(
+            "callId" to callId,
+            "action" to (incomingIntent?.getStringExtra(EXTRA_CALL_ACTION)?.trim().orEmpty().ifEmpty { "open" }),
+            "callerId" to (incomingIntent?.getStringExtra(EXTRA_CALLER_ID)?.trim().orEmpty()),
+            "callerName" to (incomingIntent?.getStringExtra(EXTRA_CALLER_NAME)?.trim().orEmpty().ifEmpty { "Caller" }),
+            "callerAvatar" to (incomingIntent?.getStringExtra(EXTRA_CALLER_AVATAR)?.trim().orEmpty()),
+        )
+        pendingCallAction = payload
+        driverWakeChannel?.invokeMethod("onIncomingCallAction", payload)
     }
 
     private fun configureLockScreenFlags() {
@@ -141,6 +163,11 @@ class MainActivity : FlutterActivity() {
                     "getInitialWakeOrder" -> {
                         val payload = pendingWakeOrder
                         pendingWakeOrder = null
+                        result.success(payload)
+                    }
+                    "getInitialCallAction" -> {
+                        val payload = pendingCallAction
+                        pendingCallAction = null
                         result.success(payload)
                     }
                     "canUseFullScreenIntent" -> {
@@ -287,6 +314,7 @@ class MainActivity : FlutterActivity() {
         configureLockScreenFlags()
         wakeScreen()
         captureWakeIntent(intent)
+        captureCallIntent(intent)
     }
 
     // Reports whether Google Play Services is installed and operational on this device.
@@ -345,6 +373,11 @@ class MainActivity : FlutterActivity() {
         const val DRIVER_WAKE_CHANNEL = "com.sesetech.sese_ride/driver_wake"
         const val EXTRA_WAKE_ORDER_ID = "sese_wake_order_id"
         const val EXTRA_WAKE_TYPE = "sese_wake_type"
+        const val EXTRA_CALL_ID = "sese_call_id"
+        const val EXTRA_CALL_ACTION = "sese_call_action"
+        const val EXTRA_CALLER_ID = "sese_caller_id"
+        const val EXTRA_CALLER_NAME = "sese_caller_name"
+        const val EXTRA_CALLER_AVATAR = "sese_caller_avatar"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"
     }
 }

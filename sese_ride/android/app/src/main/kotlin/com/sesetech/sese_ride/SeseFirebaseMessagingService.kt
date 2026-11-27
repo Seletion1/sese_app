@@ -31,6 +31,12 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
         if (INCOMING_ORDER_TYPES.contains(type)) {
             handleIncomingOrderDataPush(data, type)
+        } else if (INCOMING_CALL_TYPES.contains(type)) {
+            handleIncomingCallDataPush(data)
+            return
+        } else if (CALL_END_TYPES.contains(type)) {
+            handleCallEndedPush(data)
+            return
         }
 
         super.onMessageReceived(remoteMessage)
@@ -158,10 +164,121 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
         }
     }
 
+    private fun handleIncomingCallDataPush(data: Map<String, String>) {
+        val callId = (data["callId"] ?: "").trim()
+        if (callId.isEmpty()) return
+
+        val callerId = (data["callerId"] ?: "").trim()
+        val callerName = (data["callerName"] ?: "Incoming Call").trim().ifEmpty { "Incoming Call" }
+        val callerAvatar = (data["callerAvatar"] ?: "").trim()
+
+        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        ensureIncomingCallChannel(mgr)
+
+        val notificationId = CALL_NOTIFICATION_ID_BASE + (callId.hashCode() and 0x0FFF)
+
+        val bodyIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            putExtra(MainActivity.EXTRA_CALL_ID, callId)
+            putExtra(MainActivity.EXTRA_CALL_ACTION, "open")
+            putExtra(MainActivity.EXTRA_CALLER_ID, callerId)
+            putExtra(MainActivity.EXTRA_CALLER_NAME, callerName)
+            putExtra(MainActivity.EXTRA_CALLER_AVATAR, callerAvatar)
+            putExtra(CallActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val bodyPendingIntent = PendingIntent.getActivity(
+            this,
+            ("call_open_$callId").hashCode(),
+            bodyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val acceptIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            putExtra(MainActivity.EXTRA_CALL_ID, callId)
+            putExtra(MainActivity.EXTRA_CALL_ACTION, "accept")
+            putExtra(MainActivity.EXTRA_CALLER_ID, callerId)
+            putExtra(MainActivity.EXTRA_CALLER_NAME, callerName)
+            putExtra(MainActivity.EXTRA_CALLER_AVATAR, callerAvatar)
+            putExtra(CallActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val acceptPendingIntent = PendingIntent.getActivity(
+            this,
+            ("call_accept_$callId").hashCode(),
+            acceptIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val rejectIntent = Intent(this, CallActionReceiver::class.java).apply {
+            action = CallActionReceiver.ACTION_REJECT_CALL
+            putExtra(MainActivity.EXTRA_CALL_ID, callId)
+            putExtra(CallActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val rejectPendingIntent = PendingIntent.getBroadcast(
+            this,
+            ("call_reject_$callId").hashCode(),
+            rejectIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val builder = NotificationCompat.Builder(this, CALL_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(callerName)
+            .setContentText("Incoming audio call...")
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setTimeoutAfter(40_000L)
+            .setContentIntent(bodyPendingIntent)
+            .addAction(0, "Accept", acceptPendingIntent)
+            .addAction(0, "Reject", rejectPendingIntent)
+
+        mgr.notify(notificationId, builder.build())
+    }
+
+    private fun handleCallEndedPush(data: Map<String, String>) {
+        val callId = (data["callId"] ?: "").trim()
+        if (callId.isEmpty()) return
+        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val notificationId = CALL_NOTIFICATION_ID_BASE + (callId.hashCode() and 0x0FFF)
+        mgr.cancel(notificationId)
+    }
+
+    private fun ensureIncomingCallChannel(mgr: NotificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (mgr.getNotificationChannel(CALL_CHANNEL_ID) != null) return
+            val soundUri = Uri.parse("android.resource://$packageName/raw/sese_alert_chime")
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val channel = NotificationChannel(
+                CALL_CHANNEL_ID,
+                "Incoming Calls",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "High-priority incoming voice call alerts with Accept and Reject actions."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000, 500, 1000)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setSound(soundUri, attrs)
+            }
+            mgr.createNotificationChannel(channel)
+        }
+    }
+
     companion object {
         private const val TAG = "SeseFcmService"
         const val CHANNEL_ID = "incoming_orders_fullscreen"
+        const val CALL_CHANNEL_ID = "sese_incoming_calls_v1"
         private const val NOTIFICATION_ID_BASE = 52000
+        const val CALL_NOTIFICATION_ID_BASE = 62000
 
         private val INCOMING_ORDER_TYPES = setOf(
             "incoming_order",
@@ -170,6 +287,18 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
             "direct_ping",
             "tier_ping",
             "marketplace_broadcast",
+        )
+
+        private val INCOMING_CALL_TYPES = setOf(
+            "incoming_call",
+            "call",
+            "voip_call",
+        )
+
+        private val CALL_END_TYPES = setOf(
+            "call_ended",
+            "call_cancelled",
+            "call_missed",
         )
     }
 }
