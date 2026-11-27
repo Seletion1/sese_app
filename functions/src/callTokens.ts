@@ -2,7 +2,7 @@ import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { RtcTokenBuilder, RtcRole } from "agora-token";
-import { enforceAppCheck, guardedOnCall } from "./accountGuard";
+import { guardedOnCall } from "./accountGuard";
 
 function db(): admin.firestore.Firestore {
   return admin.firestore();
@@ -29,7 +29,6 @@ function getUtcMonthKey(): string {
  *   signals the client to failover to native WebRTC.
  */
 export const getAgoraToken = guardedOnCall(async (request) => {
-  enforceAppCheck(request);
 
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated to request Agora token.");
@@ -129,7 +128,6 @@ export const getAgoraToken = guardedOnCall(async (request) => {
  * Records completed call minutes and updates global usage counters for the current month.
  */
 export const recordCallDuration = guardedOnCall(async (request) => {
-  enforceAppCheck(request);
 
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated to record call duration.");
@@ -189,7 +187,6 @@ export const recordCallDuration = guardedOnCall(async (request) => {
  * and prevents any client or server retry loop.
  */
 export const terminateCall = guardedOnCall(async (request) => {
-  enforceAppCheck(request);
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated.");
   }
@@ -234,7 +231,6 @@ export const terminateCall = guardedOnCall(async (request) => {
  * Callable function to clean up and terminate all open calls for a given trip.
  */
 export const cleanupTripCalls = guardedOnCall(async (request) => {
-  enforceAppCheck(request);
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated.");
   }
@@ -295,7 +291,6 @@ const DEFAULT_STUN_SERVERS = [
  * via `meteredDomain` + `meteredApiKey`) and falls back to `/system_settings/calling`.
  */
 export const getIceServers = guardedOnCall(async (request) => {
-  enforceAppCheck(request);
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated to fetch ICE servers.");
   }

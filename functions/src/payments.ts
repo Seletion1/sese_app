@@ -2,7 +2,7 @@ import * as admin from "firebase-admin";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { HttpsError, onRequest } from "firebase-functions/v2/https";
 
-import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
+import { requireAccountActive, guardedOnCall } from "./accountGuard";
 
 /**
  * Paystack Collections (inline card, bank transfer, USSD, mobile money).
@@ -324,7 +324,6 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
 
     // ── Security gates (must run before any business logic) ───────────────
     // App Check: rejects calls from non-genuine app builds / scripts.
-    enforceAppCheck(request);
     // Suspension gate: banned/suspended users cannot initiate payments even
     // when Firestore rules have not yet propagated to all SDK caches.
     await requireAccountActive(uid, "customer");
@@ -726,7 +725,6 @@ export const verifyPayment = guardedOnCall<VerifyPaymentData>(async (request) =>
     throw new HttpsError("unauthenticated", "You must sign in.");
   }
   // ── Security gates ────────────────────────────────────────────────────────
-  enforceAppCheck(request);
   await requireAccountActive(request.auth.uid, "customer");
   const reference = String(request.data?.reference ?? "").trim();
   if (!reference) {

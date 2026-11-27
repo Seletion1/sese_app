@@ -28,7 +28,7 @@
 import * as crypto from "crypto";
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
-import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
+import { requireAccountActive, guardedOnCall } from "./accountGuard";
 
 const db = () => admin.firestore();
 
@@ -454,7 +454,6 @@ export const registerUser = guardedOnCall<RegisterUserData>(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to register user profile.");
   }
-  enforceAppCheck(request);
 
   const uid = request.auth.uid;
   const data = request.data ?? {};
@@ -603,7 +602,6 @@ export const updateProfile = guardedOnCall<UpdateProfileData>(async (request) =>
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to update profile.");
   }
-  enforceAppCheck(request);
   const uid = request.auth.uid;
   await requireAccountActive(uid);
 
@@ -727,7 +725,6 @@ export const registerVehicle = guardedOnCall<RegisterVehicleData>(async (request
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Authentication required to register vehicle.");
   }
-  enforceAppCheck(request);
 
   const callerUid = request.auth.uid;
   const data = request.data ?? {};

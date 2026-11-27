@@ -2,7 +2,7 @@ import * as admin from "firebase-admin";
 import * as crypto from "crypto";
 import { HttpsError } from "firebase-functions/v2/https";
 import { Resend } from "resend";
-import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
+import { requireAccountActive, guardedOnCall } from "./accountGuard";
 import { isPlatformOwnerEmail } from "./hubBootstrap";
 
 const db = () => admin.firestore();
@@ -124,7 +124,6 @@ export const sendTransactionalEmail = guardedOnCall<TransactionalEmailData>(asyn
   }
 
   // ── Security gates ────────────────────────────────────────────────────────
-  enforceAppCheck(request);
   await requireAccountActive(request.auth.uid, "any");
 
   const { to, subject, html, text } = request.data ?? {};
@@ -236,7 +235,6 @@ export const sendEmailOtp = guardedOnCall<SendEmailOtpData>(async (request) => {
   }
 
   // ── Security gates ────────────────────────────────────────────────────────
-  enforceAppCheck(request);
   const uid = request.auth.uid;
   checkEmailOtpRateLimit(uid);
   await requireAccountActive(uid, "any");
