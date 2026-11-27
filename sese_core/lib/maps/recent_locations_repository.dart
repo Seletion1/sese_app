@@ -55,6 +55,38 @@ class RecentLocationsRepository {
     }
   }
 
+  static final RegExp _rawCoordPattern =
+      RegExp(r'^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$');
+
+  static bool isRawCoordinateAddress(String address) =>
+      _rawCoordPattern.hasMatch(address.trim());
+
+  static String _normalizeAddressKey(String address) =>
+      address.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Deduplicates [items] by normalized address and `placeId`, preserving the
+  /// order of the first (highest-ranked / most recent) entry.
+  static List<RecentLocation> dedupeLocations(List<RecentLocation> items) {
+    final seenIds = <String>{};
+    final seenAddresses = <String>{};
+    final out = <RecentLocation>[];
+    for (final loc in items) {
+      if (!loc.isValid || isRawCoordinateAddress(loc.formattedAddress)) {
+        continue;
+      }
+      final idKey = loc.placeId.trim();
+      final addrKey = _normalizeAddressKey(loc.formattedAddress);
+      if ((idKey.isNotEmpty && seenIds.contains(idKey)) ||
+          (addrKey.isNotEmpty && seenAddresses.contains(addrKey))) {
+        continue;
+      }
+      if (idKey.isNotEmpty) seenIds.add(idKey);
+      if (addrKey.isNotEmpty) seenAddresses.add(addrKey);
+      out.add(loc);
+    }
+    return out;
+  }
+
   /// All cached recents, newest first. Never throws (empty on any failure).
   Future<List<RecentLocation>> loadAll() async {
     try {
@@ -67,10 +99,12 @@ class RecentLocationsRepository {
         if (item is! Map) continue;
         final loc =
             RecentLocation.fromMap(Map<String, dynamic>.from(item));
-        if (loc.isValid) out.add(loc);
+        if (loc.isValid && !isRawCoordinateAddress(loc.formattedAddress)) {
+          out.add(loc);
+        }
       }
       out.sort((a, b) => b.lastUsedMs.compareTo(a.lastUsedMs));
-      return out.take(RecentLocation.maxCached).toList();
+      return dedupeLocations(out).take(RecentLocation.maxCached).toList();
     } catch (e) {
       debugPrint('RecentLocations load failed: $e');
       return [];
@@ -159,6 +193,7 @@ class RecentLocationsRepository {
   }) async {
     if (address.trim().isEmpty || (lat == 0 && lng == 0)) return;
     final cleanAddress = address.trim();
+    if (isRawCoordinateAddress(cleanAddress)) return;
     final pId = (placeId != null && placeId.isNotEmpty)
         ? placeId
         : 'loc_${lat.toStringAsFixed(5)}_${lng.toStringAsFixed(5)}';
@@ -180,13 +215,15 @@ class RecentLocationsRepository {
   /// Persists a booked location: MRU-touch locally (capped) + Firestore
   /// merge backup (best-effort; a denied write never fails the booking).
   Future<void> saveRecent(RecentLocation location, {String? uid}) async {
-    if (!location.isValid) return;
+    if (!location.isValid || isRawCoordinateAddress(location.formattedAddress)) {
+      return;
+    }
     final all = await loadAll();
+    final targetAddrKey = _normalizeAddressKey(location.formattedAddress);
     final existingIdx = all.indexWhere((e) =>
         e.placeId == location.placeId ||
-        (e.formattedAddress.isNotEmpty &&
-            e.formattedAddress.toLowerCase() ==
-                location.formattedAddress.toLowerCase()));
+        (targetAddrKey.isNotEmpty &&
+            _normalizeAddressKey(e.formattedAddress) == targetAddrKey));
 
     RecentLocation touched;
     if (existingIdx >= 0) {

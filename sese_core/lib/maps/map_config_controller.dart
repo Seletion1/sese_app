@@ -178,6 +178,8 @@ class MapConfigController {
       activeProvider: effective,
       apiKey: googleKey,
       mapboxToken: mapboxToken.isNotEmpty ? mapboxToken : null,
+      googleWebKey: apiKeys.googleWebKey.trim(),
+      mapboxWebToken: apiKeys.mapboxWebToken.trim(),
       manualOverrideProvider: apiKeys.autoFallback ? '' : apiKeys.normalizedProvider,
       googleMonthlyCap: apiKeys.googleMonthlyCap,
       mapboxMonthlyCap: apiKeys.mapboxMonthlyCap,
@@ -319,7 +321,9 @@ class MapConfigController {
         }
         return MapProviderType.mapbox;
       }
-      // Primary Mapbox lacks an active token in SeseHub -> use Google if configured, else unconfigured.
+      // Primary Mapbox lacks an active token in SeseHub -> only fall back if
+      // auto-fallback is enabled; forced mode stays strictly unconfigured.
+      if (isForced) return null;
       return cfg.hasValidGoogleKey ? MapProviderType.google : null;
     }
 
@@ -344,7 +348,9 @@ class MapConfigController {
       return MapProviderType.google;
     }
 
-    // Primary Google lacks an active key in SeseHub -> use Mapbox if configured, else unconfigured.
+    // Primary Google lacks an active key in SeseHub -> only fall back if
+    // auto-fallback is enabled; forced mode stays strictly unconfigured.
+    if (isForced) return null;
     return cfg.hasValidMapboxToken ? MapProviderType.mapbox : null;
   }
 

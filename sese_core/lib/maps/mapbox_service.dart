@@ -21,7 +21,7 @@ class MapboxService {
     if (explicitToken != null && explicitToken.trim().isNotEmpty) {
       return explicitToken.trim();
     }
-    return MapConfigController.instance.currentConfig.resolvedMapboxToken;
+    return MapConfigController.instance.currentConfig.resolvedMapboxHttpToken;
   }
 
   /// Reverse geocode: converts [lat]/[lng] into a full, human-readable street address.

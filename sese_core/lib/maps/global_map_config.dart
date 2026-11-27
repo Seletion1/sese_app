@@ -122,6 +122,22 @@ class GlobalMapConfig {
   /// When set, this takes precedence over [apiKey] for the Mapbox provider.
   final String? mapboxToken;
 
+  /// Google Maps Web / HTTP API key (`web_key` from `system_config/api_keys`).
+  ///
+  /// Used exclusively for HTTP/REST Web Service requests (Places Autocomplete,
+  /// Place Details, Geocoding, Reverse Geocoding, Directions) so Android/iOS
+  /// app-restricted SDK keys (`apiKey`) are never sent to Google REST endpoints.
+  /// When `null` (e.g. a legacy single-key [GlobalMapConfig] in tests),
+  /// [resolvedGoogleHttpKey] falls back to [apiKey]. When explicitly set to
+  /// `''` from [ApiKeysConfig], HTTP calls will NOT fall back to [apiKey].
+  final String? googleWebKey;
+
+  /// Mapbox Web / HTTP token (`web_token` from `system_config/api_keys`).
+  ///
+  /// Used for Mapbox HTTP/REST geocoding & directions requests. When `null`,
+  /// [resolvedMapboxHttpToken] falls back to [resolvedMapboxToken].
+  final String? mapboxWebToken;
+
   /// Manual provider override managed from the Hub.
   ///
   /// When non-null and non-empty, forces the given provider regardless of
@@ -156,6 +172,8 @@ class GlobalMapConfig {
     this.activeProvider = 'google',
     this.apiKey = defaultGoogleMapsApiKey,
     this.mapboxToken,
+    this.googleWebKey,
+    this.mapboxWebToken,
     this.manualOverrideProvider,
     this.featureProviders = const {},
     this.mapboxStyle = defaultMapboxStyle,
@@ -248,6 +266,36 @@ class GlobalMapConfig {
   bool get hasValidGoogleKey {
     final k = apiKey?.trim() ?? '';
     return k.isNotEmpty && !k.startsWith('pk.');
+  }
+
+  /// The resolved Google Maps key for HTTP/REST Web Service calls (Places,
+  /// Geocoding, Directions).
+  ///
+  /// Uses [googleWebKey] whenever [googleWebKey] was supplied from SeseHub
+  /// (`ApiKeysConfig`), ensuring Android/iOS restricted SDK keys are never sent
+  /// to HTTP endpoints. Falls back to [apiKey] only when [googleWebKey] is
+  /// `null` (single-key test configs).
+  String get resolvedGoogleHttpKey {
+    if (googleWebKey != null) {
+      final k = googleWebKey!.trim();
+      return (k.isNotEmpty && !k.startsWith('pk.')) ? k : '';
+    }
+    return hasValidGoogleKey ? apiKey!.trim() : '';
+  }
+
+  /// True when a valid Google Maps key is available for HTTP/REST calls.
+  bool get hasValidGoogleHttpKey => resolvedGoogleHttpKey.isNotEmpty;
+
+  /// The resolved Mapbox token for HTTP/REST geocoding & directions calls.
+  ///
+  /// Uses [mapboxWebToken] when supplied from SeseHub; falls back to
+  /// [resolvedMapboxToken] only when [mapboxWebToken] is `null`.
+  String? get resolvedMapboxHttpToken {
+    if (mapboxWebToken != null) {
+      final t = mapboxWebToken!.trim();
+      return t.isNotEmpty ? t : null;
+    }
+    return resolvedMapboxToken;
   }
 
   /// True when a non-empty API key is configured for the current provider.
@@ -398,6 +446,8 @@ class GlobalMapConfig {
     String? activeProvider,
     String? apiKey,
     String? mapboxToken,
+    String? googleWebKey,
+    String? mapboxWebToken,
     String? manualOverrideProvider,
     Map<String, String>? featureProviders,
     String? mapboxStyle,
@@ -408,6 +458,8 @@ class GlobalMapConfig {
       activeProvider: activeProvider ?? this.activeProvider,
       apiKey: apiKey ?? this.apiKey,
       mapboxToken: mapboxToken ?? this.mapboxToken,
+      googleWebKey: googleWebKey ?? this.googleWebKey,
+      mapboxWebToken: mapboxWebToken ?? this.mapboxWebToken,
       manualOverrideProvider:
           manualOverrideProvider ?? this.manualOverrideProvider,
       featureProviders: featureProviders ?? this.featureProviders,

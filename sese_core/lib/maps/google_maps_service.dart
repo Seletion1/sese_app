@@ -47,8 +47,7 @@ class GoogleMapsService {
 
   String _resolveApiKey() {
     final cfg = MapConfigController.instance.currentConfig;
-    if (!cfg.hasValidGoogleKey) return '';
-    return cfg.apiKey!.trim();
+    return cfg.resolvedGoogleHttpKey;
   }
 
   Future<Map<String, dynamic>> _call(
@@ -59,8 +58,20 @@ class GoogleMapsService {
       return callableOverride!(action, params);
     }
 
+    final cfg = MapConfigController.instance.currentConfig;
     final apiKey = _resolveApiKey();
     if (apiKey.isEmpty) {
+      if (cfg.hasValidGoogleKey) {
+        debugPrint(
+          'GoogleMapsService.$action blocked: native SDK key is present, '
+          'but google_maps.web_key is empty in SeseHub. Refusing to send '
+          'platform-restricted SDK key to HTTP endpoint.',
+        );
+        throw const GoogleMapsException(
+          'unconfigured',
+          'Google Maps Web API key (web_key) is not configured in SeseHub.',
+        );
+      }
       throw const GoogleMapsException(
         'unconfigured',
         'Google Maps API key is not configured in SeseHub.',
@@ -130,9 +141,12 @@ class GoogleMapsService {
       );
     }
     if (status == 'REQUEST_DENIED' || status == 'INVALID_REQUEST') {
+      final errMsg =
+          (data['error_message'] ?? 'Google Maps request denied.').toString();
+      debugPrint('GoogleMapsService $status (${uri.path}): $errMsg');
       throw GoogleMapsException(
         'denied',
-        (data['error_message'] ?? 'Google Maps request denied.').toString(),
+        errMsg,
       );
     }
     throw const GoogleMapsException(
