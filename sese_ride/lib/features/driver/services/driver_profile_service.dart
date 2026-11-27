@@ -45,6 +45,14 @@ class DriverProfile {
   /// (e.g. "SD0001"). Empty string until verified and assigned by Cloud Functions.
   final String sequentialId;
 
+  /// Cumulative rating stats mirrored to `drivers/{uid}` by [submitTripRating].
+  final double averageRating;
+  final int totalRatingSum;
+  final int totalRatingCount;
+
+  /// Star Score % = (totalRatingSum / (totalRatingCount * 5)) * 100.
+  final double ratingPercentage;
+
   const DriverProfile({
     required this.uid,
     this.fullName = '',
@@ -65,6 +73,10 @@ class DriverProfile {
     this.fieldReviewStatus = const {},
     this.profileRejectionReason = '',
     this.sequentialId = '',
+    this.averageRating = 5.0,
+    this.totalRatingSum = 0,
+    this.totalRatingCount = 0,
+    this.ratingPercentage = 0.0,
   });
 
   factory DriverProfile.fromMap(String uid, Map<String, dynamic> map) {
@@ -127,6 +139,10 @@ class DriverProfile {
       profileRejectionReason:
           (map[DriverVerification.fieldProfileRejectionReason] ?? '').toString(),
       sequentialId: (map['sequentialId'] ?? '').toString(),
+      averageRating: (map['averageRating'] as num?)?.toDouble() ?? 5.0,
+      totalRatingSum: (map['totalRatingSum'] as num?)?.toInt() ?? 0,
+      totalRatingCount: (map['totalRatingCount'] as num?)?.toInt() ?? 0,
+      ratingPercentage: (map['ratingPercentage'] as num?)?.toDouble() ?? 0.0,
     );
   }
 

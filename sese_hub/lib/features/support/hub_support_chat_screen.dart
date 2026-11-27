@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
@@ -190,53 +191,82 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
     final adminName = _currentAdminName;
 
     try {
-      await _db.runTransaction((tx) async {
-        final snap = await tx.get(chatRef);
-        if (!snap.exists) {
-          throw Exception('Chat session no longer exists.');
+      bool claimedViaCallable = false;
+      if (widget.firestore == null) {
+        try {
+          await FirebaseFunctions.instance
+              .httpsCallable('hubClaimSupportChat')
+              .call<Map<String, dynamic>>({
+            'chatId': chatId,
+            'agentName': adminName,
+          });
+          claimedViaCallable = true;
+        } on FirebaseFunctionsException catch (fe) {
+          if (fe.code != 'unimplemented' && fe.code != 'not-found') {
+            rethrow;
+          }
         }
-        final data = snap.data()!;
-        final currentStatus = data['status'] as String?;
-        final assigned = (data['assignedAgentId'] ?? '').toString();
+      }
 
-        if (currentStatus != 'pending_agent' || assigned.isNotEmpty) {
-          throw Exception('This chat was already claimed by another agent.');
-        }
+      if (!claimedViaCallable) {
+        await _db.runTransaction((tx) async {
+          final snap = await tx.get(chatRef);
+          if (!snap.exists) {
+            throw Exception('Chat session no longer exists.');
+          }
+          final data = snap.data()!;
+          final currentStatus = data['status'] as String?;
+          final assigned = (data['assignedAgentId'] ?? '').toString();
 
-        tx.update(chatRef, {
-          'assignedAgentId': adminUid,
-          'status': 'agent_connected',
-          'updatedAt': FieldValue.serverTimestamp(),
-          'lastMessage': '$adminName joined the chat.',
+          if (currentStatus == 'agent_connected' && assigned == adminUid) {
+            return;
+          }
+          if ((currentStatus != 'pending_agent' &&
+                  currentStatus != 'open' &&
+                  currentStatus != 'escalated') ||
+              (assigned.isNotEmpty && assigned != adminUid)) {
+            throw Exception('This chat was already claimed by another agent.');
+          }
+
+          tx.update(chatRef, {
+            'assignedAgentId': adminUid,
+            'assignedAgentName': adminName,
+            'status': 'agent_connected',
+            'updatedAt': FieldValue.serverTimestamp(),
+            'lastMessage': '$adminName joined the chat.',
+          });
+
+          final msgRef = chatRef.collection('messages').doc();
+          tx.set(msgRef, {
+            'senderId': adminUid,
+            'senderType': 'agent',
+            'type': 'text',
+            'text':
+                'Hello! I am $adminName from SeSe Support. How can I help you today?',
+            'timestamp': FieldValue.serverTimestamp(),
+          });
         });
-
-        // Add system/agent greeting message to the subcollection
-        final msgRef = chatRef.collection('messages').doc();
-        tx.set(msgRef, {
-          'senderId': adminUid,
-          'senderType': 'agent',
-          'text':
-              'Hello! I am $adminName from SeSe Support. How can I help you today?',
-          'timestamp': FieldValue.serverTimestamp(),
-        });
-      });
+      }
 
       if (!mounted) return;
+      _tabController.animateTo(1);
       _openChatDetail(chatId, isMobile: isMobile);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Chat claimed successfully! Live thread opened.'),
+          content: Text('Chat claimed successfully! Moved to Active Chats.'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       debugPrint('HubSupportChat claimSession error: $e');
+      final msg = e is FirebaseFunctionsException
+          ? (e.message ?? 'Unable to claim this support session.')
+          : 'Unable to claim this support session. Please try again.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Unable to claim this support session. Please try again.'),
+        SnackBar(
+          content: Text(msg),
           backgroundColor: Colors.red,
         ),
       );
@@ -562,15 +592,46 @@ class _HubSupportChatScreenState extends State<HubSupportChatScreen>
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _pendingQueueStream(),
       builder: (context, snapshot) {
-        if (snapshot.hasError &&
-            isHubSessionExpiredError(snapshot.error)) {
-          return const HubSessionExpiredView(
-              contextLabel: 'support queue');
+        if (snapshot.hasError) {
+          if (isHubSessionExpiredError(snapshot.error)) {
+            return const HubSessionExpiredView(
+                contextLabel: 'support queue');
+          }
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Unable to load support queue',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${snapshot.error}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          );
         }
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const SeseListSkeleton(itemCount: 5);
         }
-        final docs = snapshot.data?.docs ?? [];
+        final rawDocs = snapshot.data?.docs ?? [];
+        // Filter out stale/invalid/already-assigned sessions so phantom items cannot linger
+        final docs = rawDocs.where((doc) {
+          final data = doc.data();
+          final userId = (data['userId'] ?? '').toString().trim();
+          final assigned = (data['assignedAgentId'] ?? '').toString().trim();
+          final status = (data['status'] ?? '').toString();
+          return userId.isNotEmpty && assigned.isEmpty && status == 'pending_agent';
+        }).toList();
         // Sort newest updated/created first in memory
         final sortedDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
           ..sort((a, b) {

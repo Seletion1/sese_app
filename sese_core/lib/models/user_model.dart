@@ -23,11 +23,18 @@ class AppUser {
   final int totalRatingSum;
   final int totalRatingCount;
 
+  /// Star Score % = (totalRatingSum / (totalRatingCount * 5)) * 100.
+  /// 0.0 until the driver has at least one rating.
+  final double ratingPercentage;
+
   /// The human-readable sequential Member ID assigned upon verification
   /// (e.g. "SC0001" for customers, "SD0001" for drivers, "SH0001" for staff).
   /// Empty string until verified and assigned by Cloud Functions.
   /// Also serves as the user's sole referral code.
   final String sequentialId;
+
+  /// Set to true when this AppUser was newly created during this registration/sign-up session.
+  final bool isNewRegistration;
 
   AppUser({
     required this.uid,
@@ -43,6 +50,8 @@ class AppUser {
     this.totalRatingSum = 0,
     this.totalRatingCount = 0,
     this.sequentialId = '',
+    this.ratingPercentage = 0.0,
+    this.isNewRegistration = false,
   });
 
   /// Drivers are created pending — require admin approval in sese_hub.
@@ -73,6 +82,7 @@ class AppUser {
       'averageRating': averageRating,
       'totalRatingSum': totalRatingSum,
       'totalRatingCount': totalRatingCount,
+      'ratingPercentage': ratingPercentage,
       if (sequentialId.isNotEmpty) 'sequentialId': sequentialId,
     };
     final trimmedPhone = phoneNumber.trim();
@@ -102,6 +112,7 @@ class AppUser {
       averageRating: safeNum(map['averageRating'])?.toDouble() ?? 5.0,
       totalRatingSum: safeNum(map['totalRatingSum'])?.toInt() ?? 0,
       totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
+      ratingPercentage: safeNum(map['ratingPercentage'])?.toDouble() ?? 0.0,
       sequentialId: (map['sequentialId'] ?? '').toString(),
     );
   }
@@ -131,7 +142,9 @@ class AppUser {
     double? averageRating,
     int? totalRatingSum,
     int? totalRatingCount,
+    double? ratingPercentage,
     String? sequentialId,
+    bool? isNewRegistration,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -146,7 +159,9 @@ class AppUser {
       averageRating: averageRating ?? this.averageRating,
       totalRatingSum: totalRatingSum ?? this.totalRatingSum,
       totalRatingCount: totalRatingCount ?? this.totalRatingCount,
+      ratingPercentage: ratingPercentage ?? this.ratingPercentage,
       sequentialId: sequentialId ?? this.sequentialId,
+      isNewRegistration: isNewRegistration ?? this.isNewRegistration,
     );
   }
 }

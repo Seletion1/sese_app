@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -30,6 +31,14 @@ class WebRtcCallServiceImpl implements ICallService {
     }
   }
 
+  static FirebaseFunctions? get _safeFunctions {
+    try {
+      return FirebaseFunctions.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
   String? _currentUserId;
   String? _displayName;
   String? _avatarUrl;
@@ -49,6 +58,7 @@ class WebRtcCallServiceImpl implements ICallService {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _candidatesSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _incomingCallsSub;
   Timer? _durationTimer;
+  Timer? _iceRecoveryTimer;
   DateTime? _connectedAt;
 
   bool _isMuted = false;
@@ -245,6 +255,117 @@ class WebRtcCallServiceImpl implements ICallService {
     };
   }
 
+  /// Fetches ICE servers (STUN + TURN) from local config and falls back to the
+  /// `getIceServers` Cloud Function when no TURN servers are cached locally.
+  Future<Map<String, dynamic>> _fetchIceServersConfig() async {
+    final baseConfig = _buildIceServersConfig();
+    final localTurns = _configRepo.currentConfig.turnServers;
+    if (localTurns.isNotEmpty || _safeFunctions == null) {
+      return baseConfig;
+    }
+
+    try {
+      final callable = _safeFunctions!.httpsCallable('getIceServers');
+      final res = await callable
+          .call<Map<String, dynamic>>()
+          .timeout(const Duration(seconds: 3));
+      final rawList = res.data['iceServers'];
+      if (rawList is List && rawList.isNotEmpty) {
+        final serverList = rawList
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+        if (serverList.isNotEmpty) {
+          debugPrint(
+            'WebRtcCallServiceImpl: loaded ${serverList.length} ICE servers from backend (hasTurn=${res.data['hasTurn']})',
+          );
+          return {
+            ...baseConfig,
+            'iceServers': serverList,
+          };
+        }
+      }
+    } catch (e) {
+      debugPrint('WebRtcCallServiceImpl: getIceServers fallback to local STUN ($e)');
+    }
+    return baseConfig;
+  }
+
+  void _attachPeerConnectionListeners() {
+    final pc = _peerConnection;
+    if (pc == null) return;
+
+    pc.onIceConnectionState = (RTCIceConnectionState state) {
+      debugPrint('WebRtcCallServiceImpl: ICE connection state -> $state');
+      if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
+          state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
+        _iceRecoveryTimer?.cancel();
+        _iceRecoveryTimer = null;
+        if (_currentState != CallState.connected && _currentState != CallState.ended) {
+          _startCallTimer();
+          _setCallState(CallState.connected);
+        }
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+        if (_currentState == CallState.connected) {
+          _setCallState(CallState.reconnecting);
+        }
+        _iceRecoveryTimer?.cancel();
+        _iceRecoveryTimer = Timer(const Duration(seconds: 6), () {
+          if (_currentState == CallState.reconnecting ||
+              _currentState == CallState.connecting) {
+            onConnectionFailed?.call('ICE connection disconnected and did not recover');
+            if (_currentState != CallState.connected && _currentState != CallState.ended) {
+              _setCallState(CallState.error);
+            }
+          }
+        });
+      } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _iceRecoveryTimer?.cancel();
+        _iceRecoveryTimer = null;
+        onConnectionFailed?.call('ICE connection failed (carrier NAT may require TURN relay)');
+        if (_currentState != CallState.connected && _currentState != CallState.ended) {
+          _setCallState(CallState.error);
+        }
+      }
+    };
+
+    pc.onConnectionState = (RTCPeerConnectionState state) {
+      debugPrint('WebRtcCallServiceImpl: Peer connection state -> $state');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _iceRecoveryTimer?.cancel();
+        _iceRecoveryTimer = null;
+        if (_currentState != CallState.connected && _currentState != CallState.ended) {
+          _startCallTimer();
+          _setCallState(CallState.connected);
+        }
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        onConnectionFailed?.call('Peer connection state failed');
+        if (_currentState != CallState.connected && _currentState != CallState.ended) {
+          _setCallState(CallState.error);
+        }
+      }
+    };
+
+    pc.onTrack = (RTCTrackEvent event) {
+      if (event.track.kind == 'audio') {
+        event.track.enabled = true;
+      }
+      if (event.streams.isNotEmpty) {
+        _remoteStream = event.streams[0];
+        for (final t in _remoteStream!.getAudioTracks()) {
+          t.enabled = true;
+        }
+      }
+    };
+
+    pc.onAddStream = (MediaStream stream) {
+      _remoteStream = stream;
+      for (final t in stream.getAudioTracks()) {
+        t.enabled = true;
+      }
+    };
+  }
+
   Future<bool> _requestMicrophonePermission() async {
     final status = await Permission.microphone.request();
     return status.isGranted;
@@ -289,36 +410,26 @@ class WebRtcCallServiceImpl implements ICallService {
         'audio': defaultAudioConstraints,
         'video': false,
       });
+      for (final track in _localStream!.getAudioTracks()) {
+        track.enabled = !_isMuted;
+      }
+      try {
+        await Helper.setSpeakerphoneOn(_isSpeakerOn);
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl: setSpeakerphoneOn error: $e');
+      }
 
-      // 2. Instantiate WebRTC Peer Connection
-      _peerConnection = await createPeerConnection(_buildIceServersConfig());
+      // 2. Instantiate WebRTC Peer Connection with STUN + TURN
+      final iceConfig = await _fetchIceServersConfig();
+      _peerConnection = await createPeerConnection(iceConfig);
 
-      // Listen for ICE and connection state failures to trigger fallback
-      _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
-        debugPrint('WebRtcCallServiceImpl: ICE connection state -> $state');
-        if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
-          onConnectionFailed?.call('ICE connection state: $state');
-        }
-      };
-      _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
-        debugPrint('WebRtcCallServiceImpl: Peer connection state -> $state');
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-          onConnectionFailed?.call('Peer connection state failed');
-        }
-      };
+      // Listen for ICE/connection state & remote audio tracks
+      _attachPeerConnectionListeners();
 
       // 3. Register local audio tracks
       for (final track in _localStream!.getAudioTracks()) {
         await _peerConnection!.addTrack(track, _localStream!);
       }
-
-      // 4. Listen for remote audio track
-      _peerConnection!.onTrack = (RTCTrackEvent event) {
-        if (event.streams.isNotEmpty) {
-          _remoteStream = event.streams[0];
-        }
-      };
 
       // 5. Stream ICE candidates to Firestore subcollection (buffered until parent callDoc commits)
       if (_firestore == null) {
@@ -403,15 +514,15 @@ class WebRtcCallServiceImpl implements ICallService {
 
           if (status == 'connected' && _peerConnection != null) {
             final answer = data['answer'] as Map<String, dynamic>?;
-            if (answer != null && _currentState != CallState.connected) {
+            if (answer != null &&
+                _currentState != CallState.connected &&
+                _currentState != CallState.connecting) {
               _setCallState(CallState.connecting);
               final rtcAnswer = RTCSessionDescription(
                 answer['sdp']?.toString(),
                 answer['type']?.toString(),
               );
               await _peerConnection!.setRemoteDescription(rtcAnswer);
-              _startCallTimer();
-              _setCallState(CallState.connected);
             }
           }
         } catch (e) {
@@ -520,36 +631,26 @@ class WebRtcCallServiceImpl implements ICallService {
         'audio': defaultAudioConstraints,
         'video': false,
       });
+      for (final track in _localStream!.getAudioTracks()) {
+        track.enabled = !_isMuted;
+      }
+      try {
+        await Helper.setSpeakerphoneOn(_isSpeakerOn);
+      } catch (e) {
+        debugPrint('WebRtcCallServiceImpl: answer setSpeakerphoneOn error: $e');
+      }
 
-      // 2. Instantiate WebRTC Peer Connection
-      _peerConnection = await createPeerConnection(_buildIceServersConfig());
+      // 2. Instantiate WebRTC Peer Connection with STUN + TURN
+      final iceConfig = await _fetchIceServersConfig();
+      _peerConnection = await createPeerConnection(iceConfig);
 
-      // Listen for ICE and connection state failures to trigger fallback
-      _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
-        debugPrint('WebRtcCallServiceImpl: ICE connection state -> $state');
-        if (state == RTCIceConnectionState.RTCIceConnectionStateFailed ||
-            state == RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
-          onConnectionFailed?.call('ICE connection state: $state');
-        }
-      };
-      _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
-        debugPrint('WebRtcCallServiceImpl: Peer connection state -> $state');
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-          onConnectionFailed?.call('Peer connection state failed');
-        }
-      };
+      // Listen for ICE/connection state & remote audio tracks
+      _attachPeerConnectionListeners();
 
       // 3. Register local audio tracks
       for (final track in _localStream!.getAudioTracks()) {
         await _peerConnection!.addTrack(track, _localStream!);
       }
-
-      // 4. Remote track listener
-      _peerConnection!.onTrack = (RTCTrackEvent event) {
-        if (event.streams.isNotEmpty) {
-          _remoteStream = event.streams[0];
-        }
-      };
 
       // 5. Send Callee ICE candidates to Firestore
       final calleeCandidatesCol = callDocRef.collection('calleeCandidates');
@@ -618,8 +719,8 @@ class WebRtcCallServiceImpl implements ICallService {
         }
       });
 
-      _startCallTimer();
-      _setCallState(CallState.connected);
+      // Wait for ICE connection state to reach Connected before starting timer.
+      _setCallState(CallState.connecting);
     } catch (e) {
       debugPrint('WebRtcCallServiceImpl: failed to answer call: $e');
       await endCall(reason: 'Answer error: $e');
@@ -682,6 +783,8 @@ class WebRtcCallServiceImpl implements ICallService {
 
     _durationTimer?.cancel();
     _durationTimer = null;
+    _iceRecoveryTimer?.cancel();
+    _iceRecoveryTimer = null;
 
     // Cancel Firestore listeners FIRST to prevent the 'ended' write from
     // re-triggering the call-doc listener and looping back into endCall().
@@ -761,6 +864,8 @@ class WebRtcCallServiceImpl implements ICallService {
   Future<void> abortForFallback() async {
     _durationTimer?.cancel();
     _durationTimer = null;
+    _iceRecoveryTimer?.cancel();
+    _iceRecoveryTimer = null;
     _isEnding = false; // Reset so endCall can proceed if called after abort
 
     try {

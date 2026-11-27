@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -150,6 +152,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
   }
 
   final _searchCtrl = TextEditingController();
+  final Map<String, String> _memberIdCache = {};
 
   static const List<String> _activeStatuses = [
     'requested',
@@ -522,8 +525,22 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final totalCollectible = (data['total_collectible_fare'] is num)
         ? (data['total_collectible_fare'] as num).toDouble()
         : (baseFare + debt);
+    final customerId = (data['customerId'] ?? data['userId'] ?? '').toString().trim();
+    final customerSeqId = (data['customerSequentialId'] ??
+            data['tripBooker']?['sequentialId'] ??
+            data['sequentialId'] ??
+            '')
+        .toString()
+        .trim();
     final customerName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
-    final driverName = (data['driverName'] ?? data['driver']?['name'] ?? 'Unassigned').toString();
+
+    final driverMap = data['driver'] is Map ? Map<String, dynamic>.from(data['driver'] as Map) : const <String, dynamic>{};
+    final driverId = (data['driverId'] ?? driverMap['driverId'] ?? '').toString().trim();
+    final driverSeqId = (data['driverSequentialId'] ?? driverMap['sequentialId'] ?? '').toString().trim();
+    final rawDriverName = (data['driverName'] ?? driverMap['fullName'] ?? driverMap['name'] ?? '').toString().trim();
+    final bool hasAssignedDriver = driverId.isNotEmpty;
+    final driverName = rawDriverName.isNotEmpty ? rawDriverName : (hasAssignedDriver ? 'Assigned Driver' : 'Unassigned');
+
     final isSplit = data['isSplitPayment'] == true || data['paymentSplit'] != null;
     final requirePin = data['deliveryPinRequired'] == true || data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
     final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
@@ -532,15 +549,22 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final pickup = (data['pickupAddress'] ?? 'Pickup').toString();
     final dropoff = (data['dropoffAddress'] ?? 'Dropoff').toString();
 
+    final upperStatus = status.toUpperCase();
+    final bool isDriverAcceptedWithoutDriver =
+        !hasAssignedDriver && (upperStatus == 'DRIVER_ACCEPTED' || upperStatus == 'ACCEPTED');
+    final String effectiveStatusLabel = isDriverAcceptedWithoutDriver
+        ? 'AWAITING DRIVER'
+        : upperStatus.replaceAll('_', ' ');
+
     final isClosedOrActive = status.toLowerCase().contains('completed') ||
         status.toLowerCase().contains('transit') ||
         status.toLowerCase().contains('progress') ||
         status.toLowerCase().contains('approval') ||
-        status.toLowerCase().contains('accepted') ||
-        status.toLowerCase().contains('arrived');
+        (hasAssignedDriver && (status.toLowerCase().contains('accepted') || status.toLowerCase().contains('arrived')));
     final cancelSource = (data['cancellationSource'] ?? '').toString();
     final bool isSkippedByDriver = cancelSource == 'skipped_by_driver' && !isClosedOrActive;
     final bool isRejectedByDriver = cancelSource == 'rejected_by_driver' && !isClosedOrActive;
+    final bool canReassign = !upperStatus.contains('COMPLETED') && !upperStatus.contains('CANCELLED');
 
     Color statusColor = Colors.orange;
     if (status.toLowerCase().contains('completed')) statusColor = Colors.green;
@@ -575,9 +599,9 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                         ? 'SKIPPED BY DRIVER'
                         : isRejectedByDriver
                             ? 'REJECTED BY DRIVER'
-                            : isScheduled && !status.toUpperCase().contains('SCHEDULED')
-                                ? 'SCHEDULED (${status.toUpperCase().replaceAll("_", " ")})'
-                                : status.toUpperCase().replaceAll('_', ' '),
+                            : isScheduled && !upperStatus.contains('SCHEDULED')
+                                ? 'SCHEDULED ($effectiveStatusLabel)'
+                                : effectiveStatusLabel,
                     style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 11),
                   ),
                 ),
@@ -612,9 +636,36 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('👤 Customer: $customerName', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('👤 Customer: $customerName', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                          ),
+                          if (customerId.isNotEmpty)
+                            _MemberIdBadge(
+                              uid: customerId,
+                              initialId: customerSeqId,
+                              cache: _memberIdCache,
+                              db: _db,
+                            ),
+                        ],
+                      ),
                       const SizedBox(height: 2),
-                      Text('🚘 Driver: $driverName', style: const TextStyle(fontSize: 13)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('🚘 Driver: $driverName', style: const TextStyle(fontSize: 13)),
+                          ),
+                          if (hasAssignedDriver)
+                            _MemberIdBadge(
+                              uid: driverId,
+                              initialId: driverSeqId,
+                              isDriver: true,
+                              cache: _memberIdCache,
+                              db: _db,
+                            ),
+                        ],
+                      ),
                       const SizedBox(height: 4),
                       Text('📍 $pickup → $dropoff', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                       if (isScheduled && scheduledDate != null)
@@ -692,6 +743,14 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                     child: Text('SPLIT PAYMENT', style: TextStyle(fontSize: 10, color: Colors.purple.shade800, fontWeight: FontWeight.bold)),
                   ),
                 const Spacer(),
+                if (canReassign) ...[
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.swap_horiz, size: 16),
+                    onPressed: () => _showReassignDriverModal(context, tripId, data),
+                    label: const Text('Re-assign'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 FilledButton.tonalIcon(
                   icon: const Icon(Icons.shield_outlined, size: 16),
                   onPressed: () => _showTripInspectionModal(context, tripId, data),
@@ -708,10 +767,26 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
   void _showTripInspectionModal(BuildContext context, String tripId, Map<String, dynamic> data) {
     final customerName = (data['customerName'] ?? data['userName'] ?? 'Customer').toString();
     final customerPhone = (data['customerPhone'] ?? data['phoneNumber'] ?? 'N/A').toString();
-    final customerId = (data['customerId'] ?? 'N/A').toString();
-    final driverName = (data['driverName'] ?? data['driver']?['name'] ?? 'Unassigned').toString();
-    final driverPhone = (data['driverPhone'] ?? 'N/A').toString();
-    final vehiclePlate = (data['vehiclePlate'] ?? data['licensePlate'] ?? 'N/A').toString();
+    final customerId = (data['customerId'] ?? data['userId'] ?? '').toString().trim();
+    final customerSeqId = (data['customerSequentialId'] ??
+            data['tripBooker']?['sequentialId'] ??
+            data['sequentialId'] ??
+            '')
+        .toString()
+        .trim();
+
+    final driverMap = data['driver'] is Map ? Map<String, dynamic>.from(data['driver'] as Map) : const <String, dynamic>{};
+    final driverId = (data['driverId'] ?? driverMap['driverId'] ?? '').toString().trim();
+    final driverSeqId = (data['driverSequentialId'] ?? driverMap['sequentialId'] ?? '').toString().trim();
+    final rawDriverName = (data['driverName'] ?? driverMap['fullName'] ?? driverMap['name'] ?? '').toString().trim();
+    final bool hasAssignedDriver = driverId.isNotEmpty;
+    final driverName = rawDriverName.isNotEmpty ? rawDriverName : (hasAssignedDriver ? 'Assigned Driver' : 'Unassigned');
+    final rawDriverPhone = (data['driverPhone'] ?? driverMap['phone'] ?? driverMap['phoneNumber'] ?? '').toString().trim();
+    final driverPhone = rawDriverPhone.isNotEmpty ? rawDriverPhone : 'N/A';
+    final rawVehiclePlate = (data['vehiclePlate'] ?? driverMap['plateNumber'] ?? driverMap['licensePlate'] ?? data['licensePlate'] ?? '').toString().trim();
+    final vehiclePlate = rawVehiclePlate.isNotEmpty ? rawVehiclePlate : 'N/A';
+    final upperStatus = (data['status'] ?? '').toString().toUpperCase();
+    final bool canReassign = !upperStatus.contains('COMPLETED') && !upperStatus.contains('CANCELLED');
     final requirePin = data['deliveryPinRequired'] == true || data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
     final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
     final isScheduled = data['isScheduled'] == true || (data['status'] ?? '').toString().toLowerCase().contains('scheduled');
@@ -943,7 +1018,20 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                       const Text('1. Customer Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                       const SizedBox(height: 8),
                       Text('Name: $customerName'),
-                      Text('Customer ID: $customerId'),
+                      Row(
+                        children: [
+                          const Text('Customer ID: '),
+                          if (customerId.isNotEmpty)
+                            _MemberIdBadge(
+                              uid: customerId,
+                              initialId: customerSeqId,
+                              cache: _memberIdCache,
+                              db: _db,
+                            )
+                          else
+                            const Text('N/A'),
+                        ],
+                      ),
                       Row(
                         children: [
                           Text('Phone: $customerPhone'),
@@ -962,6 +1050,19 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                       const Divider(height: 20),
                       const Text('2. Driver Profile', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                       const SizedBox(height: 8),
+                      if (hasAssignedDriver)
+                        Row(
+                          children: [
+                            const Text('Driver ID: '),
+                            _MemberIdBadge(
+                              uid: driverId,
+                              initialId: driverSeqId,
+                              isDriver: true,
+                              cache: _memberIdCache,
+                              db: _db,
+                            ),
+                          ],
+                        ),
                       Text('Driver Name: $driverName'),
                       Text('Vehicle Plate: $vehiclePlate'),
                       Row(
@@ -1128,11 +1229,39 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                       }
                     },
                   ),
+                  if (canReassign)
+                    FilledButton.tonalIcon(
+                      icon: const Icon(Icons.swap_horiz),
+                      label: const Text('Re-assign Drivers'),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _showReassignDriverModal(context, tripId, data);
+                      },
+                    ),
                 ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showReassignDriverModal(
+    BuildContext context,
+    String tripId,
+    Map<String, dynamic> tripData,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => _ReassignDriversSheet(
+        db: _db,
+        tripId: tripId,
+        tripData: tripData,
+        memberIdCache: _memberIdCache,
       ),
     );
   }
@@ -1170,5 +1299,473 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '${dt.day}/${dt.month}/${dt.year} $h:$m';
+  }
+}
+
+/// Resolves and displays formatted Member IDs (`SCxxxx`, `SDxxxx`, `SAxxxx`)
+/// without ever showing raw Firebase Auth UIDs as the primary ID.
+class _MemberIdBadge extends StatefulWidget {
+  final String uid;
+  final String initialId;
+  final bool isDriver;
+  final Map<String, String> cache;
+  final FirebaseFirestore db;
+
+  const _MemberIdBadge({
+    required this.uid,
+    this.initialId = '',
+    this.isDriver = false,
+    required this.cache,
+    required this.db,
+  });
+
+  @override
+  State<_MemberIdBadge> createState() => _MemberIdBadgeState();
+}
+
+class _MemberIdBadgeState extends State<_MemberIdBadge> {
+  String? _resolvedId;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MemberIdBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid || oldWidget.initialId != widget.initialId) {
+      _init();
+    }
+  }
+
+  void _init() {
+    if (widget.initialId.isNotEmpty) {
+      widget.cache[widget.uid] = widget.initialId;
+      _resolvedId = widget.initialId;
+      return;
+    }
+    final cached = widget.cache[widget.uid];
+    if (cached != null && cached.isNotEmpty) {
+      _resolvedId = cached;
+      return;
+    }
+    _fetchId();
+  }
+
+  Future<void> _fetchId() async {
+    try {
+      String found = '';
+      if (widget.isDriver) {
+        final dDoc = await widget.db.collection('drivers').doc(widget.uid).get();
+        found = (dDoc.data()?['sequentialId'] ?? '').toString().trim();
+      }
+      if (found.isEmpty) {
+        final uDoc = await widget.db.collection('users').doc(widget.uid).get();
+        found = (uDoc.data()?['sequentialId'] ?? '').toString().trim();
+      }
+      if (found.isNotEmpty) {
+        widget.cache[widget.uid] = found;
+        if (mounted) setState(() => _resolvedId = found);
+      } else {
+        if (mounted) setState(() => _resolvedId = 'Pending ID');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _resolvedId = 'Pending ID');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final display = (_resolvedId ?? '').isNotEmpty ? _resolvedId! : 'Resolving...';
+    final isFormatted = display.startsWith('S') && display.length >= 4 && !display.contains(' ');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: isFormatted
+            ? (widget.isDriver ? Colors.amber.shade100 : Colors.blue.shade50)
+            : Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        display,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: isFormatted
+              ? (widget.isDriver ? Colors.amber.shade900 : Colors.blue.shade900)
+              : Colors.grey.shade700,
+        ),
+      ),
+    );
+  }
+}
+
+/// Multi-driver selection sheet for Hub order re-assignment.
+/// Lists drivers in the order's area/zone with both positive and negative wallet
+/// balances, displays Name, Driver ID (`SDxxxx`), area/distance, and wallet status,
+/// and dispatches first-to-pick via `hubReassignTrip`.
+class _ReassignDriversSheet extends StatefulWidget {
+  final FirebaseFirestore db;
+  final String tripId;
+  final Map<String, dynamic> tripData;
+  final Map<String, String> memberIdCache;
+
+  const _ReassignDriversSheet({
+    required this.db,
+    required this.tripId,
+    required this.tripData,
+    required this.memberIdCache,
+  });
+
+  @override
+  State<_ReassignDriversSheet> createState() => _ReassignDriversSheetState();
+}
+
+class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
+  final Set<String> _selectedIds = <String>{};
+  bool _onlyOnline = false;
+  bool _onlyZone = true;
+  bool _submitting = false;
+  String _search = '';
+
+  double? get _pickupLat {
+    final p = widget.tripData['pickupLocation'];
+    if (p is Map && p['lat'] is num) return (p['lat'] as num).toDouble();
+    if (widget.tripData['pickupLat'] is num) return (widget.tripData['pickupLat'] as num).toDouble();
+    return null;
+  }
+
+  double? get _pickupLng {
+    final p = widget.tripData['pickupLocation'];
+    if (p is Map && p['lng'] is num) return (p['lng'] as num).toDouble();
+    if (widget.tripData['pickupLng'] is num) return (widget.tripData['pickupLng'] as num).toDouble();
+    return null;
+  }
+
+  String get _tripCountry =>
+      (widget.tripData['pickupCountryCode'] ?? widget.tripData['countryCode'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+  String get _tripState =>
+      (widget.tripData['pickupState'] ?? widget.tripData['stateOrRegion'] ?? '')
+          .toString()
+          .trim()
+          .toUpperCase();
+
+  static double? _haversineKm(double? lat1, double? lng1, double? lat2, double? lng2) {
+    if (lat1 == null || lng1 == null || lat2 == null || lng2 == null) return null;
+    const r = 6371.0;
+    final dLat = (lat2 - lat1) * math.pi / 180.0;
+    final dLng = (lng2 - lng1) * math.pi / 180.0;
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180.0) *
+            math.cos(lat2 * math.pi / 180.0) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  static (double?, double?) _extractCoords(Map<String, dynamic> d) {
+    for (final key in ['lastLocation', 'lastFix', 'location', 'currentLocation']) {
+      final raw = d[key];
+      if (raw is GeoPoint) return (raw.latitude, raw.longitude);
+      if (raw is Map) {
+        final lat = raw['lat'] ?? raw['latitude'];
+        final lng = raw['lng'] ?? raw['longitude'];
+        if (lat is num && lng is num) return (lat.toDouble(), lng.toDouble());
+      }
+    }
+    if (d['latitude'] is num && d['longitude'] is num) {
+      return ((d['latitude'] as num).toDouble(), (d['longitude'] as num).toDouble());
+    }
+    return (null, null);
+  }
+
+  Future<void> _dispatchSelected() async {
+    if (_selectedIds.isEmpty || _submitting) return;
+    setState(() => _submitting = true);
+    try {
+      await FirebaseFunctions.instance.httpsCallable('hubReassignTrip').call({
+        'tripId': widget.tripId,
+        'driverIds': _selectedIds.toList(),
+        'reason': 'Manual Hub multi-driver re-assignment',
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Order dispatched to ${_selectedIds.length} driver(s) on a first-to-pick basis.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to re-assign order: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.88,
+      maxChildSize: 0.96,
+      expand: false,
+      builder: (_, scrollCtrl) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Re-assign Order (${widget.tripId.length > 10 ? widget.tripId.substring(0, 10) : widget.tripId})',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Select one or more drivers (first-to-pick wins). Negative-balance drivers must top up before accepting.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Search driver by name, SD ID, or area...',
+                    prefixIcon: Icon(Icons.search, size: 18),
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilterChip(
+                      label: Text(_tripState.isNotEmpty ? 'Zone: $_tripState' : 'Same Area'),
+                      selected: _onlyZone,
+                      onSelected: (v) => setState(() => _onlyZone = v),
+                    ),
+                    FilterChip(
+                      label: const Text('Online Only'),
+                      selected: _onlyOnline,
+                      onSelected: (v) => setState(() => _onlyOnline = v),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: widget.db.collection('drivers').snapshots(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                  return const SeseListSkeleton(itemCount: 5);
+                }
+                if (snap.hasError) {
+                  return Center(child: Text('Error loading drivers: ${snap.error}'));
+                }
+                final allDocs = snap.data?.docs ?? [];
+                final entries = allDocs.where((doc) {
+                  final d = doc.data();
+                  if (_onlyOnline && d['isOnline'] != true) return false;
+                  if (_onlyZone) {
+                    final dCountry = (d['countryCode'] ?? '').toString().trim().toUpperCase();
+                    final dState = (d['stateOrRegion'] ?? d['state'] ?? '').toString().trim().toUpperCase();
+                    if (_tripCountry.isNotEmpty && dCountry.isNotEmpty && dCountry != _tripCountry) {
+                      return false;
+                    }
+                    if (_tripState.isNotEmpty && dState.isNotEmpty && !dState.contains(_tripState)) {
+                      return false;
+                    }
+                  }
+                  if (_search.isNotEmpty) {
+                    final name = (d['fullName'] ?? d['name'] ?? '').toString().toLowerCase();
+                    final seq = (d['sequentialId'] ?? '').toString().toLowerCase();
+                    final state = (d['stateOrRegion'] ?? d['state'] ?? '').toString().toLowerCase();
+                    if (!name.contains(_search) && !seq.contains(_search) && !state.contains(_search)) {
+                      return false;
+                    }
+                  }
+                  return true;
+                }).toList();
+
+                entries.sort((a, b) {
+                  final da = a.data();
+                  final dbMap = b.data();
+                  final onA = da['isOnline'] == true ? 0 : 1;
+                  final onB = dbMap['isOnline'] == true ? 0 : 1;
+                  if (onA != onB) return onA.compareTo(onB);
+                  final ca = _extractCoords(da);
+                  final cb = _extractCoords(dbMap);
+                  final distA = _haversineKm(_pickupLat, _pickupLng, ca.$1, ca.$2) ?? 99999.0;
+                  final distB = _haversineKm(_pickupLat, _pickupLng, cb.$1, cb.$2) ?? 99999.0;
+                  return distA.compareTo(distB);
+                });
+
+                if (entries.isEmpty) {
+                  return const Center(
+                    child: Text('No matching drivers found. Try toggling Zone or Online filter.'),
+                  );
+                }
+
+                return ListView.separated(
+                  controller: scrollCtrl,
+                  itemCount: entries.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final doc = entries[index];
+                    final d = doc.data();
+                    final driverId = doc.id;
+                    final name = (d['fullName'] ?? d['name'] ?? 'Driver').toString();
+                    final seqId = (d['sequentialId'] ?? '').toString().trim();
+                    final isOnline = d['isOnline'] == true;
+                    final area = (d['stateOrRegion'] ?? d['state'] ?? d['countryCode'] ?? 'Area N/A').toString();
+                    final coords = _extractCoords(d);
+                    final distKm = _haversineKm(_pickupLat, _pickupLng, coords.$1, coords.$2);
+                    final distLabel = distKm != null ? '${distKm.toStringAsFixed(1)} km' : area;
+                    final selected = _selectedIds.contains(driverId);
+
+                    return CheckboxListTile(
+                      value: selected,
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            _selectedIds.add(driverId);
+                          } else {
+                            _selectedIds.remove(driverId);
+                          }
+                        });
+                      },
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          _MemberIdBadge(
+                            uid: driverId,
+                            initialId: seqId,
+                            isDriver: true,
+                            cache: widget.memberIdCache,
+                            db: widget.db,
+                          ),
+                        ],
+                      ),
+                      subtitle: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: isOnline ? Colors.green.shade50 : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              isOnline ? 'ONLINE' : 'OFFLINE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: isOnline ? Colors.green.shade800 : Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text('$area • $distLabel', style: const TextStyle(fontSize: 12)),
+                          const Spacer(),
+                          _DriverWalletStatusBadge(db: widget.db, driverId: driverId),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.send),
+                  label: Text(
+                    _submitting
+                        ? 'Dispatching...'
+                        : 'Dispatch to Selected Drivers (${_selectedIds.length})',
+                  ),
+                  onPressed: _selectedIds.isEmpty || _submitting ? null : _dispatchSelected,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverWalletStatusBadge extends StatelessWidget {
+  final FirebaseFirestore db;
+  final String driverId;
+
+  const _DriverWalletStatusBadge({required this.db, required this.driverId});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: db.collection('wallets').doc(driverId).get(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const Text('...', style: TextStyle(fontSize: 11, color: Colors.grey));
+        }
+        final w = snap.data?.data() ?? const <String, dynamic>{};
+        final double bal = w['mainWalletBalance'] is num
+            ? (w['mainWalletBalance'] as num).toDouble()
+            : (w['balance'] is num ? (w['balance'] as num).toDouble() / 100.0 : 0.0);
+        final isLow = bal < 1.0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: isLow ? Colors.red.shade50 : Colors.green.shade50,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: isLow ? Colors.red.shade300 : Colors.green.shade300,
+            ),
+          ),
+          child: Text(
+            '₦${bal.toStringAsFixed(0)}${isLow ? ' (Low)' : ''}',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: isLow ? Colors.red.shade800 : Colors.green.shade800,
+            ),
+          ),
+        );
+      },
+    );
   }
 }

@@ -884,6 +884,9 @@ class CustomerKycService {
 
     await _db.collection('users').doc(userId).set(
       {
+        'firstName': firstName,
+        'lastName': lastName,
+        'fullName': '$firstName $lastName'.trim(),
         'verificationStatus': CustomerVerification.pendingReview,
         CustomerVerification.fieldStatus: CustomerVerification.pendingReview,
         CustomerVerification.fieldIsVerified: false,

@@ -55,6 +55,7 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
     try {
       await _db.collection('users').doc(uid).set(
         {
+          'verificationStatus': CustomerVerification.verified,
           CustomerVerification.fieldStatus: CustomerVerification.verified,
           CustomerVerification.fieldIsVerified: true,
           CustomerVerification.fieldRejectionReason: '',
@@ -89,6 +90,7 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
     try {
       await _db.collection('users').doc(uid).set(
         {
+          'verificationStatus': CustomerVerification.rejected,
           CustomerVerification.fieldStatus: CustomerVerification.rejected,
           CustomerVerification.fieldIsVerified: false,
           CustomerVerification.fieldRejectionReason: reason,
@@ -170,10 +172,30 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
                 ? Map<String, dynamic>.from(kyc)
                 : <String, dynamic>{};
 
-            final name =
-                (kycMap['fullName'] ?? data['fullName'] ?? '').toString().isNotEmpty
-                    ? (kycMap['fullName'] ?? data['fullName']).toString()
-                    : doc.id;
+            final combinedName =
+                '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+            final name = (kycMap['fullName'] ?? data['fullName'] ?? '')
+                    .toString()
+                    .trim()
+                    .isNotEmpty
+                ? (kycMap['fullName'] ?? data['fullName']).toString().trim()
+                : (combinedName.isNotEmpty
+                    ? combinedName
+                    : ((data['displayName'] ?? '').toString().trim().isNotEmpty
+                        ? data['displayName'].toString().trim()
+                        : ((data['email'] ?? '').toString().trim().isNotEmpty
+                            ? data['email'].toString().trim()
+                            : doc.id)));
+
+            final phone = (data['phoneNumber'] ??
+                    data['phoneNumberE164'] ??
+                    data['phone'] ??
+                    '')
+                .toString()
+                .trim();
+            final email = (data['email'] ?? '').toString().trim();
+            final contactParts =
+                [phone, email].where((p) => p.isNotEmpty).toList();
 
             return Card(
               key: Key('customer_approval_${doc.id}'),
@@ -229,7 +251,9 @@ class _CustomerApprovalsTabState extends State<CustomerApprovalsTab> {
                                 ],
                               ),
                               Text(
-                                '${data['phoneNumber'] ?? ''} · ${data['email'] ?? ''}',
+                                contactParts.isNotEmpty
+                                    ? contactParts.join(' · ')
+                                    : 'No phone or email provided',
                                 style: const TextStyle(
                                     color: Colors.grey, fontSize: 12),
                               ),

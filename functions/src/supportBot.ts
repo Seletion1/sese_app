@@ -1,6 +1,9 @@
 import * as admin from "firebase-admin";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { HttpsError } from "firebase-functions/v2/https";
 
+import { guardedOnCall } from "./accountGuard";
+import { assertHubStaffOrAdmin } from "./verification";
 import { respondTo, SAFETY_REPLY, HANDOVER_TEXT } from "./supportBrain";
 
 /**
@@ -191,39 +194,8 @@ async function escalateChat(
 
   await batch.commit();
 
-  // Notify the user in-app as well, so the escalation is visible even if the
-  // app is backgrounded when the bot hands over.
-  let userId = "";
-  try {
-    const snap = await db().collection("support_chats").doc(chatId).get();
-    userId = String(snap.data()?.userId ?? "");
-  } catch {
-    // Non-fatal: the FCM broadcast below still fires.
-  }
-
-  if (userId) {
-    try {
-      await db()
-        .collection("users")
-        .doc(userId)
-        .collection("notifications")
-        .add({
-          title:
-            reason === "safety"
-              ? "Connecting you to support now"
-              : "Support agent requested",
-          body:
-            reasonDetail ??
-            "A support agent is joining your chat. Please stay in the chat.",
-          chatId,
-          type: "support_escalated",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-    } catch (e) {
-      console.warn(`supportBot: escalation in-app write failed: ${e}`);
-    }
-  }
-
+  // Broadcast high-priority alert to the hub agent topic so a human
+  // agent can claim the ticket.
   try {
     await admin.messaging().send({
       topic: "admin_support_alerts",
@@ -287,22 +259,6 @@ export const onAgentReplied = onDocumentCreated(
         : "A support agent replied to your ticket.");
 
     try {
-      await db()
-        .collection("users")
-        .doc(userId)
-        .collection("notifications")
-        .add({
-          title: "Support replied",
-          body,
-          chatId,
-          type: "support_reply",
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-    } catch (e) {
-      console.warn(`onAgentReplied: in-app write failed: ${e}`);
-    }
-
-    try {
       await admin.messaging().send({
         topic: `user_${userId}`,
         notification: { title: "Support replied", body },
@@ -311,7 +267,7 @@ export const onAgentReplied = onDocumentCreated(
           notification: { sound: "sese_alert_chime" },
         },
         apns: { payload: { aps: { sound: "default" } } },
-        data: { type: "support_reply", chatId },
+        data: { type: "support_reply", chatId, sessionId: chatId },
       });
     } catch (e) {
       console.warn(`onAgentReplied: FCM send failed: ${e}`);
@@ -451,4 +407,68 @@ export const onSupportMessageCreated = onDocumentCreated(
     );
   }
 );
+
+/**
+ * Callable Function: hubClaimSupportChat
+ *
+ * Server-authoritative atomic claim for pending support chats in SeseHub.
+ * Verifies Hub staff / admin authorization, ensures the session is still
+ * pending/unclaimed, transitions status to `agent_connected`, and posts
+ * the agent's greeting message atomically.
+ */
+export const hubClaimSupportChat = guardedOnCall(async (request) => {
+  await assertHubStaffOrAdmin(request.auth);
+  const adminUid = request.auth!.uid;
+  const chatId = String(request.data?.chatId ?? "").trim();
+  if (!chatId) {
+    throw new HttpsError("invalid-argument", "chatId is required.");
+  }
+  const requestedName = String(request.data?.agentName ?? "").trim().slice(0, 80);
+  const tokenName = String(request.auth?.token?.name ?? request.auth?.token?.email ?? "").trim().slice(0, 80);
+  const agentName = requestedName || tokenName || "Support Agent";
+
+  const chatRef = db().collection("support_chats").doc(chatId);
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(chatRef);
+    if (!snap.exists) {
+      throw new HttpsError("not-found", "Support chat session no longer exists.");
+    }
+    const data = snap.data()!;
+    const currentStatus = String(data.status ?? "");
+    const assigned = String(data.assignedAgentId ?? "").trim();
+
+    if (currentStatus === "agent_connected" && assigned === adminUid) {
+      return; // Idempotent retry by the same agent
+    }
+    if (
+      (currentStatus !== "pending_agent" && currentStatus !== "open" && currentStatus !== "escalated") ||
+      (assigned.length > 0 && assigned !== adminUid)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This chat was already claimed or resolved."
+      );
+    }
+
+    tx.update(chatRef, {
+      assignedAgentId: adminUid,
+      assignedAgentName: agentName,
+      status: "agent_connected",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastMessage: `${agentName} joined the chat.`,
+    });
+
+    const msgRef = chatRef.collection("messages").doc();
+    tx.set(msgRef, {
+      senderId: adminUid,
+      senderType: "agent",
+      type: "text",
+      text: `Hello! I am ${agentName} from SeSe Support. How can I help you today?`,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { ok: true, chatId, assignedAgentId: adminUid };
+});
+
 

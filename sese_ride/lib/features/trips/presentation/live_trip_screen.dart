@@ -3986,11 +3986,20 @@ class _CustomerDropoffApprovalCardState
           ),
         );
       }
-    } catch (e) {
+    } on TripException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to submit response: $e'),
+            content: Text(e.userMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to submit response. Please try again.'),
             backgroundColor: Colors.red,
           ),
         );

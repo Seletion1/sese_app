@@ -2436,7 +2436,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Unified management hub for Google Maps & Mapbox rendering engines, platform API keys, monthly call caps, and in-app VoIP calling architecture (Agora RTC & WebRTC).',
+              'Unified management hub for Google Maps & Mapbox rendering engines, platform API keys, and self-hosted WebRTC in-app VoIP calling architecture.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 20),
@@ -2523,7 +2523,7 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                               ),
                               Text(
-                                'Manage Agora RTC Engine credentials, self-hosted WebRTC, failover minutes & loopback diagnostics.',
+                                'Manage self-hosted WebRTC STUN/TURN traversal & loopback diagnostics.',
                                 style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
                               ),
                             ],

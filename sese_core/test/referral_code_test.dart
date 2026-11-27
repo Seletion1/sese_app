@@ -13,8 +13,10 @@ void main() {
       expect(isPlausibleReferralCode('SC0001'), isTrue);
       expect(isPlausibleReferralCode('SD0001'), isTrue);
       expect(isPlausibleReferralCode('SH0001'), isTrue);
+      expect(isPlausibleReferralCode('SA0001'), isTrue);
       expect(isPlausibleReferralCode('sc10000'), isTrue);
       expect(isPlausibleReferralCode('sd0099'), isTrue);
+      expect(isPlausibleReferralCode('sa0050'), isTrue);
     });
 
     test('isPlausibleReferralCode rejects legacy or invalid formats', () {

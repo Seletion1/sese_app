@@ -42,6 +42,8 @@ const String permUserOnboarding = 'user_onboarding';
 /// Targeted push broadcast module (announcements + urgent alerts).
 /// Super Admins always hold it; Admins/Agents need the explicit grant.
 /// The `sendTargetedBroadcast` callable enforces the same rule server-side.
+const String permRatingReviews = 'rating_reviews';
+
 const String permBroadcast = 'broadcast_notifications';
 
 /// ── Sub-section permission codes (Req: granular per-section grants) ──────
@@ -73,6 +75,9 @@ const String secFleetDispatchQueue = 'fleet_dispatch_queue';
 const String secRidesLive = 'rides_live';
 const String secRidesScheduled = 'rides_scheduled';
 
+// Ratings Review sections.
+const String secRatingsPending = 'ratings_pending';
+
 /// Every sub-section code. Used to detect legacy records (none of these
 /// present → module grant covers all its sections).
 const Set<String> hubSectionCodes = {
@@ -90,6 +95,7 @@ const Set<String> hubSectionCodes = {
   secFleetDispatchQueue,
   secRidesLive,
   secRidesScheduled,
+  secRatingsPending,
 };
 
 /// Human labels for the Staff Management section picker.
@@ -108,6 +114,7 @@ const Map<String, String> hubSectionCatalog = {
   secFleetDispatchQueue: 'Dispatch Queue',
   secRidesLive: 'Live Rides',
   secRidesScheduled: 'Scheduled Rides',
+  secRatingsPending: 'Low Rating Reviews',
 };
 
 /// Section visibility gate for [HubModuleShell].
@@ -161,6 +168,7 @@ const Map<String, String> hubModuleCatalog = {
   permDocumentReview: 'Document Review & KYC',
   permBroadcast: 'Broadcast Notifications',
   permStaffManage: 'Staff Management',
+  permRatingReviews: 'Rating Reviews',
 };
 
 /// Permissions a non-Super staffer may retain on write. `staff_manage`
@@ -174,7 +182,7 @@ List<String> filterPermissionsForRole(UserRole role, List<String> permissions) {
 
 /// Tabs available inside Sese Hub. There are no separate Agent views:
 /// everyone navigates this single permission-filtered tab set.
-enum HubTab { activeRides, fleet, onboarding, support, broadcast, config, staff, profile }
+enum HubTab { activeRides, fleet, onboarding, support, broadcast, config, staff, ratings, profile }
 
 /// Unified permission-based tab rendering for the nav shell
 /// (HubDashboardScreen rail + bottom bar):
@@ -200,6 +208,7 @@ List<HubTab> visibleTabs({
       HubTab.support,
       HubTab.broadcast,
       HubTab.config,
+      HubTab.ratings,
       if (permissions.contains(permStaffManage)) HubTab.staff,
       HubTab.profile,
     ];
@@ -218,6 +227,7 @@ List<HubTab> visibleTabs({
   if (granted.contains(permBroadcast)) out.add(HubTab.broadcast);
   if (granted.contains(permDynamicConfig)) out.add(HubTab.config);
   if (granted.contains(permStaffManage)) out.add(HubTab.staff);
+  if (granted.contains(permRatingReviews)) out.add(HubTab.ratings);
   out.add(HubTab.profile);
   return out;
 }

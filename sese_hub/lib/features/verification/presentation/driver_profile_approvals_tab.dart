@@ -138,19 +138,34 @@ class _DriverProfileApprovalsTabState
     } catch (_) {}
   }
 
+  Future<void> _mirrorDriverStatusToUser(
+    String driverId,
+    Map<String, dynamic> fields,
+  ) async {
+    try {
+      final userRef = _db.collection('users').doc(driverId);
+      final snap = await userRef.get();
+      if (snap.exists) {
+        await userRef.set(fields, SetOptions(merge: true));
+      }
+    } catch (_) {}
+  }
+
   Future<void> _approve(String driverId, String name) async {
     try {
+      final update = <String, dynamic>{
+        'profileStatus': 'approved',
+        DriverVerification.fieldStatus: DriverVerification.approved,
+        DriverVerification.fieldProfileVerified: true,
+        'isPendingReview': false,
+        'isActive': true,
+        'profileApprovedAt': DateTime.now().toIso8601String(),
+      };
       await _db.collection('drivers').doc(driverId).set(
-        {
-          'profileStatus': 'approved',
-          DriverVerification.fieldStatus: DriverVerification.approved,
-          DriverVerification.fieldProfileVerified: true,
-          'isPendingReview': false,
-          'isActive': true,
-          'profileApprovedAt': DateTime.now().toIso8601String(),
-        },
-        SetOptions(merge: true),
-      );
+            update,
+            SetOptions(merge: true),
+          );
+      await _mirrorDriverStatusToUser(driverId, update);
       await _recomputeCanGoOnline(driverId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -177,17 +192,19 @@ class _DriverProfileApprovalsTabState
     );
     if (reason == null || reason.isEmpty) return;
     try {
+      final update = <String, dynamic>{
+        'profileStatus': 'rejected',
+        DriverVerification.fieldStatus: DriverVerification.rejected,
+        DriverVerification.fieldProfileVerified: false,
+        'isPendingReview': false,
+        'isActive': false,
+        'profileRejectionReason': reason,
+      };
       await _db.collection('drivers').doc(driverId).set(
-        {
-          'profileStatus': 'rejected',
-          DriverVerification.fieldStatus: DriverVerification.rejected,
-          DriverVerification.fieldProfileVerified: false,
-          'isPendingReview': false,
-          'isActive': false,
-          'profileRejectionReason': reason,
-        },
-        SetOptions(merge: true),
-      );
+            update,
+            SetOptions(merge: true),
+          );
+      await _mirrorDriverStatusToUser(driverId, update);
       await _recomputeCanGoOnline(driverId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -297,9 +314,17 @@ class _DriverProfileApprovalsTabState
                   }
                   final doc = docs[index - 1];
                   final data = doc.data();
-                  final name = (data['fullName'] ?? '').toString().isNotEmpty
-                      ? data['fullName'].toString()
-                      : doc.id;
+                  final combinedName =
+                      '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+                  final name = (data['fullName'] ?? '').toString().trim().isNotEmpty
+                      ? data['fullName'].toString().trim()
+                      : (combinedName.isNotEmpty
+                          ? combinedName
+                          : ((data['displayName'] ?? '').toString().trim().isNotEmpty
+                              ? data['displayName'].toString().trim()
+                              : ((data['email'] ?? '').toString().trim().isNotEmpty
+                                  ? data['email'].toString().trim()
+                                  : doc.id)));
                   return _DriverProfileCard(
                     key: Key('driver_profile_card_${doc.id}'),
                     driverId: doc.id,
@@ -457,6 +482,13 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
             update,
             SetOptions(merge: true),
           );
+      try {
+        final userRef = widget.firestore.collection('users').doc(widget.driverId);
+        final snap = await userRef.get();
+        if (snap.exists) {
+          await userRef.set(update, SetOptions(merge: true));
+        }
+      } catch (_) {}
       await widget.onRecomputeCanGoOnline(widget.driverId);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -615,9 +647,17 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    final name = (data['fullName'] ?? '').toString().isNotEmpty
-        ? data['fullName'].toString()
-        : widget.driverId;
+    final combinedName =
+        '${data['firstName'] ?? ''} ${data['lastName'] ?? ''}'.trim();
+    final name = (data['fullName'] ?? '').toString().trim().isNotEmpty
+        ? data['fullName'].toString().trim()
+        : (combinedName.isNotEmpty
+            ? combinedName
+            : ((data['displayName'] ?? '').toString().trim().isNotEmpty
+                ? data['displayName'].toString().trim()
+                : ((data['email'] ?? '').toString().trim().isNotEmpty
+                    ? data['email'].toString().trim()
+                    : widget.driverId)));
     final isIncomplete = DriverVerification.isIncompleteOnboardingDoc(data);
     final kin = data['emergencyContact'] is Map
         ? Map<String, dynamic>.from(data['emergencyContact'] as Map)
@@ -627,7 +667,9 @@ class _DriverProfileCardState extends State<_DriverProfileCard> {
             .toString()
             .trim();
     final contactParts = [
-      (data['phoneNumber'] ?? data['phoneNumberE164'] ?? '').toString().trim(),
+      (data['phoneNumber'] ?? data['phoneNumberE164'] ?? data['phone'] ?? '')
+          .toString()
+          .trim(),
       (data['email'] ?? '').toString().trim(),
     ].where((p) => p.isNotEmpty).toList();
 

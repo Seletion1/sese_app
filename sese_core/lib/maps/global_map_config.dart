@@ -260,6 +260,9 @@ class GlobalMapConfig {
   /// Resolves the Mapbox raster tile URL for use with `flutter_map`'s `TileLayer`.
   String resolveMapboxTileUrl({bool isDark = false}) {
     final token = resolvedMapboxToken ?? '';
+    if (token.isEmpty) {
+      return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
     final style = normalizedMapboxStyle;
     final String effectiveStyle;
     if (isDark) {
@@ -270,8 +273,11 @@ class GlobalMapConfig {
     return 'https://api.mapbox.com/styles/v1/$effectiveStyle/tiles/256/{z}/{x}/{y}{r}?access_token=$token';
   }
 
-  /// Resolves tile URL for raster tile surfaces (Mapbox).
+  /// Resolves tile URL for raster tile surfaces (Mapbox, with OSM fallback when unconfigured).
   String resolveTileUrl({bool isDark = false}) {
+    if (!hasValidMapboxToken) {
+      return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
     return resolveMapboxTileUrl(isDark: isDark);
   }
 

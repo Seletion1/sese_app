@@ -133,6 +133,10 @@ class PushNotificationService {
   /// the active dashboard renders the offer directly via [onMessageDataStream].
   static bool isAppInForeground = false;
 
+  /// Optional predicate to test whether a support chat screen is actively
+  /// open and visible in foreground, allowing suppression of duplicate push banners.
+  static bool Function(String? chatId)? isSupportChatVisible;
+
   /// Whether local channels were created (false in tests / on failure).
   static bool get channelsReady => _channelsReady;
 
@@ -645,6 +649,19 @@ class PushNotificationService {
       final isBroadcast = channel == PushChannels.broadcast;
 
       if (isOffer && isAppInForeground) {
+        return;
+      }
+
+      final type = (data['type'] ?? '').toString();
+      final isSupport = type == 'support_reply' ||
+          type == 'support_chat' ||
+          type == 'support_escalated' ||
+          type.startsWith('support_');
+
+      if (isSupport &&
+          isAppInForeground &&
+          (isSupportChatVisible?.call((data['chatId'] ?? data['sessionId'])?.toString()) ?? false)) {
+        debugPrint('PushNotificationService: suppressing foreground push banner because user is viewing support chat');
         return;
       }
 

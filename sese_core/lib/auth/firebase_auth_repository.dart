@@ -274,46 +274,73 @@ class FirebaseAuthRepository implements AuthRepository {
     final firebaseUser = await _authenticateWithGoogle(auth);
     final isDriver = effectiveRole == UserRole.driver;
 
-    if (!isSignUp) {
-      // ─── Sign-In Mode ───────────────────────────────────────────────────────
-      return _fetchAppUser(firebaseUser, selectedRole: effectiveRole);
-    }
-
-    // ─── Create Account Mode ─────────────────────────────────────────────────
-    // Check if an existing registered account already exists in Firestore for this user
+    // ─── Unified Account Check (applies to both Sign In & Create Account) ───
+    // If an account already exists in Firestore (by UID, linkedUid, email, or
+    // server-side resolveUnifiedAccount), sign them in smoothly and record
+    // google.com in authProviders without creating duplicates.
     if (firestore != null) {
       AppUser? existingAppUser;
       try {
-        existingAppUser = await _fetchAppUser(firebaseUser, selectedRole: effectiveRole);
+        existingAppUser =
+            await _fetchAppUser(firebaseUser, selectedRole: effectiveRole);
       } on fb.FirebaseAuthException catch (e) {
         if (e.code != 'driver-account-missing') rethrow;
       } catch (_) {}
 
       if (existingAppUser != null) {
-        final driverDoc = await firestore.collection('drivers').doc(firebaseUser.uid).get();
-        final userDoc = await firestore.collection('users').doc(firebaseUser.uid).get();
+        final driverDoc =
+            await firestore.collection('drivers').doc(firebaseUser.uid).get();
+        final userDoc =
+            await firestore.collection('users').doc(firebaseUser.uid).get();
         bool docExists = (driverDoc.exists && driverDoc.data() != null) ||
             (userDoc.exists && userDoc.data() != null);
-        if (!docExists && firebaseUser.email != null && firebaseUser.email!.trim().isNotEmpty) {
-          final normEmail = firebaseUser.email!.trim();
-          final dQuery = await firestore.collection('drivers').where('email', isEqualTo: normEmail).limit(1).get();
-          final uQuery = await firestore.collection('users').where('email', isEqualTo: normEmail).limit(1).get();
+        if (!docExists &&
+            firebaseUser.email != null &&
+            firebaseUser.email!.trim().isNotEmpty) {
+          final normEmail =
+              UniquenessService.normalizeEmail(firebaseUser.email!.trim());
+          final rawEmail = firebaseUser.email!.trim();
+          final dQuery = await firestore
+              .collection('drivers')
+              .where('normalizedEmail', isEqualTo: normEmail)
+              .limit(1)
+              .get();
+          final uQuery = await firestore
+              .collection('users')
+              .where('normalizedEmail', isEqualTo: normEmail)
+              .limit(1)
+              .get();
           docExists = dQuery.docs.isNotEmpty || uQuery.docs.isNotEmpty;
+          if (!docExists) {
+            final dRaw = await firestore
+                .collection('drivers')
+                .where('email', isEqualTo: rawEmail)
+                .limit(1)
+                .get();
+            final uRaw = await firestore
+                .collection('users')
+                .where('email', isEqualTo: rawEmail)
+                .limit(1)
+                .get();
+            docExists = dRaw.docs.isNotEmpty || uRaw.docs.isNotEmpty;
+          }
         }
 
-        if (docExists) {
+        if (docExists || existingAppUser.uid != firebaseUser.uid) {
           debugPrint(
             'FirebaseAuthRepository.continueWithGoogle: Existing registered account '
             'recognized for ${firebaseUser.email} (role=${existingAppUser.role.name}, '
             'status=${existingAppUser.verificationStatus}).',
           );
           // ignore: discarded_futures
-          _recordAuthProvider(firebaseUser.uid, existingAppUser.role, 'google.com');
+          _recordAuthProvider(
+              existingAppUser.uid, existingAppUser.role, 'google.com');
           return existingAppUser;
         }
       }
     }
 
+    // ─── New Account Creation (smart auto-create on Sign In or Create Account) ───
     String firstName = '';
     String lastName = '';
     final displayName = firebaseUser.displayName?.trim() ?? '';
@@ -325,97 +352,111 @@ class FirebaseAuthRepository implements AuthRepository {
       }
     }
 
+    final rawEmail = (firebaseUser.email ?? '').trim();
+    final normEmail = UniquenessService.normalizeEmail(rawEmail);
+
     if (isDriver) {
+      bool isNewDriver = false;
       if (firestore != null) {
         final driverDocRef =
             firestore.collection('drivers').doc(firebaseUser.uid);
         final existingDoc = await driverDocRef.get();
+        isNewDriver = !existingDoc.exists;
         final existingData = existingDoc.data();
 
         final driverData = <String, dynamic>{
           'uid': firebaseUser.uid,
-          'email': firebaseUser.email ?? '',
-          'normalizedEmail':
-              UniquenessService.normalizeEmail(firebaseUser.email ?? ''),
+          'email': rawEmail,
+          'normalizedEmail': normEmail,
           'displayName': displayName,
-          'fullName': displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
+          'fullName': displayName.isNotEmpty ? displayName : rawEmail,
           'firstName': firstName,
           'lastName': lastName,
           'photoURL': firebaseUser.photoURL ?? '',
           'photoUrl': firebaseUser.photoURL ?? '',
           'role': 'driver',
+          'authProviders': FieldValue.arrayUnion(['google.com']),
+          'profileStatus': existingData?['profileStatus'] ??
+              DriverVerification.pendingOnboarding,
           'verificationStatus': existingData?['verificationStatus'] ??
               DriverVerification.pendingOnboarding,
+          'isPendingReview': existingData?['isPendingReview'] ?? false,
           'isProfileVerified': existingData?['isProfileVerified'] ?? false,
           'isVehicleVerified': existingData?['isVehicleVerified'] ?? false,
           'canGoOnline': existingData?['canGoOnline'] ?? false,
           'isActive': existingData?['isActive'] ?? false,
           'createdAt':
               existingData?['createdAt'] ?? FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
         };
         if (firebaseUser.phoneNumber != null &&
             firebaseUser.phoneNumber!.trim().isNotEmpty) {
           driverData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
+          driverData['phoneNumberE164'] = firebaseUser.phoneNumber!.trim();
         }
         await driverDocRef.set(driverData, SetOptions(merge: true));
-        // ignore: discarded_futures
-        _recordAuthProvider(
-            firebaseUser.uid, UserRole.driver, 'google.com');
       }
 
       return AppUser(
         uid: firebaseUser.uid,
-        fullName: displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
-        email: firebaseUser.email ?? '',
+        fullName: displayName.isNotEmpty ? displayName : rawEmail,
+        email: rawEmail,
         phoneNumber: firebaseUser.phoneNumber ?? '',
         role: UserRole.driver,
         isActive: false,
         createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
         photoUrl: firebaseUser.photoURL ?? '',
         verificationStatus: DriverVerification.pendingOnboarding,
+        isNewRegistration: isNewDriver,
       );
     } else {
+      bool isNewCustomer = false;
       if (firestore != null) {
         final userDocRef =
             firestore.collection('users').doc(firebaseUser.uid);
         final existingDoc = await userDocRef.get();
+        isNewCustomer = !existingDoc.exists;
         final existingData = existingDoc.data();
 
         final userData = <String, dynamic>{
           'uid': firebaseUser.uid,
-          'email': firebaseUser.email ?? '',
-          'normalizedEmail':
-              UniquenessService.normalizeEmail(firebaseUser.email ?? ''),
+          'email': rawEmail,
+          'normalizedEmail': normEmail,
           'displayName': displayName,
-          'fullName': displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
+          'fullName': displayName.isNotEmpty ? displayName : rawEmail,
           'firstName': firstName,
           'lastName': lastName,
           'photoURL': firebaseUser.photoURL ?? '',
           'photoUrl': firebaseUser.photoURL ?? '',
           'role': 'customer',
+          'authProviders': FieldValue.arrayUnion(['google.com']),
+          'customerVerificationStatus':
+              existingData?['customerVerificationStatus'] ?? 'unverified',
+          'isVerifiedCustomer':
+              existingData?['isVerifiedCustomer'] ?? false,
           'isActive': true,
           'createdAt':
               existingData?['createdAt'] ?? FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
         };
         if (firebaseUser.phoneNumber != null &&
             firebaseUser.phoneNumber!.trim().isNotEmpty) {
           userData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
+          userData['phoneNumberE164'] = firebaseUser.phoneNumber!.trim();
         }
         await userDocRef.set(userData, SetOptions(merge: true));
-        // ignore: discarded_futures
-        _recordAuthProvider(
-            firebaseUser.uid, UserRole.customer, 'google.com');
       }
 
       return AppUser(
         uid: firebaseUser.uid,
-        fullName: displayName.isNotEmpty ? displayName : (firebaseUser.email ?? ''),
-        email: firebaseUser.email ?? '',
+        fullName: displayName.isNotEmpty ? displayName : rawEmail,
+        email: rawEmail,
         phoneNumber: firebaseUser.phoneNumber ?? '',
         role: UserRole.customer,
         isActive: true,
         createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
         photoUrl: firebaseUser.photoURL ?? '',
+        isNewRegistration: isNewCustomer,
       );
     }
   }
@@ -742,11 +783,23 @@ class FirebaseAuthRepository implements AuthRepository {
     // client writes by `firestore.rules`. Referral codes are generated
     // server-side once the profile is verified + phone-gated
     // (`verification.ts:_generateAndSaveReferralCode`).
+    final nameParts = fullName.trim().isNotEmpty
+        ? fullName.trim().split(RegExp(r'\s+'))
+        : <String>[];
+    final firstName = nameParts.isNotEmpty ? nameParts.first : '';
+    final lastName =
+        nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+
     if (isDriver) {
       final data = {
         ...appUser.toMap(),
+        'displayName': fullName.trim(),
+        'firstName': firstName,
+        'lastName': lastName,
         'normalizedEmail': UniquenessService.normalizeEmail(trimmedEmail),
         'authProviders': ['password'],
+        'profileStatus': DriverVerification.pendingOnboarding,
+        'isPendingReview': false,
         DriverVerification.fieldStatus:
             DriverVerification.pendingOnboarding,
         DriverVerification.fieldProfileVerified: false,
@@ -754,6 +807,7 @@ class FirebaseAuthRepository implements AuthRepository {
         DriverVerification.fieldCanGoOnline: false,
         'initialVehicleType': vehicleType,
         'licenseNo': licenseNo,
+        'updatedAt': FieldValue.serverTimestamp(),
       };
       await firestore
           .collection('drivers')
@@ -765,8 +819,14 @@ class FirebaseAuthRepository implements AuthRepository {
           .doc(firebaseUser.uid)
           .set({
         ...appUser.toMap(),
+        'displayName': fullName.trim(),
+        'firstName': firstName,
+        'lastName': lastName,
         'normalizedEmail': UniquenessService.normalizeEmail(trimmedEmail),
         'authProviders': ['password'],
+        'customerVerificationStatus': 'unverified',
+        'isVerifiedCustomer': false,
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
 
@@ -1296,6 +1356,60 @@ class FirebaseAuthRepository implements AuthRepository {
             await firestore.collection('users').doc(firebaseUser.uid).get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = Map<String, dynamic>.from(userDoc.data()!);
+
+          // If the user explicitly chose to enter as a Driver, initialize or transition
+          // them into the driver onboarding flow without creating a separate user or throwing an error.
+          if (selectedRole == UserRole.driver && !isHubApp) {
+            final now = DateTime.now();
+            final rawEmail = (firebaseUser.email ?? data['email'] ?? '').toString().trim();
+            final normEmail = UniquenessService.normalizeEmail(rawEmail);
+            final displayName = (data['fullName'] ?? data['displayName'] ?? firebaseUser.displayName ?? '').toString().trim();
+            final phone = (data['phoneNumber'] ?? data['phoneNumberE164'] ?? firebaseUser.phoneNumber ?? '').toString().trim();
+            final photo = (data['photoUrl'] ?? data['photoURL'] ?? firebaseUser.photoURL ?? '').toString().trim();
+
+            final driverData = <String, dynamic>{
+              'uid': firebaseUser.uid,
+              'email': rawEmail,
+              'normalizedEmail': normEmail,
+              'displayName': displayName,
+              'fullName': displayName.isNotEmpty ? displayName : rawEmail,
+              'firstName': data['firstName'] ?? '',
+              'lastName': data['lastName'] ?? '',
+              'phoneNumber': phone,
+              if (phone.isNotEmpty) 'phoneNumberE164': phone,
+              'photoURL': photo,
+              'photoUrl': photo,
+              'role': 'driver',
+              'authProviders': data['authProviders'] ?? ['google.com', 'password'],
+              'profileStatus': DriverVerification.pendingOnboarding,
+              'verificationStatus': DriverVerification.pendingOnboarding,
+              'isPendingReview': false,
+              'isProfileVerified': false,
+              'isVehicleVerified': false,
+              'canGoOnline': false,
+              'isActive': false,
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            };
+            await firestore.collection('drivers').doc(firebaseUser.uid).set(driverData, SetOptions(merge: true));
+            final driverUser = AppUser(
+              uid: firebaseUser.uid,
+              fullName: displayName.isNotEmpty ? displayName : rawEmail,
+              email: rawEmail,
+              phoneNumber: phone,
+              role: UserRole.driver,
+              isActive: false,
+              createdAt: firebaseUser.metadata.creationTime ?? now,
+              photoUrl: photo,
+              verificationStatus: DriverVerification.pendingOnboarding,
+            );
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              driverUser.toMap(),
+            );
+            return driverUser;
+          }
+
           final linkedUid = (data['linkedUid'] as String?)?.trim();
           if (linkedUid != null && linkedUid.isNotEmpty) {
             final canonicalDoc =
@@ -1499,11 +1613,67 @@ class FirebaseAuthRepository implements AuthRepository {
     //   "no hub_staff record" rejection the hub gate relies on.
     final requestedRole = selectedRole ?? _pendingSelectedRole;
     if (requestedRole == UserRole.driver) {
-      throw fb.FirebaseAuthException(
-        code: 'driver-account-missing',
-        message:
-            "Account does not exist. Please tap 'Create Account' to register as a driver.",
+      if (isHubApp) {
+        throw fb.FirebaseAuthException(
+          code: 'driver-account-missing',
+          message:
+              "Account does not exist. Please tap 'Create Account' to register as a driver.",
+        );
+      }
+      // For sese_ride: new driver user signed in with Google or Email
+      // Create initial drivers/{uid} doc with DriverVerification.pendingOnboarding cleanly
+      final now = DateTime.now();
+      final displayName = (firebaseUser.displayName ?? '').trim();
+      final parts = displayName.isNotEmpty
+          ? displayName.split(RegExp(r'\s+'))
+          : <String>[];
+      final firstName = parts.isNotEmpty ? parts.first : '';
+      final lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+      final rawEmail = (firebaseUser.email ?? '').trim();
+      final normEmail = UniquenessService.normalizeEmail(rawEmail);
+
+      final appUser = AppUser(
+        uid: firebaseUser.uid,
+        fullName: displayName.isNotEmpty ? displayName : rawEmail,
+        email: rawEmail,
+        phoneNumber: firebaseUser.phoneNumber ?? '',
+        role: UserRole.driver,
+        isActive: false,
+        createdAt: firebaseUser.metadata.creationTime ?? now,
+        photoUrl: firebaseUser.photoURL ?? '',
+        verificationStatus: DriverVerification.pendingOnboarding,
       );
+
+      if (firestore != null) {
+        try {
+          await firestore.collection('drivers').doc(firebaseUser.uid).set({
+            ...appUser.toMap(),
+            'displayName': displayName,
+            'fullName': displayName.isNotEmpty ? displayName : rawEmail,
+            'firstName': firstName,
+            'lastName': lastName,
+            'normalizedEmail': normEmail,
+            'authProviders': FieldValue.arrayUnion(['google.com', 'password']),
+            'profileStatus': DriverVerification.pendingOnboarding,
+            'verificationStatus': DriverVerification.pendingOnboarding,
+            'isPendingReview': false,
+            'isProfileVerified': false,
+            'isVehicleVerified': false,
+            'canGoOnline': false,
+            'isActive': false,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (e) {
+          debugPrint('FirebaseAuthRepository._fetchAppUser create driver error: $e');
+        }
+      }
+
+      LocalCacheService.instance.setJsonMap(
+        'cached_app_user_${firebaseUser.uid}',
+        appUser.toMap(),
+      );
+      return appUser;
     }
     final appUser = AppUser(
       uid: firebaseUser.uid,
@@ -1518,10 +1688,24 @@ class FirebaseAuthRepository implements AuthRepository {
 
     if (firestore != null && !isHubApp) {
       try {
+        final rawEmail = (firebaseUser.email ?? '').trim();
+        final displayName = (firebaseUser.displayName ?? '').trim();
+        final parts = displayName.isNotEmpty
+            ? displayName.split(RegExp(r'\s+'))
+            : <String>[];
         await firestore
             .collection('users')
             .doc(firebaseUser.uid)
-            .set(appUser.toMap(), SetOptions(merge: true));
+            .set({
+          ...appUser.toMap(),
+          'displayName': displayName,
+          'firstName': parts.isNotEmpty ? parts.first : '',
+          'lastName': parts.length > 1 ? parts.sublist(1).join(' ') : '',
+          'normalizedEmail': UniquenessService.normalizeEmail(rawEmail),
+          'customerVerificationStatus': 'unverified',
+          'isVerifiedCustomer': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       } catch (_) {}
     }
 

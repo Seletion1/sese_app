@@ -15,14 +15,45 @@ import '../trips/services/trip_service.dart';
 const Set<String> _kInboxTypes = {
   'broadcast',
   'split_payment_request',
-  'support_escalated',
-  'support_reply',
   'account_security',
   'verification_status',
   'referral_reward',
   'account_alert',
   'system_announcement',
 };
+
+/// Returns true if [type] or notification [data] belongs to support chat/agent events.
+///
+/// Support chat events are communicated exclusively via real-time chat streaming
+/// and remote FCM push notifications; they are never kept in the user's permanent
+/// in-app notification inbox or unread bell badge.
+bool _isSupportNotification(String type, [Map<String, dynamic>? data]) {
+  final lower = type.toLowerCase();
+  if (lower.startsWith('support_') ||
+      lower == 'support_replied' ||
+      lower == 'support_chat' ||
+      lower == 'support_reply' ||
+      lower == 'support_agent_requested' ||
+      lower == 'support_resolved' ||
+      lower == 'support_escalated') {
+    return true;
+  }
+  if (data != null) {
+    if (data.containsKey('chatId') || data.containsKey('sessionId')) {
+      return true;
+    }
+    final title = (data['title'] ?? '').toString().toLowerCase();
+    if (title.contains('support')) return true;
+    final body = (data['body'] ?? '').toString().toLowerCase();
+    if (body.contains('support session') ||
+        body.contains('support agent') ||
+        body.contains('support replied') ||
+        body.contains('support team')) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// Returns the icon most relevant for [type].
 ///
@@ -49,9 +80,6 @@ IconData _iconForType(String type) {
       return Icons.campaign_outlined;
     case 'split_payment_request':
       return Icons.group_outlined;
-    case 'support_escalated':
-    case 'support_reply':
-      return Icons.support_agent_outlined;
     default:
       return Icons.notifications_outlined;
   }
@@ -223,8 +251,13 @@ class NotificationInboxScreen extends StatelessWidget {
             return const SeseListSkeleton(itemCount: 5);
           }
           final items = (snap.data?.docs ?? [])
+              .where((doc) {
+                final d = doc.data();
+                final type = (d['type'] ?? '').toString();
+                if (_isSupportNotification(type, d)) return false;
+                return _kInboxTypes.contains(type);
+              })
               .map(InboxNotification.fromDoc)
-              .where((n) => _kInboxTypes.contains(n.type))
               .toList();
           if (items.isEmpty) {
             return const Center(
@@ -636,7 +669,9 @@ class NotificationBellButton extends StatelessWidget {
       builder: (context, snap) {
         final docs = snap.hasData ? snap.data!.docs : [];
         final unread = docs.where((doc) {
-          final type = (doc.data()['type'] ?? '').toString();
+          final d = doc.data();
+          final type = (d['type'] ?? '').toString();
+          if (_isSupportNotification(type, d)) return false;
           return _kInboxTypes.contains(type);
         }).length;
         if (unread <= 0) return bell;

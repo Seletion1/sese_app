@@ -399,6 +399,20 @@
       "callableTrigger": {},
       "entryPoint": "hubManualPinBypass"
     },
+    "hubReassignTrip": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "hubReassignTrip"
+    },
     "onTripChatMessage": {
       "platform": "gcfv2",
       "availableMemoryMb": null,
@@ -538,6 +552,20 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "getAgoraToken"
+    },
+    "getIceServers": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "getIceServers"
     },
     "recordCallDuration": {
       "platform": "gcfv2",
@@ -784,6 +812,20 @@
         "retry": false
       },
       "entryPoint": "onAgentReplied"
+    },
+    "hubClaimSupportChat": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "hubClaimSupportChat"
     },
     "deleteAccount": {
       "platform": "gcfv2",
@@ -1112,6 +1154,34 @@
       "labels": {},
       "callableTrigger": {},
       "entryPoint": "backfillSequentialIds"
+    },
+    "validateReferralCode": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "validateReferralCode"
+    },
+    "applyReferralCode": {
+      "platform": "gcfv2",
+      "availableMemoryMb": null,
+      "timeoutSeconds": null,
+      "minInstances": null,
+      "maxInstances": null,
+      "ingressSettings": null,
+      "concurrency": null,
+      "serviceAccountEmail": null,
+      "vpc": null,
+      "labels": {},
+      "callableTrigger": {},
+      "entryPoint": "applyReferralCode"
     },
     "lookupAccountForOnboarding": {
       "platform": "gcfv2",

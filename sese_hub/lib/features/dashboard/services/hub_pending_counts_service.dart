@@ -211,6 +211,22 @@ class HubPendingCountsService {
     }
   }
 
+  /// Stream of pending low-rating review counts (1 or 2 star, reviewStatus == 'pending').
+  Stream<int> get pendingLowRatingsCountStream {
+    final db = _db;
+    if (db == null) return Stream.value(0);
+    try {
+      return db
+          .collection('low_rating_reviews')
+          .where('reviewStatus', isEqualTo: 'pending')
+          .snapshots()
+          .map((snap) => snap.docs.length)
+          .handleError((_) => 0);
+    } catch (_) {
+      return Stream.value(0);
+    }
+  }
+
 
   /// Combined total pending count for the Fleet & Security module
   /// (Pending Vehicles + Driver KYC + Customer KYC).

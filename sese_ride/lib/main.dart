@@ -18,7 +18,6 @@ import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platf
     show GoogleMapsFlutterPlatform;
 
 import 'background_handler.dart';
-export 'driver_overlay_entry.dart' show overlayMain;
 import 'core/screens/force_update_screen.dart';
 import 'core/screens/maintenance_screen.dart';
 import 'core/services/remote_config_service.dart';
@@ -33,6 +32,7 @@ import 'features/permissions/permission_onboarding_gate.dart';
 import 'features/trips/presentation/customer_bid_overlay.dart';
 import 'features/settings/role_controller.dart';
 import 'features/customer/services/location_service.dart';
+import 'features/support/support_chat_screen.dart';
 import 'features/trips/presentation/live_trip_screen.dart';
 import 'features/trips/presentation/trip_chat_screen.dart';
 import 'features/trips/services/trip_service.dart';
@@ -140,6 +140,8 @@ void main() async {
     onBackgroundNotificationResponse: driverNotificationActionBackgroundHandler,
     requestPermissionImmediately: false,
   );
+  PushNotificationService.isSupportChatVisible =
+      (chatId) => SupportChatScreen.isViewingChat(chatId);
 
   // ── Killed-state offer cold-start handoff ──────────────────────────────
   // When a driver offer FCM arrives while the app is killed, pushBackgroundHandler
@@ -205,6 +207,35 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   final actionId = (data['actionId'] ?? '').toString();
 
   // Handle explicit notification action button clicks
+  if (actionId == 'accept_offer' ||
+      actionId == 'accept_order' ||
+      actionId == 'accept') {
+    debugPrint('sese_ride: driver accepted order directly from notification banner.');
+    final tripId = (data['tripId'] ?? '').trim();
+    if (tripId.isNotEmpty) {
+      unawaited(
+        FirebaseFunctions.instance
+            .httpsCallable('acceptTrip')
+            .call(<String, dynamic>{'tripId': tripId}).then<void>((_) {},
+                onError: (Object e) {
+          debugPrint('sese_ride: acceptTrip from banner failed: $e');
+        }),
+      );
+      final navState = IncomingCallOverlay.navigatorKey.currentState;
+      if (navState != null) {
+        navState.push(
+          MaterialPageRoute(
+            builder: (_) => LiveTripScreen(
+              tripId: tripId,
+              repository: FirestoreTripRepository(),
+            ),
+          ),
+        );
+      }
+    }
+    return;
+  }
+
   if (actionId == 'decline_offer' ||
       actionId == 'decline_order' ||
       actionId == 'decline') {
@@ -240,6 +271,49 @@ Future<void> _handlePushTap(Map<String, String> data) async {
     return;
   }
 
+  if (type == 'support_reply' ||
+      type == 'support_chat' ||
+      type == 'support_escalated' ||
+      type.startsWith('support_')) {
+    debugPrint('sese_ride: support chat notification tap ($type) — opening SupportChatScreen.');
+    if (SupportChatScreen.isChatOpen) {
+      debugPrint('sese_ride: SupportChatScreen already open — ignoring redundant push tap.');
+      return;
+    }
+    final navState = IncomingCallOverlay.navigatorKey.currentState;
+    if (navState != null) {
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid != null && currentUid.isNotEmpty) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUid)
+              .get();
+          final userData = userDoc.data();
+          if (userData != null) {
+            final appUser =
+                AppUser.fromMap({...userData, 'uid': currentUid});
+            final role =
+                (userData['userRole'] ?? userData['role'] ?? 'customer')
+                    .toString();
+            navState.push(
+              MaterialPageRoute(
+                builder: (_) => SupportChatScreen(
+                  user: appUser,
+                  userRole: role,
+                ),
+              ),
+            );
+            return;
+          }
+        } catch (e) {
+          debugPrint('sese_ride: error opening support chat from push tap: $e');
+        }
+      }
+    }
+    return;
+  }
+
   if (type == 'incoming_call' || type == 'call' || type == 'voip_call') {
     debugPrint('sese_ride: incoming call tap ($type) — opening call screen.');
     final callId = data['callId'] ?? '';
@@ -248,12 +322,11 @@ Future<void> _handlePushTap(Map<String, String> data) async {
     final callerAvatar = data['callerAvatar'];
 
     if (callId.isNotEmpty) {
-      unawaited(CallServiceManager.instance.answerCall(callId));
-
       final navState = IncomingCallOverlay.navigatorKey.currentState;
       if (navState != null) {
         navState.push(
           MaterialPageRoute(
+            fullscreenDialog: true,
             builder: (_) => InAppCallScreen(
               callId: callId,
               targetUserId: callerId,
@@ -263,6 +336,8 @@ Future<void> _handlePushTap(Map<String, String> data) async {
             ),
           ),
         );
+      } else {
+        unawaited(CallServiceManager.instance.answerCall(callId));
       }
     }
     return;

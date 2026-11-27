@@ -66,6 +66,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   String? _selectedPhoneIsoCode;
   bool _obscurePassword = true;
+  String? _enteredReferralCode;
 
   static const Color _seseGold = AppColors.seseGold;
 
@@ -143,12 +144,18 @@ class _AuthScreenState extends State<AuthScreen> {
 
         if (!mounted) return;
 
+        // When a user creates an account using Google, prompt for Referral ID or Skip
+        if (_controller.isSignUpMode || appUser.isNewRegistration) {
+          await _promptGoogleReferralOrSkip(appUser);
+          if (!mounted) return;
+        }
+
         if (appUser.role == UserRole.driver) {
           if (appUser.isPendingOnboarding) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: const Text(
-                  'Driver account created! Proceed to Step 2: Personal Information.',
+                  'Welcome! Proceed to Step 2: Personal Information to complete onboarding.',
                 ),
                 backgroundColor: Colors.green.shade800,
                 behavior: SnackBarBehavior.floating,
@@ -426,30 +433,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (!_controller.isSignUpMode) {
-        // Sign In Flow
+        // Sign In Flow (smart: routes to stored role/onboarding state cleanly)
         final user = await _auth.signInWithEmailPassword(
           email: email,
           password: password,
           selectedRole: _controller.selectedRole,
         );
-
-        if (_controller.selectedRole == UserRole.driver) {
-          final exists = await _auth.driverAccountExists(user.uid);
-          if (!exists) {
-            try {
-              await _auth.signOut();
-            } catch (_) {}
-            _showError(_accountMissingMessage);
-            return;
-          }
-        } else {
-          try {
-            // Multi-role access: allow staff, admin, driver, and customer accounts
-            // to log in and use customer features seamlessly.
-          } catch (e) {
-            debugPrint('Customer profile check exception: $e');
-          }
-        }
 
         if (mounted) _routeToHome(user);
       } else {
@@ -494,6 +483,14 @@ class _AuthScreenState extends State<AuthScreen> {
 
         if (!mounted) return;
 
+        if (_enteredReferralCode != null && _enteredReferralCode!.isNotEmpty) {
+          try {
+            await const ReferralService().applyReferralCode(_enteredReferralCode!);
+          } catch (_) {}
+        }
+
+        if (!mounted) return;
+
         if (_controller.selectedRole == UserRole.driver) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -522,11 +519,40 @@ class _AuthScreenState extends State<AuthScreen> {
         }
       }
     } on fb.FirebaseAuthException catch (e) {
-      if (e.code == 'driver-account-missing') {
+      if (e.code == 'email-already-in-use' && _controller.isSignUpMode) {
+        // User already has an account. Attempt to sign them in with the provided password
         try {
-          await _auth.signOut();
-        } catch (_) {}
-        _showError(_accountMissingMessage);
+          final existingUser = await _auth.signInWithEmailPassword(
+            email: email,
+            password: password,
+            selectedRole: _controller.selectedRole,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Account already exists. Welcome back, ${existingUser.fullName.isNotEmpty ? existingUser.fullName : existingUser.email}!',
+                ),
+                backgroundColor: Colors.green.shade800,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            _routeToHome(existingUser);
+            return;
+          }
+        } catch (_) {
+          // If sign in with password failed, display the clear message with option to sign in
+          _showError(
+            'An account with this email already exists. Please verify your password or tap Forgot Password.',
+          );
+          return;
+        }
+      } else if (e.code == 'user-not-found' && !_controller.isSignUpMode) {
+        _controller.setSignUpMode(true);
+        _showError('No account found for this email. Enter your name and phone to create one.');
+      } else if (e.code == 'driver-account-missing') {
+        _controller.setSignUpMode(true);
+        _showError('Please complete your details below to register your Driver account.');
       } else {
         _showError(_mapAuthError(e.code, message: e.message));
       }
@@ -876,6 +902,180 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  Future<void> _promptGoogleReferralOrSkip(AppUser appUser) async {
+    String? typedCode;
+    String? resolvedId;
+    bool isSubmitting = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (modalCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 20,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _seseGold.withOpacity(0.18),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.card_giftcard_rounded,
+                          color: Color(0xFFD97706),
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Have a Referral Code?',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Enter a verified Member ID or skip to continue.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  ReferralInputWidget(
+                    referralService: const ReferralService(),
+                    onResolved: (refId) {
+                      setModalState(() => resolvedId = refId);
+                    },
+                    onDetailsResolved: (refId, code) {
+                      setModalState(() {
+                        resolvedId = refId;
+                        typedCode = code;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: isSubmitting
+                              ? null
+                              : () => Navigator.of(ctx).pop(),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            side: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          child: const Text(
+                            'Skip',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: isSubmitting
+                              ? null
+                              : () async {
+                                  final code = typedCode?.trim().toUpperCase();
+                                  if (code == null || code.isEmpty || resolvedId == null) {
+                                    // Nothing entered or invalid -> continue smoothly without blocking
+                                    Navigator.of(ctx).pop();
+                                    return;
+                                  }
+                                  setModalState(() => isSubmitting = true);
+                                  try {
+                                    final success = await const ReferralService().applyReferralCode(code);
+                                    if (success && mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Referral $code applied successfully!'),
+                                          backgroundColor: Colors.green.shade800,
+                                        ),
+                                      );
+                                    }
+                                  } catch (_) {}
+                                  if (ctx.mounted) Navigator.of(ctx).pop();
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _seseGold,
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: isSubmitting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text(
+                                  'Continue',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   // ─── UI Widgets ─────────────────────────────────────────────────────────────
 
   bool get _isAppleSupported {
@@ -1095,9 +1295,10 @@ class _AuthScreenState extends State<AuthScreen> {
                       ReferralInputWidget(
                         referralService:
                             const ReferralService(),
-                        // Referral attribution is server-minted post-verification;
-                        // a typed code is only validated here, never stored.
                         onResolved: (_) {},
+                        onDetailsResolved: (_, code) {
+                          _enteredReferralCode = code;
+                        },
                       ),
                       const SizedBox(height: 12),
                     ],

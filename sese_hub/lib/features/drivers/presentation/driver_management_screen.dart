@@ -41,7 +41,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
   void initState() {
     super.initState();
     ensureFreshHubIdToken();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -148,8 +148,37 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
     }
   }
 
+  static (double, double)? _extractLatLng(Map<String, dynamic> data) {
+    for (final key in ['lastLocation', 'lastFix', 'location', 'currentLocation']) {
+      final raw = data[key];
+      if (raw is GeoPoint) return (raw.latitude, raw.longitude);
+      if (raw is Map) {
+        final lat = raw['lat'] ?? raw['latitude'];
+        final lng = raw['lng'] ?? raw['longitude'];
+        if (lat is num && lng is num) return (lat.toDouble(), lng.toDouble());
+      }
+    }
+    final topLat = data['latitude'];
+    final topLng = data['longitude'];
+    if (topLat is num && topLng is num) {
+      return (topLat.toDouble(), topLng.toDouble());
+    }
+    return null;
+  }
+
+  Widget _buildLiveOnlineDriversMap(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> onlineDrivers,
+  ) {
+    return _LiveOnlineDriversMapView(
+      onlineDrivers: onlineDrivers,
+      extractLatLng: _extractLatLng,
+      onInspectDriver: (driverId, data) => _showDriverInspectorModal(context, driverId, data),
+    );
+  }
+
   void _showDriverLocationMap({
     required BuildContext context,
+    String? driverId,
     required String driverName,
     required double lat,
     required double lng,
@@ -159,242 +188,18 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
   }) {
     showDialog(
       context: context,
-      builder: (ctx) {
-        final point = LatLng(lat, lng);
-        final interactionController = MapInteractionController(
-          inactivityDuration: const Duration(milliseconds: 2000),
-        );
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            interactionController.onImmersiveChanged =
-                (_) => setModalState(() {});
-            final isImmersive = interactionController.isImmersive;
-
-            return Dialog(
-              insetPadding: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: SizedBox(
-                width: 600,
-                height: 520,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Header
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            color: isOnline
-                                ? Colors.green.shade700
-                                : Colors.grey.shade700,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Live GPS: $driverName',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
-                                  '${plateNumber != null ? " • $plateNumber" : ""}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              interactionController.dispose();
-                              Navigator.of(ctx).pop();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-
-                    // Interactive Map Canvas — Hub-managed tile config (same
-                    // `/system_config/remote_keys` chain as the ride apps: Hub
-                    // provider pin + Voyager retina spec), so no standalone map
-                    // instance is left unmanaged.
-                    Expanded(
-                      child: ClipRRect(
-                        child: Listener(
-                          behavior: HitTestBehavior.translucent,
-                          onPointerDown: (_) =>
-                              interactionController.notifyInteractionStarted(
-                            currentLat: lat,
-                            currentLng: lng,
-                          ),
-                          onPointerUp: (_) =>
-                              interactionController.notifyInteractionEnded(),
-                          child: StreamBuilder<GlobalMapConfig>(
-                            stream: const RemoteKeysService()
-                                .streamGlobalMapConfig(),
-                            initialData: const GlobalMapConfig(),
-                            builder: (context, snapshot) {
-                              final tileUrl = (snapshot.data ??
-                                      const GlobalMapConfig())
-                                  .resolveTileUrl();
-                              return FlutterMap(
-                                options: MapOptions(
-                                  initialCenter: point,
-                                  initialZoom: 15.0,
-                                  interactionOptions: const InteractionOptions(
-                                    flags: InteractiveFlag.all,
-                                  ),
-                                  onPositionChanged: (camera, hasGesture) {
-                                    if (hasGesture) {
-                                      interactionController
-                                          .notifyInteractionStarted(
-                                        currentLat: camera.center.latitude,
-                                        currentLng: camera.center.longitude,
-                                      );
-                                    }
-                                  },
-                                  onTap: (tapPosition, point) {
-                                    interactionController
-                                        .notifyInteractionStarted(
-                                      currentLat: lat,
-                                      currentLng: lng,
-                                    );
-                                    interactionController
-                                        .notifyInteractionEnded();
-                                  },
-                                ),
-                                children: [
-                                  TileLayer(
-                                    urlTemplate: tileUrl,
-                                    subdomains: const ['a', 'b', 'c', 'd'],
-                                    userAgentPackageName:
-                                        'com.sesetech.sese_hub',
-                                    retinaMode: true,
-                                  ),
-                                  MarkerLayer(
-                                    markers: [
-                                      Marker(
-                                        point: point,
-                                        width: 64,
-                                        height: 64,
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 2),
-                                              decoration: BoxDecoration(
-                                                color: isOnline
-                                                    ? Colors.green.shade800
-                                                    : Colors.grey.shade800,
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                boxShadow: const [
-                                                  BoxShadow(
-                                                      color: Colors.black26,
-                                                      blurRadius: 4),
-                                                ],
-                                              ),
-                                              child: Text(
-                                                isOnline ? 'ONLINE' : 'LAST FIX',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Icon(
-                                              Icons.directions_car_filled,
-                                              size: 32,
-                                              color: isOnline
-                                                  ? Colors.green.shade700
-                                                  : Colors.grey.shade800,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Bottom Action Bar
-                    AnimatedSlide(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                      offset: isImmersive ? const Offset(0, 1.2) : Offset.zero,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 250),
-                        opacity: isImmersive ? 0.0 : 1.0,
-                        child: IgnorePointer(
-                          ignoring: isImmersive,
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                if (lastUpdated != null)
-                                  Text(
-                                    'Last fix: ${_formatTime(lastUpdated)}',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
-                                  ),
-                                const Spacer(),
-                                OutlinedButton.icon(
-                                  icon:
-                                      const Icon(Icons.open_in_new, size: 16),
-                                  label: const Text('Open in Google Maps'),
-                                  onPressed: () async {
-                                    final uri = Uri.parse(
-                                      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
-                                    );
-                                    if (await canLaunchUrl(uri)) {
-                                      await launchUrl(uri,
-                                          mode:
-                                              LaunchMode.externalApplication);
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (ctx) => _LiveDriverMapDialog(
+        db: _db,
+        driverId: driverId,
+        driverName: driverName,
+        initialLat: lat,
+        initialLng: lng,
+        initialOnline: isOnline,
+        plateNumber: plateNumber,
+        lastUpdated: lastUpdated,
+        extractLatLng: _extractLatLng,
+        formatTime: _formatTime,
+      ),
     );
   }
 
@@ -415,15 +220,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
     final activeVehicle = (data['activeVehicleModel'] ?? data['vehicleModel'] ?? 'Vehicle').toString();
 
     // Coordinates
-    final loc = data['lastLocation'];
-    double? lat;
-    double? lng;
-    if (loc is Map) {
-      lat = (loc['lat'] is num) ? (loc['lat'] as num).toDouble() : null;
-      lng = (loc['lng'] is num) ? (loc['lng'] as num).toDouble() : null;
-    }
-    lat ??= (data['latitude'] is num) ? (data['latitude'] as num).toDouble() : null;
-    lng ??= (data['longitude'] is num) ? (data['longitude'] as num).toDouble() : null;
+    final coords = _extractLatLng(data);
+    final lat = coords?.$1;
+    final lng = coords?.$2;
 
     final createdAt = _parseDate(data['createdAt']);
     final lastSeen = _parseDate(data['lastSeen']);
@@ -571,9 +370,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
                         onPressed: () {
                           _showDriverLocationMap(
                             context: context,
+                            driverId: driverId,
                             driverName: fullName,
-                            lat: lat!,
-                            lng: lng!,
+                            lat: lat,
+                            lng: lng,
                             isOnline: isOnline,
                             plateNumber: activePlate,
                             lastUpdated: lastSeen,
@@ -812,10 +612,12 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
         title: const Text('Driver Management & Live Tracking'),
         bottom: TabBar(
           controller: _tabCtrl,
+          isScrollable: true,
           tabs: const [
             Tab(icon: Icon(Icons.people_outline), text: 'All Drivers'),
             Tab(icon: Icon(Icons.circle, color: Colors.green, size: 12), text: 'Online Drivers'),
             Tab(icon: Icon(Icons.circle, color: Colors.grey, size: 12), text: 'Offline Drivers'),
+            Tab(icon: Icon(Icons.map_outlined, color: Colors.blue), text: 'Live Map'),
           ],
         ),
       ),
@@ -886,6 +688,7 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
                     _buildDriverList(filtered),
                     _buildDriverList(onlineDrivers, emptyMsg: 'No online drivers right now.'),
                     _buildDriverList(offlineDrivers, emptyMsg: 'No offline drivers found.'),
+                    _buildLiveOnlineDriversMap(onlineDrivers),
                   ],
                 );
               },
@@ -928,13 +731,9 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
         final vehicleModel = (data['activeVehicleModel'] ?? data['vehicleModel'] ?? '').toString();
 
         // Location coordinates
-        final loc = data['lastLocation'];
-        double? lat;
-        double? lng;
-        if (loc is Map) {
-          lat = (loc['lat'] is num) ? (loc['lat'] as num).toDouble() : null;
-          lng = (loc['lng'] is num) ? (loc['lng'] as num).toDouble() : null;
-        }
+        final coords = _extractLatLng(data);
+        final lat = coords?.$1;
+        final lng = coords?.$2;
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1040,9 +839,10 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
                           onPressed: () {
                             _showDriverLocationMap(
                               context: context,
+                              driverId: driverId,
                               driverName: name,
-                              lat: lat!,
-                              lng: lng!,
+                              lat: lat,
+                              lng: lng,
                               isOnline: isOnline,
                               plateNumber: plate,
                             );
@@ -1111,5 +911,441 @@ class _DriverManagementScreenState extends State<DriverManagementScreen>
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '${dt.day}/${dt.month} $h:$m';
+  }
+}
+
+class _LiveOnlineDriversMapView extends StatefulWidget {
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> onlineDrivers;
+  final (double, double)? Function(Map<String, dynamic>) extractLatLng;
+  final void Function(String driverId, Map<String, dynamic> data) onInspectDriver;
+
+  const _LiveOnlineDriversMapView({
+    required this.onlineDrivers,
+    required this.extractLatLng,
+    required this.onInspectDriver,
+  });
+
+  @override
+  State<_LiveOnlineDriversMapView> createState() =>
+      _LiveOnlineDriversMapViewState();
+}
+
+class _LiveOnlineDriversMapViewState extends State<_LiveOnlineDriversMapView> {
+  final MapController _mapController = MapController();
+  QueryDocumentSnapshot<Map<String, dynamic>>? _selectedDriver;
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final positioned = <({QueryDocumentSnapshot<Map<String, dynamic>> doc, LatLng point})>[];
+    for (final doc in widget.onlineDrivers) {
+      final coords = widget.extractLatLng(doc.data());
+      if (coords != null) {
+        positioned.add((doc: doc, point: LatLng(coords.$1, coords.$2)));
+      }
+    }
+
+    if (positioned.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.location_off_outlined, size: 48, color: Colors.grey),
+            SizedBox(height: 12),
+            Text(
+              'No online drivers with active GPS coordinates.',
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final initialCenter = positioned.first.point;
+
+    return Stack(
+      children: [
+        StreamBuilder<GlobalMapConfig>(
+          stream: const RemoteKeysService().streamGlobalMapConfig(),
+          initialData: const GlobalMapConfig(),
+          builder: (context, snapshot) {
+            final cfg = snapshot.data ?? const GlobalMapConfig();
+            final tileUrl = cfg.resolveTileUrl();
+            return FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: initialCenter,
+                initialZoom: 12.5,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
+                onTap: (_, _) => setState(() => _selectedDriver = null),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: tileUrl,
+                  fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  subdomains: const ['a', 'b', 'c', 'd'],
+                  userAgentPackageName: 'com.sesetech.sese_hub',
+                  retinaMode: cfg.hasValidMapboxToken,
+                ),
+                MarkerLayer(
+                  markers: positioned.map((entry) {
+                    final d = entry.doc.data();
+                    final name = (d['fullName'] ?? d['name'] ?? 'Driver').toString();
+                    final seqId = (d['sequentialId'] ?? '').toString().trim();
+                    final isSelected = _selectedDriver?.id == entry.doc.id;
+                    return Marker(
+                      point: entry.point,
+                      width: 110,
+                      height: 64,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() => _selectedDriver = entry.doc);
+                          _mapController.move(entry.point, 15.0);
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isSelected ? Colors.blue.shade800 : Colors.green.shade800,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                              ),
+                              child: Text(
+                                seqId.isNotEmpty ? seqId : name.split(' ').first,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Icon(
+                              Icons.directions_car_filled,
+                              size: isSelected ? 34 : 28,
+                              color: isSelected ? Colors.blue.shade700 : Colors.green.shade700,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            );
+          },
+        ),
+        Positioned(
+          top: 12,
+          left: 12,
+          child: Card(
+            elevation: 3,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                'Online Drivers on Map: ${positioned.length}',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+          ),
+        ),
+        if (_selectedDriver != null)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Card(
+              elevation: 6,
+              child: ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: Colors.green,
+                  child: Icon(Icons.directions_car, color: Colors.white),
+                ),
+                title: Text(
+                  (_selectedDriver!.data()['fullName'] ??
+                          _selectedDriver!.data()['name'] ??
+                          'Driver')
+                      .toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  '${(_selectedDriver!.data()['sequentialId'] ?? '').toString()} • '
+                  '${(_selectedDriver!.data()['activePlateNumber'] ?? _selectedDriver!.data()['licensePlate'] ?? 'N/A').toString()}',
+                ),
+                trailing: FilledButton.tonal(
+                  onPressed: () => widget.onInspectDriver(
+                    _selectedDriver!.id,
+                    _selectedDriver!.data(),
+                  ),
+                  child: const Text('Inspect'),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _LiveDriverMapDialog extends StatefulWidget {
+  final FirebaseFirestore db;
+  final String? driverId;
+  final String driverName;
+  final double initialLat;
+  final double initialLng;
+  final bool initialOnline;
+  final String? plateNumber;
+  final DateTime? lastUpdated;
+  final (double, double)? Function(Map<String, dynamic>) extractLatLng;
+  final String Function(DateTime) formatTime;
+
+  const _LiveDriverMapDialog({
+    required this.db,
+    this.driverId,
+    required this.driverName,
+    required this.initialLat,
+    required this.initialLng,
+    required this.initialOnline,
+    this.plateNumber,
+    this.lastUpdated,
+    required this.extractLatLng,
+    required this.formatTime,
+  });
+
+  @override
+  State<_LiveDriverMapDialog> createState() => _LiveDriverMapDialogState();
+}
+
+class _LiveDriverMapDialogState extends State<_LiveDriverMapDialog> {
+  final MapController _mapController = MapController();
+  late final MapInteractionController _interactionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _interactionController = MapInteractionController(
+      inactivityDuration: const Duration(milliseconds: 2000),
+    )..onImmersiveChanged = (_) {
+        if (mounted) setState(() {});
+      };
+  }
+
+  @override
+  void dispose() {
+    _interactionController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Stream<DocumentSnapshot<Map<String, dynamic>>>? driverStream =
+        (widget.driverId != null && widget.driverId!.isNotEmpty)
+            ? widget.db.collection('drivers').doc(widget.driverId).snapshots()
+            : null;
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: driverStream,
+      builder: (context, driverSnap) {
+        final dData = driverSnap.data?.data();
+        final liveCoords = dData != null ? widget.extractLatLng(dData) : null;
+        final lat = liveCoords?.$1 ?? widget.initialLat;
+        final lng = liveCoords?.$2 ?? widget.initialLng;
+        final isOnline = dData != null ? (dData['isOnline'] == true) : widget.initialOnline;
+        final point = LatLng(lat, lng);
+        final isImmersive = _interactionController.isImmersive;
+
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: SizedBox(
+            width: 600,
+            height: 520,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        color: isOnline ? Colors.green.shade700 : Colors.grey.shade700,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Live GPS: ${widget.driverName}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}'
+                              '${widget.plateNumber != null ? " • ${widget.plateNumber}" : ""}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ClipRRect(
+                    child: Listener(
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: (_) => _interactionController.notifyInteractionStarted(
+                        currentLat: lat,
+                        currentLng: lng,
+                      ),
+                      onPointerUp: (_) => _interactionController.notifyInteractionEnded(),
+                      child: StreamBuilder<GlobalMapConfig>(
+                        stream: const RemoteKeysService().streamGlobalMapConfig(),
+                        initialData: const GlobalMapConfig(),
+                        builder: (context, snapshot) {
+                          final cfg = snapshot.data ?? const GlobalMapConfig();
+                          final tileUrl = cfg.resolveTileUrl();
+                          return FlutterMap(
+                            mapController: _mapController,
+                            options: MapOptions(
+                              initialCenter: point,
+                              initialZoom: 15.0,
+                              interactionOptions: const InteractionOptions(
+                                flags: InteractiveFlag.all,
+                              ),
+                              onPositionChanged: (camera, hasGesture) {
+                                if (hasGesture) {
+                                  _interactionController.notifyInteractionStarted(
+                                    currentLat: camera.center.latitude,
+                                    currentLng: camera.center.longitude,
+                                  );
+                                }
+                              },
+                              onTap: (_, _) {
+                                _interactionController.notifyInteractionStarted(
+                                  currentLat: lat,
+                                  currentLng: lng,
+                                );
+                                _interactionController.notifyInteractionEnded();
+                              },
+                            ),
+                            children: [
+                              TileLayer(
+                                urlTemplate: tileUrl,
+                                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                subdomains: const ['a', 'b', 'c', 'd'],
+                                userAgentPackageName: 'com.sesetech.sese_hub',
+                                retinaMode: cfg.hasValidMapboxToken,
+                              ),
+                              MarkerLayer(
+                                markers: [
+                                  Marker(
+                                    point: point,
+                                    width: 64,
+                                    height: 64,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: isOnline ? Colors.green.shade800 : Colors.grey.shade800,
+                                            borderRadius: BorderRadius.circular(8),
+                                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                          ),
+                                          child: Text(
+                                            isOnline ? 'ONLINE' : 'LAST FIX',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Icon(
+                                          Icons.directions_car_filled,
+                                          size: 32,
+                                          color: isOnline ? Colors.green.shade700 : Colors.grey.shade800,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedSlide(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  offset: isImmersive ? const Offset(0, 1.2) : Offset.zero,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 250),
+                    opacity: isImmersive ? 0.0 : 1.0,
+                    child: IgnorePointer(
+                      ignoring: isImmersive,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            if (widget.lastUpdated != null)
+                              Text(
+                                'Last fix: ${widget.formatTime(widget.lastUpdated!)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            const Spacer(),
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.open_in_new, size: 16),
+                              label: const Text('Open in Google Maps'),
+                              onPressed: () async {
+                                final uri = Uri.parse(
+                                  'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+                                );
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

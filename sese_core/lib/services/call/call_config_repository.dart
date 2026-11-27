@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'i_call_service.dart';
 
-/// Configuration payload for the SeSe calling subsystem.
+/// Configuration payload for the SeSe WebRTC calling subsystem.
 @immutable
 class CallConfig {
   /// Default Google public STUN servers for NAT discovery.
@@ -14,27 +15,6 @@ class CallConfig {
     'stun:stun1.l.google.com:19302',
     'stun:stun2.l.google.com:19302',
   ];
-
-  /// The active calling routing mode.
-  final CallRoutingMode routingMode;
-
-  /// Timeout in seconds before smart fallback drops from WebRTC/Agora to secondary provider.
-  final int fallbackTimeoutSeconds;
-
-  /// Agora RTC Application ID (32-character hex/alphanumeric string).
-  final String? agoraAppId;
-
-  /// Agora Primary Certificate (32-character secret key, server-only).
-  final String? agoraAppCertificate;
-
-  /// Monthly free tier minutes cap for Agora RTC (default: 10,000 mins).
-  final int agoraMonthlyFreeMinutesCap;
-
-  /// Minute-usage threshold that triggers automatic failover from Agora to native WebRTC (default: 9,900 mins).
-  final int agoraAutoFailoverThresholdMinutes;
-
-  /// Tracked global call minutes used in the current billing cycle.
-  final int agoraCallsUsedMinutesThisMonth;
 
   /// STUN servers used by WebRTC for ICE candidate discovery and NAT traversal.
   final List<String> stunServers;
@@ -45,78 +25,25 @@ class CallConfig {
   /// ```json
   /// {"urls": "turn:your.turn.server:3478", "username": "u", "credential": "p"}
   /// ```
-  /// Configured from Hub (`system_settings/calling`) and loaded via [CallConfigRepository].
-  /// Falls back to empty list when unset (STUN-only mode — P2P on same network).
   final List<Map<String, dynamic>> turnServers;
 
-  /// Whether WebRTC data channel or diagnostic stats are enabled.
+  /// Whether WebRTC diagnostic stats are enabled.
   final bool enableDiagnostics;
 
   const CallConfig({
-    this.routingMode = CallRoutingMode.smartFallback,
-    this.fallbackTimeoutSeconds = 10,
-    this.agoraAppId,
-    this.agoraAppCertificate,
-    this.agoraMonthlyFreeMinutesCap = 10000,
-    this.agoraAutoFailoverThresholdMinutes = 9900,
-    this.agoraCallsUsedMinutesThisMonth = 0,
     this.stunServers = defaultGoogleStunServers,
     this.turnServers = const [],
     this.enableDiagnostics = false,
   });
 
-  /// The primary calling provider derived from the active routing mode.
-  CallProviderType get providerType {
-    switch (routingMode) {
-      case CallRoutingMode.thirdPartyOnly:
-        return CallProviderType.agora;
-      case CallRoutingMode.customP2pOnly:
-      case CallRoutingMode.smartFallback:
-        return CallProviderType.webrtc;
-    }
-  }
-
-  /// True if valid Agora credentials exist for RTC audio calls.
-  bool get hasValidAgoraCredentials {
-    if (agoraAppId == null || agoraAppId!.trim().isEmpty) return false;
-    return agoraAppId!.trim().length >= 16;
-  }
-
-  /// True if Agora monthly usage has reached the automatic failover threshold.
-  bool get isAgoraLimitReached {
-    return agoraCallsUsedMinutesThisMonth >= agoraAutoFailoverThresholdMinutes;
-  }
+  CallProviderType get providerType => CallProviderType.webrtc;
 
   CallConfig copyWith({
-    CallRoutingMode? routingMode,
-    int? fallbackTimeoutSeconds,
-    CallProviderType? providerType,
-    String? agoraAppId,
-    String? agoraAppCertificate,
-    int? agoraMonthlyFreeMinutesCap,
-    int? agoraAutoFailoverThresholdMinutes,
-    int? agoraCallsUsedMinutesThisMonth,
     List<String>? stunServers,
     List<Map<String, dynamic>>? turnServers,
     bool? enableDiagnostics,
   }) {
-    CallRoutingMode mode = routingMode ?? this.routingMode;
-    if (routingMode == null && providerType != null) {
-      mode = (providerType == CallProviderType.agora)
-          ? CallRoutingMode.thirdPartyOnly
-          : CallRoutingMode.customP2pOnly;
-    }
-
     return CallConfig(
-      routingMode: mode,
-      fallbackTimeoutSeconds: fallbackTimeoutSeconds ?? this.fallbackTimeoutSeconds,
-      agoraAppId: agoraAppId ?? this.agoraAppId,
-      agoraAppCertificate: agoraAppCertificate ?? this.agoraAppCertificate,
-      agoraMonthlyFreeMinutesCap: agoraMonthlyFreeMinutesCap ?? this.agoraMonthlyFreeMinutesCap,
-      agoraAutoFailoverThresholdMinutes:
-          agoraAutoFailoverThresholdMinutes ?? this.agoraAutoFailoverThresholdMinutes,
-      agoraCallsUsedMinutesThisMonth:
-          agoraCallsUsedMinutesThisMonth ?? this.agoraCallsUsedMinutesThisMonth,
       stunServers: stunServers ?? this.stunServers,
       turnServers: turnServers ?? this.turnServers,
       enableDiagnostics: enableDiagnostics ?? this.enableDiagnostics,
@@ -125,15 +52,7 @@ class CallConfig {
 
   Map<String, dynamic> toMap() {
     return {
-      'routingMode': routingMode.name,
-      'providerType': providerType.name,
-      'fallbackTimeoutSeconds': fallbackTimeoutSeconds,
-      'agoraAppId': agoraAppId,
-      // Security: Secret credentials (agoraAppCertificate) are strictly
-      // omitted from client Firestore write payloads to prevent client key exposure.
-      'agoraMonthlyFreeMinutesCap': agoraMonthlyFreeMinutesCap,
-      'agoraAutoFailoverThresholdMinutes': agoraAutoFailoverThresholdMinutes,
-      'agoraCallsUsedMinutesThisMonth': agoraCallsUsedMinutesThisMonth,
+      'providerType': CallProviderType.webrtc.name,
       'stunServers': stunServers,
       'turnServers': turnServers,
       'enableDiagnostics': enableDiagnostics,
@@ -143,74 +62,6 @@ class CallConfig {
 
   factory CallConfig.fromMap(Map<String, dynamic>? map) {
     if (map == null) return const CallConfig();
-
-    CallRoutingMode routingMode = CallRoutingMode.smartFallback;
-    final modeStr = map['routingMode']?.toString().toLowerCase().trim();
-    if (modeStr == 'customp2ponly' ||
-        modeStr == 'custom_p2p_only' ||
-        modeStr == 'forcewebrtc' ||
-        modeStr == 'force_webrtc' ||
-        modeStr == 'webrtc') {
-      routingMode = CallRoutingMode.customP2pOnly;
-    } else if (modeStr == 'thirdpartyonly' ||
-        modeStr == 'third_party_only' ||
-        modeStr == 'forceagora' ||
-        modeStr == 'force_agora' ||
-        modeStr == 'agora' ||
-        modeStr == 'zego') {
-      routingMode = CallRoutingMode.thirdPartyOnly;
-    } else if (modeStr == 'smartfallback' ||
-        modeStr == 'smart_fallback' ||
-        modeStr == 'auto' ||
-        modeStr == 'automatic') {
-      routingMode = CallRoutingMode.smartFallback;
-    } else {
-      final providerStr = map['providerType']?.toString().toLowerCase().trim();
-      if (providerStr == 'agora' || providerStr == 'zego') {
-        routingMode = CallRoutingMode.thirdPartyOnly;
-      } else {
-        routingMode = CallRoutingMode.smartFallback;
-      }
-    }
-
-    int timeout = 10;
-    final rawTimeout = map['fallbackTimeoutSeconds'];
-    if (rawTimeout is int) {
-      timeout = rawTimeout.clamp(3, 30);
-    } else if (rawTimeout is String) {
-      final parsed = int.tryParse(rawTimeout.trim());
-      if (parsed != null) timeout = parsed.clamp(3, 30);
-    }
-
-    String? agoraAppId;
-    final rawAgoraAppId = map['agoraAppId'] ?? map['appId'];
-    if (rawAgoraAppId != null) {
-      agoraAppId = rawAgoraAppId.toString().trim();
-    }
-
-    int agoraCap = 10000;
-    final rawAgoraCap = map['agoraMonthlyFreeMinutesCap'];
-    if (rawAgoraCap is int) {
-      agoraCap = rawAgoraCap;
-    } else if (rawAgoraCap is String) {
-      agoraCap = int.tryParse(rawAgoraCap.trim()) ?? 10000;
-    }
-
-    int agoraThreshold = 9900;
-    final rawAgoraThreshold = map['agoraAutoFailoverThresholdMinutes'];
-    if (rawAgoraThreshold is int) {
-      agoraThreshold = rawAgoraThreshold;
-    } else if (rawAgoraThreshold is String) {
-      agoraThreshold = int.tryParse(rawAgoraThreshold.trim()) ?? 9900;
-    }
-
-    int agoraUsedMins = 0;
-    final rawAgoraUsed = map['agoraCallsUsedMinutesThisMonth'] ?? map['agoraMinutesThisMonth'];
-    if (rawAgoraUsed is int) {
-      agoraUsedMins = rawAgoraUsed;
-    } else if (rawAgoraUsed is String) {
-      agoraUsedMins = int.tryParse(rawAgoraUsed.trim()) ?? 0;
-    }
 
     List<String> stuns = defaultGoogleStunServers;
     if (map['stunServers'] is List) {
@@ -223,8 +74,6 @@ class CallConfig {
       }
     }
 
-    // Parse TURN server entries — each entry is an ICE-server map with
-    // `urls`, `username`, and `credential` keys.
     List<Map<String, dynamic>> turns = const [];
     final rawTurn = map['turnServers'];
     if (rawTurn is List) {
@@ -235,13 +84,6 @@ class CallConfig {
     }
 
     return CallConfig(
-      routingMode: routingMode,
-      fallbackTimeoutSeconds: timeout,
-      agoraAppId: agoraAppId,
-      agoraAppCertificate: null,
-      agoraMonthlyFreeMinutesCap: agoraCap,
-      agoraAutoFailoverThresholdMinutes: agoraThreshold,
-      agoraCallsUsedMinutesThisMonth: agoraUsedMins,
       stunServers: stuns,
       turnServers: turns,
       enableDiagnostics: map['enableDiagnostics'] == true,
@@ -249,28 +91,21 @@ class CallConfig {
   }
 }
 
-/// Repository responsible for persisting calling settings in [SharedPreferences]
-/// with real-time bidirectional synchronization against Firestore (`system_settings/calling`).
+/// Repository responsible for persisting WebRTC calling settings in [SharedPreferences]
+/// with real-time synchronization against Firestore (`system_settings/calling`).
 class CallConfigRepository {
   static final CallConfigRepository instance = CallConfigRepository._internal();
 
   CallConfigRepository._internal();
 
-  static const String _kPrefRoutingMode = 'sese_call_routing_mode';
-  static const String _kPrefFallbackTimeout = 'sese_call_fallback_timeout';
-  static const String _kPrefProvider = 'sese_call_provider_type';
-  static const String _kPrefAgoraAppId = 'sese_call_agora_app_id';
-  static const String _kPrefAgoraCap = 'sese_call_agora_cap';
-  static const String _kPrefAgoraThreshold = 'sese_call_agora_threshold';
-  static const String _kPrefAgoraUsedMins = 'sese_call_agora_used_mins';
   static const String _kPrefStunServers = 'sese_call_stun_servers';
+  static const String _kPrefTurnServers = 'sese_call_turn_servers';
   static const String _kPrefDiagnostics = 'sese_call_enable_diagnostics';
 
   final _controller = StreamController<CallConfig>.broadcast();
   CallConfig _currentConfig = const CallConfig();
   bool _initialized = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _firestoreSub;
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _usageSub;
 
   /// Current cached configuration.
   CallConfig get currentConfig => _currentConfig;
@@ -285,36 +120,27 @@ class CallConfigRepository {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      final routingModeStr = prefs.getString(_kPrefRoutingMode);
-      CallRoutingMode mode = CallRoutingMode.smartFallback;
-      if (routingModeStr == CallRoutingMode.customP2pOnly.name) {
-        mode = CallRoutingMode.customP2pOnly;
-      } else if (routingModeStr == CallRoutingMode.thirdPartyOnly.name) {
-        mode = CallRoutingMode.thirdPartyOnly;
-      } else if (routingModeStr == CallRoutingMode.smartFallback.name) {
-        mode = CallRoutingMode.smartFallback;
-      }
-
-      final fallbackTimeout = prefs.getInt(_kPrefFallbackTimeout) ?? 10;
-      final agoraAppId = prefs.getString(_kPrefAgoraAppId);
-      final agoraCap = prefs.getInt(_kPrefAgoraCap) ?? 10000;
-      final agoraThreshold = prefs.getInt(_kPrefAgoraThreshold) ?? 9900;
-      final agoraUsed = prefs.getInt(_kPrefAgoraUsedMins) ?? 0;
       final stunList = prefs.getStringList(_kPrefStunServers);
+      final rawTurnJson = prefs.getString(_kPrefTurnServers);
+      List<Map<String, dynamic>> turnList = const [];
+      if (rawTurnJson != null && rawTurnJson.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawTurnJson);
+          if (decoded is List) {
+            turnList = decoded
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList();
+          }
+        } catch (_) {}
+      }
       final diagnostics = prefs.getBool(_kPrefDiagnostics) ?? false;
 
       _currentConfig = CallConfig(
-        routingMode: mode,
-        fallbackTimeoutSeconds: fallbackTimeout,
-        agoraAppId: agoraAppId,
-        agoraAppCertificate: null,
-        agoraMonthlyFreeMinutesCap: agoraCap,
-        agoraAutoFailoverThresholdMinutes: agoraThreshold,
-        agoraCallsUsedMinutesThisMonth: agoraUsed,
         stunServers: stunList != null && stunList.isNotEmpty
             ? stunList
             : CallConfig.defaultGoogleStunServers,
+        turnServers: turnList,
         enableDiagnostics: diagnostics,
       );
     } catch (e) {
@@ -325,13 +151,11 @@ class CallConfigRepository {
     _initialized = true;
     _controller.add(_currentConfig);
 
-    // Initialize real-time listener for remote settings & minute usage updates
     _startRemoteSyncListener();
 
     return _currentConfig;
   }
 
-  /// Starts listening to remote configuration and call usage updates from Firestore.
   void _startRemoteSyncListener() {
     try {
       _firestoreSub?.cancel();
@@ -344,15 +168,12 @@ class CallConfigRepository {
           if (!snapshot.exists || snapshot.data() == null) return;
           final remoteConfig = CallConfig.fromMap(snapshot.data());
 
-          if (remoteConfig.routingMode != _currentConfig.routingMode ||
-              remoteConfig.fallbackTimeoutSeconds != _currentConfig.fallbackTimeoutSeconds ||
-              remoteConfig.agoraAppId != _currentConfig.agoraAppId ||
-              remoteConfig.agoraAutoFailoverThresholdMinutes != _currentConfig.agoraAutoFailoverThresholdMinutes ||
-              remoteConfig.agoraMonthlyFreeMinutesCap != _currentConfig.agoraMonthlyFreeMinutesCap ||
-              !listEquals(remoteConfig.stunServers, _currentConfig.stunServers)) {
-            _currentConfig = remoteConfig.copyWith(
-              agoraCallsUsedMinutesThisMonth: _currentConfig.agoraCallsUsedMinutesThisMonth,
-            );
+          if (!listEquals(remoteConfig.stunServers, _currentConfig.stunServers) ||
+              jsonEncode(remoteConfig.turnServers) !=
+                  jsonEncode(_currentConfig.turnServers) ||
+              remoteConfig.enableDiagnostics !=
+                  _currentConfig.enableDiagnostics) {
+            _currentConfig = remoteConfig;
             _controller.add(_currentConfig);
             _persistToLocal(_currentConfig);
           }
@@ -360,29 +181,6 @@ class CallConfigRepository {
         onError: (e) {
           debugPrint('CallConfigRepository: remote sync listener error: $e');
         },
-      );
-
-      // Subscribes to live call minute usage updates
-      _usageSub?.cancel();
-      _usageSub = FirebaseFirestore.instance
-          .collection('system_config')
-          .doc('call_usage')
-          .snapshots()
-          .listen(
-        (snapshot) {
-          if (!snapshot.exists || snapshot.data() == null) return;
-          final usageData = snapshot.data()!;
-          final agoraMinutes = (usageData['agoraMinutesThisMonth'] as num?)?.toInt() ?? 0;
-
-          if (agoraMinutes != _currentConfig.agoraCallsUsedMinutesThisMonth) {
-            _currentConfig = _currentConfig.copyWith(
-              agoraCallsUsedMinutesThisMonth: agoraMinutes,
-            );
-            _controller.add(_currentConfig);
-            _persistToLocal(_currentConfig);
-          }
-        },
-        onError: (_) {},
       );
     } catch (e) {
       debugPrint('CallConfigRepository: remote sync unavailable: $e');
@@ -392,21 +190,8 @@ class CallConfigRepository {
   Future<void> _persistToLocal(CallConfig config) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_kPrefRoutingMode, config.routingMode.name);
-      await prefs.setInt(_kPrefFallbackTimeout, config.fallbackTimeoutSeconds);
-      await prefs.setString(_kPrefProvider, config.providerType.name);
-
-      if (config.agoraAppId != null) {
-        await prefs.setString(_kPrefAgoraAppId, config.agoraAppId!);
-      } else {
-        await prefs.remove(_kPrefAgoraAppId);
-      }
-
-      await prefs.setInt(_kPrefAgoraCap, config.agoraMonthlyFreeMinutesCap);
-      await prefs.setInt(_kPrefAgoraThreshold, config.agoraAutoFailoverThresholdMinutes);
-      await prefs.setInt(_kPrefAgoraUsedMins, config.agoraCallsUsedMinutesThisMonth);
-
       await prefs.setStringList(_kPrefStunServers, config.stunServers);
+      await prefs.setString(_kPrefTurnServers, jsonEncode(config.turnServers));
       await prefs.setBool(_kPrefDiagnostics, config.enableDiagnostics);
     } catch (e) {
       debugPrint('CallConfigRepository: _persistToLocal error: $e');
@@ -433,7 +218,6 @@ class CallConfigRepository {
   /// Disposes repository resources.
   void dispose() {
     _firestoreSub?.cancel();
-    _usageSub?.cancel();
     _controller.close();
   }
 }

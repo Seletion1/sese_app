@@ -3,8 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_overlay_window/flutter_overlay_window.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -75,148 +73,33 @@ class DriverPresenceService {
     }
   }
 
-  /// Checks if the Android `SYSTEM_ALERT_WINDOW` permission is currently granted.
-  Future<bool> hasOverlayPermission() async {
-    if (!isAndroidOverlaySupported) return false;
-    try {
-      final granted = await Permission.systemAlertWindow.status.isGranted;
-      return granted;
-    } catch (e) {
-      debugPrint('DriverPresenceService hasOverlayPermission error: $e');
-      try {
-        return await FlutterOverlayWindow.isPermissionGranted();
-      } catch (_) {
-        return false;
-      }
-    }
-  }
+  /// Overlay bubble is disabled for Google Play compliance (high-priority
+  /// heads-up notifications are used instead).
+  Future<bool> hasOverlayPermission() async => false;
 
-  /// Requests overlay permission on Android with explicit Google Play disclosure.
-  ///
-  /// Shows [DriverOverlayDisclosureDialog] first. If the driver consents, opens
-  /// the system "Display over other apps" settings. Returns true if granted.
-  Future<bool> requestOverlayPermissionWithDisclosure(BuildContext context) async {
-    if (!isAndroidOverlaySupported) return false;
-
-    // Check if permission is already granted
-    final alreadyGranted = await hasOverlayPermission();
-    if (alreadyGranted) return true;
-
-    // Show prominent disclosure dialog
-    if (!context.mounted) return false;
-    final consented = await DriverOverlayDisclosureDialog.show(context);
-    if (!consented) {
-      await DriverOverlayDisclosureDialog.recordConsent(consented: false);
-      return false;
-    }
-
-    await DriverOverlayDisclosureDialog.recordConsent(consented: true);
-
-    try {
-      final status = await Permission.systemAlertWindow.request();
-      if (kDebugMode) {
-        debugPrint('DriverPresenceService Permission.systemAlertWindow.request status: $status');
-      }
-      return status.isGranted;
-    } catch (e) {
-      debugPrint('DriverPresenceService requestPermission failed with permission_handler: $e');
-      try {
-        final requested = await FlutterOverlayWindow.requestPermission();
-        return requested ?? false;
-      } catch (_) {
-        return false;
-      }
-    }
+  /// Overlay permission is no longer requested; heads-up notifications are used.
+  Future<bool> requestOverlayPermissionWithDisclosure(
+      BuildContext context) async {
+    return false;
   }
 
   /// Handles app transition to background (`paused`, `hidden`, or `detached`).
   Future<void> onAppBackgrounded() async {
     if (!isOnline && !hasActiveTrip) {
-      // Driver is offline: do nothing
       return;
     }
-
-    if (isAndroidOverlaySupported) {
-      final enabled = await isBubbleSettingEnabled();
-      if (!enabled) return;
-
-      final granted = await hasOverlayPermission();
-      if (!granted) return;
-
-      await showBubble();
-    } else if (isIos) {
-      // On iOS: background presence is conveyed via persistent location indicator
-      // and high-priority push notifications (zero screen overlay).
-      debugPrint('DriverPresenceService: iOS background presence active (online: $isOnline)');
-    }
+    debugPrint(
+        'DriverPresenceService: background presence active via notification (online: $isOnline)');
   }
 
   /// Handles app return to foreground (`resumed`).
-  Future<void> onAppForegrounded() async {
-    if (isAndroidOverlaySupported) {
-      // Hide the floating bubble when the driver is actively viewing the app
-      await hideBubble();
-    }
-  }
+  Future<void> onAppForegrounded() async {}
 
-  /// Shows the circular quick-return floating bubble (Android only).
-  ///
-  /// The `isActive()` check is intentionally skipped on retry so that a
-  /// previously crashed or invisible overlay surface is always replaced.
-  /// We close any stale surface first, then re-open — this guarantees the
-  /// bubble appears even after the overlay engine silently dies in the
-  /// background.
-  Future<void> showBubble() async {
-    if (!isAndroidOverlaySupported) return;
+  /// No-op: overlay bubble removed in favor of standard heads-up notifications.
+  Future<void> showBubble() async {}
 
-    try {
-      // Dismiss any stale/zombie overlay surface before re-creating it.
-      // flutter_overlay_window.isActive() may return true even when the
-      // overlay window is no longer visible (engine crash / OOM kill). By
-      // always closing first we guarantee a fresh, visible bubble.
-      try {
-        final stale = await FlutterOverlayWindow.isActive();
-        if (stale) {
-          await FlutterOverlayWindow.closeOverlay().timeout(
-            const Duration(milliseconds: 400),
-            onTimeout: () => false,
-          );
-        }
-      } catch (_) {}
-
-      await FlutterOverlayWindow.showOverlay(
-        enableDrag: true,
-        overlayTitle: 'SeSe Driver Active',
-        overlayContent: 'Quick return to active orders',
-        flag: OverlayFlag.defaultFlag,
-        visibility: NotificationVisibility.visibilitySecret,
-        positionGravity: PositionGravity.auto,
-        height: 240,
-        width: 240,
-      );
-      debugPrint('DriverPresenceService: quick-return bubble displayed.');
-    } catch (e) {
-      debugPrint('DriverPresenceService showBubble failed: $e');
-    }
-  }
-
-  /// Hides/dismisses the floating bubble immediately.
-  Future<void> hideBubble() async {
-    if (!isAndroidOverlaySupported) return;
-
-    try {
-      final active = await FlutterOverlayWindow.isActive();
-      if (active) {
-        await FlutterOverlayWindow.closeOverlay().timeout(
-          const Duration(milliseconds: 400),
-          onTimeout: () => false,
-        );
-        debugPrint('DriverPresenceService: bubble closed.');
-      }
-    } catch (e) {
-      debugPrint('DriverPresenceService hideBubble failed: $e');
-    }
-  }
+  /// No-op: overlay bubble removed in favor of standard heads-up notifications.
+  Future<void> hideBubble() async {}
 
   /// Called when the driver goes online.
   Future<void> onDriverOnline({required String driverId}) async {

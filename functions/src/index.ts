@@ -57,6 +57,7 @@ export {
   hubForceCompleteTrip,
   hubCancelRefundTrip,
   hubManualPinBypass,
+  hubReassignTrip,
   onTripChatMessage,
   submitTripRating,
   submitCancellationFeedback,
@@ -71,6 +72,7 @@ export {
 
 export {
   getAgoraToken,
+  getIceServers,
   recordCallDuration,
   terminateCall,
   cleanupTripCalls,
@@ -100,7 +102,7 @@ export {
 // reading a collection that no longer exists. It has been replaced by
 // `onAgentReplied` in supportBot.ts, which notifies the user on the real
 // `support_chats` path.
-export { onSupportMessageCreated, onAgentReplied } from "./supportBot";
+export { onSupportMessageCreated, onAgentReplied, hubClaimSupportChat } from "./supportBot";
 
 export { deleteAccount } from "./deleteAccount";
 
@@ -133,7 +135,7 @@ export {
   onDriverUpdated,
 } from "./verification";
 
-export { backfillSequentialIds } from "./sequentialIds";
+export { backfillSequentialIds, validateReferralCode, applyReferralCode } from "./sequentialIds";
 
 export {
   lookupAccountForOnboarding,

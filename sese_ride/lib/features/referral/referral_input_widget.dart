@@ -14,6 +14,7 @@ import 'package:sese_core/sese_core.dart';
 class ReferralInputWidget extends StatefulWidget {
   final ReferralService referralService;
   final ValueChanged<String?> onResolved;
+  final void Function(String? referrerId, String? code)? onDetailsResolved;
   final VoidCallback? onSkip;
   final InputDecoration? decoration;
 
@@ -21,6 +22,7 @@ class ReferralInputWidget extends StatefulWidget {
     super.key,
     required this.referralService,
     required this.onResolved,
+    this.onDetailsResolved,
     this.onSkip,
     this.decoration,
   });
@@ -59,6 +61,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
         _referrerBadge = null;
       });
       widget.onResolved(null);
+      widget.onDetailsResolved?.call(null, null);
       return;
     }
     if (!isPlausibleReferralCode(code)) {
@@ -68,6 +71,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
         _referrerBadge = null;
       });
       widget.onResolved(null);
+      widget.onDetailsResolved?.call(null, null);
       return;
     }
     setState(() {
@@ -84,6 +88,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
         _referrerBadge = null;
       });
       widget.onResolved(null);
+      widget.onDetailsResolved?.call(null, null);
     } else {
       final referrerId = details['referrerId'];
       final firstName = details['firstName'] ?? 'User';
@@ -92,6 +97,7 @@ class _ReferralInputWidgetState extends State<ReferralInputWidget> {
         _referrerBadge = 'Referred by $firstName';
       });
       widget.onResolved(referrerId);
+      widget.onDetailsResolved?.call(referrerId, code);
     }
   }
 

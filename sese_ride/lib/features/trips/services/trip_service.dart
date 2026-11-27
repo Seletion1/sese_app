@@ -581,6 +581,13 @@ class FirestoreTripRepository implements TripRepository {
         return message ?? 'Trip not found. It may have been cancelled.';
       case 'failed-precondition':
         return message ?? 'This trip can no longer be changed.';
+      case 'internal':
+        if (message == null ||
+            message.trim().isEmpty ||
+            message.trim().toUpperCase() == 'INTERNAL') {
+          return 'Something went wrong on the server. Please try again.';
+        }
+        return message;
       default:
         return message ?? 'Dispatch failed. Please try again.';
     }

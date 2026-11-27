@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -238,27 +240,68 @@ class DriverDispatchService {
 
   DriverDispatchBackend get _ops => backend ?? _FunctionsDriverDispatchBackend();
 
-  /// Tier 1 exclusive ping for [driverId].
+  /// Tier 1 exclusive ping OR Hub multi-driver re-assigned pool ping for [driverId].
   Stream<ActiveTrip?> pingStream(String driverId) {
     final db = _db;
     if (db == null || driverId.isEmpty) return Stream.value(null);
-    return db
+
+    final directStream = db
         .collection('trips')
         .where('pingDriverId', isEqualTo: driverId)
         .limit(5)
-        .snapshots()
-        .map((snap) {
-          for (final d in snap.docs) {
-            final trip = ActiveTrip.fromMap(d.id, d.data());
-            // Filter out self-booked customer trips
-            if (trip.status == TripStatus.waitingForAcceptance &&
-                trip.customerId != driverId) {
-              return trip;
-            }
-          }
-          return null;
-        })
-        .handleError((Object _) => null);
+        .snapshots();
+
+    final poolStream = db
+        .collection('trips')
+        .where('pingDriverIds', arrayContains: driverId)
+        .limit(5)
+        .snapshots();
+
+    ActiveTrip? pickValidTrip(QuerySnapshot<Map<String, dynamic>> snap) {
+      for (final d in snap.docs) {
+        final trip = ActiveTrip.fromMap(d.id, d.data());
+        if (trip.status == TripStatus.waitingForAcceptance &&
+            trip.customerId != driverId) {
+          return trip;
+        }
+      }
+      return null;
+    }
+
+    final controller = StreamController<ActiveTrip?>.broadcast();
+    ActiveTrip? latestDirect;
+    ActiveTrip? latestPool;
+
+    void emit() {
+      if (!controller.isClosed) {
+        controller.add(latestDirect ?? latestPool);
+      }
+    }
+
+    late final StreamSubscription sub1;
+    late final StreamSubscription sub2;
+
+    sub1 = directStream.listen(
+      (snap) {
+        latestDirect = pickValidTrip(snap);
+        emit();
+      },
+      onError: (_) {},
+    );
+    sub2 = poolStream.listen(
+      (snap) {
+        latestPool = pickValidTrip(snap);
+        emit();
+      },
+      onError: (_) {},
+    );
+
+    controller.onCancel = () {
+      sub1.cancel();
+      sub2.cancel();
+    };
+
+    return controller.stream;
   }
 
   /// Tier 3 marketplace broadcast (open to all nearby online drivers).

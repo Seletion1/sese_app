@@ -807,6 +807,16 @@ service cloud.firestore {
       allow update, delete: if isSuperAdmin();
     }
 
+    // Hub low-rating review queue — 1 and 2 star ratings auto-routed by
+    // the submitTripRating Cloud Function. Hub operators triage pending reviews
+    // and mark them resolved. Creation is server-only (Cloud Function).
+    match /low_rating_reviews/{reviewId} {
+      allow read: if isHubStaff() || isSuperAdmin();
+      allow create: if false; // Server-only via submitTripRating Cloud Function
+      allow update: if isHubStaff() || isSuperAdmin(); // update reviewStatus/resolutionNote/reviewedBy
+      allow delete: if isSuperAdmin();
+    }
+
     // Hub staff qualification records. The primary owner is the only account
     // allowed to provision, change roles, assign scopes, or deactivate staff.
     // SH sequential IDs are server-minted exclusively (Admin SDK from
@@ -982,6 +992,8 @@ service cloud.firestore {
     }
     function adminSupportAccess() {
       return isAgent() ||
+        isHubStaff() ||
+        isSuperAdmin() ||
         claimsScopeContains(scopeCodeOf('manageCustomerSupport')) ||
         claimsScopeContains(scopeCodeOf('manageDriverSupport'));
     }
@@ -1443,22 +1455,27 @@ service cloud.firestore {
 
     // ===== REFERRAL CODE LOOKUP INDEX =====
     // `referral_codes/{CODE}`: public lookup index keyed by the referral code
-    // string (e.g. "MB1592"). Documents contain {referrerId, collection,
-    // createdAt}. Written exclusively by the Cloud Functions Admin SDK
-    // (_generateAndSaveReferralCode in verification.ts), which bypasses rules
-    // entirely. Any authenticated user may read so that the onboarding
-    // ReferralInputWidget can validate a code before signup completes.
+    // string (e.g. "MB1592", "SC0001", "SD0001"). Documents contain {referrerId, ownerUid,
+    // role, firstName, isVerified, code, createdAt}. Written exclusively by Cloud Functions
+    // Admin SDK. Unauthenticated clients may fetch a specific document (get) so
+    // that onboarding ReferralInputWidget can validate a code before signup completes.
+    // Listing the entire collection is restricted to authenticated users to prevent scraping.
     match /referral_codes/{code} {
-      allow read: if isAuthenticated();
+      allow get: if true;
+      allow list: if isAuthenticated();
       allow write: if false;
     }
 
     // ===== SEQUENTIAL USER ID LOOKUP INDEX =====
     // `unique_sequential_ids/{SEQ_ID}`: uniqueness index preventing 2 users
-    // from claiming the same sequential user ID (e.g. "SC0001", "SD0001").
+    // from claiming the same sequential user ID (e.g. "SC0001", "SD0001", "SA0001").
     // Server-only write via Cloud Functions atomic transaction.
+    // Unauthenticated clients may fetch a specific document (get) so
+    // that onboarding ReferralInputWidget can validate a code before signup completes.
+    // Listing the entire collection is restricted to authenticated users to prevent scraping.
     match /unique_sequential_ids/{seqId} {
-      allow read: if isAuthenticated();
+      allow get: if true;
+      allow list: if isAuthenticated();
       allow write: if false;
     }
 

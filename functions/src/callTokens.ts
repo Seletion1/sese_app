@@ -277,3 +277,111 @@ export const cleanupTripCalls = guardedOnCall(async (request) => {
 
   return { ok: true, terminatedCount: seen.size };
 });
+
+const DEFAULT_STUN_SERVERS = [
+  "stun:stun.l.google.com:19302",
+  "stun:stun1.l.google.com:19302",
+  "stun:stun2.l.google.com:19302",
+  "stun:stun3.l.google.com:19302",
+  "stun:stun4.l.google.com:19302",
+];
+
+/**
+ * Returns WebRTC ICE servers (STUN + TURN) for cross-network calls.
+ *
+ * Reads TURN credentials securely from `/system_config/call_secrets` (static
+ * `turnServers` / `turnUrl`+`turnUsername`+`turnCredential`, or Metered REST API
+ * via `meteredDomain` + `meteredApiKey`) and falls back to `/system_settings/calling`.
+ */
+export const getIceServers = guardedOnCall(async (request) => {
+  enforceAppCheck(request);
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "User must be authenticated to fetch ICE servers.");
+  }
+
+  const [callingSnap, secretsSnap] = await Promise.all([
+    db().collection("system_settings").doc("calling").get(),
+    db().collection("system_config").doc("call_secrets").get(),
+  ]);
+
+  const callingData = callingSnap.data() || {};
+  const secretsData = secretsSnap.data() || {};
+
+  const iceServers: Array<Record<string, unknown>> = [];
+
+  // 1. STUN servers
+  const rawStuns = Array.isArray(callingData.stunServers) && callingData.stunServers.length > 0
+    ? callingData.stunServers
+    : DEFAULT_STUN_SERVERS;
+  for (const stun of rawStuns) {
+    const s = String(stun || "").trim();
+    if (s) iceServers.push({ urls: s });
+  }
+
+  // 2. TURN servers from secrets (array or single-entry fields) or calling settings
+  let hasTurn = false;
+  const addTurnEntry = (entry: Record<string, unknown>) => {
+    const urls = entry.urls ?? entry.url;
+    if (!urls) return;
+    const username = entry.username ? String(entry.username).trim() : "";
+    const credential = entry.credential ? String(entry.credential).trim() : "";
+    iceServers.push({
+      urls,
+      ...(username ? { username } : {}),
+      ...(credential ? { credential } : {}),
+    });
+    hasTurn = true;
+  };
+
+  if (Array.isArray(secretsData.turnServers)) {
+    for (const item of secretsData.turnServers) {
+      if (item && typeof item === "object") addTurnEntry(item as Record<string, unknown>);
+    }
+  }
+
+  if (!hasTurn && secretsData.turnUrl) {
+    addTurnEntry({
+      urls: secretsData.turnUrl,
+      username: secretsData.turnUsername,
+      credential: secretsData.turnCredential,
+    });
+  }
+
+  if (!hasTurn && Array.isArray(callingData.turnServers)) {
+    for (const item of callingData.turnServers) {
+      if (item && typeof item === "object") addTurnEntry(item as Record<string, unknown>);
+    }
+  }
+
+  // 3. Optional Metered TURN API dynamic credentials
+  const meteredDomain = String(secretsData.meteredDomain || "").trim();
+  const meteredApiKey = String(secretsData.meteredApiKey || "").trim();
+  if (!hasTurn && meteredDomain && meteredApiKey) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const resp = await fetch(
+        `https://${meteredDomain}/api/v1/turn/credentials?apiKey=${encodeURIComponent(meteredApiKey)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const list = (await resp.json()) as unknown;
+        if (Array.isArray(list)) {
+          for (const item of list) {
+            if (item && typeof item === "object") {
+              addTurnEntry(item as Record<string, unknown>);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("getIceServers: Metered TURN fetch failed:", err);
+    }
+  }
+
+  return {
+    iceServers,
+    hasTurn,
+  };
+});

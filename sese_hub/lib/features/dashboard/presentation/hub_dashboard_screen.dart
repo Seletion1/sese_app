@@ -12,6 +12,7 @@ import '../../support/hub_support_chat_screen.dart';
 import '../../verification/presentation/vehicle_approvals_screen.dart';
 import '../../trips/presentation/active_rides_console_screen.dart';
 import '../../onboarding/presentation/admin_user_onboarding_screen.dart';
+import '../../ratings/presentation/low_rating_reviews_screen.dart';
 import '../services/hub_pending_counts_service.dart';
 import '../services/hub_route_persistence.dart';
 import '../services/view_mode_controller.dart';
@@ -280,6 +281,10 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return StaffManagementScreen(
           staffEmail: widget.user?.email ?? '',
         );
+      case HubTab.ratings:
+        return LowRatingReviewsScreen(
+          staffEmail: widget.user?.email ?? '',
+        );
       case HubTab.profile:
         return _ProfilePage(
           user: widget.user,
@@ -418,6 +423,8 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return service.onboardingTotalPendingCountStream;
       case HubTab.support:
         return service.pendingSupportChatsCountStream;
+      case HubTab.ratings:
+        return service.pendingLowRatingsCountStream;
       default:
         return null;
     }
@@ -595,6 +602,8 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return 'Dynamic Config';
       case HubTab.staff:
         return 'Staff';
+      case HubTab.ratings:
+        return 'Ratings';
       case HubTab.profile:
         return 'Profile';
     }
@@ -616,6 +625,8 @@ class _HubDashboardScreenState extends State<HubDashboardScreen>
         return selected ? Icons.tune : Icons.tune_outlined;
       case HubTab.staff:
         return selected ? Icons.group : Icons.group_outlined;
+      case HubTab.ratings:
+        return selected ? Icons.star_rate : Icons.star_rate_outlined;
       case HubTab.profile:
         return selected ? Icons.person : Icons.person_outline;
     }
@@ -1120,6 +1131,8 @@ class _HubProfileAndSectionDrawer extends StatelessWidget {
         return service.onboardingTotalPendingCountStream;
       case HubTab.support:
         return service.pendingSupportChatsCountStream;
+      case HubTab.ratings:
+        return service.pendingLowRatingsCountStream;
       default:
         return null;
     }

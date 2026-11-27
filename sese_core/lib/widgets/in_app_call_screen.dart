@@ -80,16 +80,47 @@ class _InAppCallScreenState extends State<InAppCallScreen>
   void _dismissScreen() {
     if (_isDismissed || !mounted) return;
     _isDismissed = true;
+    _callManager.isCallUiExpanded.value = false;
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     }
   }
 
+  /// Minimizes the full-screen call view into the floating mini-bar WITHOUT
+  /// ending the active call, allowing the user to multitask across screens.
+  void _minimizeScreen() {
+    if (_state == CallState.ended || _state == CallState.idle) {
+      _dismissScreen();
+      return;
+    }
+    _dismissScreen();
+  }
+
+  bool get _isRestoringActiveSession {
+    final active = _callManager.currentSession;
+    final state = _callManager.currentState;
+    return active != null &&
+        active.callId == widget.callId &&
+        state != CallState.idle &&
+        state != CallState.ended &&
+        state != CallState.error;
+  }
+
   @override
   void initState() {
     super.initState();
-    _state = widget.isIncoming ? CallState.connecting : CallState.outgoing;
+    _callManager.isCallUiExpanded.value = true;
     _service = _callManager;
+
+    final restoring = _isRestoringActiveSession;
+    if (restoring) {
+      _state = _callManager.currentState;
+      _duration = _callManager.currentDuration;
+      _isMuted = _callManager.isMuted;
+      _isSpeakerOn = _callManager.isSpeakerOn;
+    } else {
+      _state = widget.isIncoming ? CallState.connecting : CallState.outgoing;
+    }
 
     _pulseController = AnimationController(
       vsync: this,
@@ -131,22 +162,26 @@ class _InAppCallScreenState extends State<InAppCallScreen>
     });
 
     // Connection watchdog: if connection hangs for > 22 seconds, terminate cleanly
-    _watchdogTimer = Timer(const Duration(seconds: 22), () {
-      if (!mounted || _isDismissed) return;
-      if (_state == CallState.outgoing || _state == CallState.connecting) {
-        _pulseController.stop();
-        setState(() {
-          _state = CallState.error;
-          _errorMessage = 'Call connection timed out.';
-        });
-        unawaited(_service.endCall(reason: 'Connection watchdog timeout'));
-        Future.delayed(const Duration(seconds: 2), () {
-          _dismissScreen();
-        });
-      }
-    });
+    if (_state != CallState.connected) {
+      _watchdogTimer = Timer(const Duration(seconds: 22), () {
+        if (!mounted || _isDismissed) return;
+        if (_state == CallState.outgoing || _state == CallState.connecting) {
+          _pulseController.stop();
+          setState(() {
+            _state = CallState.error;
+            _errorMessage = 'Call connection timed out.';
+          });
+          unawaited(_service.endCall(reason: 'Connection watchdog timeout'));
+          Future.delayed(const Duration(seconds: 2), () {
+            _dismissScreen();
+          });
+        }
+      });
+    }
 
-    _initiateCall();
+    if (!restoring) {
+      _initiateCall();
+    }
   }
 
   Future<void> _initiateCall() async {
@@ -202,13 +237,13 @@ class _InAppCallScreenState extends State<InAppCallScreen>
 
   @override
   void dispose() {
+    _callManager.isCallUiExpanded.value = false;
     _watchdogTimer?.cancel();
     _pulseController.dispose();
     _stateSub?.cancel();
     _durationSub?.cancel();
-    if (_state != CallState.idle && _state != CallState.ended) {
-      unawaited(_service.endCall(reason: 'Call screen disposed'));
-    }
+    // Do NOT end the call when the screen is minimized/disposed; only explicit
+    // Hang Up or remote termination ends the active call session.
     super.dispose();
   }
 
@@ -236,7 +271,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
       case CallState.connected:
         return _formatDuration(_duration);
       case CallState.reconnecting:
-        return 'Connecting...';
+        return 'Reconnecting...';
       case CallState.ended:
         return 'Call Ended';
       case CallState.error:
@@ -249,7 +284,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _endCall();
+        if (!didPop) _minimizeScreen();
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF0F172A), // Dark obsidian blue
@@ -288,9 +323,11 @@ class _InAppCallScreenState extends State<InAppCallScreen>
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white54),
-                      onPressed: _endCall,
-                      tooltip: 'End call',
+                      key: const Key('call_minimize_button'),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded,
+                          color: Colors.white70, size: 28),
+                      onPressed: _minimizeScreen,
+                      tooltip: 'Minimize call',
                     ),
                   ],
                 ),
@@ -366,9 +403,49 @@ class _InAppCallScreenState extends State<InAppCallScreen>
                   fontWeight: _state == CallState.connected ? FontWeight.bold : FontWeight.w400,
                   color: _state == CallState.connected
                       ? Colors.greenAccent
-                      : (_errorMessage != null ? Colors.redAccent : Colors.white60),
+                      : (_errorMessage != null
+                          ? Colors.redAccent
+                          : (_state == CallState.reconnecting
+                              ? Colors.amberAccent
+                              : Colors.white60)),
                 ),
               ),
+
+              if (_state == CallState.reconnecting) ...[
+                const SizedBox(height: 12),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.amberAccent.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.wifi_tethering_error_rounded,
+                        size: 16,
+                        color: Colors.amberAccent,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Weak network — reconnecting audio...',
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               const Spacer(),
 

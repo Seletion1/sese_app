@@ -237,8 +237,6 @@ const LIVE_STATUSES: TripStatusWire[] = [
 const INBOX_TYPES = new Set([
   "broadcast",
   "split_payment_request",
-  "support_escalated",
-  "support_reply",
   "trip_needs_customer_action",
   "verification_status",
   "account_security",
@@ -1160,6 +1158,8 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
   ];
 
   const isVerifiedCust = await isVerifiedCustomer(customerId);
+  const custUserSnap = await db().collection("users").doc(customerId).get();
+  const custSequentialId = String(custUserSnap.data()?.sequentialId ?? "").trim();
   const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
   const isHideCustomerPhone = maskedPhoneMap.phoneMasked === true;
   const safeCustomerPhone = isHideCustomerPhone && customerPhone ? maskPhone(customerPhone) : customerPhone;
@@ -1167,12 +1167,14 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
 
   const tripDocPayload: Record<string, any> = {
     customerId,
+    ...(custSequentialId ? { customerSequentialId: custSequentialId } : {}),
     customerName,
     customerPhone: safeCustomerPhone,
     statusHistory: initialStatusHistory,
     tripBooker: {
       uid: customerId,
       customerId,
+      ...(custSequentialId ? { sequentialId: custSequentialId } : {}),
       name: customerName,
       fullName: customerName,
       phone: safeCustomerPhone,
@@ -2069,7 +2071,14 @@ function isPingTarget(
   driverId: string
 ): boolean {
   if (data.status !== "WAITING_FOR_ACCEPTANCE") return false;
-  return data.pingDriverId === driverId;
+  if (data.pingDriverId === driverId) return true;
+  if (Array.isArray(data.pingDriverIds) && data.pingDriverIds.includes(driverId)) {
+    return true;
+  }
+  if (Array.isArray(data.reassignedPoolDriverIds) && data.reassignedPoolDriverIds.includes(driverId)) {
+    return true;
+  }
+  return false;
 }
 
 export async function requirePingedDriver(
@@ -2111,9 +2120,19 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
     const rawPhone = String(d.phoneNumberE164 ?? d.phoneNumber ?? d.phone ?? "");
     const hidePhone = await hidePhonesEnabled(driverId);
     const phone = hidePhone ? (rawPhone ? maskPhone(rawPhone) : "") : rawPhone;
+    const fullName = String(d.fullName ?? d.name ?? "Driver");
+    let seqId = String(d.sequentialId ?? "").trim();
+    if (!seqId) {
+      try {
+        const uDoc = await db().collection("users").doc(driverId).get();
+        seqId = String(uDoc.data()?.sequentialId ?? "").trim();
+      } catch { /* optional */ }
+    }
     return {
       driverId,
-      fullName: String(d.fullName ?? d.name ?? "Driver"),
+      sequentialId: seqId,
+      name: fullName,
+      fullName,
       photoUrl: String(d.photoUrl ?? ""),
       rating: Number(d.rating ?? 0),
       phone,
@@ -2125,7 +2144,7 @@ async function driverSnapshot(driverId: string): Promise<Record<string, unknown>
       vehicleColor: String(vehicle.color ?? ""),
     };
   } catch {
-    return { driverId, fullName: "Driver", phone: "" };
+    return { driverId, sequentialId: "", name: "Driver", fullName: "Driver", phone: "" };
   }
 }
 
@@ -2385,7 +2404,13 @@ export const acceptTrip = guardedOnCall(async (request) => {
       status: "DRIVER_ACCEPTED",
       driver: snapshot,
       driverId: driverId,
+      driverName: String(snapshot.fullName ?? "Driver"),
+      driverPhone: String(snapshot.phone ?? ""),
+      vehiclePlate: String(snapshot.plateNumber ?? ""),
+      driverSequentialId: String(snapshot.sequentialId ?? ""),
       isPoolOrder: isPoolClaim,
+      isHubReassignedPool: false,
+      reassignedPoolDriverIds: [],
       dispatchTier: data.dispatchTier ?? null,
       cancellationSource: null,
       cancellationReason: null,
@@ -2463,6 +2488,7 @@ export const acceptTrip = guardedOnCall(async (request) => {
 
   return { ok: true };
 });
+
 
 /**
  * Driver declines a Stage 1 ping → streak breaks, then dispatch continues
@@ -2556,6 +2582,7 @@ export const declineTrip = guardedOnCall(async (request) => {
   return { ok: true };
 });
 
+
 /** Driver GPS heartbeat → powers the customer's live OSM driver marker.
  *
  * Mock Location Guard: heartbeats flagged `isMocked` (GPS spoofing) are
@@ -2605,6 +2632,7 @@ export const updateDriverLocation = guardedOnCall(async (request) => {
   }
   return { ok: true };
 });
+
 
 const DRIVER_TRANSITIONS: Record<string, string[]> = {
   DRIVER_ACCEPTED: ["DRIVER_ARRIVING", "DRIVER_ARRIVED"],
@@ -2926,6 +2954,7 @@ export const advanceTripStatus = guardedOnCall(async (request) => {
   }
   return { ok: true };
 });
+
 
 // ── Customer actions ───────────────────────────────────────────────────────
 
@@ -3771,6 +3800,7 @@ export const rejectBid = guardedOnCall(async (request) => {
   return { ok: true };
 });
 
+
 /** Customer accepts a driver's bid via an atomic Firestore Transaction */
 export const acceptBid = guardedOnCall(async (request) => {
   if (!request.auth) {
@@ -3939,6 +3969,10 @@ export const acceptBid = guardedOnCall(async (request) => {
       status: "DRIVER_ACCEPTED",
       driver: driverPayload,
       driverId,
+      driverName: String(driverPayload.fullName ?? "Driver"),
+      driverPhone: String(driverPayload.phone ?? ""),
+      vehiclePlate: String(driverPayload.plateNumber ?? ""),
+      driverSequentialId: String((driverPayload as any).sequentialId ?? ""),
       isPoolOrder: isPoolBid,
       cancellationSource: null,
       cancellationReason: null,
@@ -4000,6 +4034,7 @@ export const acceptBid = guardedOnCall(async (request) => {
 
   return { ok: true };
 });
+
 
 /** Customer raises the offered price / fare to attract drivers faster */
 export const increaseTripFare = guardedOnCall(async (request) => {
@@ -4418,6 +4453,7 @@ export const verifyDeliveryPin = guardedOnCall(async (request) => {
 
   return { ok: true };
 });
+
 
 // ── Hub Admin Dispute Actions ──────────────────────────────────────────────
 
@@ -4872,6 +4908,7 @@ export const submitCancellationFeedback = guardedOnCall(async (request) => {
   return { ok: true };
 });
 
+
 /**
  * Submit post-trip star rating and update rated user's cumulative profile metrics.
  *
@@ -4911,7 +4948,7 @@ export const submitTripRating = guardedOnCall(async (request) => {
     throw new HttpsError("not-found", "Trip not found.");
   }
   const tripData = tripSnap.data() || {};
-  const customerId = String(tripData.customerId ?? "").trim();
+  const customerId = String(tripData.customerId ?? tripData.userId ?? "").trim();
   const driverId = String(tripData.driver?.driverId ?? tripData.driverId ?? "").trim();
 
   const isCallerCustomer = raterId === customerId;
@@ -4938,6 +4975,7 @@ export const submitTripRating = guardedOnCall(async (request) => {
   const ratingRef = db().collection("ratings").doc(ratingDocId);
   const userRef = db().collection("users").doc(ratedUserId);
   const driverRef = isRatedUserDriver ? db().collection("drivers").doc(ratedUserId) : null;
+  const lowRatingRef = rating < 3 ? db().collection("low_rating_reviews").doc(ratingDocId) : null;
 
   try {
     await db().runTransaction(async (tx) => {
@@ -4949,6 +4987,8 @@ export const submitTripRating = guardedOnCall(async (request) => {
 
       const userSnap = await tx.get(userRef);
       const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+      const driverSnap = driverRef ? await tx.get(driverRef) : null;
+      const driverData = driverSnap?.exists ? (driverSnap.data() || {}) : {};
 
       // 2. Compute updated aggregates
       const currentSum = Number(userData.totalRatingSum || 0);
@@ -4957,6 +4997,7 @@ export const submitTripRating = guardedOnCall(async (request) => {
       const newSum = currentSum + rating;
       const newCount = currentCount + 1;
       const newAverage = Math.round((newSum / newCount) * 10) / 10;
+      const newPercentage = Math.round((newSum / (newCount * 5)) * 100);
 
       // 3. ALL WRITES AFTER ALL READS
       tx.set(ratingRef, {
@@ -4967,37 +5008,96 @@ export const submitTripRating = guardedOnCall(async (request) => {
         rating,
         comment,
         lowRatingReasons,
-        isLowRating: rating <= 3,
+        isLowRating: rating < 3,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
       tx.set(
         userRef,
         {
-          totalRatingSum: admin.firestore.FieldValue.increment(rating),
-          totalRatingCount: admin.firestore.FieldValue.increment(1),
+          totalRatingSum: newSum,
+          totalRatingCount: newCount,
           averageRating: newAverage,
+          ratingPercentage: newPercentage,
         },
         { merge: true }
       );
 
       // Mirror to drivers/{ratedUserId} if rated party is a driver
       if (driverRef) {
+        const dSum = Number(driverData.totalRatingSum ?? currentSum ?? 0);
+        const dCount = Number(driverData.totalRatingCount ?? currentCount ?? 0);
+        const dNewSum = dSum + rating;
+        const dNewCount = dCount + 1;
+        const dNewAverage = Math.round((dNewSum / dNewCount) * 10) / 10;
+        const dNewPercentage = Math.round((dNewSum / (dNewCount * 5)) * 100);
+
         tx.set(
           driverRef,
           {
-            totalRatingSum: admin.firestore.FieldValue.increment(rating),
-            totalRatingCount: admin.firestore.FieldValue.increment(1),
-            averageRating: newAverage,
-            rating: newAverage,
+            totalRatingSum: dNewSum,
+            totalRatingCount: dNewCount,
+            averageRating: dNewAverage,
+            rating: dNewAverage,
+            ratingPercentage: dNewPercentage,
           },
           { merge: true }
         );
+      }
+
+      // Flag and route strictly < 3 star ratings (1 or 2 stars) to Hub review queue
+      if (lowRatingRef) {
+        const customerName = String(tripData.customerName ?? "").trim();
+        const customerPhone = String(tripData.customerPhone ?? "").trim();
+        const driverName = String(tripData.driver?.fullName ?? tripData.driverName ?? "").trim();
+        const driverPhone = String(tripData.driver?.phoneNumber ?? tripData.driverPhone ?? "").trim();
+
+        tx.set(lowRatingRef, {
+          ratingId: ratingDocId,
+          tripId,
+          sequentialTripId: String(tripData.sequentialId ?? "").trim(),
+          rating,
+          comment,
+          lowRatingReasons,
+          raterId,
+          raterRole: isCallerCustomer ? "customer" : "driver",
+          raterName: isCallerCustomer ? customerName : driverName,
+          raterPhone: isCallerCustomer ? customerPhone : driverPhone,
+          ratedUserId,
+          ratedUserRole: isRatedUserDriver ? "driver" : "customer",
+          ratedUserName: isRatedUserDriver
+            ? (driverName || String(driverData.fullName ?? userData.fullName ?? "").trim())
+            : (customerName || String(userData.fullName ?? "").trim()),
+          ratedUserPhone: isRatedUserDriver
+            ? (driverPhone || String(driverData.phoneNumber ?? userData.phoneNumber ?? "").trim())
+            : (customerPhone || String(userData.phoneNumber ?? "").trim()),
+          customerId,
+          customerName,
+          customerPhone,
+          driverId,
+          driverName,
+          driverPhone,
+          serviceType: String(tripData.serviceType ?? "ride"),
+          tripStatus: String(tripData.status ?? ""),
+          deliveryPinVerified: tripData.deliveryPinVerified === true,
+          deliveryPinSkipped: tripData.deliveryPinSkipped === true,
+          dropoffApprovalStatus: String(tripData.dropoffApprovalStatus ?? ""),
+          pickupAddress: String(tripData.pickupAddress ?? ""),
+          dropoffAddress: String(tripData.dropoffAddress ?? ""),
+          fareAmount: Number(tripData.fareAmount ?? 0),
+          countryCode: String(tripData.countryCode ?? ""),
+          reviewStatus: "pending",
+          resolutionNote: "",
+          reviewedBy: "",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
     });
 
     return { ok: true, ratingDocId };
   } catch (err: any) {
+    if (err instanceof HttpsError) throw err;
     console.error(`submitTripRating[${ratingDocId}] error:`, err);
     throw new HttpsError("internal", "Failed to submit rating.");
   }
@@ -5112,6 +5212,7 @@ export const skipDeliveryPin = guardedOnCall(async (request) => {
   return { ok: true };
 });
 
+
 /** Records driver arrival timestamp at drop-off for waiting & billing tracking. */
 export const recordDropoffArrival = guardedOnCall(async (request) => {
   if (!request.auth) {
@@ -5141,6 +5242,7 @@ export const recordDropoffArrival = guardedOnCall(async (request) => {
   });
   return { ok: true };
 });
+
 
 /**
  * Driver requests customer approval for completing an out-of-range drop-off.
@@ -5373,16 +5475,20 @@ export const respondDropoffApproval = guardedOnCall(async (request) => {
   });
 
   if (approved && snapAfterData) {
-    const fromStatus = String((snapAfterData as any)?.statusHistory?.slice(-2)?.[0]?.from ?? "IN_PROGRESS");
-    logTripTransition({
-      tripId,
-      from: fromStatus,
-      to: "COMPLETED",
-      actor: customerId,
-      role: "customer",
-      reason: "remote_customer_dropoff_approved",
-      timestamp: nowMs(),
-    });
+    try {
+      const fromStatus = String((snapAfterData as any)?.statusHistory?.slice(-2)?.[0]?.from ?? "IN_PROGRESS");
+      logTripTransition({
+        tripId,
+        from: fromStatus,
+        to: "COMPLETED",
+        actor: customerId,
+        role: "customer",
+        reason: "remote_customer_dropoff_approved",
+        timestamp: nowMs(),
+      });
+    } catch (e) {
+      console.warn(`respondDropoffApproval[${tripId}]: logTripTransition warning: ${e}`);
+    }
 
     try {
       await handleTripCompletion(tripId, snapAfterData);
@@ -5475,4 +5581,102 @@ export const cancelDropoffApprovalRequest = guardedOnCall(async (request) => {
   }
   return { ok: true };
 });
+
+/**
+ * Callable Function: hubReassignTrip
+ *
+ * Allows Hub staff / admin to re-assign a pending or active order to one or
+ * multiple drivers in the area on a first-to-pick basis.
+ * Wallet balance enforcement still runs atomically on driver acceptance inside `acceptTrip`.
+ */
+export const hubReassignTrip = guardedOnCall(async (request) => {
+  await assertHubStaffOrAdmin(request.auth);
+  const adminUid = request.auth!.uid;
+  const tripId = String(request.data?.tripId ?? "").trim();
+  const rawDriverIds = Array.isArray(request.data?.driverIds) ? request.data.driverIds : [];
+  const driverIds: string[] = Array.from(
+    new Set(
+      rawDriverIds
+        .map((id: unknown) => String(id).trim())
+        .filter((id: string) => id.length > 0)
+    )
+  );
+  const reason = String(request.data?.reason ?? "Re-assigned by Hub").trim();
+
+  if (!tripId) throw new HttpsError("invalid-argument", "tripId is required.");
+  if (driverIds.length === 0) {
+    throw new HttpsError("invalid-argument", "Select at least one driver.");
+  }
+  if (driverIds.length > 50) {
+    throw new HttpsError("invalid-argument", "Maximum 50 drivers per dispatch.");
+  }
+
+  const ref = db().collection("trips").doc(tripId);
+  let tripSnapshotData: admin.firestore.DocumentData | null = null;
+  await db().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError("not-found", "Trip not found.");
+    const data = snap.data()!;
+    const status = String(data.status ?? "").toUpperCase();
+    if (status === "COMPLETED" || status.startsWith("CANCELLED")) {
+      throw new HttpsError(
+        "failed-precondition",
+        `Cannot re-assign a ${status} trip.`
+      );
+    }
+    tripSnapshotData = data;
+    tx.update(ref, {
+      status: "WAITING_FOR_ACCEPTANCE",
+      pingDriverId: driverIds[0],
+      pingDriverIds: driverIds,
+      reassignedPoolDriverIds: driverIds,
+      isHubReassignedPool: true,
+      pingExpiresAt: nowMs() + 5 * 60 * 1000,
+      driver: null,
+      driverId: null,
+      driverName: null,
+      driverPhone: null,
+      vehiclePlate: null,
+      driverSequentialId: null,
+      cancellationSource: null,
+      cancellationReason: null,
+      reassignedBy: adminUid,
+      reassignmentReason: reason,
+      reassignedAt: admin.firestore.FieldValue.serverTimestamp(),
+      reassignmentCount: admin.firestore.FieldValue.increment(1),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  const pickupAddress = String((tripSnapshotData as any)?.pickupAddress ?? "Pickup location");
+  const dropoffAddress = String((tripSnapshotData as any)?.dropoffAddress ?? "Drop-off location");
+  const fareFormatted = String((tripSnapshotData as any)?.fareFormatted ?? "");
+  const offerTitle = fareFormatted
+    ? `Re-assigned Order • ${fareFormatted}`
+    : "New Re-assigned Order Available";
+  const offerBody = `First to pick wins • Pickup: ${pickupAddress}\nDrop-off: ${dropoffAddress}`;
+
+  await Promise.allSettled(
+    driverIds.map((dId) =>
+      notifyCustomer(
+        dId,
+        tripId,
+        offerTitle,
+        offerBody,
+        "new_trip_offer",
+        {
+          tripId,
+          type: "new_trip_offer",
+          reassigned: "true",
+          pickupAddress,
+          dropoffAddress,
+        },
+        `driver_${dId}`
+      )
+    )
+  );
+
+  return { ok: true, tripId, dispatchedCount: driverIds.length };
+});
+
 

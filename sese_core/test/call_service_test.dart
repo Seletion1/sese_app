@@ -6,118 +6,60 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('CallConfig Model & Serialization Tests', () {
-    test('defaults to smartFallback, 10s timeout, and Google public STUN servers', () {
+    test('defaults to WebRTC provider and Google public STUN servers', () {
       const config = CallConfig();
 
-      expect(config.routingMode, equals(CallRoutingMode.smartFallback));
       expect(config.providerType, equals(CallProviderType.webrtc));
-      expect(config.fallbackTimeoutSeconds, equals(10));
       expect(config.stunServers, contains('stun:stun.l.google.com:19302'));
       expect(config.stunServers, contains('stun:stun1.l.google.com:19302'));
-      expect(config.hasValidAgoraCredentials, isFalse);
+      expect(config.turnServers, isEmpty);
+      expect(config.enableDiagnostics, isFalse);
     });
 
-    test('validates Agora credentials correctly', () {
-      const invalidAgora = CallConfig(agoraAppId: '');
-      expect(invalidAgora.hasValidAgoraCredentials, isFalse);
-
-      const validAgora = CallConfig(agoraAppId: 'cd70ed7adfca42f7bcadc14259a939c4');
-      expect(validAgora.hasValidAgoraCredentials, isTrue);
-    });
-
-    test('evaluates isAgoraLimitReached correctly', () {
-      const belowLimit = CallConfig(
-        agoraCallsUsedMinutesThisMonth: 9800,
-        agoraAutoFailoverThresholdMinutes: 9900,
-      );
-      expect(belowLimit.isAgoraLimitReached, isFalse);
-
-      const atLimit = CallConfig(
-        agoraCallsUsedMinutesThisMonth: 9900,
-        agoraAutoFailoverThresholdMinutes: 9900,
-      );
-      expect(atLimit.isAgoraLimitReached, isTrue);
-
-      const overLimit = CallConfig(
-        agoraCallsUsedMinutesThisMonth: 9950,
-        agoraAutoFailoverThresholdMinutes: 9900,
-      );
-      expect(overLimit.isAgoraLimitReached, isTrue);
-    });
-
-    test('serializes toMap and deserializes fromMap with all 3 routing modes (omits secret certificate)', () {
-      // 1. smartFallback
+    test('serializes toMap and deserializes fromMap with STUN and TURN servers', () {
       const c1 = CallConfig(
-        routingMode: CallRoutingMode.smartFallback,
-        fallbackTimeoutSeconds: 15,
-        agoraAppId: 'cd70ed7adfca42f7bcadc14259a939c4',
-        agoraAppCertificate: '5e0b3b9e939f4338be3e531e0933831f',
-        agoraCallsUsedMinutesThisMonth: 500,
+        stunServers: ['stun:stun.l.google.com:19302'],
+        turnServers: [
+          {
+            'urls': 'turn:relay.sesetech.com:3478?transport=udp',
+            'username': 'u',
+            'credential': 'p',
+          },
+        ],
+        enableDiagnostics: true,
       );
       final map1 = c1.toMap();
-      expect(map1['routingMode'], equals('smartFallback'));
       expect(map1['providerType'], equals('webrtc'));
-      expect(map1['fallbackTimeoutSeconds'], equals(15));
-      expect(map1['agoraAppId'], equals('cd70ed7adfca42f7bcadc14259a939c4'));
-      expect(map1.containsKey('agoraAppCertificate'), isFalse);
+      expect(map1['stunServers'], equals(['stun:stun.l.google.com:19302']));
+      expect(map1['enableDiagnostics'], isTrue);
 
-      final deserialized1 = CallConfig.fromMap(map1);
-      expect(deserialized1.routingMode, equals(CallRoutingMode.smartFallback));
-      expect(deserialized1.fallbackTimeoutSeconds, equals(15));
-      expect(deserialized1.agoraAppId, equals('cd70ed7adfca42f7bcadc14259a939c4'));
-      expect(deserialized1.agoraAppCertificate, isNull);
-
-      // 2. customP2pOnly
-      const c2 = CallConfig(routingMode: CallRoutingMode.customP2pOnly);
-      final deserialized2 = CallConfig.fromMap(c2.toMap());
-      expect(deserialized2.routingMode, equals(CallRoutingMode.customP2pOnly));
-      expect(deserialized2.providerType, equals(CallProviderType.webrtc));
-
-      // 3. thirdPartyOnly
-      const c3 = CallConfig(routingMode: CallRoutingMode.thirdPartyOnly);
-      final deserialized3 = CallConfig.fromMap(c3.toMap());
-      expect(deserialized3.routingMode, equals(CallRoutingMode.thirdPartyOnly));
-      expect(deserialized3.providerType, equals(CallProviderType.agora));
-    });
-
-    test('deserialization backward compatibility with legacy providerType and aliases', () {
-      final legacyAgoraMap = {'providerType': 'agora'};
-      final cAgora = CallConfig.fromMap(legacyAgoraMap);
-      expect(cAgora.routingMode, equals(CallRoutingMode.thirdPartyOnly));
-
-      final legacyWebrtcMap = {'providerType': 'webrtc'};
-      final cWebrtc = CallConfig.fromMap(legacyWebrtcMap);
-      expect(cWebrtc.routingMode, equals(CallRoutingMode.smartFallback));
-
-      final aliasAutoMap = {'routingMode': 'auto'};
-      final cAuto = CallConfig.fromMap(aliasAutoMap);
-      expect(cAuto.routingMode, equals(CallRoutingMode.smartFallback));
-
-      final aliasForceAgora = {'routingMode': 'force_agora'};
-      final cForceAgora = CallConfig.fromMap(aliasForceAgora);
-      expect(cForceAgora.routingMode, equals(CallRoutingMode.thirdPartyOnly));
+      final deserialized = CallConfig.fromMap(map1);
+      expect(deserialized.providerType, equals(CallProviderType.webrtc));
+      expect(deserialized.stunServers, equals(['stun:stun.l.google.com:19302']));
+      expect(deserialized.turnServers.length, equals(1));
+      expect(
+        deserialized.turnServers.first['urls'],
+        equals('turn:relay.sesetech.com:3478?transport=udp'),
+      );
+      expect(deserialized.enableDiagnostics, isTrue);
     });
   });
 
   group('CallConfigRepository Tests', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({
-        'sese_call_routing_mode': 'customP2pOnly',
-        'sese_call_fallback_timeout': 12,
-        'sese_call_agora_app_id': 'cd70ed7adfca42f7bcadc14259a939c4',
-        'sese_call_agora_used_mins': 120,
+        'sese_call_stun_servers': ['stun:stun.l.google.com:19302'],
+        'sese_call_enable_diagnostics': true,
       });
     });
 
-    test('loads saved preferences on initialize and purges legacy AppSign', () async {
+    test('loads saved preferences on initialize', () async {
       final repo = CallConfigRepository.instance;
       final config = await repo.loadConfig();
 
-      expect(config.routingMode, equals(CallRoutingMode.customP2pOnly));
-      expect(config.fallbackTimeoutSeconds, equals(12));
-      expect(config.agoraAppId, equals('cd70ed7adfca42f7bcadc14259a939c4'));
-      expect(config.agoraCallsUsedMinutesThisMonth, equals(120));
-      expect(config.agoraAppCertificate, isNull);
+      expect(config.providerType, equals(CallProviderType.webrtc));
+      expect(config.stunServers, contains('stun:stun.l.google.com:19302'));
+      expect(config.enableDiagnostics, isTrue);
     });
 
     test('saveConfig updates currentConfig and notifies listeners', () async {
@@ -125,20 +67,18 @@ void main() {
       await repo.loadConfig();
 
       final updated = repo.currentConfig.copyWith(
-        routingMode: CallRoutingMode.smartFallback,
-        fallbackTimeoutSeconds: 8,
+        enableDiagnostics: false,
       );
 
       final events = <CallConfig>[];
       final sub = repo.configStream.listen(events.add);
 
       await repo.saveConfig(updated);
-      expect(repo.currentConfig.routingMode, equals(CallRoutingMode.smartFallback));
-      expect(repo.currentConfig.fallbackTimeoutSeconds, equals(8));
+      expect(repo.currentConfig.enableDiagnostics, isFalse);
 
       await Future.delayed(const Duration(milliseconds: 10));
       expect(events.isNotEmpty, isTrue);
-      expect(events.last.routingMode, equals(CallRoutingMode.smartFallback));
+      expect(events.last.enableDiagnostics, isFalse);
 
       await sub.cancel();
     });
@@ -158,7 +98,7 @@ void main() {
     });
   });
 
-  group('CallServiceManager Routing & Fallback State Tests', () {
+  group('CallServiceManager WebRTC State Tests', () {
     late CallServiceManager manager;
 
     setUp(() async {
@@ -174,37 +114,24 @@ void main() {
       await manager.clearUserSession();
     });
 
-    test('initializes with default routing mode smartFallback', () {
-      expect(manager.activeRoutingMode, equals(CallRoutingMode.smartFallback));
-      expect(manager.isFallbackActive, isFalse);
+    test('initializes with WebRTC provider and idle state', () {
+      expect(manager.providerType, equals(CallProviderType.webrtc));
       expect(manager.currentState, equals(CallState.idle));
       expect(manager.isInitialized, isTrue);
       expect(manager.currentUserId, equals('test_user_1'));
     });
 
-    test('switchRoutingMode updates active routing policy', () async {
-      await manager.switchRoutingMode(CallRoutingMode.thirdPartyOnly);
-      expect(manager.activeRoutingMode, equals(CallRoutingMode.thirdPartyOnly));
-
-      await manager.switchRoutingMode(CallRoutingMode.customP2pOnly);
-      expect(manager.activeRoutingMode, equals(CallRoutingMode.customP2pOnly));
-
-      await manager.switchRoutingMode(CallRoutingMode.smartFallback);
-      expect(manager.activeRoutingMode, equals(CallRoutingMode.smartFallback));
-    });
-
-    test('rejectCall and endCall cancel any pending fallback timers and reset state', () async {
+    test('rejectCall and endCall reset state cleanly', () async {
       await manager.rejectCall('call_test_1', reason: 'declined');
-      expect(manager.isFallbackActive, isFalse);
+      expect(manager.currentState, equals(CallState.idle));
 
       await manager.endCall(reason: 'user_hangup');
-      expect(manager.isFallbackActive, isFalse);
+      expect(manager.currentState, equals(CallState.ended));
     });
 
     test('clearUserSession resets state to idle and clears credentials', () async {
       await manager.clearUserSession();
       expect(manager.currentState, equals(CallState.idle));
-      expect(manager.isFallbackActive, isFalse);
       expect(manager.currentUserId, isNull);
       expect(manager.isInitialized, isFalse);
     });

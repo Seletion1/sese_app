@@ -40,13 +40,36 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   final CallServiceManager _callManager = CallServiceManager.instance;
   final Set<String> _handledCallIds = {};
   StreamSubscription<CallSession?>? _incomingSub;
+  StreamSubscription<CallState>? _callStateSub;
+  StreamSubscription<Duration>? _callDurationSub;
   CallSession? _incomingSession;
+  CallState _callState = CallState.idle;
+  Duration _callDuration = Duration.zero;
   Timer? _ringTimer;
   Timer? _expiryTimer;
 
   @override
   void initState() {
     super.initState();
+    _callState = _callManager.currentState;
+    _callDuration = _callManager.currentDuration;
+    _callManager.isCallUiExpanded.addListener(_onCallUiExpandedChanged);
+
+    _callStateSub = _callManager.stateStream.listen((state) {
+      if (!mounted) return;
+      setState(() {
+        _callState = state;
+        if (state == CallState.idle || state == CallState.ended) {
+          _callDuration = Duration.zero;
+        }
+      });
+    });
+
+    _callDurationSub = _callManager.durationStream.listen((duration) {
+      if (!mounted) return;
+      setState(() => _callDuration = duration);
+    });
+
     _incomingSub = _callManager.incomingCallStream.listen((session) {
       if (!mounted) return;
       if (session != null && session.state == CallState.incoming) {
@@ -164,11 +187,77 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _callManager.rejectCall(session.callId, reason: 'declined_from_overlay');
   }
 
+  void _onCallUiExpandedChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _hasMinimizedActiveCall {
+    final active = _callState == CallState.outgoing ||
+        _callState == CallState.connecting ||
+        _callState == CallState.connected ||
+        _callState == CallState.reconnecting;
+    return active &&
+        !_callManager.isCallUiExpanded.value &&
+        _callManager.currentSession != null;
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  String _miniBarStatusLabel() {
+    switch (_callState) {
+      case CallState.outgoing:
+        return 'Ringing...';
+      case CallState.connecting:
+        return 'Connecting...';
+      case CallState.reconnecting:
+        return 'Reconnecting...';
+      case CallState.connected:
+        return _formatDuration(_callDuration);
+      default:
+        return 'In Call';
+    }
+  }
+
+  void _expandActiveCall() {
+    final session = _callManager.currentSession;
+    if (session == null) return;
+    final navState = widget.navKey?.currentState ??
+        IncomingCallOverlay.navigatorKey.currentState ??
+        Navigator.maybeOf(context);
+    if (navState == null) return;
+
+    final isCaller = session.callerId == _callManager.currentUserId;
+    final peerId = isCaller ? session.receiverId : session.callerId;
+    final peerName = isCaller ? session.receiverName : session.callerName;
+    final peerAvatar = isCaller ? session.receiverAvatar : session.callerAvatar;
+
+    navState.push(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => InAppCallScreen(
+          callId: session.callId,
+          targetUserId: peerId,
+          targetUserName: peerName,
+          targetUserAvatar: peerAvatar,
+          isIncoming: !isCaller,
+          metadata: session.metadata,
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _callManager.isCallUiExpanded.removeListener(_onCallUiExpandedChanged);
     _stopRingtone();
     _expiryTimer?.cancel();
     _incomingSub?.cancel();
+    _callStateSub?.cancel();
+    _callDurationSub?.cancel();
     unawaited(PushNotificationService.cancelIncomingCallNotification());
     super.dispose();
   }
@@ -295,6 +384,115 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+          )
+        else if (_hasMinimizedActiveCall)
+          Positioned(
+            top: topPadding + 8,
+            left: 16,
+            right: 16,
+            child: Material(
+              key: const Key('minimized_call_pill'),
+              elevation: 10,
+              borderRadius: BorderRadius.circular(28),
+              color: const Color(0xFF0F172A),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(28),
+                onTap: _expandActiveCall,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _callState == CallState.connected
+                              ? Colors.greenAccent
+                              : Colors.amberAccent,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              () {
+                                final s = _callManager.currentSession!;
+                                final isCaller =
+                                    s.callerId == _callManager.currentUserId;
+                                return isCaller ? s.receiverName : s.callerName;
+                              }(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              '${_miniBarStatusLabel()} • Tap to return to call',
+                              style: TextStyle(
+                                color: _callState == CallState.connected
+                                    ? Colors.greenAccent
+                                    : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('minimized_call_mute_button'),
+                        icon: Icon(
+                          _callManager.isMuted
+                              ? Icons.mic_off_rounded
+                              : Icons.mic_rounded,
+                          color: _callManager.isMuted
+                              ? Colors.amberAccent
+                              : Colors.white,
+                          size: 20,
+                        ),
+                        onPressed: () async {
+                          await _callManager.toggleMute(!_callManager.isMuted);
+                          if (mounted) setState(() {});
+                        },
+                        tooltip: _callManager.isMuted ? 'Unmute' : 'Mute',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      const SizedBox(width: 4),
+                      GestureDetector(
+                        key: const Key('minimized_call_hangup_button'),
+                        onTap: () {
+                          unawaited(_callManager.endCall(
+                              reason: 'User tapped hangup from mini-bar'));
+                        },
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFEF4444),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.call_end_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

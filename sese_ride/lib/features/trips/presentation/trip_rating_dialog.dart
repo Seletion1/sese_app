@@ -95,8 +95,8 @@ class _TripRatingDialogState extends State<TripRatingDialog> {
     'Other issue',
   ];
 
-  /// Whether the low-rating feedback section should be visible.
-  bool get _showLowRatingSection => _selectedRating <= 3;
+  /// Whether the low-rating feedback section should be visible (< 3 stars).
+  bool get _showLowRatingSection => _selectedRating < 3;
 
   @override
   void initState() {
@@ -249,7 +249,7 @@ class _TripRatingDialogState extends State<TripRatingDialog> {
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  color: _selectedRating <= 3
+                  color: _selectedRating < 3
                       ? Colors.red.shade600
                       : const Color(0xFFD97706),
                 ),

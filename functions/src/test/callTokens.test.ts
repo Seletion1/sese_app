@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { test, describe, beforeEach, afterEach } from "node:test";
 import { CallableRequest, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { getAgoraToken, recordCallDuration } from "../callTokens";
+import { getAgoraToken, getIceServers, recordCallDuration } from "../callTokens";
 
 describe("callTokens — Agora Token Generation, Isolation & Automatic Failover", () => {
   let store: Map<string, Record<string, unknown>> = new Map();
@@ -173,5 +173,26 @@ describe("callTokens — Agora Token Generation, Isolation & Automatic Failover"
 
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.durationMinutes, 3);
+  });
+
+  test("getIceServers returns STUN-only when no TURN configured and includes TURN when call_secrets has TURN", async () => {
+    const stunOnly = (await getIceServers.run(makeReq("user_101", {}))) as any;
+    assert.strictEqual(stunOnly.hasTurn, false);
+    assert.ok(Array.isArray(stunOnly.iceServers) && stunOnly.iceServers.length >= 5);
+
+    store.set("system_config/call_secrets", {
+      turnUrl: "turn:relay.sesetech.com:3478?transport=udp",
+      turnUsername: "sese_user",
+      turnCredential: "sese_pass",
+    });
+
+    const withTurn = (await getIceServers.run(makeReq("user_101", {}))) as any;
+    assert.strictEqual(withTurn.hasTurn, true);
+    const turnEntry = withTurn.iceServers.find((s: any) =>
+      String(s.urls || "").startsWith("turn:")
+    );
+    assert.ok(turnEntry);
+    assert.strictEqual(turnEntry.username, "sese_user");
+    assert.strictEqual(turnEntry.credential, "sese_pass");
   });
 });

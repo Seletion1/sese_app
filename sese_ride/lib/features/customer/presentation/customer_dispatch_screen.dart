@@ -1835,6 +1835,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         : (widget.focusedTitle ??
               (_selectedModeIndex == 1 ? 'Book a Ride' : 'Courier Delivery'));
 
+    final viewInsetsBottom = MediaQuery.of(context).viewInsets.bottom;
+    final hideStep1TopBar = _currentStep == 0 && !widget.showModeSelector;
+    final hideBottomControlsForKeyboard =
+        _currentStep == 0 && viewInsetsBottom > 0;
+
     return PopScope(
       // Only allow the system to pop the route on the first step; deeper
       // steps are consumed internally via onPopInvokedWithResult.
@@ -1848,47 +1853,54 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          // The 1-2-3 step counter lives HERE as a slim header badge
-          // (not a standalone row below) so the map canvas below reclaims
-          // the full ~64px block. The title flexes with ellipsis on narrow
-          // screens; the badge keeps a fixed mini size.
-          title: Row(
-            children: [
-              Flexible(
-                child: Text(
-                  title,
-                  overflow: TextOverflow.ellipsis,
+        resizeToAvoidBottomInset: _currentStep != 0,
+        appBar: hideStep1TopBar
+            ? null
+            : AppBar(
+                // The 1-2-3 step counter lives HERE as a slim header badge
+                // (not a standalone row below) so the map canvas below reclaims
+                // the full ~64px block. The title flexes with ellipsis on narrow
+                // screens; the badge keeps a fixed mini size.
+                title: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildHeaderStepBadge(),
+                  ],
                 ),
+                leading: BackButton(
+                  // Steps back sequentially (Step 3 → 2 → 1); pops to Home only
+                  // from the first step. Shared handler with PopScope + the
+                  // internal step "Back" buttons.
+                  onPressed: _handleBackNavigation,
+                ),
+                bottom: widget.showModeSelector ? _buildModeSelectorBar() : null,
               ),
-              const SizedBox(width: 8),
-              _buildHeaderStepBadge(),
+        body: SafeArea(
+          top: hideStep1TopBar,
+          bottom: false,
+          child: Column(
+            children: [
+              // Step 1 (locations) is a bounded, non-scrolling layout: the
+              // map preview below takes all remaining vertical space via
+              // Expanded. Steps 2-3 keep their scrolling content.
+              if (_currentStep == 0)
+                Expanded(child: _buildStep1Content())
+              else
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: _buildStepContent(),
+                  ),
+                ),
+              if (!hideBottomControlsForKeyboard) _buildControls(),
             ],
           ),
-          leading: BackButton(
-            // Steps back sequentially (Step 3 → 2 → 1); pops to Home only
-            // from the first step. Shared handler with PopScope + the
-            // internal step "Back" buttons.
-            onPressed: _handleBackNavigation,
-          ),
-          bottom: widget.showModeSelector ? _buildModeSelectorBar() : null,
-        ),
-        body: Column(
-          children: [
-            // Step 1 (locations) is a bounded, non-scrolling layout: the
-            // map preview below takes all remaining vertical space via
-            // Expanded. Steps 2-3 keep their scrolling content.
-            if (_currentStep == 0)
-              Expanded(child: _buildStep1Content())
-            else
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: _buildStepContent(),
-                ),
-              ),
-            _buildControls(),
-          ],
         ),
       ),
     );
@@ -2377,7 +2389,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -2387,23 +2399,23 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
             children: [
               const Icon(
                 Icons.circle,
-                size: 12,
+                size: 11,
                 color: Colors.green,
               ),
               Container(
                 width: 2,
-                height: 36,
-                margin: const EdgeInsets.symmetric(vertical: 4),
+                height: 28,
+                margin: const EdgeInsets.symmetric(vertical: 2),
                 color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
               ),
               const Icon(
                 Icons.location_on,
-                size: 16,
+                size: 15,
                 color: Colors.redAccent,
               ),
             ],
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
 
           // ── Middle Input Fields ──
           Expanded(
@@ -2425,7 +2437,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 3),
                       suffixIcon: (_pickupGeocoding ||
                               (_isLoadingSuggestions && _suggestingForPickup))
                           ? const SizedBox(
@@ -2467,7 +2479,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 3),
                       suffixIcon: ((_isLoadingSuggestions &&
                                   !_suggestingForPickup) ||
                               _dropoffGeocoding)
@@ -2526,7 +2538,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       key: const Key('pick_on_map_action_row'),
       onTap: () => _openPickOnMap(),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
           children: [
             Container(
@@ -2570,6 +2582,11 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final surfaceColor = isDark ? theme.colorScheme.surface : Colors.white;
+    final mq = MediaQuery.of(context);
+    final keyboardInset = mq.viewInsets.bottom;
+    final availableHeight = keyboardInset > 0
+        ? (mq.size.height - mq.padding.top - keyboardInset - 8).clamp(240.0, mq.size.height)
+        : mq.size.height * 0.72;
 
     return Material(
       color: surfaceColor,
@@ -2579,27 +2596,32 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
       clipBehavior: Clip.antiAlias,
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.70,
+          maxHeight: availableHeight,
         ),
         child: SingleChildScrollView(
+          padding: EdgeInsets.only(bottom: keyboardInset > 0 ? 6 : 0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (_selectedModeIndex == 0)
-                      _buildContextAwareModeSelector(),
+                      _buildContextAwareModeSelector(
+                        showInlineBack: !widget.showModeSelector,
+                      )
+                    else if (!widget.showModeSelector)
+                      _buildInlineRideBackRow(theme),
                     // ── Unified Route Input Container ──
                     _buildUnifiedRouteInputContainer(theme),
                   ],
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               // ── Clean "Pick on map" List Item ──
               _buildPickOnMapRow(theme),
               const Divider(height: 1, thickness: 0.8),
@@ -2680,53 +2702,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
 
     if (_suggestions.isEmpty) return const SizedBox.shrink();
 
-    final hasCached = _suggestions.any((s) => s.isFromCache);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Section Header Row (clean white background)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-          child: Row(
-            children: [
-              Icon(
-                hasCached ? Icons.history_rounded : Icons.search_rounded,
-                size: 14,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                hasCached ? 'Recent Places' : 'Search Results',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurfaceVariant,
-                  letterSpacing: 0.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // List of Suggestions
-        Flexible(
-          child: ListView.separated(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            physics: const ClampingScrollPhysics(),
-            itemCount: _suggestions.length,
-            separatorBuilder: (_, _) => Divider(
-              height: 1,
-              color: theme.dividerColor.withValues(alpha: 0.15),
-            ),
-            itemBuilder: (context, index) {
-              final s = _suggestions[index];
-              return _buildSuggestionTile(s, theme);
-            },
-          ),
-        ),
-      ],
+    return ListView.separated(
+      shrinkWrap: true,
+      padding: EdgeInsets.zero,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _suggestions.length,
+      separatorBuilder: (_, _) => Divider(
+        height: 1,
+        color: theme.dividerColor.withValues(alpha: 0.15),
+      ),
+      itemBuilder: (context, index) {
+        final s = _suggestions[index];
+        return _buildSuggestionTile(s, theme);
+      },
     );
   }
 
@@ -2768,7 +2756,7 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           ? _selectPickupSuggestion(s)
           : _selectSuggestion(s),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
           children: [
             Container(
@@ -3182,10 +3170,44 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
     }
   }
 
-  Widget _buildContextAwareModeSelector() {
+  Widget _buildInlineBackButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: isDark ? const Color(0xFF262626) : Colors.grey.shade100,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const Key('dispatch_inline_back_button'),
+        onTap: _handleBackNavigation,
+        child: const SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(Icons.arrow_back_rounded, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineRideBackRow(ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: SegmentedButton<bool>(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          _buildInlineBackButton(),
+          const SizedBox(width: 10),
+          Text(
+            widget.focusedTitle ?? 'Book a Ride',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContextAwareModeSelector({bool showInlineBack = false}) {
+    final segmented = SegmentedButton<bool>(
         showSelectedIcon: false,
         segments: const [
           ButtonSegment(
@@ -3242,7 +3264,19 @@ class _CustomerDispatchScreenState extends State<CustomerDispatchScreen> {
           _isSelectingSuggestion = false;
           _isSelectingPickupSuggestion = false;
         },
-      ),
+      );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: showInlineBack
+          ? Row(
+              children: [
+                _buildInlineBackButton(),
+                const SizedBox(width: 8),
+                Expanded(child: segmented),
+              ],
+            )
+          : segmented,
     );
   }
 

@@ -43,6 +43,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:node="remove" />
     <!-- Heads-up order & call alerts with wake-lock; USE_FULL_SCREEN_INTENT explicitly removed
          for Google Play policy compliance (heads-up notifications with Accept/Decline actions used instead). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -125,14 +126,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Android App Links for domain verification with sesetech.com and sese-ride.web.app -->
+            <!-- Android App Links for SeseRide deep links ONLY (/ride, /trip, /invite).
+                 Root domain (sesetech.com, www.sesetech.com), legal pages (/terms,
+                 /PrivacyPolicy, /delete), and the SESE App Hub (/apps/seseride/)
+                 remain 100% on the web so browsers open them normally. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="sesetech.com" />
-                <data android:scheme="https" android:host="www.sesetech.com" />
-                <data android:scheme="https" android:host="sese-ride.web.app" />
+                <data android:scheme="https" />
+                <data android:host="sesetech.com" />
+                <data android:host="www.sesetech.com" />
+                <data android:host="sese-ride.web.app" />
+                <data android:pathPrefix="/ride" />
+                <data android:pathPrefix="/trip" />
+                <data android:pathPrefix="/invite" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

@@ -390,6 +390,10 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
+                  // ── Rating Stats Card ───────────────────────────────────
+                  _DriverRatingCard(profile: profile),
+                  const SizedBox(height: 12),
+                  // ────────────────────────────────────────────────────────
                   _ReadOnlyField(
                     icon: Icons.person_outline,
                     label: 'Full Name',
@@ -1302,6 +1306,82 @@ class _ExpiryDateField extends StatelessWidget {
                 if (picked != null) onPicked(picked);
               },
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Driver Rating Stats Card
+// ---------------------------------------------------------------------------
+
+/// Shows the driver's real-time rating stats in a gold-accented card.
+/// Displayed above "Registration Details" on the driver profile screen.
+class _DriverRatingCard extends StatelessWidget {
+  final DriverProfile? profile;
+  const _DriverRatingCard({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile;
+    final hasRatings = p != null && p.totalRatingCount > 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.seseGold.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: AppColors.seseGold.withValues(alpha: 0.28)),
+      ),
+      child: hasRatings
+          ? Row(
+              children: [
+                const Icon(Icons.star_rounded,
+                    color: AppColors.seseGold, size: 22),
+                const SizedBox(width: 6),
+                Text(
+                  p.averageRating.toStringAsFixed(1),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.seseGold,
+                      ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '(${p.ratingPercentage.toStringAsFixed(0)}% star score)',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '• ${p.totalRatingCount} ${p.totalRatingCount == 1 ? "rating" : "ratings"}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Icon(Icons.star_outline,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'New Driver • 0 ratings',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color:
+                            Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
     );
   }
 }

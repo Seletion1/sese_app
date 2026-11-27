@@ -71,7 +71,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
 
-      expect(find.widgetWithText(AppBar, 'Send Item'), findsOneWidget);
+      expect(find.byKey(const Key('dispatch_inline_back_button')), findsOneWidget);
+      expect(find.text('Sending Package'), findsOneWidget);
       expect(find.text('Pick on map'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);
@@ -85,7 +86,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
 
-      expect(find.widgetWithText(AppBar, 'Receive Item'), findsOneWidget);
+      expect(find.byKey(const Key('dispatch_inline_back_button')), findsOneWidget);
+      expect(find.text('Receiving Package'), findsOneWidget);
       expect(find.text('Pick on map'), findsOneWidget);
       expect(find.text('Where to?'), findsOneWidget);
       expect(find.text('Package Delivery'), findsNothing);

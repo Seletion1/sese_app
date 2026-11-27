@@ -25,6 +25,17 @@ class SupportChatScreen extends StatefulWidget {
   /// Test seam: inject a stub service in widget tests.
   final SupportChatService? service;
 
+  /// Tracks the currently active support chat ID in foreground, or `null` if chat screen is not active.
+  static String? activeChatId;
+  static bool get isChatOpen => activeChatId != null;
+
+  /// Returns true if the user is currently viewing the specified support chat session in the foreground.
+  static bool isViewingChat(String? chatId) {
+    if (activeChatId == null) return false;
+    if (chatId == null || chatId.isEmpty) return true;
+    return activeChatId!.isEmpty || activeChatId == chatId;
+  }
+
   const SupportChatScreen({
     super.key,
     required this.user,
@@ -53,6 +64,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   @override
   void initState() {
     super.initState();
+    SupportChatScreen.activeChatId = '';
     _openSession();
   }
 
@@ -69,6 +81,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     _sessionFuture = future;
     future.then(
       (id) {
+        SupportChatScreen.activeChatId = id;
         if (mounted) setState(() => _chatId = id);
       },
       onError: (Object e) {
@@ -89,6 +102,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
   @override
   void dispose() {
+    SupportChatScreen.activeChatId = null;
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
