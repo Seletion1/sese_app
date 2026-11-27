@@ -4,6 +4,7 @@ import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../widgets/map_provider.dart';
+import '../driver/services/driver_wake_service.dart';
 import 'permission_item_model.dart';
 
 /// Result summary after executing permission bundle requests.
@@ -182,6 +183,19 @@ class PermissionOnboardingService {
         return await Permission.camera.request();
       }
 
+      if (item.permission == Permission.systemAlertWindow) {
+        if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+          return PermissionStatus.granted;
+        }
+        if (await DriverWakeService.instance.canDrawOverlays()) {
+          return PermissionStatus.granted;
+        }
+        await DriverWakeService.instance.openOverlaySettings();
+        return (await DriverWakeService.instance.canDrawOverlays())
+            ? PermissionStatus.granted
+            : PermissionStatus.denied;
+      }
+
       if (item.permission == Permission.photos) {
         if (defaultTargetPlatform == TargetPlatform.android) {
           // On Android: gallery selection uses system Photo Picker (no runtime permission).
@@ -249,6 +263,14 @@ class PermissionOnboardingService {
     try {
       if (item.permission == Permission.camera) {
         return await Permission.camera.status;
+      }
+      if (item.permission == Permission.systemAlertWindow) {
+        if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+          return PermissionStatus.granted;
+        }
+        return (await DriverWakeService.instance.canDrawOverlays())
+            ? PermissionStatus.granted
+            : PermissionStatus.denied;
       }
       if (item.permission == Permission.photos) {
         if (defaultTargetPlatform == TargetPlatform.android) {

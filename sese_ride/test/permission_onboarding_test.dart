@@ -28,18 +28,20 @@ void main() {
       expect(customerBundle[1].title, 'Notifications');
     });
 
-    test('bundleForDriver returns Precise Location, Notifications & Camera/Documents', () {
+    test('bundleForDriver returns Precise Location, Notifications, Camera & Display Over Other Apps', () {
       final driverBundle = PermissionItem.bundleForDriver();
-      expect(driverBundle.length, 3);
+      expect(driverBundle.length, 4);
       expect(driverBundle[0].id, 'precise_location');
       expect(driverBundle[1].id, 'notifications');
       expect(driverBundle[2].id, 'photos_storage');
       expect(driverBundle[2].title, 'Camera & Documents');
+      expect(driverBundle[3].id, 'overlay_bubble');
+      expect(driverBundle[3].title, 'Display Over Other Apps');
     });
 
     test('bundleForRole routes correct bundle for UserRole', () {
       expect(PermissionItem.bundleForRole(UserRole.customer).length, 2);
-      expect(PermissionItem.bundleForRole(UserRole.driver).length, 3);
+      expect(PermissionItem.bundleForRole(UserRole.driver).length, 4);
     });
   });
 

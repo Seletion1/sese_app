@@ -338,6 +338,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// Guards the server handshake so the UI can never self-assert status
   /// while a grant is in flight.
   bool _syncing = false;
+  VehicleModel? _pendingGoOnlineVehicleAfterOverlay;
 
   /// Connectivity reconnection listener for instant state re-synchronization.
   StreamSubscription? _networkReconnectSub;
@@ -610,6 +611,16 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
 
     if (foreground) {
       unawaited(PermissionOnboardingService.refreshLocationStatus());
+      final pendingVehicle = _pendingGoOnlineVehicleAfterOverlay;
+      if (pendingVehicle != null && !_isOnline) {
+        unawaited(() async {
+          final overlayOk = await DriverWakeService.instance.canDrawOverlays();
+          if (overlayOk && mounted && !_isOnline) {
+            _pendingGoOnlineVehicleAfterOverlay = null;
+            await _finalizeGoOnline(pendingVehicle);
+          }
+        }());
+      }
     }
 
     final nowPaused = backgrounded;
@@ -1699,6 +1710,53 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       if (!locationOk) {
         if (mounted) setState(() => _syncing = false);
         return;
+      }
+
+      if (DriverPresenceService.instance.isAndroidOverlaySupported) {
+        final overlayOk = await DriverWakeService.instance.canDrawOverlays();
+        if (!overlayOk) {
+          if (mounted) setState(() => _syncing = false);
+          _pendingGoOnlineVehicleAfterOverlay = selectedVehicle;
+          if (!mounted) return;
+          if (widget.user != null) {
+            await PermissionOnboardingScreen.showAsModal(
+              context,
+              user: widget.user!,
+              role: UserRole.driver,
+            );
+          } else {
+            final openSettings = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Display Over Other Apps Required'),
+                content: const Text(
+                  'To stay visible online with your floating SeSe bubble and '
+                  'receive instant incoming order pop-ups while outside the app, '
+                  'enable "Display over other apps" for SeSe Ride in Settings.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Open Settings'),
+                  ),
+                ],
+              ),
+            );
+            if (openSettings == true) {
+              await DriverWakeService.instance.openOverlaySettings();
+            }
+          }
+          final rechecked = await DriverWakeService.instance.canDrawOverlays();
+          if (!rechecked) {
+            return;
+          }
+          _pendingGoOnlineVehicleAfterOverlay = null;
+          if (mounted) setState(() => _syncing = true);
+        }
       }
 
       final fix = await _collectGpsFix();

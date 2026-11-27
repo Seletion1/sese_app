@@ -79,6 +79,15 @@ class PermissionItem {
         permission: Permission.camera,
         isMandatory: true,
       ),
+      PermissionItem(
+        id: 'overlay_bubble',
+        title: 'Display Over Other Apps',
+        description:
+            'Required to show your online SeSe bubble and pop up incoming order requests immediately while outside the app.',
+        icon: Icons.layers_rounded,
+        permission: Permission.systemAlertWindow,
+        isMandatory: true,
+      ),
     ];
   }
 
