@@ -286,6 +286,9 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   if (actionId == 'decline_call') {
     debugPrint('sese_ride: user declined call from notification banner.');
     final callId = data['callId'] ?? '';
+    unawaited(PushNotificationService.cancelIncomingCallNotification(
+      callId: callId.isEmpty ? null : callId,
+    ));
     if (callId.isNotEmpty) {
       unawaited(CallServiceManager.instance.rejectCall(callId, reason: 'declined_from_notification'));
     }
@@ -342,31 +345,23 @@ Future<void> _handlePushTap(Map<String, String> data) async {
   }
 
   if (type == 'incoming_call' || type == 'call' || type == 'voip_call') {
-    debugPrint('sese_ride: incoming call tap ($type, action=$actionId) — opening call screen.');
-    final callId = data['callId'] ?? '';
-    final callerId = data['callerId'] ?? '';
-    final callerName = data['callerName'] ?? 'Caller';
+    debugPrint('sese_ride: incoming call tap ($type, action=$actionId) — handling call action.');
+    final callId = (data['callId'] ?? '').trim();
+    final callerId = (data['callerId'] ?? '').trim();
+    final rawCallerName = (data['callerName'] ?? '').trim();
+    final callerName = rawCallerName.isEmpty ? 'Caller' : rawCallerName;
     final callerAvatar = data['callerAvatar'];
 
     if (callId.isNotEmpty) {
-      unawaited(PushNotificationService.cancelIncomingCallNotification());
-      final navState = IncomingCallOverlay.navigatorKey.currentState;
-      if (navState != null) {
-        navState.push(
-          MaterialPageRoute(
-            fullscreenDialog: true,
-            builder: (_) => InAppCallScreen(
-              callId: callId,
-              targetUserId: callerId,
-              targetUserName: callerName,
-              targetUserAvatar: callerAvatar,
-              isIncoming: true,
-            ),
-          ),
-        );
-      }
+      unawaited(PushNotificationService.cancelIncomingCallNotification(callId: callId));
+      await _ensureCallManagerInitializedForCurrentUser();
       if (actionId == 'accept_call') {
-        unawaited(CallServiceManager.instance.answerCall(callId));
+        _pushIncomingCallScreenIfNeeded(
+          callId: callId,
+          callerId: callerId,
+          callerName: callerName,
+          callerAvatar: callerAvatar,
+        );
       }
     }
     return;
@@ -475,17 +470,61 @@ StreamSubscription<Map<String, String>>? _nativeCallActionSub;
 
 void _ensureNativeCallActionListener() {
   DriverWakeService.instance.initialize();
+  PushNotificationService.onCancelNativeCallNotification =
+      DriverWakeService.instance.cancelCallNotification;
   _nativeCallActionSub ??= DriverWakeService.instance.incomingCallActionStream
       .listen(_handleNativeCallAction);
   WidgetsBinding.instance.addPostFrameCallback((_) async {
     final initial = await DriverWakeService.instance.consumeInitialCallAction();
     if (initial != null) {
-      _handleNativeCallAction(initial);
+      await _handleNativeCallAction(initial);
     }
   });
 }
 
-void _handleNativeCallAction(Map<String, String> payload) {
+Future<void> _ensureCallManagerInitializedForCurrentUser() async {
+  if (CallServiceManager.instance.isInitialized) return;
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await CallServiceManager.instance.initialize(
+      currentUserId: user.uid,
+      displayName: user.displayName,
+      avatarUrl: user.photoURL,
+    );
+  } catch (e) {
+    debugPrint('sese_ride: _ensureCallManagerInitializedForCurrentUser warning: $e');
+  }
+}
+
+void _pushIncomingCallScreenIfNeeded({
+  required String callId,
+  required String callerId,
+  required String callerName,
+  String? callerAvatar,
+}) {
+  if (CallServiceManager.instance.isCallUiExpanded.value &&
+      CallServiceManager.instance.currentSession?.callId == callId) {
+    return;
+  }
+  final navState = IncomingCallOverlay.navigatorKey.currentState;
+  if (navState == null) return;
+  navState.push(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => InAppCallScreen(
+        callId: callId,
+        targetUserId: callerId,
+        targetUserName: callerName,
+        targetUserAvatar:
+            (callerAvatar != null && callerAvatar.isNotEmpty) ? callerAvatar : null,
+        isIncoming: true,
+      ),
+    ),
+  );
+}
+
+Future<void> _handleNativeCallAction(Map<String, String> payload) async {
   final callId = (payload['callId'] ?? '').trim();
   if (callId.isEmpty) return;
   final action = (payload['action'] ?? 'open').trim();
@@ -494,23 +533,28 @@ void _handleNativeCallAction(Map<String, String> payload) {
   final callerName = rawCallerName.isEmpty ? 'Caller' : rawCallerName;
   final callerAvatar = (payload['callerAvatar'] ?? '').trim();
 
-  final navState = IncomingCallOverlay.navigatorKey.currentState;
-  if (navState != null) {
-    navState.push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => InAppCallScreen(
-          callId: callId,
-          targetUserId: callerId,
-          targetUserName: callerName,
-          targetUserAvatar: callerAvatar.isEmpty ? null : callerAvatar,
-          isIncoming: true,
-        ),
-      ),
+  unawaited(PushNotificationService.cancelIncomingCallNotification(callId: callId));
+
+  if (action == 'reject' || action == 'decline') {
+    await CallServiceManager.instance.rejectCall(
+      callId,
+      reason: 'declined_from_notification',
     );
+    return;
   }
+
+  await _ensureCallManagerInitializedForCurrentUser();
+
   if (action == 'accept') {
-    unawaited(CallServiceManager.instance.answerCall(callId));
+    // InAppCallScreen(isIncoming: true) calls answerCall(callId) in initState;
+    // do not invoke answerCall a second time here to avoid duplicate peer
+    // connections or racing ICE/signaling listeners.
+    _pushIncomingCallScreenIfNeeded(
+      callId: callId,
+      callerId: callerId,
+      callerName: callerName,
+      callerAvatar: callerAvatar,
+    );
   }
 }
 

@@ -36,7 +36,8 @@ class IncomingCallOverlay extends StatefulWidget {
   State<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
 }
 
-class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
+class _IncomingCallOverlayState extends State<IncomingCallOverlay>
+    with WidgetsBindingObserver {
   final CallServiceManager _callManager = CallServiceManager.instance;
   final Set<String> _handledCallIds = {};
   StreamSubscription<CallSession?>? _incomingSub;
@@ -47,10 +48,15 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   Duration _callDuration = Duration.zero;
   Timer? _ringTimer;
   Timer? _expiryTimer;
+  bool _isAppForeground = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _isAppForeground =
+        lifecycle == null || lifecycle == AppLifecycleState.resumed;
     _callState = _callManager.currentState;
     _callDuration = _callManager.currentDuration;
     _callManager.isCallUiExpanded.addListener(_onCallUiExpandedChanged);
@@ -61,6 +67,20 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
         _callState = state;
         if (state == CallState.idle || state == CallState.ended) {
           _callDuration = Duration.zero;
+        }
+        if (state == CallState.outgoing ||
+            state == CallState.connecting ||
+            state == CallState.connected ||
+            state == CallState.ended) {
+          if (_incomingSession != null) {
+            final oldCallId = _incomingSession!.callId;
+            _stopRingtone();
+            _expiryTimer?.cancel();
+            unawaited(PushNotificationService.cancelIncomingCallNotification(
+              callId: oldCallId,
+            ));
+            _incomingSession = null;
+          }
         }
       });
     });
@@ -77,9 +97,12 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
         if (_handledCallIds.contains(session.callId)) {
           return;
         }
-        // 2. Guard against showing banner when user is already in a call or call screen
-        if (_callManager.currentState != CallState.idle &&
-            _callManager.currentState != CallState.incoming) {
+        // 2. Guard against showing banner when user is actively in a call
+        final activeState = _callManager.currentState;
+        if (activeState == CallState.outgoing ||
+            activeState == CallState.connecting ||
+            activeState == CallState.connected ||
+            activeState == CallState.reconnecting) {
           return;
         }
         // 3. Guard against showing expired/stale calls (> 35s old)
@@ -91,22 +114,49 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
           setState(() => _incomingSession = session);
           _startRingtone();
           _startExpiryTimer(session);
-          unawaited(PushNotificationService.showIncomingCallNotification(
-            callId: session.callId,
-            callerId: session.callerId,
-            callerName: session.callerName,
-            callerAvatar: session.callerAvatar,
-          ));
+          if (!_isAppForeground) {
+            unawaited(PushNotificationService.showIncomingCallNotification(
+              callId: session.callId,
+              callerId: session.callerId,
+              callerName: session.callerName,
+              callerAvatar: session.callerAvatar,
+            ));
+          }
         }
       } else {
         if (_incomingSession != null) {
+          final oldCallId = _incomingSession!.callId;
           _stopRingtone();
           _expiryTimer?.cancel();
-          unawaited(PushNotificationService.cancelIncomingCallNotification());
+          unawaited(PushNotificationService.cancelIncomingCallNotification(
+            callId: oldCallId,
+          ));
           setState(() => _incomingSession = null);
         }
       }
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasForeground = _isAppForeground;
+    _isAppForeground = state == AppLifecycleState.resumed;
+    if (!wasForeground && _isAppForeground && _incomingSession != null) {
+      // User returned to foreground while call is ringing: dismiss redundant
+      // OS notification so the in-app banner handles Accept/Reject cleanly.
+      unawaited(PushNotificationService.cancelIncomingCallNotification(
+        callId: _incomingSession!.callId,
+      ));
+    } else if (wasForeground && !_isAppForeground && _incomingSession != null) {
+      // App moved to background while call is ringing: post notification banner.
+      final session = _incomingSession!;
+      unawaited(PushNotificationService.showIncomingCallNotification(
+        callId: session.callId,
+        callerId: session.callerId,
+        callerName: session.callerName,
+        callerAvatar: session.callerAvatar,
+      ));
+    }
   }
 
   void _startExpiryTimer(CallSession session) {
@@ -148,8 +198,14 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _handledCallIds.add(session.callId);
     _stopRingtone();
     _expiryTimer?.cancel();
-    unawaited(PushNotificationService.cancelIncomingCallNotification());
+    unawaited(PushNotificationService.cancelIncomingCallNotification(
+      callId: session.callId,
+    ));
     setState(() => _incomingSession = null);
+
+    if (_callManager.isCallUiExpanded.value) {
+      return;
+    }
 
     final navState = widget.navKey?.currentState ??
         IncomingCallOverlay.navigatorKey.currentState ??
@@ -181,7 +237,9 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     _handledCallIds.add(session.callId);
     _stopRingtone();
     _expiryTimer?.cancel();
-    unawaited(PushNotificationService.cancelIncomingCallNotification());
+    unawaited(PushNotificationService.cancelIncomingCallNotification(
+      callId: session.callId,
+    ));
     setState(() => _incomingSession = null);
     // ignore: discarded_futures
     _callManager.rejectCall(session.callId, reason: 'declined_from_overlay');
@@ -252,13 +310,16 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _callManager.isCallUiExpanded.removeListener(_onCallUiExpandedChanged);
     _stopRingtone();
     _expiryTimer?.cancel();
     _incomingSub?.cancel();
     _callStateSub?.cancel();
     _callDurationSub?.cancel();
-    unawaited(PushNotificationService.cancelIncomingCallNotification());
+    unawaited(PushNotificationService.cancelIncomingCallNotification(
+      callId: _incomingSession?.callId,
+    ));
     super.dispose();
   }
 

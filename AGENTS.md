@@ -72,6 +72,22 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-27 — Incoming Call Routing, Notification Accept Connection & Post-Call Cleanup (`sese_core`, `sese_ride`)
+
+- **1. Eliminated Duplicate `answerCall` Race on Notification Accept (`sese_ride/lib/main.dart`)**:
+  - Removed redundant `CallServiceManager.instance.answerCall(callId)` calls in `_handleNotificationTap` and `_handleNativeCallAction` after pushing `InAppCallScreen(isIncoming: true)` (since `InAppCallScreen.initState` already calls `_service.answerCall(widget.callId)`).
+  - Added `_ensureCallManagerInitializedForCurrentUser()` and `_pushIncomingCallScreenIfNeeded()` so cold-start notification accepts initialize `CallServiceManager` before pushing `InAppCallScreen`, while notification-body taps (`open`) bring the app to foreground without auto-answering.
+- **2. Idempotent Initialization & Full Post-Call / Error State Cleanup (`sese_core`)**:
+  - `WebRtcCallServiceImpl` & `CallServiceManager`: Made `initialize()` idempotent for the same `currentUserId` so `_AuthGateState` rebuilds never wipe active call state or re-subscribe mid-call; added `abortForFallback()` cleanup before `startCall`/`answerCall` and duplicate `answerCall(callId)` guards; moved `_currentSession = null` before `_setCallState(CallState.ended)` and ensured `CallState.error` triggers `endCall()` and transitions back to `CallState.idle`.
+  - `InAppCallScreen`: Calls `endCall()` when `CallState.error` is observed so media/signaling resources always dispose.
+- **3. Foreground vs. Background Banner & Native Notification Cancellation (`sese_core`, `sese_ride`)**:
+  - `IncomingCallOverlay`: Added `WidgetsBindingObserver` lifecycle tracking so foreground calls render the in-app Accept/Reject banner without stacking redundant OS notifications, backgrounded calls post notifications, and post-call `ended`/`error` states never block subsequent incoming calls.
+  - `PushNotificationService`, `DriverWakeService`, `MainActivity.kt`: Added `onCancelNativeCallNotification` hook and `cancelCallNotification` channel method so accepting, rejecting, or ending a call dismisses both Flutter (`888001`) and native Android (`88000 + ...`) call notifications immediately.
+- **4. Verification**:
+  - `sese_core`: `flutter analyze` 0 issues; `call_service_test.dart` & `push_notification_service_test.dart` 16/16 passed.
+  - `sese_ride`: `flutter analyze` 0 issues; `fast_wake_hydration_test.dart` & `driver_offer_notification_test.dart` 10/10 passed.
+  - `sese_hub`: `flutter analyze` 0 issues.
+
 ## 2026-11-27 — Fast State Hydration & Direct Incoming-Order Wake-Up (`sese_core`, `sese_ride`)
 
 - **1. Zero-Latency Local Session Cache (`sese_core/lib/services/driver_session_cache.dart`)**:

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 import 'call_config_repository.dart';
+import '../push_notification_service.dart';
 import 'i_call_service.dart';
 import 'webrtc_call_service_impl.dart';
 
@@ -106,6 +107,17 @@ class CallServiceManager implements ICallService {
     String? displayName,
     String? avatarUrl,
   }) async {
+    if (_initialized && _currentUserId == currentUserId) {
+      _displayName = displayName;
+      _avatarUrl = avatarUrl;
+      await _webrtcService.initialize(
+        currentUserId: currentUserId,
+        displayName: displayName,
+        avatarUrl: avatarUrl,
+      );
+      return;
+    }
+
     _currentUserId = currentUserId;
     _displayName = displayName;
     _avatarUrl = avatarUrl;
@@ -172,6 +184,16 @@ class CallServiceManager implements ICallService {
 
   @override
   Future<void> answerCall(String callId) async {
+    if (_currentSession?.callId == callId &&
+        (_currentState == CallState.connecting ||
+            _currentState == CallState.connected)) {
+      debugPrint('CallServiceManager: ignoring duplicate answerCall($callId)');
+      return;
+    }
+    if (!_incomingCallController.isClosed) {
+      _incomingCallController.add(null);
+    }
+    unawaited(PushNotificationService.cancelIncomingCallNotification(callId: callId));
     _lastCallId = callId;
     _pipeServiceEvents(_webrtcService);
     await _webrtcService.answerCall(callId);
@@ -184,6 +206,7 @@ class CallServiceManager implements ICallService {
     if (!_incomingCallController.isClosed) {
       _incomingCallController.add(null);
     }
+    unawaited(PushNotificationService.cancelIncomingCallNotification(callId: callId));
 
     if (_safeFirestore != null) {
       try {
@@ -197,6 +220,12 @@ class CallServiceManager implements ICallService {
     }
 
     await _webrtcService.rejectCall(callId, reason: reason);
+    if (_currentState == CallState.incoming) {
+      _currentState = CallState.idle;
+      if (!_stateController.isClosed) {
+        _stateController.add(CallState.idle);
+      }
+    }
   }
 
   @override
@@ -206,6 +235,7 @@ class CallServiceManager implements ICallService {
     }
 
     final callId = _lastCallId ?? _currentSession?.callId;
+    unawaited(PushNotificationService.cancelIncomingCallNotification(callId: callId));
     if (callId != null) {
       _terminalCallIds.add(callId);
       if (_safeFirestore != null) {
@@ -226,17 +256,17 @@ class CallServiceManager implements ICallService {
       debugPrint('CallServiceManager: _webrtcService.endCall error: $e');
     }
 
-    _currentState = CallState.ended;
     _currentSession = null;
     _currentDuration = Duration.zero;
     _lastCallId = null;
     isCallUiExpanded.value = false;
+    _currentState = CallState.ended;
     if (!_stateController.isClosed) {
       _stateController.add(CallState.ended);
     }
 
     Future.delayed(const Duration(milliseconds: 600), () {
-      if (_currentState == CallState.ended) {
+      if (_currentState == CallState.ended || _currentState == CallState.error) {
         _currentState = CallState.idle;
         if (!_stateController.isClosed) {
           _stateController.add(CallState.idle);

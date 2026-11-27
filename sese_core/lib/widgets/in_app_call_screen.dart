@@ -150,6 +150,7 @@ class _InAppCallScreenState extends State<InAppCallScreen>
         _watchdogTimer = null;
         _pulseController.stop();
         setState(() => _errorMessage = 'Call failed to connect');
+        unawaited(_service.endCall(reason: 'Call failed to connect'));
         Future.delayed(const Duration(seconds: 2), () {
           _dismissScreen();
         });

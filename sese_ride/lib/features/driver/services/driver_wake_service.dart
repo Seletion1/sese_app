@@ -75,6 +75,19 @@ class DriverWakeService {
     return null;
   }
 
+  /// Dismisses any native Android incoming-call notification posted by
+  /// `SeseFirebaseMessagingService` for [callId].
+  Future<void> cancelCallNotification(String? callId) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final trimmed = (callId ?? '').trim();
+    if (trimmed.isEmpty) return;
+    try {
+      await _channel.invokeMethod<bool>('cancelCallNotification', {
+        'callId': trimmed,
+      });
+    } catch (_) {}
+  }
+
   /// Fetches and clears any cold-start wake `orderId` held by [MainActivity].
   Future<String?> consumeInitialWakeOrderId() async {
     if (kIsWeb || !Platform.isAndroid) return null;

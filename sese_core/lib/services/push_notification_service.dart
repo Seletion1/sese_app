@@ -876,12 +876,25 @@ class PushNotificationService {
     }
   }
 
+  /// Optional native hook registered by the host app (e.g. `sese_ride`) to
+  /// also dismiss OS-posted call notifications (such as from
+  /// `SeseFirebaseMessagingService.kt`) when a call is answered/rejected/ended.
+  static Future<void> Function(String? callId)? onCancelNativeCallNotification;
+
   /// Cancels any active incoming-call heads-up notification.
-  static Future<void> cancelIncomingCallNotification() async {
+  static Future<void> cancelIncomingCallNotification({String? callId}) async {
     try {
       await _local.cancel(id: _incomingCallNotificationId);
     } catch (e) {
       debugPrint('PushNotificationService cancelIncomingCallNotification failed: $e');
+    }
+    final nativeCancel = onCancelNativeCallNotification;
+    if (nativeCancel != null) {
+      try {
+        await nativeCancel(callId);
+      } catch (e) {
+        debugPrint('PushNotificationService onCancelNativeCallNotification failed: $e');
+      }
     }
   }
 

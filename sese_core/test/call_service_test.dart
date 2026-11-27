@@ -135,5 +135,36 @@ void main() {
       expect(manager.currentUserId, isNull);
       expect(manager.isInitialized, isFalse);
     });
+
+    test('re-initialize with same userId is idempotent and preserves state', () async {
+      await manager.initialize(
+        currentUserId: 'test_user_1',
+        displayName: 'Updated Name',
+      );
+      expect(manager.isInitialized, isTrue);
+      expect(manager.displayName, equals('Updated Name'));
+      expect(manager.currentState, equals(CallState.idle));
+    });
+
+    test('endCall clears session and resets back to idle for back-to-back calls', () async {
+      final cancelledCallIds = <String?>[];
+      PushNotificationService.onCancelNativeCallNotification = (callId) async {
+        cancelledCallIds.add(callId);
+      };
+
+      await manager.endCall(reason: 'call_1_ended');
+      expect(manager.currentState, equals(CallState.ended));
+      expect(manager.currentSession, isNull);
+
+      await Future.delayed(const Duration(milliseconds: 700));
+      expect(manager.currentState, equals(CallState.idle));
+
+      // Second call reject/end cycle works cleanly without restart.
+      await manager.rejectCall('call_2', reason: 'declined');
+      expect(cancelledCallIds, contains('call_2'));
+      expect(manager.currentState, equals(CallState.idle));
+
+      PushNotificationService.onCancelNativeCallNotification = null;
+    });
   });
 }

@@ -116,10 +116,20 @@ class WebRtcCallServiceImpl implements ICallService {
     String? displayName,
     String? avatarUrl,
   }) async {
+    // Avoid tearing down active call state or re-subscribing when _AuthGate
+    // rebuilds for the same authenticated user.
+    if (_currentUserId == currentUserId && _incomingCallsSub != null) {
+      _displayName = displayName;
+      _avatarUrl = avatarUrl;
+      return;
+    }
+
     _currentUserId = currentUserId;
     _displayName = displayName;
     _avatarUrl = avatarUrl;
-    _setCallState(CallState.idle);
+    if (_currentState == CallState.ended || _currentState == CallState.error) {
+      _setCallState(CallState.idle);
+    }
 
     // Cancel any prior listener before setting up the current user's listener
     await _incomingCallsSub?.cancel();
@@ -338,6 +348,7 @@ class WebRtcCallServiceImpl implements ICallService {
         onConnectionFailed?.call('ICE connection failed (carrier NAT may require TURN relay)');
         if (_currentState != CallState.connected && _currentState != CallState.ended) {
           _setCallState(CallState.error);
+          unawaited(endCall(reason: 'ICE connection failed'));
         }
       }
     };
@@ -355,6 +366,7 @@ class WebRtcCallServiceImpl implements ICallService {
         onConnectionFailed?.call('Peer connection state failed');
         if (_currentState != CallState.connected && _currentState != CallState.ended) {
           _setCallState(CallState.error);
+          unawaited(endCall(reason: 'Peer connection failed'));
         }
       }
     };
@@ -396,9 +408,12 @@ class WebRtcCallServiceImpl implements ICallService {
       throw StateError('WebRtcCallServiceImpl: Call service not initialized with current user.');
     }
 
+    // Ensure no leftover media/signaling resources from a prior call remain.
+    await abortForFallback();
+
     final hasMic = await _requestMicrophonePermission();
     if (!hasMic) {
-      _setCallState(CallState.error);
+      _setCallState(CallState.idle);
       throw Exception('Microphone permission denied.');
     }
 
@@ -569,9 +584,21 @@ class WebRtcCallServiceImpl implements ICallService {
 
   @override
   Future<void> answerCall(String callId) async {
+    // Idempotency guard: if we are already connecting or connected for this
+    // callId, do not tear down or create a duplicate RTCPeerConnection.
+    if (_currentSession?.callId == callId &&
+        (_currentState == CallState.connecting ||
+            _currentState == CallState.connected)) {
+      debugPrint('WebRtcCallServiceImpl: ignoring duplicate answerCall($callId)');
+      return;
+    }
+
+    // Ensure no leftover media/signaling resources from a prior call remain.
+    await abortForFallback();
+
     final hasMic = await _requestMicrophonePermission();
     if (!hasMic) {
-      _setCallState(CallState.error);
+      _setCallState(CallState.idle);
       throw Exception('Microphone permission denied.');
     }
 
@@ -859,13 +886,13 @@ class WebRtcCallServiceImpl implements ICallService {
     _isMuted = false;
     _isSpeakerOn = false;
     _isEnding = false;
-    _setCallState(CallState.ended);
     _currentSession = null;
     _connectedAt = null;
+    _setCallState(CallState.ended);
 
     // Reset back to idle shortly after ending
     Future.delayed(const Duration(milliseconds: 600), () {
-      if (_currentState == CallState.ended) {
+      if (_currentState == CallState.ended || _currentState == CallState.error) {
         _setCallState(CallState.idle);
       }
     });

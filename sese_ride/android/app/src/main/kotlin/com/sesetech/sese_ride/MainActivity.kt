@@ -170,6 +170,16 @@ class MainActivity : FlutterActivity() {
                         pendingCallAction = null
                         result.success(payload)
                     }
+                    "cancelCallNotification" -> {
+                        val callId = (call.argument<String>("callId") ?: "").trim()
+                        val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                        if (callId.isNotEmpty()) {
+                            val notifId = SeseFirebaseMessagingService.CALL_NOTIFICATION_ID_BASE +
+                                (callId.hashCode() and 0x0FFF)
+                            mgr?.cancel(notifId)
+                        }
+                        result.success(true)
+                    }
                     "canUseFullScreenIntent" -> {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                             val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
