@@ -376,8 +376,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _streaks.driverId ??= widget.driverId;
     WidgetsBinding.instance.addObserver(this);
     final fast = LocationService.lastKnownPosition;
+    // Fall back to last GPS fix persisted by [DriverSessionCache] so the map
+    // centres instantly on cold-start before the first live position arrives.
+    final cachedLat = DriverSessionCache.instance.lastLatitude;
+    final cachedLng = DriverSessionCache.instance.lastLongitude;
+    final cachedFix = (cachedLat != null && cachedLng != null)
+        ? LatLng(cachedLat, cachedLng)
+        : null;
     _driverPosition =
-        widget.initialPosition ?? fast ?? const LatLng(6.5244, 3.3792); // Lagos fallback
+        widget.initialPosition ?? fast ?? cachedFix ?? const LatLng(6.5244, 3.3792); // Lagos fallback
     _loadFleet();
     _hasLocationPermission =
         PermissionOnboardingService.locationGrantedNotifier.value;
@@ -505,6 +512,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = activeSessionId;
       _sessionOverriddenOnOtherDevice = false;
     });
+    // Persist restored online session into DriverSessionCache so subsequent
+    // backgrounding/kills still see the driver as online.
+    DriverSessionCache.instance.saveSessionState(
+      isOnline: true,
+      driverUid: widget.driverId,
+      sessionId: activeSessionId,
+      activeTripId: _currentActiveTrip?.tripId ?? '',
+    );
     // Re-establish the visible online signal after process recreation. The
     // dashboard GPS stream is already started in initState and remains alive
     // while the app process is up.
@@ -542,6 +557,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       _streaks.activeSessionId = null;
       _sessionOverriddenOnOtherDevice = true;
     });
+
+    // Clear the driver session cache so the next cold-start knows the driver
+    // is offline and shows the splash + normal boot sequence.
+    DriverSessionCache.instance.saveSessionState(
+      isOnline: false,
+      driverUid: widget.driverId,
+      sessionId: '',
+      activeTripId: _currentActiveTrip?.tripId ?? '',
+    );
 
     // Cleanup background and foreground services on this device
     // ignore: discarded_futures
@@ -825,6 +849,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
             _currentSpeedKmh = speedKmh;
             _driverBearing = nextBearing;
           });
+
+          // Persist GPS fix for zero-latency cold-start map centering.
+          DriverSessionCache.instance.saveGpsFix(pos.latitude, pos.longitude);
 
           // Live map camera follow during active trip or when set to follow
           if (_isFollowingUser) {
@@ -1265,6 +1292,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
         unawaited(_persistOnlineSession(null));
+        // Clear fast-hydration cache so a subsequent cold start does not
+        // mistakenly treat the driver as online and bypass the splash.
+        DriverSessionCache.instance.saveSessionState(
+          isOnline: false,
+          driverUid: widget.driverId,
+          sessionId: '',
+          activeTripId: '',
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You are now OFFLINE.')),
         );
@@ -1778,6 +1813,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
           _streaks.activeSessionId = decision.sessionId;
         });
         unawaited(_persistOnlineSession(decision.sessionId));
+        // Persist session into DriverSessionCache for instant cold-start hydration.
+        // This is the authoritative write path: executed only after the server
+        // grants go-online, so the cache always reflects a verified online state.
+        DriverSessionCache.instance.saveSessionState(
+          isOnline: true,
+          driverUid: effectiveDriverId,
+          sessionId: decision.sessionId ?? '',
+          activeTripId: _currentActiveTrip?.tripId ?? '',
+        );
         // Audio feedback: online chime.
         // ignore: discarded_futures
         AppSoundService.instance.playOnlineSound();
@@ -2077,6 +2121,25 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       builder: (context, tripSnap) {
         final active = tripSnap.data;
         _currentActiveTrip = active;
+        // Keep fast-hydration cache in sync so a cold-start can display the
+        // active trip card before the first Firestore event arrives.
+        DriverSessionCache.instance.saveActiveTripJson(
+          active == null
+              ? null
+              : <String, dynamic>{
+                  'tripId': active.tripId,
+                  'status': active.status.name,
+                  'pickupAddress': active.pickupAddress,
+                  'dropoffAddress': active.dropoffAddress,
+                  'fareFormatted': active.fareFormatted,
+                },
+        );
+        DriverSessionCache.instance.saveSessionState(
+          isOnline: _isOnline,
+          driverUid: widget.driverId,
+          sessionId: _currentSessionId ?? '',
+          activeTripId: active?.tripId ?? '',
+        );
         if (active != null) {
           _lastActiveTripForRating = active;
           if (active.status == TripStatus.completed) {
@@ -3182,7 +3245,20 @@ class _PingListenerState extends State<_PingListener>
     if (_sheetForTrip == tripId) return;
 
     try {
-      final doc = await FirebaseFirestore.instance.collection('trips').doc(tripId).get();
+      // Attempt cache-first to avoid blocking on network during cold-start
+      // wake-for-order; fall through to server if the document is not cached.
+      DocumentSnapshot<Map<String, dynamic>> doc;
+      try {
+        doc = await FirebaseFirestore.instance
+            .collection('trips')
+            .doc(tripId)
+            .get(const GetOptions(source: Source.cache));
+      } catch (_) {
+        doc = await FirebaseFirestore.instance
+            .collection('trips')
+            .doc(tripId)
+            .get();
+      }
       if (!doc.exists) return;
       final data = doc.data() ?? {};
       final trip = ActiveTrip.fromMap(doc.id, data);

@@ -99,6 +99,7 @@ export 'widgets/in_app_call_screen.dart';
 export 'widgets/incoming_call_overlay.dart';
 export 'widgets/sese_shimmer.dart';
 export 'services/local_cache_service.dart';
+export 'services/driver_session_cache.dart';
 export 'services/network_status_service.dart';
 export 'services/cancellation_queue_service.dart';
 export 'services/network_timeout_helper.dart';

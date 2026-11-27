@@ -85,6 +85,12 @@ void main() async {
   // Prime local storage cache for instant screen hydration.
   await LocalCacheService.instance.init();
 
+  // Prime driver session cache for zero-latency cold-start hydration.
+  // DriverSessionCache shares the same SharedPreferences instance and reads
+  // synchronously after init(), so the first frame sees the last-known
+  // online/session/trip state before any Firestore round-trip.
+  await DriverSessionCache.instance.init();
+
   // Analytics SDK is present so Firebase AB-testing / Remote Config can
   // resolve the ABT bridge (silences the "Analytics SDK not available"
   // runtime warning). Collection is explicitly disabled until a privacy
@@ -179,12 +185,32 @@ void main() async {
   unawaited(CancellationQueueService.instance.init());
   unawaited(_initDynamicMapCredentials());
 
-  // showSplash: true — the Flutter SeSeSplashScreen is the ONLY branded
-  // experience. The native Android window is now a plain solid-colour fill
-  // (matching system theme) so there is no double-splash; it fades seamlessly
-  // into the Flutter splash logo on the first engine frame.
+  // ── Splash bypass for incoming-order wake ──────────────────────────────
+  // When the app is killed and an incoming order wakes it via FCM or native
+  // FullScreenIntent, the driver must see the Accept/Reject screen in the
+  // minimum possible frames. Skip the 2-second branded splash when:
+  //   1. A pending offer payload was stashed by driverBackgroundHandler, OR
+  //   2. DriverSessionCache confirms the driver was online and there is a
+  //      pending wake order ID from the native MainActivity intent.
+  // The splash is still shown for normal cold-starts (no pending offer).
+  final hasPendingOffer = PushNotificationService.incomingOfferNotifier.value != null;
+  final hasCachedOnlineSession = DriverSessionCache.instance.isOnline &&
+      DriverSessionCache.instance.driverUid.isNotEmpty;
+
+  // showSplash: suppress for order-wake cold starts so the driver reaches
+  // the incoming-offer screen in the fewest frames possible.
+  // The native Android window is a plain solid-colour fill matching the system
+  // theme, so there is no flash on wake; the Flutter engine renders directly
+  // into the auth gate → driver shell → incoming offer.
+  final showSplash = !hasPendingOffer && !hasCachedOnlineSession;
+  debugPrint(
+    'sese_ride: showSplash=$showSplash '
+    '(hasPendingOffer=$hasPendingOffer, '
+    'hasCachedOnlineSession=$hasCachedOnlineSession)',
+  );
+
   runApp(MyApp(
-    showSplash: true,
+    showSplash: showSplash,
     installedVersion: installedVersion,
     securityResult: securityResult,
   ));
@@ -516,6 +542,9 @@ Future<void> _initDynamicMapCredentials() async {
 
     MapConfigController.instance.applyApiKeysConfig(apiKeys);
     await _injectNativeMapCredentials(MapConfigController.instance.currentConfig);
+    // Cache the resolved provider so cold-starts can skip a re-init delay.
+    DriverSessionCache.instance
+        .saveMapProvider(apiKeys.effectiveProvider);
 
     debugPrint(
         'sese_ride: Dynamic map credentials initialized (provider: ${apiKeys.effectiveProvider})');
@@ -753,6 +782,10 @@ class _AuthGateState extends State<_AuthGate> {
           // Clear active background call service session and awareness streams when signed out
           // ignore: discarded_futures
           CallServiceManager.instance.clearUserSession();
+          // Clear fast-hydration driver session cache so a fresh login does not
+          // inherit a stale online/cached-trip state from the previous session.
+          // ignore: discarded_futures
+          unawaited(DriverSessionCache.instance.clear());
           AwarenessTooltipService.instance.resetSession();
           return LoginPage(auth: _auth);
         }

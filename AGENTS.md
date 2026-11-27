@@ -72,6 +72,20 @@ Per explicit user instruction (2026-10-31): **always push git commits to the rem
 
 # Decision log
 
+## 2026-11-27 — Fast State Hydration & Direct Incoming-Order Wake-Up (`sese_core`, `sese_ride`)
+
+- **1. Zero-Latency Local Session Cache (`sese_core/lib/services/driver_session_cache.dart`)**:
+  - Added `DriverSessionCache` singleton backed by `SharedPreferences` under `sese_dsc_` prefix (`isOnline`, `sessionId`, `driverUid`, `activeTripId`, `activeTripJson`, `lat`, `lng`, `mapProvider`, `savedAtMs`) with an 8-hour staleness TTL and synchronous in-memory getters after `init()`.
+  - Resets in-memory shadow fields to safe defaults when a stale snapshot is detected during `_hydrate()`, and clears all keys on sign-out in `_AuthGateState` (`sese_ride/lib/main.dart`).
+- **2. Splash Bypass & Direct Wake-For-Order Path (`sese_ride/lib/main.dart`, `driver_dashboard_screen.dart`)**:
+  - Primed `DriverSessionCache.instance.init()` in `main()` and bypassed the 2000ms `SeSeSplashScreen` (`showSplash = !hasPendingOffer && !hasCachedOnlineSession`) whenever a pending FCM offer or cached online driver session is present.
+  - Updated `DriverDashboardScreen` to persist online/offline transitions (`_finalizeGoOnline`, `_restoreOnlineSession`, `_handleRemoteSessionTermination`, `_goOffline`), live GPS fixes (`_startLivePositionTracking`), and active trip summaries (`_buildMapStack`) into `DriverSessionCache`, and to center the map from cached coordinates on cold start before the first live GPS fix arrives.
+  - Updated `_PingListenerState._fetchAndShowOffer` to read `trips/{tripId}` with `Source.cache` first (falling back to server) so incoming-order wake-up renders immediately without blocking on a network round-trip, while `driverStatusStream` and `activeTripStream` reconcile live state in the background.
+- **3. Verification**:
+  - `sese_core`: `flutter analyze` 0 issues; `driver_session_cache_test.dart` 13/13 passed.
+  - `sese_ride`: `flutter analyze` 0 issues; `fast_wake_hydration_test.dart` & `driver_offer_notification_test.dart` 10/10 passed.
+  - `sese_hub`: `flutter analyze` 0 issues.
+
 ## 2026-11-24 — Online Payment Broadcast Gating, Trip-Start Charge Capture & Idempotent Completion Settlement (`functions`, `sese_ride`)
 
 - **1. Block Driver Broadcast Until Online Payment Is Verified**:
