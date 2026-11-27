@@ -109,7 +109,7 @@ class ProximityTriggerService {
     this.departureRadiusM = 500,
     this.arrivalCountdown = const Duration(seconds: 5),
     this.autoArrivalEnabled = true,
-    this.heartbeatInterval = const Duration(seconds: 10),
+    this.heartbeatInterval = const Duration(seconds: 3),
     this.routeRefreshInterval = const Duration(seconds: 30),
     this.routeRefineGateM = 2000,
     this.positionStreamFactory,
@@ -359,6 +359,7 @@ class ProximityTriggerService {
         lat: fix.latitude,
         lng: fix.longitude,
         isMocked: false,
+        heading: fix.heading >= 0 ? fix.heading : null,
       );
     } catch (e) {
       if (e is DriverStreakException && e.code == 'failed-precondition') {

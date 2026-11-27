@@ -54,8 +54,9 @@ abstract class DriverDispatchBackend {
     String tripId,
     double lat,
     double lng,
-    bool isMocked,
-  );
+    bool isMocked, {
+    double? heading,
+  });
 
   /// Records arrival at drop-off for drop-off waiting and billing tracking.
   Future<Map<String, dynamic>> callRecordDropoffArrival(String tripId) =>
@@ -186,13 +187,15 @@ class _FunctionsDriverDispatchBackend implements DriverDispatchBackend {
     String tripId,
     double lat,
     double lng,
-    bool isMocked,
-  ) =>
+    bool isMocked, {
+    double? heading,
+  }) =>
       _call('updateDriverLocation', {
         'tripId': tripId,
         'lat': lat,
         'lng': lng,
         'isMocked': isMocked,
+        if (heading != null && heading >= 0) 'heading': heading,
       });
 
   @override
@@ -461,9 +464,10 @@ class DriverDispatchService {
     required double lat,
     required double lng,
     required bool isMocked,
+    double? heading,
   }) =>
       _guard(
-          () => _ops.callReportDriverLocation(tripId, lat, lng, isMocked));
+          () => _ops.callReportDriverLocation(tripId, lat, lng, isMocked, heading: heading));
 
   Future<void> _guard(Future<Map<String, dynamic>> Function() call) async {
     try {

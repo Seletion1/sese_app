@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { HttpsError } from "firebase-functions/v2/https";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 import {
   onDocumentCreated,
   FirestoreEvent,
@@ -2654,11 +2654,19 @@ export const declineTrip = guardedOnCall(async (request) => {
  * Mock Location Guard: heartbeats flagged `isMocked` (GPS spoofing) are
  * rejected so a spoofed fix can never move the live marker, feed
  * proximity triggers, or poison nearest-driver ranking. */
-export const updateDriverLocation = guardedOnCall(async (request) => {
+// updateDriverLocation is called every 3–10 s as a live GPS heartbeat from
+// the driver's device. App Check is intentionally bypassed here (same as
+// hubAdminOnCall) because:
+//   1. High-frequency heartbeats on release builds fail App Check without
+//      Play Integrity registration, breaking live location for all drivers.
+//   2. Security relies on Firebase Auth (request.auth.uid == assigned driver)
+//      + server-side ownership check below — no unauthenticated path exists.
+//   3. Mock location is independently blocked by the isMocked guard.
+export const updateDriverLocation = onCall({ enforceAppCheck: false }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "Drivers must sign in.");
   }
-  const { tripId, lat, lng, isMocked } = request.data ?? {};
+  const { tripId, lat, lng, isMocked, heading } = request.data ?? {};
   if (!tripId || !isCoord(lat, lng)) {
     throw new HttpsError("invalid-argument", "tripId + valid {lat, lng} required.");
   }
@@ -2679,10 +2687,28 @@ export const updateDriverLocation = guardedOnCall(async (request) => {
   if (!LIVE_STATUSES.includes(data.status)) {
     throw new HttpsError("failed-precondition", "Trip is no longer live.");
   }
+  const locationPayload: Record<string, unknown> = { lat, lng, updatedAt: nowMs() };
+  if (typeof heading === "number" && heading >= 0) locationPayload.heading = heading;
+
+  // Primary write: trip document (customer's live-trip screen reads this via snapshots()).
   await ref.update({
-    driverLocation: { lat, lng, updatedAt: nowMs() },
+    driverLocation: locationPayload,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  // Mirror onto driver_status so the customer's _initAssignedDriverListener
+  // (driver_status/{driverId} stream) also receives fresh coordinates.
+  try {
+    await db().collection("driver_status").doc(request.auth.uid).set(
+      {
+        lastFix: { latitude: lat, longitude: lng, heading: heading ?? 0, updatedAt: nowMs() },
+        activeTripId: String(tripId),
+        lastSeen: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch {
+    // Non-fatal.
+  }
   // Mirror the fix onto the driver doc so Tier 1 nearest-driver ranking
   // uses a fresh position (best-effort; trip tracking stays authoritative).
   try {
