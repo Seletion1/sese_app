@@ -17,7 +17,7 @@ import {
   persistTripChangeLogInTx,
 } from "./tripSettlement";
 import { roundToNearest100 } from "./pricing";
-import { enforceAppCheck, requireAccountActive, guardedOnCall } from "./accountGuard";
+import { enforceAppCheck, requireAccountActive, guardedOnCall, hubAdminOnCall } from "./accountGuard";
 import { chargePaystackCardAuthorization } from "./payments";
 import { assertHubStaffOrAdmin } from "./verification";
 
@@ -4535,7 +4535,7 @@ export const verifyDeliveryPin = guardedOnCall(async (request) => {
  *   or active Hub staff members in `hub_staff/{email}`.
  * - Atomically force-completes live trip and triggers synchronous settlement.
  */
-export const hubForceCompleteTrip = guardedOnCall(async (request) => {
+export const hubForceCompleteTrip = hubAdminOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -4854,7 +4854,7 @@ export const confirmCashCancellation = guardedOnCall(async (request) => {
  *   or active Hub staff members in `hub_staff/{email}`.
  * - Cancels trip and refunds customer escrow atomically.
  */
-export const hubCancelRefundTrip = guardedOnCall(async (request) => {
+export const hubCancelRefundTrip = hubAdminOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -4901,7 +4901,7 @@ export const hubCancelRefundTrip = guardedOnCall(async (request) => {
  *   or active Hub staff members in `hub_staff/{email}`.
  * - Manually verifies delivery PIN during support phone verification.
  */
-export const hubManualPinBypass = guardedOnCall(async (request) => {
+export const hubManualPinBypass = hubAdminOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();
@@ -5658,7 +5658,7 @@ export const cancelDropoffApprovalRequest = guardedOnCall(async (request) => {
  * multiple drivers in the area on a first-to-pick basis.
  * Wallet balance enforcement still runs atomically on driver acceptance inside `acceptTrip`.
  */
-export const hubReassignTrip = guardedOnCall(async (request) => {
+export const hubReassignTrip = hubAdminOnCall(async (request) => {
   await assertHubStaffOrAdmin(request.auth);
   const adminUid = request.auth!.uid;
   const tripId = String(request.data?.tripId ?? "").trim();

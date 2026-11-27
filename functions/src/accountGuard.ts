@@ -57,6 +57,19 @@ export function guardedOnCall<T = any, Return = any>(
 }
 
 /**
+ * Wrapper for SeseHub admin/staff callables that enforce strict Hub RBAC
+ * (`assertHubStaffOrAdmin(request.auth)`) inside the handler, allowing
+ * authenticated Hub builds without failing on missing App Check tokens.
+ */
+export function hubAdminOnCall<T = any, Return = any>(
+  handler: (request: CallableRequest<T>) => Return
+): HttpsFunction & { run(request: CallableRequest<T>): Return } {
+  return onCall({ enforceAppCheck: false }, async (request: CallableRequest<T>) => {
+    return await handler(request);
+  }) as any;
+}
+
+/**
  * Explicit Bypass Wrapper for Cloud Functions `onCall` handlers that intentionally
  * omit App Check enforcement. MUST be used with explicit code-review justification.
  *
