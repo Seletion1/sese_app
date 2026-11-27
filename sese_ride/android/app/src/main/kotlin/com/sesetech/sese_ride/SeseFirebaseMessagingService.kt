@@ -125,11 +125,12 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
         val notificationId = NOTIFICATION_ID_BASE + (orderId.hashCode() and 0x0FFF)
         mgr.notify(notificationId, builder.build())
 
-        // If the driver is outside the app and overlay permission is granted,
-        // immediately bring MainActivity to the foreground so the incoming order
-        // view pops up without requiring a notification tap.
+        // If the driver is outside the app (or the app is closed/killed) and overlay
+        // permission is granted, immediately bring MainActivity to the foreground so the
+        // existing incoming order view pops up without requiring a notification tap.
         val prefs = getSharedPreferences(SeseLocationForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
-        val inForeground = prefs.getBoolean(FloatingBubbleService.KEY_APP_IN_FOREGROUND, false)
+        val prefForeground = prefs.getBoolean(FloatingBubbleService.KEY_APP_IN_FOREGROUND, false)
+        val inForeground = prefForeground && isProcessInForeground()
         val hasOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
         if (!inForeground && hasOverlay) {
             try {
@@ -138,6 +139,20 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
             } catch (e: Exception) {
                 Log.w(TAG, "Immediate order wake startActivity skipped: ${e.message}")
             }
+        }
+    }
+
+    private fun isProcessInForeground(): Boolean {
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                ?: return false
+            val procs = am.runningAppProcesses ?: return false
+            procs.any {
+                it.processName == packageName &&
+                    it.importance == android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
