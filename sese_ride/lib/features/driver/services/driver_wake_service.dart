@@ -120,6 +120,59 @@ class DriverWakeService {
     } catch (_) {}
   }
 
+  /// Safely checks `Settings.canDrawOverlays(context)` on Android.
+  Future<bool> canDrawOverlays() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return (await _channel.invokeMethod<bool>('canDrawOverlays')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens Android's "Display over other apps" settings page for this package.
+  Future<bool> openOverlaySettings() async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      return (await _channel.invokeMethod<bool>('openOverlaySettings')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Syncs the driver's floating bubble preference with native service state.
+  Future<void> setBubbleEnabled(bool enabled) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('setBubbleEnabled', {
+        'enabled': enabled,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> showFloatingBubble() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('showFloatingBubble');
+    } catch (_) {}
+  }
+
+  Future<void> hideFloatingBubble() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('hideFloatingBubble');
+    } catch (_) {}
+  }
+
+  /// Ensures `MainActivity` is brought to the foreground (e.g. after accepting
+  /// an incoming order from a wake/overlay state).
+  Future<void> bringAppToForeground() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('bringAppToForeground');
+    } catch (_) {}
+  }
+
   /// Prompts the driver once on Go-Online if Android 14+ Full-Screen Intent
   /// permission is not yet enabled, and offers a direct link to Settings.
   Future<void> checkAndPromptGoOnlineReadiness(BuildContext context) async {

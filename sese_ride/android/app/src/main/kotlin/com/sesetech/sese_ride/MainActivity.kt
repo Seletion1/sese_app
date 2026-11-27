@@ -28,6 +28,27 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
     }
 
+    override fun onResume() {
+        super.onResume()
+        setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        setAppInForeground(false)
+        super.onStop()
+    }
+
+    private fun setAppInForeground(inForeground: Boolean) {
+        val prefs = getSharedPreferences(
+            SeseLocationForegroundService.PREFS_NAME,
+            Context.MODE_PRIVATE,
+        )
+        prefs.edit()
+            .putBoolean(FloatingBubbleService.KEY_APP_IN_FOREGROUND, inForeground)
+            .apply()
+        FloatingBubbleService.syncFromPrefs(applicationContext)
+    }
+
     private fun captureWakeIntent(incomingIntent: Intent?) {
         val orderId = incomingIntent?.getStringExtra(EXTRA_WAKE_ORDER_ID)?.trim().orEmpty()
         if (orderId.isEmpty()) return
@@ -182,6 +203,7 @@ class MainActivity : FlutterActivity() {
                             .putString(SeseLocationForegroundService.KEY_ACTIVE_TRIP_ID, activeTripId)
                             .apply()
                         SeseLocationForegroundService.startOrStopFromPrefs(applicationContext)
+                        FloatingBubbleService.syncFromPrefs(applicationContext)
                         result.success(true)
                     }
                     "clearDriverSessionState" -> {
@@ -191,7 +213,65 @@ class MainActivity : FlutterActivity() {
                         )
                         prefs.edit().clear().apply()
                         SeseLocationForegroundService.startOrStopFromPrefs(applicationContext)
+                        FloatingBubbleService.hide(applicationContext)
                         result.success(true)
+                    }
+                    "canDrawOverlays" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            result.success(Settings.canDrawOverlays(this))
+                        } else {
+                            result.success(true)
+                        }
+                    }
+                    "openOverlaySettings" -> {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName"),
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                startActivity(intent)
+                            }
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "setBubbleEnabled" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: true
+                        val prefs = getSharedPreferences(
+                            SeseLocationForegroundService.PREFS_NAME,
+                            Context.MODE_PRIVATE,
+                        )
+                        prefs.edit()
+                            .putBoolean(FloatingBubbleService.KEY_BUBBLE_ENABLED, enabled)
+                            .apply()
+                        FloatingBubbleService.syncFromPrefs(applicationContext)
+                        result.success(true)
+                    }
+                    "showFloatingBubble" -> {
+                        FloatingBubbleService.syncFromPrefs(applicationContext)
+                        result.success(true)
+                    }
+                    "hideFloatingBubble" -> {
+                        FloatingBubbleService.hide(applicationContext)
+                        result.success(true)
+                    }
+                    "bringAppToForeground" -> {
+                        try {
+                            configureLockScreenFlags()
+                            wakeScreen()
+                            FloatingBubbleService.hide(applicationContext)
+                            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            }
+                            startActivity(launchIntent)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.success(false)
+                        }
                     }
                     else -> result.notImplemented()
                 }

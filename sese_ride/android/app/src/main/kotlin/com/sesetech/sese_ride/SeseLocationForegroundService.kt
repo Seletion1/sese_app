@@ -81,6 +81,7 @@ class SeseLocationForegroundService : Service(), LocationListener {
 
     override fun onDestroy() {
         stopTracking()
+        FloatingBubbleService.hide(applicationContext)
         super.onDestroy()
     }
 

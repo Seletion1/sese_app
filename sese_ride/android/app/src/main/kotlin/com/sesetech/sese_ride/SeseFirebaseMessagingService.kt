@@ -9,6 +9,7 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.RemoteMessage
@@ -117,6 +118,21 @@ class SeseFirebaseMessagingService : FlutterFirebaseMessagingService() {
 
         val notificationId = NOTIFICATION_ID_BASE + (orderId.hashCode() and 0x0FFF)
         mgr.notify(notificationId, builder.build())
+
+        // If the driver is outside the app and overlay permission is granted,
+        // immediately bring MainActivity to the foreground so the incoming order
+        // view pops up without requiring a notification tap.
+        val prefs = getSharedPreferences(SeseLocationForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+        val inForeground = prefs.getBoolean(FloatingBubbleService.KEY_APP_IN_FOREGROUND, false)
+        val hasOverlay = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+        if (!inForeground && hasOverlay) {
+            try {
+                wakeIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                startActivity(wakeIntent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Immediate order wake startActivity skipped: ${e.message}")
+            }
+        }
     }
 
     private fun ensureIncomingOrderChannel(mgr: NotificationManager) {

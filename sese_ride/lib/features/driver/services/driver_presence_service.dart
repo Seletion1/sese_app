@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'driver_wake_service.dart';
+
 /// Cross-Platform Driver Background Presence and Quick-Return Abstraction Service.
 ///
 /// Architected to strictly conform to both **Google Play Policy** and **Apple App Store Review Guidelines**:
@@ -42,11 +44,10 @@ class DriverPresenceService {
   @visibleForTesting
   bool forceUnsupported = false;
 
-  /// Android overlay windows require `FOREGROUND_SERVICE` and `SYSTEM_ALERT_WINDOW`,
-  /// which create Google Play declaration policy barriers and runtime crashes
-  /// on Android 14+ (targetSdk 36). Background presence is handled cleanly
-  /// via high-priority heads-up notifications with zero overlay dependencies.
-  bool get isAndroidOverlaySupported => false;
+  /// True on Android when the native `FloatingBubbleService` (`SYSTEM_ALERT_WINDOW`)
+  /// is supported. Never invoked on iOS or Web.
+  bool get isAndroidOverlaySupported =>
+      !forceUnsupported && !kIsWeb && Platform.isAndroid;
 
   bool get isIos => !forceUnsupported && !kIsWeb && Platform.isIOS;
 
@@ -65,6 +66,7 @@ class DriverPresenceService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(bubblePrefKey, enabled);
+      await DriverWakeService.instance.setBubbleEnabled(enabled);
       if (!enabled) {
         await hideBubble();
       }
@@ -73,33 +75,58 @@ class DriverPresenceService {
     }
   }
 
-  /// Overlay bubble is disabled for Google Play compliance (high-priority
-  /// heads-up notifications are used instead).
-  Future<bool> hasOverlayPermission() async => false;
+  /// Safely checks `Settings.canDrawOverlays` on Android.
+  Future<bool> hasOverlayPermission() async {
+    if (!isAndroidOverlaySupported) return false;
+    return DriverWakeService.instance.canDrawOverlays();
+  }
 
-  /// Overlay permission is no longer requested; heads-up notifications are used.
+  /// Shows the prominent disclosure dialog first, then opens Android's
+  /// `ACTION_MANAGE_OVERLAY_PERMISSION` settings if accepted.
   Future<bool> requestOverlayPermissionWithDisclosure(
       BuildContext context) async {
-    return false;
+    if (!isAndroidOverlaySupported) return false;
+    final alreadyGranted = await hasOverlayPermission();
+    if (alreadyGranted) return true;
+    if (!context.mounted) return false;
+
+    final agreed = await DriverOverlayDisclosureDialog.show(context);
+    if (!agreed) return false;
+
+    await DriverWakeService.instance.openOverlaySettings();
+    return hasOverlayPermission();
   }
 
   /// Handles app transition to background (`paused`, `hidden`, or `detached`).
   Future<void> onAppBackgrounded() async {
     if (!isOnline && !hasActiveTrip) {
+      await hideBubble();
       return;
     }
-    debugPrint(
-        'DriverPresenceService: background presence active via notification (online: $isOnline)');
+    if (isAndroidOverlaySupported) {
+      final enabled = await isBubbleSettingEnabled();
+      if (enabled && await hasOverlayPermission()) {
+        await showBubble();
+      }
+    }
   }
 
   /// Handles app return to foreground (`resumed`).
-  Future<void> onAppForegrounded() async {}
+  Future<void> onAppForegrounded() async {
+    await hideBubble();
+  }
 
-  /// No-op: overlay bubble removed in favor of standard heads-up notifications.
-  Future<void> showBubble() async {}
+  /// Shows the native floating SeSe bubble if permitted and online.
+  Future<void> showBubble() async {
+    if (!isAndroidOverlaySupported) return;
+    await DriverWakeService.instance.showFloatingBubble();
+  }
 
-  /// No-op: overlay bubble removed in favor of standard heads-up notifications.
-  Future<void> hideBubble() async {}
+  /// Hides the native floating SeSe bubble immediately.
+  Future<void> hideBubble() async {
+    if (!isAndroidOverlaySupported) return;
+    await DriverWakeService.instance.hideFloatingBubble();
+  }
 
   /// Called when the driver goes online.
   Future<void> onDriverOnline({required String driverId}) async {

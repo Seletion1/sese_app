@@ -11,6 +11,7 @@ import '../../../payments/sese_service.dart';
 import '../../../trips/models/trip_models.dart';
 import '../../../trips/services/trip_service.dart';
 import '../../services/driver_dispatch_service.dart';
+import '../../services/driver_wake_service.dart';
 import 'low_balance_dialog.dart';
 
 /// Full-screen incoming offer, Bolt-style: route preview from
@@ -212,6 +213,9 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     _countdown.stop();
     try {
       await widget.streakService.acceptTrip(widget.trip.tripId);
+      // Ensure full SeSe Ride app is brought to foreground on the active trip screen.
+      // ignore: discarded_futures
+      DriverWakeService.instance.bringAppToForeground();
       if (mounted) Navigator.of(context).pop();
     } on DriverStreakException catch (e) {
       if (!mounted) return;
