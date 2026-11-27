@@ -15,9 +15,8 @@
  *
  * Usage pattern (every financial callable):
  * ```ts
- * export const myCallable = onCall(async (request) => {
+ * export const myCallable = guardedOnCall(async (request) => {
  *   if (!request.auth) throw new HttpsError('unauthenticated', '...');
- *   enforceAppCheck(request);
  *   await requireAccountActive(request.auth.uid);
  *   // ... business logic
  * });
@@ -41,8 +40,15 @@ import {
 
 /**
  * Global Factory Wrapper for Cloud Functions `onCall` handlers.
- * Enforces Firebase App Check globally by default (`enforceAppCheck: true`)
- * and executes runtime `enforceAppCheck(request)` middleware.
+ * App Check enforcement is handled exclusively by the Firebase Functions SDK
+ * via the `enforceAppCheck` option — set to true only when the
+ * `ENFORCE_APP_CHECK=true` env var is explicitly configured.
+ *
+ * The manual runtime `enforceAppCheck(request)` call has been intentionally
+ * removed: it was a double-enforcement that always hard-blocked requests on
+ * production release builds (customer and driver apps) regardless of the
+ * env var, causing `unauthenticated` errors on cancelTrip, reassignTrip,
+ * increaseTripFare, and all other guardedOnCall functions.
  *
  * @param handler - The callable function logic.
  */
@@ -51,7 +57,6 @@ export function guardedOnCall<T = any, Return = any>(
 ): HttpsFunction & { run(request: CallableRequest<T>): Return } {
   const shouldEnforce = process.env.ENFORCE_APP_CHECK === "true";
   return onCall({ enforceAppCheck: shouldEnforce }, async (request: CallableRequest<T>) => {
-    enforceAppCheck(request);
     return await handler(request);
   }) as any;
 }
