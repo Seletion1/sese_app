@@ -311,6 +311,8 @@ async function notifyCustomer(
         body,
         type,
         tripId,
+        orderId: tripId,
+        sentAtMs: String(Date.now()),
         click_action: "FLUTTER_NOTIFICATION_CLICK",
         fullScreen: isOrderPing ? "true" : (extra.fullScreen ?? "false"),
         ...extra,
@@ -393,6 +395,9 @@ async function notifyDriver(
         title,
         body,
         tripId,
+        orderId: tripId,
+        targetDriverId: driverId,
+        sentAtMs: String(Date.now()),
         type,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
         fullScreen: isOrderPing ? "true" : "false",
@@ -400,13 +405,17 @@ async function notifyDriver(
       },
       android: {
         priority: "high",
-        notification: {
-          title,
-          body,
-          sound: "sese_alert_chime",
-          channelId: isOrderPing ? "sese_driver_offers" : "sese_orders",
-          clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        },
+        ...(isOrderPing
+          ? {}
+          : {
+              notification: {
+                title,
+                body,
+                sound: "sese_alert_chime",
+                channelId: "sese_orders",
+                clickAction: "FLUTTER_NOTIFICATION_CLICK",
+              },
+            }),
       },
       apns: {
         headers: {
@@ -421,7 +430,7 @@ async function notifyDriver(
           },
         },
       },
-      notification: { title, body },
+      ...(isOrderPing ? {} : { notification: { title, body } }),
     };
 
     await admin.messaging().send(fcmMessage);

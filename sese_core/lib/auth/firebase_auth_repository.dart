@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
@@ -1149,6 +1150,31 @@ class FirebaseAuthRepository implements AuthRepository {
         LocalCacheService.instance.remove('cached_app_user_$uid');
       } catch (e) {
         debugPrint('FirebaseAuthRepository.signOut clear cached user error: $e');
+      }
+      // Clear stale FCM token from Firestore & local instance so a signed-out
+      // device never receives order wake-up pushes for this user.
+      try {
+        if (_firestore != null) {
+          await Future.wait([
+            _firestore!
+                .collection('users')
+                .doc(uid)
+                .set({'fcmToken': FieldValue.delete()}, SetOptions(merge: true))
+                .catchError((_) {}),
+            _firestore!
+                .collection('drivers')
+                .doc(uid)
+                .set({'fcmToken': FieldValue.delete()}, SetOptions(merge: true))
+                .catchError((_) {}),
+          ]).timeout(const Duration(seconds: 4));
+        }
+      } catch (_) {}
+      if (!kIsWeb) {
+        try {
+          await FirebaseMessaging.instance
+              .deleteToken()
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {}
       }
     }
     if (email != null && email.isNotEmpty) {

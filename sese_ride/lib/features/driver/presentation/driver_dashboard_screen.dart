@@ -23,6 +23,7 @@ import '../services/driver_status_service.dart';
 import '../services/driver_dispatch_service.dart';
 import '../services/navigation_launcher_service.dart';
 import '../services/driver_presence_service.dart';
+import '../services/driver_wake_service.dart';
 import 'driver_fleet_screen.dart';
 import 'driver_profile_screen.dart';
 import 'online_verification_shield_modal.dart';
@@ -490,6 +491,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     unawaited(PushNotificationService.subscribe('driver_${widget.driverId}'));
     unawaited(MediaPermissionService.ensureBackgroundLocation());
     unawaited(DriverPresenceService.instance.onDriverOnline(driverId: widget.driverId));
+    unawaited(DriverWakeService.instance.syncForegroundServiceState(
+      isOnline: true,
+      hasActiveTrip: _currentActiveTrip != null,
+      driverUid: widget.driverId,
+      activeTripId: _currentActiveTrip?.tripId,
+    ));
   }
 
   Future<void> _persistOnlineSession(String? sessionId) async {
@@ -522,6 +529,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     PushNotificationService.cancelOnlineAlert();
     // ignore: discarded_futures
     DriverPresenceService.instance.onDriverOffline();
+    // ignore: discarded_futures
+    DriverWakeService.instance.syncForegroundServiceState(
+      isOnline: false,
+      hasActiveTrip: _currentActiveTrip != null,
+      driverUid: widget.driverId,
+      activeTripId: _currentActiveTrip?.tripId,
+    );
     // ignore: discarded_futures
     PushNotificationService.unsubscribe('driver_${widget.driverId}');
     unawaited(_persistOnlineSession(null));
@@ -1202,6 +1216,13 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         PushNotificationService.cancelOnlineAlert();
         // ignore: discarded_futures
         DriverPresenceService.instance.onDriverOffline();
+    // ignore: discarded_futures
+    DriverWakeService.instance.syncForegroundServiceState(
+      isOnline: false,
+      hasActiveTrip: _currentActiveTrip != null,
+      driverUid: widget.driverId,
+      activeTripId: _currentActiveTrip?.tripId,
+    );
         // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
         unawaited(_persistOnlineSession(null));
@@ -1681,6 +1702,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         PushNotificationService.showOngoingOnlineAlert();
         // ignore: discarded_futures
         DriverPresenceService.instance.onDriverOnline(driverId: widget.driverId);
+        // ignore: discarded_futures
+        DriverWakeService.instance.syncForegroundServiceState(
+          isOnline: true,
+          hasActiveTrip: _currentActiveTrip != null,
+          driverUid: effectiveDriverId,
+          activeTripId: _currentActiveTrip?.tripId,
+        );
+        // ignore: discarded_futures
+        DriverWakeService.instance.checkAndPromptGoOnlineReadiness(context);
         // ignore: discarded_futures
         PushNotificationService.subscribe('driver_${widget.driverId}');
 
@@ -2913,12 +2943,21 @@ class _PingListenerState extends State<_PingListener>
   String? _sheetForTrip;
   bool _sheetOpen = false;
   StreamSubscription? _pushOfferSub;
+  StreamSubscription<String>? _nativeWakeSub;
   VoidCallback? _offerNotifierListener;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DriverWakeService.instance.initialize();
+    _nativeWakeSub =
+        DriverWakeService.instance.incomingOrderIdStream.listen((orderId) {
+      if (!_sheetOpen && orderId.isNotEmpty && orderId != _sheetForTrip) {
+        // ignore: discarded_futures
+        _fetchAndShowOffer(orderId);
+      }
+    });
     _pushOfferSub =
         PushNotificationService.onMessageDataStream.stream.listen((data) {
       final type = data['type'] ?? '';
@@ -2932,6 +2971,7 @@ class _PingListenerState extends State<_PingListener>
           }
         }
       } else if (const {
+        'incoming_order',
         'new_trip_offer',
         'trip_offer',
         'direct_ping',
@@ -2971,6 +3011,12 @@ class _PingListenerState extends State<_PingListener>
     PushNotificationService.incomingOfferNotifier.addListener(_offerNotifierListener!);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final nativeWakeOrderId =
+          await DriverWakeService.instance.consumeInitialWakeOrderId();
+      if (nativeWakeOrderId != null && nativeWakeOrderId.isNotEmpty) {
+        await _fetchAndShowOffer(nativeWakeOrderId);
+        return;
+      }
       final initialData = PushNotificationService.incomingOfferNotifier.value;
       if (initialData != null) {
         final tripId = initialData['tripId'] ?? '';
@@ -2998,6 +3044,7 @@ class _PingListenerState extends State<_PingListener>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _nativeWakeSub?.cancel();
     _pushOfferSub?.cancel();
     if (_offerNotifierListener != null) {
       PushNotificationService.incomingOfferNotifier.removeListener(_offerNotifierListener!);

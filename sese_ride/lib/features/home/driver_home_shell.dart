@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 import '../driver/presentation/driver_dashboard_screen.dart';
+import '../driver/services/driver_wake_service.dart';
 import '../driver/presentation/driver_profile_screen.dart';
 import '../driver/services/driver_fleet_service.dart';
 import '../settings/screens/settings_screen.dart';
@@ -157,7 +158,10 @@ class _DriverHomeShellState extends State<DriverHomeShell> {
                       fleetService: DriverFleetService(),
                       user: widget.user,
                       driverId: widget.user.uid,
-                      onSignOut: () async => widget.auth.signOut(),
+                      onSignOut: () async {
+                        await DriverWakeService.instance.clearSession();
+                        await widget.auth.signOut();
+                      },
                     ),
                     _TripsTab(
                       user: widget.user,

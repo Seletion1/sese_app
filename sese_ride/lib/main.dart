@@ -378,27 +378,14 @@ Future<void> _handlePushTap(Map<String, String> data) async {
       type == 'trip_offer' ||
       type == 'direct_ping' ||
       type == 'tier_ping' ||
-      type == 'marketplace_broadcast') {
-    debugPrint('sese_ride: driver trip offer / counter-bid tap ($type) — main UI takes over.');
+      type == 'marketplace_broadcast' ||
+      type == 'incoming_order') {
+    debugPrint('sese_ride: driver trip offer / counter-bid tap ($type) — main dispatch UI hydrates from Firestore.');
     PushNotificationService.incomingOfferNotifier.value = data;
     try {
       PushNotificationService.onMessageDataStream.add(data);
     } catch (_) {}
     unawaited(AppLauncher().bringToForeground());
-    final tripId = (data['tripId'] ?? '').trim();
-    if (tripId.isNotEmpty) {
-      final navState = IncomingCallOverlay.navigatorKey.currentState;
-      if (navState != null) {
-        navState.push(
-          MaterialPageRoute(
-            builder: (_) => LiveTripScreen(
-              tripId: tripId,
-              repository: FirestoreTripRepository(),
-            ),
-          ),
-        );
-      }
-    }
     return;
   }
 

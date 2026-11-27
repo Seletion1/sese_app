@@ -24,30 +24,15 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
-    <!-- ACCESS_BACKGROUND_LOCATION removed: Google Play policy requires background
-         location declaration which creates policy overhead. Foreground location
-         (ACCESS_FINE_LOCATION) is sufficient: GPS fixes continue when the driver
-         actively navigates, and the app refreshes on resume. The overlay bubble
-         keeps the app in foreground during active trips so background access is
-         not needed. -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
-    <!-- FOREGROUND_SERVICE_LOCATION removed: Google Play Console requires a
-         declaration form for FOREGROUND_SERVICE_LOCATION which we cannot satisfy
-         without background location. OverlayService foregroundServiceType is
-         changed to specialUse (stripped below) so no location FGS type is declared. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove" />
-    <!-- Floating quick-return bubble / OverlayService stripped to eliminate
-         Google Play Foreground Service declaration requirements and avoid
-         Android 14+ MissingForegroundServiceTypeException runtime crashes.
-         Driver notifications are delivered via high-priority heads-up alerts. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:node="remove" />
-    <!-- Heads-up order & call alerts with wake-lock; USE_FULL_SCREEN_INTENT explicitly removed
-         for Google Play policy compliance (heads-up notifications with Accept/Decline actions used instead). -->
+    <!-- Heads-up & full-screen order alerts with wake-lock. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" tools:node="remove" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Advertising ID stripped to eliminate Google Play Sensitive Permissions declaration requirements. -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
@@ -95,19 +80,30 @@
             android:name="flutter.overlay.window.flutter_overlay_window.OverlayService"
             tools:node="remove" />
 
-        <!-- GeolocatorLocationService from geolocator_android is stripped entirely:
-             it is only needed for background foreground-service location tracking,
-             which is removed in this release. Foreground Geolocator.getCurrentPosition()
-             and getPositionStream() work without this service when the app is active.
-             Removing it eliminates the FOREGROUND_SERVICE_LOCATION declaration gate
-             in Google Play Console. -->
         <service
-            android:name="com.baseflow.geolocator.GeolocatorLocationService"
-            tools:node="remove" />
+            android:name=".SeseLocationForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
+
+        <service
+            android:name=".SeseFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".SeseServiceRestartReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/LaunchTheme"

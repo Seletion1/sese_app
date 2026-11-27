@@ -172,6 +172,8 @@ dependencies {
     // Maps render 100% with OpenStreetMap raster tiles (flutter_map) — no
     // play-services-maps dependency needed.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }
 
 kotlin {

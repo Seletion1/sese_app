@@ -1,10 +1,14 @@
 package com.sesetech.sese_ride
 
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -13,11 +17,24 @@ import android.view.WindowManager
 
 class MainActivity : FlutterActivity() {
 
+    private var driverWakeChannel: MethodChannel? = null
+    private var pendingWakeOrder: Map<String, String>? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         pinAppCheckDebugToken()
         configureLockScreenFlags()
         wakeScreen()
+        captureWakeIntent(intent)
         super.onCreate(savedInstanceState)
+    }
+
+    private fun captureWakeIntent(incomingIntent: Intent?) {
+        val orderId = incomingIntent?.getStringExtra(EXTRA_WAKE_ORDER_ID)?.trim().orEmpty()
+        if (orderId.isEmpty()) return
+        val type = incomingIntent?.getStringExtra(EXTRA_WAKE_TYPE)?.trim().orEmpty().ifEmpty { "incoming_order" }
+        val payload = mapOf("orderId" to orderId, "type" to type)
+        pendingWakeOrder = payload
+        driverWakeChannel?.invokeMethod("onIncomingOrderWake", payload)
     }
 
     private fun configureLockScreenFlags() {
@@ -97,15 +114,99 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        driverWakeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DRIVER_WAKE_CHANNEL).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialWakeOrder" -> {
+                        val payload = pendingWakeOrder
+                        pendingWakeOrder = null
+                        result.success(payload)
+                    }
+                    "canUseFullScreenIntent" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                            val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                            result.success(mgr?.canUseFullScreenIntent() ?: true)
+                        } else {
+                            result.success(true)
+                        }
+                    }
+                    "openFullScreenIntentSettings" -> {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                    Uri.parse("package:$packageName"),
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                startActivity(intent)
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "isIgnoringBatteryOptimizations" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                            result.success(pm?.isIgnoringBatteryOptimizations(packageName) ?: true)
+                        } else {
+                            result.success(true)
+                        }
+                    }
+                    "requestIgnoreBatteryOptimizations" -> {
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                val intent = Intent(
+                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    Uri.parse("package:$packageName"),
+                                ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                startActivity(intent)
+                            }
+                            result.success(true)
+                        } catch (_: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "syncDriverServiceState" -> {
+                        val isOnline = call.argument<Boolean>("isOnline") ?: false
+                        val hasActiveTrip = call.argument<Boolean>("hasActiveTrip") ?: false
+                        val driverUid = call.argument<String>("driverUid") ?: ""
+                        val activeTripId = call.argument<String>("activeTripId") ?: ""
+                        val prefs = getSharedPreferences(
+                            SeseLocationForegroundService.PREFS_NAME,
+                            Context.MODE_PRIVATE,
+                        )
+                        prefs.edit()
+                            .putBoolean(SeseLocationForegroundService.KEY_IS_ONLINE, isOnline)
+                            .putBoolean(SeseLocationForegroundService.KEY_HAS_ACTIVE_TRIP, hasActiveTrip)
+                            .putString(SeseLocationForegroundService.KEY_DRIVER_UID, driverUid)
+                            .putString(SeseLocationForegroundService.KEY_ACTIVE_TRIP_ID, activeTripId)
+                            .apply()
+                        SeseLocationForegroundService.startOrStopFromPrefs(applicationContext)
+                        result.success(true)
+                    }
+                    "clearDriverSessionState" -> {
+                        val prefs = getSharedPreferences(
+                            SeseLocationForegroundService.PREFS_NAME,
+                            Context.MODE_PRIVATE,
+                        )
+                        prefs.edit().clear().apply()
+                        SeseLocationForegroundService.startOrStopFromPrefs(applicationContext)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
     }
 
-    // singleTop delivery: notification/fullScreenIntent deliveries that resolve to the
+    // singleTask / singleTop delivery: notification/fullScreenIntent deliveries that resolve to the
     // existing MainActivity arrive here instead of recreating it.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         configureLockScreenFlags()
         wakeScreen()
+        captureWakeIntent(intent)
     }
 
     // Reports whether Google Play Services is installed and operational on this device.
@@ -161,6 +262,9 @@ class MainActivity : FlutterActivity() {
         const val GMS_CHANNEL = "com.sesetech.sese_ride/gms_availability"
         const val APP_CHECK_CHANNEL = "com.sesetech.sese_ride/app_check"
         const val MAP_CREDENTIALS_CHANNEL = "com.sesetech.sese_ride/map_credentials"
+        const val DRIVER_WAKE_CHANNEL = "com.sesetech.sese_ride/driver_wake"
+        const val EXTRA_WAKE_ORDER_ID = "sese_wake_order_id"
+        const val EXTRA_WAKE_TYPE = "sese_wake_type"
         const val PINNED_DEBUG_TOKEN = "cba5fa66-ef47-4b2f-83c1-4f05d2f035ad"
     }
 }
