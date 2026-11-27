@@ -88,6 +88,7 @@ void main() {
           HubTab.broadcast,
           HubTab.config,
           HubTab.staff,
+          HubTab.ratings,
           HubTab.profile,
         ],
       );
@@ -104,6 +105,7 @@ void main() {
           HubTab.support,
           HubTab.broadcast,
           HubTab.config,
+          HubTab.ratings,
           HubTab.profile,
         ],
       );

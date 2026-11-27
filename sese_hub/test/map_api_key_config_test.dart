@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:sese_hub/features/settings/calling_config_screen.dart';
 import 'package:sese_hub/features/settings/map_api_key_config_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeApiKeysService extends ApiKeysService {
   ApiKeysConfig config;
@@ -21,6 +22,10 @@ class _FakeApiKeysService extends ApiKeysService {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('MapApiKeyConfigScreen renders all form fields and controls', (tester) async {
     tester.view.physicalSize = const Size(1280, 1800);
     tester.view.devicePixelRatio = 1.0;
@@ -149,16 +154,15 @@ void main() {
     );
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
     await tester.pumpAndSettle();
-    final monthlyCallsFinder =
-        find.text('Monthly Call Minutes (Current Billing Cycle)');
+    expect(find.text('Calling & VoIP Settings'), findsOneWidget);
+    final pipelineFinder = find.text('Test In-App Call Pipeline');
     await tester.dragUntilVisible(
-      monthlyCallsFinder,
+      pipelineFinder,
       find.byType(Scrollable).first,
       const Offset(0, -300),
     );
     await tester.pumpAndSettle();
-    expect(monthlyCallsFinder, findsOneWidget);
-    expect(find.textContaining('minutes used'), findsOneWidget);
+    expect(pipelineFinder, findsOneWidget);
 
     final fakeService = _FakeApiKeysService(
       const ApiKeysConfig(
