@@ -187,6 +187,12 @@ class GlobalMapConfig {
   bool get isGoogle => normalizedProvider == 'google';
   bool get isMapbox => normalizedProvider == 'mapbox';
 
+  /// True when an admin has pinned a forced provider (i.e. auto-fallback disabled).
+  bool get isForcedMode {
+    final override = manualOverrideProvider?.trim().toLowerCase();
+    return override != null && override.isNotEmpty && override != 'auto';
+  }
+
   /// Backwards-compat alias — always false now that OSM is deprecated.
   bool get isOsm => false;
 
@@ -238,10 +244,17 @@ class GlobalMapConfig {
   /// True when the selected provider requires an API key / token.
   bool get requiresApiKey => isGoogle || isMapbox;
 
+  /// True when a valid Google Maps API key is configured (excludes Mapbox `pk.` tokens).
+  bool get hasValidGoogleKey {
+    final k = apiKey?.trim() ?? '';
+    return k.isNotEmpty && !k.startsWith('pk.');
+  }
+
   /// True when a non-empty API key is configured for the current provider.
-  bool get hasValidApiKey =>
-      (apiKey != null && apiKey!.trim().isNotEmpty) ||
-      defaultGoogleMapsApiKey.isNotEmpty;
+  bool get hasValidApiKey => isMapbox ? hasValidMapboxToken : hasValidGoogleKey;
+
+  /// True when at least one supported provider has a valid active key/token.
+  bool get hasAnyValidProvider => hasValidGoogleKey || hasValidMapboxToken;
 
   // ── Tile URL resolution ────────────────────────────────────────────────────
 
@@ -258,10 +271,13 @@ class GlobalMapConfig {
   }
 
   /// Resolves the Mapbox raster tile URL for use with `flutter_map`'s `TileLayer`.
+  ///
+  /// Returns an empty string when no Mapbox access token is configured so callers
+  /// render a clean unconfigured state instead of leaking to third-party tiles.
   String resolveMapboxTileUrl({bool isDark = false}) {
     final token = resolvedMapboxToken ?? '';
     if (token.isEmpty) {
-      return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      return '';
     }
     final style = normalizedMapboxStyle;
     final String effectiveStyle;
@@ -273,10 +289,10 @@ class GlobalMapConfig {
     return 'https://api.mapbox.com/styles/v1/$effectiveStyle/tiles/256/{z}/{x}/{y}{r}?access_token=$token';
   }
 
-  /// Resolves tile URL for raster tile surfaces (Mapbox, with OSM fallback when unconfigured).
+  /// Resolves tile URL for raster tile surfaces (Mapbox, or empty when unconfigured).
   String resolveTileUrl({bool isDark = false}) {
     if (!hasValidMapboxToken) {
-      return 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+      return '';
     }
     return resolveMapboxTileUrl(isDark: isDark);
   }

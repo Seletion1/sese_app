@@ -2860,11 +2860,19 @@ class _RasterCredit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      '© Mapbox © OpenStreetMap',
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+    return ValueListenableBuilder<GlobalMapConfig>(
+      valueListenable: MapConfigController.instance.configNotifier,
+      builder: (context, _, _) {
+        if (!MapConfigController.instance.isMapbox) {
+          return const SizedBox.shrink();
+        }
+        return Text(
+          '© Mapbox',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        );
+      },
     );
   }
 }

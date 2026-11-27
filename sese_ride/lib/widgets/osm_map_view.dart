@@ -199,14 +199,45 @@ class _OsmMapViewState extends State<OsmMapView> {
       );
     }
 
-    final String tileUrl;
-    if (widget.customTileUrlTemplate != null &&
-        widget.customTileUrlTemplate!.trim().isNotEmpty &&
-        !widget.customTileUrlTemplate!.contains('light_all')) {
-      tileUrl = widget.customTileUrlTemplate!;
-    } else {
-      tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    final rawUrl = widget.customTileUrlTemplate?.trim() ?? '';
+    if (rawUrl.isEmpty ||
+        rawUrl.contains('light_all') ||
+        rawUrl.contains('tile.openstreetmap.org')) {
+      return Container(
+        key: const Key('osm_map_unconfigured_state'),
+        color: isDark ? const Color(0xFF1A1D21) : const Color(0xFFF3F4F6),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.map_outlined,
+              size: 40,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Map Service Not Configured',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'No active map API key is configured in SeseHub.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: isDark ? Colors.white54 : Colors.black54,
+                  ),
+            ),
+          ],
+        ),
+      );
     }
+    final tileUrl = rawUrl;
 
     final effectiveKey = widget.providerKey ?? 'mapbox';
 

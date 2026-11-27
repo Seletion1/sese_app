@@ -40,10 +40,12 @@ enum MapContext {
 
 /// Which tile renderer a surface uses.
 ///
-/// Provider priority: [googleMaps] → [mapbox].
+/// Provider priority: [googleMaps] → [mapbox], or [unconfigured] when no
+/// active API key/token is configured in SeseHub.
 enum MapProvider {
   googleMaps,
   mapbox,
+  unconfigured,
 }
 
 /// Map Provider Architecture Strategy.
@@ -72,7 +74,7 @@ abstract final class MapProviderPolicy {
   }
 
   /// Resolves the renderer. Respects [MapConfigController.instance]
-  /// billing fallback chain (**Google Maps → Mapbox → Google Maps PAYG**).
+  /// active-key and forced-provider policy.
   static MapProvider resolve(
     MapContext context, {
     String? activeMapProvider,
@@ -81,39 +83,32 @@ abstract final class MapProviderPolicy {
   }) {
     final slot = feature ?? featureForContext(context);
     final effectiveType = slot != null
-        ? MapConfigController.instance.providerTypeForFeature(slot)
-        : MapConfigController.instance.effectiveProviderType;
+        ? MapConfigController.instance.providerTypeForFeatureOrNull(slot)
+        : MapConfigController.instance.effectiveProviderTypeOrNull;
 
     switch (effectiveType) {
       case MapProviderType.google:
         return MapProvider.googleMaps;
       case MapProviderType.mapbox:
         return MapProvider.mapbox;
+      case null:
+        return MapProvider.unconfigured;
     }
   }
 
   /// Resolves the best lightweight renderer for embedded map surfaces while
-  /// respecting the active primary provider (Google Maps vs. Mapbox) and fallback state.
+  /// respecting the active primary provider (Google Maps vs. Mapbox) and
+  /// active-key availability.
   static MapProvider resolveEmbedded() {
-    final ctrl = MapConfigController.instance;
-    final config = ctrl.currentConfig;
-
-    if (config.isMapbox) return MapProvider.mapbox;
-
-    if (config.isGoogle) {
-      if (ctrl.isGoogleFallbackActive &&
-          config.hasValidMapboxToken &&
-          !ctrl.isMapboxFallbackActive) {
+    final effective = MapConfigController.instance.effectiveProviderTypeOrNull;
+    switch (effective) {
+      case MapProviderType.google:
+        return MapProvider.googleMaps;
+      case MapProviderType.mapbox:
         return MapProvider.mapbox;
-      }
-      return MapProvider.googleMaps;
+      case null:
+        return MapProvider.unconfigured;
     }
-
-    if (config.hasValidMapboxToken && !ctrl.isMapboxFallbackActive) {
-      return MapProvider.mapbox;
-    }
-
-    return MapProvider.googleMaps;
   }
 }
 
@@ -573,40 +568,69 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
 
             bool isFallbackActive = false;
             String fallbackMessage = 'Primary map provider unavailable.';
+            String unconfiguredReason =
+                'No active map API key is configured in SeseHub.';
+            final ctrl = MapConfigController.instance;
+            final isForced = mapConfig.isForcedMode;
 
-            // ── Graceful Fallback Guard ──────────────────────────────────────
-            if (targetProvider == MapProvider.googleMaps && !gmsOk) {
-              if (mapConfig.hasValidMapboxToken &&
-                  !MapConfigController.instance.isMapboxFallbackActive) {
-                targetProvider = MapProvider.mapbox;
-                fallbackMessage = 'Google Play Services unavailable. Using Mapbox.';
-              } else {
-                fallbackMessage = 'Google Maps unavailable. Check API key.';
-              }
-              isFallbackActive = targetProvider != MapProvider.googleMaps;
-            } else if (mapConfig.isGoogle &&
-                (!gmsOk || MapConfigController.instance.isGoogleFallbackActive)) {
-              final reason = MapConfigController.instance.fallbackReason;
-              fallbackMessage = reason ??
-                  (!gmsOk
-                      ? 'Google Play Services unavailable. Using fallback.'
-                      : 'Google Maps unavailable. Using fallback.');
-              isFallbackActive = MapConfigController.instance.isGoogleFallbackActive;
-              if (isFallbackActive &&
+            // ── Strict Forced / Active-Key Guard ─────────────────────────────
+            if (targetProvider == MapProvider.googleMaps) {
+              if (!mapConfig.hasValidGoogleKey) {
+                if (!isForced &&
+                    mapConfig.hasValidMapboxToken &&
+                    !ctrl.isMapboxFallbackActive) {
+                  targetProvider = MapProvider.mapbox;
+                  isFallbackActive = true;
+                  fallbackMessage =
+                      'Google Maps key not configured. Using Mapbox.';
+                } else {
+                  targetProvider = MapProvider.unconfigured;
+                  unconfiguredReason =
+                      'Google Maps API key is not configured in SeseHub.';
+                }
+              } else if (!gmsOk) {
+                if (!isForced &&
+                    mapConfig.hasValidMapboxToken &&
+                    !ctrl.isMapboxFallbackActive) {
+                  targetProvider = MapProvider.mapbox;
+                  isFallbackActive = true;
+                  fallbackMessage =
+                      'Google Play Services unavailable. Using Mapbox.';
+                } else {
+                  targetProvider = MapProvider.unconfigured;
+                  unconfiguredReason =
+                      'Google Play Services unavailable on this device.';
+                }
+              } else if (!isForced &&
+                  ctrl.isGoogleFallbackActive &&
                   mapConfig.hasValidMapboxToken &&
-                  !MapConfigController.instance.isMapboxFallbackActive) {
+                  !ctrl.isMapboxFallbackActive) {
                 targetProvider = MapProvider.mapbox;
-                fallbackMessage =
-                    fallbackMessage.replaceAll('Using fallback.', 'Using Mapbox.');
+                isFallbackActive = true;
+                fallbackMessage = ctrl.fallbackReason ??
+                    'Google Maps unavailable. Using Mapbox.';
               }
-            } else if (mapConfig.isMapbox &&
-                (MapConfigController.instance.isMapboxFallbackActive ||
-                    !mapConfig.hasValidMapboxToken)) {
-              isFallbackActive = MapConfigController.instance.isMapboxFallbackActive ||
-                  !mapConfig.hasValidMapboxToken;
-              fallbackMessage = MapConfigController.instance.mapboxFallbackReason ??
-                  'Mapbox unavailable. Falling back to Google Maps PAYG.';
-              targetProvider = MapProvider.googleMaps;
+            } else if (targetProvider == MapProvider.mapbox) {
+              if (!mapConfig.hasValidMapboxToken) {
+                if (!isForced && mapConfig.hasValidGoogleKey && gmsOk) {
+                  targetProvider = MapProvider.googleMaps;
+                  isFallbackActive = true;
+                  fallbackMessage =
+                      'Mapbox token not configured. Using Google Maps.';
+                } else {
+                  targetProvider = MapProvider.unconfigured;
+                  unconfiguredReason =
+                      'Mapbox access token is not configured in SeseHub.';
+                }
+              } else if (!isForced &&
+                  ctrl.isMapboxFallbackActive &&
+                  mapConfig.hasValidGoogleKey &&
+                  gmsOk) {
+                targetProvider = MapProvider.googleMaps;
+                isFallbackActive = true;
+                fallbackMessage = ctrl.mapboxFallbackReason ??
+                    'Mapbox unavailable. Falling back to Google Maps PAYG.';
+              }
             }
 
             final currentEngine = targetProvider.name;
@@ -633,7 +657,12 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               return true;
             }).toList();
 
-            if (OsmMapView.debugTileProviderOverride != null) {
+            if (targetProvider == MapProvider.unconfigured) {
+              mapCanvas = _MapUnconfiguredView(
+                isDark: isDark,
+                reason: unconfiguredReason,
+              );
+            } else if (OsmMapView.debugTileProviderOverride != null) {
               mapCanvas = Container(
                 color:
                     isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E3DF),
@@ -672,42 +701,49 @@ class _SeseUniversalMapState extends State<SeseUniversalMap> {
               } else {
                 // Mapbox rendered via OsmMapView (flutter_map TileLayer)
                 final tileUrl = mapConfig.resolveMapboxTileUrl(isDark: isDark);
+                if (tileUrl.isEmpty) {
+                  mapCanvas = _MapUnconfiguredView(
+                    isDark: isDark,
+                    reason:
+                        'Mapbox access token is not configured in SeseHub.',
+                  );
+                } else {
+                  // Single authoritative live blue-dot pin for raster engines
+                  final rasterMarkers = List<MapPin>.from(baseMarkers);
+                  final hasNavMarker = baseMarkers.any(
+                    (m) => m.label == 'NAV' || m.label == 'NAVIGATION_ARROW',
+                  );
+                  if (widget.showMyLocation && !hasNavMarker) {
+                    rasterMarkers.insert(
+                      0,
+                      MapPin(
+                        id: 'live_user_blue_dot',
+                        point: widget.userLocation ?? widget.initialCenter,
+                        color: Colors.blue,
+                        label: null,
+                      ),
+                    );
+                  }
 
-                // Single authoritative live blue-dot pin for raster engines
-                final rasterMarkers = List<MapPin>.from(baseMarkers);
-                final hasNavMarker = baseMarkers.any(
-                  (m) => m.label == 'NAV' || m.label == 'NAVIGATION_ARROW',
-                );
-                if (widget.showMyLocation && !hasNavMarker) {
-                  rasterMarkers.insert(
-                    0,
-                    MapPin(
-                      id: 'live_user_blue_dot',
-                      point: widget.userLocation ?? widget.initialCenter,
-                      color: Colors.blue,
-                      label: null,
-                    ),
+                  mapCanvas = OsmMapView(
+                    key: ValueKey('map_raster_$currentEngine'),
+                    providerKey: currentEngine,
+                    mapController: widget.mapController,
+                    initialCenter: widget.initialCenter,
+                    initialZoom: widget.initialZoom,
+                    markers: rasterMarkers,
+                    polylines: widget.polylines,
+                    isDarkOverride: widget.isDarkOverride,
+                    localMbtilePath: widget.localMbtilePath,
+                    customTileUrlTemplate: tileUrl,
+                    showMyLocation: widget.showMyLocation,
+                    userLocation: widget.userLocation,
+                    onTileError: _handleTileError,
+                    onCameraMove: widget.onCameraMove,
+                    onCameraIdle: widget.onCameraIdle,
+                    onTap: widget.onTap,
                   );
                 }
-
-                mapCanvas = OsmMapView(
-                  key: ValueKey('map_raster_$currentEngine'),
-                  providerKey: currentEngine,
-                  mapController: widget.mapController,
-                  initialCenter: widget.initialCenter,
-                  initialZoom: widget.initialZoom,
-                  markers: rasterMarkers,
-                  polylines: widget.polylines,
-                  isDarkOverride: widget.isDarkOverride,
-                  localMbtilePath: widget.localMbtilePath,
-                  customTileUrlTemplate: tileUrl,
-                  showMyLocation: widget.showMyLocation,
-                  userLocation: widget.userLocation,
-                  onTileError: _handleTileError,
-                  onCameraMove: widget.onCameraMove,
-                  onCameraIdle: widget.onCameraIdle,
-                  onTap: widget.onTap,
-                );
               }
             }
 
@@ -1150,3 +1186,52 @@ const String _darkMapStyle = '''
   {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#3d3d3d"}]}
 ]
 ''';
+
+/// Clean, crash-free placeholder rendered when no map provider has an active
+/// API key/token configured in SeseHub (or when the forced provider lacks a key).
+class _MapUnconfiguredView extends StatelessWidget {
+  final bool isDark;
+  final String reason;
+
+  const _MapUnconfiguredView({
+    required this.isDark,
+    required this.reason,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('map_unconfigured_state'),
+      color: isDark ? const Color(0xFF1A1D21) : const Color(0xFFF3F4F6),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.map_outlined,
+            size: 44,
+            color: isDark ? Colors.white38 : Colors.black38,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Map Service Not Configured',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            reason,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isDark ? Colors.white54 : Colors.black54,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}

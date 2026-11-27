@@ -1,9 +1,7 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
 
@@ -68,14 +66,6 @@ class PlaceSuggestion {
 ///
 /// Test seams are unchanged — widget tests keep working offline.
 class LocationService {
-  /// Parse a number that may be persisted as int, double, or string.
-  static num? _asNum(dynamic v) {
-    if (v is num) return v;
-    if (v is String) return num.tryParse(v.trim());
-    return null;
-  }
-
-
   static final GoogleMapsService _maps = GoogleMapsService();
   static final MapboxService _mapbox = const MapboxService();
 
@@ -204,175 +194,64 @@ class LocationService {
     }
 
     final controller = MapConfigController.instance;
-    final cfg = controller.currentConfig;
+    final provider = controller.providerTypeForFeatureOrNull(MapFeature.geocoding);
     final fallbackCoord = '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}';
+
+    if (provider == null) {
+      return fallbackCoord;
+    }
 
     bool isRaw(String s) =>
         s.trim().isEmpty || RegExp(r'^-?\d+\.\d+,\s*-?\d+\.\d+$').hasMatch(s.trim());
 
-    // Fallback chain: Google Maps → Mapbox → Nominatim.
-    if (controller.isMapbox) {
-      if (cfg.hasValidMapboxToken) {
-        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
-        if (!isRaw(mbAddr)) {
-          CountryDetectionService.instance.updateFromAddress(mbAddr);
-          return mbAddr;
-        }
-      }
-      final nom = await _nominatimReverseGeocode(lat, lng);
-      if (!isRaw(nom)) {
-        CountryDetectionService.instance.updateFromAddress(nom);
-        return nom;
-      }
-      final gAddr = await _maps.reverseGeocode(lat, lng);
-      if (!isRaw(gAddr)) {
-        CountryDetectionService.instance.updateFromAddress(gAddr);
-        return gAddr;
-      }
-      return fallbackCoord;
-    } else {
-      // Primary: Google Maps
-      final gAddr = await _maps.reverseGeocode(lat, lng);
-      if (!isRaw(gAddr)) {
-        CountryDetectionService.instance.updateFromAddress(gAddr);
-        return gAddr;
-      }
-      // Fallback 1: Mapbox
-      if (cfg.hasValidMapboxToken) {
-        final mbAddr = await _mapbox.reverseGeocode(lat, lng);
-        if (!isRaw(mbAddr)) {
-          CountryDetectionService.instance.updateFromAddress(mbAddr);
-          return mbAddr;
-        }
-      }
-      // Fallback 2: Nominatim
-      final nom = await _nominatimReverseGeocode(lat, lng);
-      if (!isRaw(nom)) {
-        CountryDetectionService.instance.updateFromAddress(nom);
-        return nom;
+    if (provider == MapProviderType.mapbox) {
+      final mbAddr = await _mapbox.reverseGeocode(lat, lng);
+      if (!isRaw(mbAddr)) {
+        CountryDetectionService.instance.updateFromAddress(mbAddr);
+        return mbAddr;
       }
       return fallbackCoord;
     }
-  }
 
-  /// OpenStreetMap Nominatim reverse geocode — free, no API key.
-  ///
-  /// Used as a fallback when the Google proxy returns raw coordinates.
-  /// Returns an empty string on any error so the caller can fall through
-  /// to the raw-coord last-resort without any exception propagation.
-  static Future<String> _nominatimReverseGeocode(
-      double lat, double lng) async {
-    try {
-      final uri = Uri.parse(
-        'https://nominatim.openstreetmap.org/reverse'
-        '?format=jsonv2&lat=$lat&lon=$lng&addressdetails=1&accept-language=en',
-      );
-      final response = await http
-          .get(uri, headers: {'User-Agent': 'SeSe-Ride-App/1.0'})
-          .timeout(const Duration(seconds: 8));
-      if (response.statusCode != 200) return '';
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      // Prefer the display_name field (full address). Fall back to the
-      // structured address components if display_name is missing.
-      final displayName = (data['display_name'] as String?)?.trim() ?? '';
-      if (displayName.isNotEmpty) return displayName;
-      final address = data['address'] is Map ? Map<String, dynamic>.from(data['address'] as Map) : null;
-      if (address == null) return '';
-      // Build a short readable string from the most useful components.
-      final parts = <String>[
-        address['road'] as String? ?? '',
-        address['suburb'] as String? ??
-            address['neighbourhood'] as String? ?? '',
-        address['city'] as String? ??
-            address['town'] as String? ??
-            address['village'] as String? ?? '',
-        address['state'] as String? ?? '',
-      ].where((s) => s.isNotEmpty).toList();
-      return parts.join(', ');
-    } catch (e) {
-      debugPrint('LocationService._nominatimReverseGeocode error: $e');
-      return '';
+    final gAddr = await _maps.reverseGeocode(lat, lng);
+    if (!isRaw(gAddr)) {
+      CountryDetectionService.instance.updateFromAddress(gAddr);
+      return gAddr;
     }
+    return fallbackCoord;
   }
 
-  /// OpenStreetMap Nominatim search fallback — free, no API key.
-  static Future<List<PlaceSuggestion>> _nominatimSearch(String query) async {
-    try {
-      final uri = Uri.parse(
-        'https://nominatim.openstreetmap.org/search'
-        '?format=jsonv2&q=${Uri.encodeComponent(query)}&addressdetails=1&accept-language=en&countrycodes=ng&limit=5',
-      );
-      final response = await http
-          .get(uri, headers: {'User-Agent': 'SeSe-Ride-App/1.0'})
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode != 200) return [];
-      final list = json.decode(response.body) as List<dynamic>;
-      return list.whereType<Map>().map((item) {
-        final map = Map<String, dynamic>.from(item);
-        final displayName = (map['display_name'] as String?)?.trim() ?? query;
-        final lat = double.tryParse(map['lat']?.toString() ?? '0') ?? 0;
-        final lng = double.tryParse(map['lon']?.toString() ?? '0') ?? 0;
-        return PlaceSuggestion(
-          description: displayName,
-          lat: lat,
-          lng: lng,
-          placeId: null,
-        );
-      }).where((s) => s.lat != 0 && s.lng != 0).toList();
-    } catch (e) {
-      debugPrint('LocationService._nominatimSearch error: $e');
-      return [];
-    }
-  }
+  // ── Forward Geocode (strictly follows active Hub provider) ────────────────
 
-  // ── Forward Geocode (Google / Mapbox / Nominatim fallback chain) ──────────
-
-  /// Converts a free-text [query] into a [LatLng] via Google, Mapbox, or Nominatim.
+  /// Converts a free-text [query] into a [LatLng] using the active Hub provider.
   static Future<LatLng?> forwardGeocode(String query) async {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return null;
 
-    final controller = MapConfigController.instance;
-    final cfg = controller.currentConfig;
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) return null;
 
-    if (controller.isMapbox) {
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.geocode(trimmed);
-          if (mb != null) return LatLng(mb.lat, mb.lng);
-        } catch (_) {}
-      }
-      final nomResults = await _nominatimSearch(trimmed);
-      if (nomResults.isNotEmpty) return nomResults.first.latLng;
+    if (provider == MapProviderType.mapbox) {
       try {
-        final details = await _maps.geocode(trimmed);
-        if (details != null) return LatLng(details.lat, details.lng);
-      } catch (_) {}
-      return null;
-    } else {
-      // Primary: Google Maps
-      try {
-        final details = await _maps.geocode(trimmed);
-        if (details != null) return LatLng(details.lat, details.lng);
+        final mb = await _mapbox.geocode(trimmed);
+        if (mb != null) return LatLng(mb.lat, mb.lng);
       } catch (e) {
-        debugPrint('LocationService.forwardGeocode Google error: $e');
+        debugPrint('LocationService.forwardGeocode Mapbox error: $e');
       }
-      // Fallback 1: Mapbox
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.geocode(trimmed);
-          if (mb != null) return LatLng(mb.lat, mb.lng);
-        } catch (_) {}
-      }
-      // Fallback 2: Nominatim
-      final nomResults = await _nominatimSearch(trimmed);
-      if (nomResults.isNotEmpty) return nomResults.first.latLng;
       return null;
     }
+
+    try {
+      final details = await _maps.geocode(trimmed);
+      if (details != null) return LatLng(details.lat, details.lng);
+    } catch (e) {
+      debugPrint('LocationService.forwardGeocode Google error: $e');
+    }
+    return null;
   }
 
-  /// Fetches autocomplete predictions for [query] using Google Places, Mapbox,
-  /// or Nominatim based on the active Hub engine and fallback chain.
+  /// Fetches autocomplete predictions for [query] using the active Hub provider.
   static Future<List<PlaceSuggestion>> fetchSuggestions(
     String query, {
     double? biasLat,
@@ -384,8 +263,9 @@ class LocationService {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return [];
 
-    final controller = MapConfigController.instance;
-    final cfg = controller.currentConfig;
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) return [];
 
     List<PlaceSuggestion> toSuggestions(List<PlacePrediction> preds) => preds
         .map((p) => PlaceSuggestion(
@@ -403,47 +283,31 @@ class LocationService {
             ))
         .toList();
 
-    if (controller.isMapbox) {
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
-          if (mb.isNotEmpty) return toSuggestions(mb);
-        } catch (_) {}
-      }
-      final nom = await _nominatimSearch(trimmed);
-      if (nom.isNotEmpty) return nom;
+    if (provider == MapProviderType.mapbox) {
       try {
-        final g = await _maps.autocomplete(trimmed, lat: biasLat, lng: biasLng);
-        if (g.isNotEmpty) return toSuggestions(g);
-      } catch (_) {}
-      return [];
-    } else {
-      // Primary: Google Maps
-      try {
-        final predictions = await _maps.autocomplete(
-          trimmed,
-          lat: biasLat,
-          lng: biasLng,
-        );
-        if (predictions.isNotEmpty) return toSuggestions(predictions);
+        final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
+        return toSuggestions(mb);
       } catch (e) {
-        debugPrint('LocationService.fetchSuggestions Google error: $e');
+        debugPrint('LocationService.fetchSuggestions Mapbox error: $e');
+        return [];
       }
-      // Fallback 1: Mapbox
-      if (cfg.hasValidMapboxToken) {
-        try {
-          final mb = await _mapbox.autocomplete(trimmed, lat: biasLat, lng: biasLng);
-          if (mb.isNotEmpty) return toSuggestions(mb);
-        } catch (_) {}
-      }
-      // Fallback 2: Nominatim
-      return _nominatimSearch(trimmed);
+    }
+
+    try {
+      final predictions = await _maps.autocomplete(
+        trimmed,
+        lat: biasLat,
+        lng: biasLng,
+      );
+      return toSuggestions(predictions);
+    } catch (e) {
+      debugPrint('LocationService.fetchSuggestions Google error: $e');
+      return [];
     }
   }
 
-  /// Resolves a prediction's coordinates with one Details call. Returns
-  /// null on failure (caller keeps the field unresolved, never blocked).
-  /// Suggestions from cache or with existing coordinates resolve immediately (0 API calls).
+  /// Resolves a prediction's coordinates with one Details call using the active
+  /// Hub provider. Returns null on failure or when unconfigured.
   static Future<PlaceSuggestion?> resolvePrediction(
       PlaceSuggestion suggestion) async {
     if (suggestion.isFromCache ||
@@ -453,11 +317,11 @@ class LocationService {
     final placeId = suggestion.placeId;
     if (placeId == null || placeId.isEmpty) return suggestion;
 
-    // Direct Mapbox feature ID resolution:
-    if (placeId.startsWith('address.') ||
-        placeId.startsWith('poi.') ||
-        placeId.startsWith('neighborhood.') ||
-        placeId.startsWith('place.')) {
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) return null;
+
+    if (provider == MapProviderType.mapbox) {
       try {
         final details = await _mapbox.geocode(suggestion.description);
         if (details != null) {
@@ -470,7 +334,10 @@ class LocationService {
             placeId: placeId,
           );
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('LocationService.resolvePrediction Mapbox error: $e');
+      }
+      return null;
     }
 
     try {
@@ -492,20 +359,7 @@ class LocationService {
         placeId: placeId,
       );
     } catch (e) {
-      debugPrint('LocationService.resolvePrediction error: $e');
-      try {
-        final mbDetails = await _mapbox.geocode(suggestion.description);
-        if (mbDetails != null) {
-          return PlaceSuggestion(
-            description: mbDetails.formattedAddress,
-            mainText: mbDetails.name,
-            secondaryText: suggestion.secondaryText,
-            lat: mbDetails.lat,
-            lng: mbDetails.lng,
-            placeId: placeId,
-          );
-        }
-      } catch (_) {}
+      debugPrint('LocationService.resolvePrediction Google error: $e');
       return null;
     }
   }
@@ -540,32 +394,13 @@ class LocationService {
       return (points: pts, distanceM: 0, durationS: 0);
     }
 
-    final controller = MapConfigController.instance;
-    final cfg = controller.currentConfig;
-
-    Future<({List<LatLng> points, int distanceM, int durationS})?> tryGoogle() async {
-      try {
-        final route = await _maps.directions(
-          originLat: pickup.latitude,
-          originLng: pickup.longitude,
-          destLat: dropoff.latitude,
-          destLng: dropoff.longitude,
-        );
-        if (route.points.isNotEmpty) {
-          return (
-            points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
-            distanceM: route.distanceM,
-            durationS: route.durationS,
-          );
-        }
-      } catch (e) {
-        debugPrint('LocationService.fetchRoute: Google Directions failed: $e');
-      }
-      return null;
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.routing);
+    if (provider == null) {
+      return (points: <LatLng>[], distanceM: 0, durationS: 0);
     }
 
-    Future<({List<LatLng> points, int distanceM, int durationS})?> tryMapbox() async {
-      if (!cfg.hasValidMapboxToken) return null;
+    if (provider == MapProviderType.mapbox) {
       try {
         final route = await _mapbox.directions(
           originLat: pickup.latitude,
@@ -583,34 +418,25 @@ class LocationService {
       } catch (e) {
         debugPrint('LocationService.fetchRoute: Mapbox Directions failed: $e');
       }
-      return null;
+      return (points: <LatLng>[], distanceM: 0, durationS: 0);
     }
 
-    Future<({List<LatLng> points, int distanceM, int durationS})?> tryOsrm() async {
-      try {
-        final result = await _fetchOsrmRoute(pickup, dropoff);
-        if (result.points.isNotEmpty) return result;
-      } catch (e) {
-        debugPrint('LocationService.fetchRoute: OSRM fallback failed: $e');
+    try {
+      final route = await _maps.directions(
+        originLat: pickup.latitude,
+        originLng: pickup.longitude,
+        destLat: dropoff.latitude,
+        destLng: dropoff.longitude,
+      );
+      if (route.points.isNotEmpty) {
+        return (
+          points: route.points.map((p) => LatLng(p.lat, p.lng)).toList(),
+          distanceM: route.distanceM,
+          durationS: route.durationS,
+        );
       }
-      return null;
-    }
-
-    if (controller.isMapbox) {
-      final mb = await tryMapbox();
-      if (mb != null) return mb;
-      final osrm = await tryOsrm();
-      if (osrm != null) return osrm;
-      final g = await tryGoogle();
-      if (g != null) return g;
-    } else {
-      // Primary: Google → Mapbox → OSRM
-      final g = await tryGoogle();
-      if (g != null) return g;
-      final mb = await tryMapbox();
-      if (mb != null) return mb;
-      final osrm = await tryOsrm();
-      if (osrm != null) return osrm;
+    } catch (e) {
+      debugPrint('LocationService.fetchRoute: Google Directions failed: $e');
     }
 
     return (points: <LatLng>[], distanceM: 0, durationS: 0);
@@ -689,78 +515,15 @@ class LocationService {
         List<RouteStep> steps
       })> fetchRouteDetails(LatLng pickup, LatLng dropoff) async {
     final route = await fetchRoute(pickup, dropoff);
-    List<RouteStep> steps = [];
-    try {
-      steps = await _fetchOsrmSteps(pickup, dropoff);
-    } catch (_) {}
-    if (steps.isEmpty && route.points.length >= 2) {
-      steps = _generateFallbackSteps(route.points, pickup, dropoff);
-    }
+    final steps = route.points.length >= 2
+        ? _generateFallbackSteps(route.points, pickup, dropoff)
+        : <RouteStep>[];
     return (
       points: route.points,
       distanceM: route.distanceM,
       durationS: route.durationS,
       steps: steps,
     );
-  }
-
-  static Future<List<RouteStep>> _fetchOsrmSteps(
-      LatLng pickup, LatLng dropoff) async {
-    final uri = Uri.parse(
-      'https://router.project-osrm.org/route/v1/driving/'
-      '${pickup.longitude},${pickup.latitude};'
-      '${dropoff.longitude},${dropoff.latitude}'
-      '?overview=full&geometries=polyline&steps=true',
-    );
-    final response = await http.get(uri).timeout(const Duration(seconds: 10));
-    if (response.statusCode != 200) return [];
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map || decoded['code'] != 'Ok') return [];
-    final routes = decoded['routes'] as List?;
-    if (routes == null || routes.isEmpty) return [];
-    final legs = (routes[0] as Map)['legs'] as List?;
-    if (legs == null || legs.isEmpty) return [];
-    final stepsRaw = (legs[0] as Map)['steps'] as List?;
-    if (stepsRaw == null) return [];
-
-    final List<RouteStep> result = [];
-    for (final s in stepsRaw) {
-      if (s is! Map) continue;
-      final dist = _asNum(s['distance'])?.toDouble() ?? 0.0;
-      final name = (s['name'] as String? ?? '').trim();
-      final maneuver = s['maneuver'] as Map? ?? {};
-      final type = maneuver['type'] as String? ?? 'turn';
-      final modifier = maneuver['modifier'] as String? ?? 'straight';
-      final loc = maneuver['location'] as List?;
-      LatLng locLatLng = pickup;
-      if (loc != null && loc.length >= 2) {
-        locLatLng = LatLng(_asNum(loc[1])?.toDouble() ?? pickup.latitude,
-            _asNum(loc[0])?.toDouble() ?? pickup.longitude);
-      }
-
-      String instruction = '';
-      final street = name.isNotEmpty ? name : 'road';
-      if (type == 'depart') {
-        instruction = 'Head towards destination on $street';
-      } else if (type == 'arrive') {
-        instruction = 'Arrive at destination';
-      } else if (modifier.isNotEmpty) {
-        final dir = modifier.replaceAll('_', ' ');
-        instruction = 'Turn $dir onto $street';
-      } else {
-        instruction = 'Continue on $street';
-      }
-
-      result.add(RouteStep(
-        location: locLatLng,
-        instruction: instruction,
-        maneuverType: type,
-        maneuverModifier: modifier,
-        distanceMeters: dist,
-        streetName: name,
-      ));
-    }
-    return result;
   }
 
   /// Computes compass bearing in degrees (0–360° clockwise from north)
@@ -880,54 +643,6 @@ class LocationService {
     );
 
     return steps;
-  }
-
-  /// Queries the OSRM public routing engine for a driving route.
-  ///
-  /// OSRM uses the same Google-compatible encoded polyline format when
-  /// `geometries=polyline` is requested, so [GoogleMapsService.decodePolyline]
-  /// decodes it correctly. The endpoint is stateless and unauthenticated.
-  static Future<({List<LatLng> points, int distanceM, int durationS})>
-      _fetchOsrmRoute(LatLng pickup, LatLng dropoff) async {
-    // OSRM expects coordinates as lng,lat (longitude first).
-    final uri = Uri.parse(
-      'https://router.project-osrm.org/route/v1/driving/'
-      '${pickup.longitude},${pickup.latitude};'
-      '${dropoff.longitude},${dropoff.latitude}'
-      '?overview=full&geometries=polyline',
-    );
-    final response =
-        await http.get(uri).timeout(const Duration(seconds: 12));
-    if (response.statusCode != 200) {
-      throw Exception('OSRM HTTP ${response.statusCode}');
-    }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map) throw Exception('OSRM: unexpected response shape');
-    final body = Map<String, dynamic>.from(decoded);
-    final code = body['code'] as String? ?? '';
-    if (code != 'Ok') throw Exception('OSRM status: $code');
-
-    final routesRaw = body['routes'];
-    final routes = routesRaw is List ? routesRaw : null;
-    final first = (routes != null && routes.isNotEmpty && routes[0] is Map)
-        ? Map<String, dynamic>.from(routes[0] as Map)
-        : null;
-    if (first == null) throw Exception('OSRM: no routes returned');
-
-    final encoded = first['geometry'] as String? ?? '';
-    final distanceM = _asNum(first['distance'])?.toInt() ?? 0;
-    final durationS = _asNum(first['duration'])?.toInt() ?? 0;
-
-    if (encoded.isEmpty) throw Exception('OSRM: empty geometry');
-
-    // Reuse the same decoder used for Google's encoded polyline — the format
-    // is identical (precision 5, same zigzag encoding, same coordinate order).
-    final routePoints = GoogleMapsService.decodePolyline(encoded);
-    return (
-      points: routePoints.map((p) => LatLng(p.lat, p.lng)).toList(),
-      distanceM: distanceM,
-      durationS: durationS,
-    );
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────

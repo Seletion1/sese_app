@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:sese_core/sese_core.dart';
+import 'package:sese_ride/features/customer/services/location_service.dart';
 import 'package:sese_ride/widgets/map_provider.dart';
 import 'package:sese_ride/widgets/osm_map_view.dart';
 
@@ -277,6 +278,102 @@ void main() {
       final result = MapProviderPolicy.resolveEmbedded();
 
       expect(result, MapProvider.mapbox);
+    });
+  });
+
+  group('Phase 5: Strict Forced Mode, Active-Key Fallback & Unconfigured State', () {
+    test('Forced Google mode stays Google even when quota exceeded and Mapbox token exists', () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        manualOverrideProvider: 'google',
+        apiKey: 'AIzaSyForcedGoogleKey',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+        googleMonthlyCap: 2,
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      for (int i = 0; i < 3; i++) {
+        MapConfigController.instance.incrementUsage(MapProviderType.google, persist: false);
+      }
+
+      expect(MapConfigController.instance.isForcedMode, isTrue);
+      expect(MapConfigController.instance.effectiveProviderTypeOrNull, MapProviderType.google);
+      expect(MapProviderPolicy.resolve(MapContext.browsing), MapProvider.googleMaps);
+    });
+
+    test('Forced Mapbox mode stays Mapbox even when quota exceeded and Google key exists', () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'mapbox',
+        manualOverrideProvider: 'mapbox',
+        apiKey: 'AIzaSyBackupGoogleKey',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+        mapboxMonthlyCap: 2,
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      for (int i = 0; i < 3; i++) {
+        MapConfigController.instance.incrementUsage(MapProviderType.mapbox, persist: false);
+      }
+
+      expect(MapConfigController.instance.isForcedMode, isTrue);
+      expect(MapConfigController.instance.effectiveProviderTypeOrNull, MapProviderType.mapbox);
+      expect(MapProviderPolicy.resolve(MapContext.browsing), MapProvider.mapbox);
+    });
+
+    test('Primary lacking key falls back to other active configured provider', () {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: '',
+        mapboxToken: 'pk.eyJ1IjoidGVzdCJ9.sample',
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      expect(MapConfigController.instance.effectiveProviderTypeOrNull, MapProviderType.mapbox);
+      expect(MapProviderPolicy.resolve(MapContext.browsing), MapProvider.mapbox);
+    });
+
+    testWidgets('No active API key in Hub renders clean unconfigured state and disables network geocoding',
+        (tester) async {
+      final config = const GlobalMapConfig(
+        activeProvider: 'google',
+        apiKey: '',
+        mapboxToken: '',
+      );
+      MapConfigController.instance.updateConfig(config);
+
+      expect(MapConfigController.instance.isUnconfigured, isTrue);
+      expect(MapConfigController.instance.effectiveProviderTypeOrNull, isNull);
+      expect(MapProviderPolicy.resolve(MapContext.browsing), MapProvider.unconfigured);
+      expect(config.resolveMapboxTileUrl(), isEmpty);
+      expect(config.resolveTileUrl(), isEmpty);
+
+      final suggestions = await LocationService.fetchSuggestions('Lagos');
+      expect(suggestions, isEmpty);
+
+      final route = await LocationService.fetchRoute(
+        const LatLng(6.5244, 3.3792),
+        const LatLng(6.4541, 3.3947),
+      );
+      expect(route.points, isEmpty);
+
+      final addr = await LocationService.reverseGeocode(6.5244, 3.3792);
+      expect(addr, '6.52440, 3.37920');
+
+      final mapController = SeSeMapController();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SeseUniversalMap(
+              mapController: mapController,
+              initialCenter: const LatLng(6.5244, 3.3792),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('map_unconfigured_state')), findsOneWidget);
+      expect(find.text('Map Service Not Configured'), findsOneWidget);
     });
   });
 }

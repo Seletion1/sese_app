@@ -1213,21 +1213,40 @@ class DriverOnboardingService {
     return age >= 18;
   }
 
-  /// Google Places autocomplete (Nigeria-biased, via the server proxy —
-  /// no key on the client). Empty on miss/offline; never throws past this
-  /// point so the address field stays usable.
+  /// Address autocomplete via the active Hub geocoding provider
+  /// (Google Places or Mapbox). Returns empty on unconfigured/miss/offline.
   Future<List<PlacePrediction>> searchPlacePredictions(String query) async {
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) return [];
     try {
+      if (provider == MapProviderType.mapbox) {
+        return await const MapboxService().autocomplete(query);
+      }
       return await _maps.autocomplete(query);
     } catch (_) {
       return [];
     }
   }
 
-  /// Resolves a prediction to coordinates + formatted address (one Details
-  /// call, via the server proxy).
-  Future<PlaceDetails> resolvePlaceDetails(String placeId) =>
-      _maps.details(placeId);
+  /// Resolves a prediction to coordinates + formatted address via the active
+  /// Hub geocoding provider.
+  Future<PlaceDetails> resolvePlaceDetails(String placeId) async {
+    final provider = MapConfigController.instance
+        .providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) {
+      throw const GoogleMapsException(
+        'unconfigured',
+        'Map geocoding API is not configured in SeseHub.',
+      );
+    }
+    if (provider == MapProviderType.mapbox) {
+      final mb = await const MapboxService().geocode(placeId);
+      if (mb != null) return mb;
+      throw const GoogleMapsException('not-found', 'Address not found.');
+    }
+    return _maps.details(placeId);
+  }
 
   Future<String> _upload(XFile file, String path) async {
     if (uploadOverride != null) return uploadOverride!(file, path);

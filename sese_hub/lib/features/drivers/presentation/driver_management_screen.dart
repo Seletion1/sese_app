@@ -970,12 +970,49 @@ class _LiveOnlineDriversMapViewState extends State<_LiveOnlineDriversMapView> {
 
     return Stack(
       children: [
-        StreamBuilder<GlobalMapConfig>(
-          stream: const RemoteKeysService().streamGlobalMapConfig(),
-          initialData: const GlobalMapConfig(),
-          builder: (context, snapshot) {
-            final cfg = snapshot.data ?? const GlobalMapConfig();
-            final tileUrl = cfg.resolveTileUrl();
+        ValueListenableBuilder<GlobalMapConfig>(
+          valueListenable: MapConfigController.instance.configNotifier,
+          builder: (context, cfg, _) {
+            final ctrl = MapConfigController.instance;
+            final activeProvider = ctrl.effectiveProviderTypeOrNull;
+            final tileUrl = activeProvider == MapProviderType.mapbox
+                ? cfg.resolveMapboxTileUrl()
+                : '';
+            if (activeProvider == null || tileUrl.isEmpty) {
+              return Container(
+                key: const Key('hub_fleet_map_unconfigured'),
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.map_outlined,
+                      size: 40,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      activeProvider == null
+                          ? 'Map Service Not Configured'
+                          : 'Google Maps Active in Hub',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      activeProvider == null
+                          ? 'No active map API key is configured in Map & API Key Management.'
+                          : 'Mapbox raster tiles are disabled while Google Maps is active.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              );
+            }
             return FlutterMap(
               mapController: _mapController,
               options: MapOptions(
@@ -989,7 +1026,6 @@ class _LiveOnlineDriversMapViewState extends State<_LiveOnlineDriversMapView> {
               children: [
                 TileLayer(
                   urlTemplate: tileUrl,
-                  fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   subdomains: const ['a', 'b', 'c', 'd'],
                   userAgentPackageName: 'com.sesetech.sese_hub',
                   retinaMode: cfg.hasValidMapboxToken,
@@ -1220,12 +1256,49 @@ class _LiveDriverMapDialogState extends State<_LiveDriverMapDialog> {
                         currentLng: lng,
                       ),
                       onPointerUp: (_) => _interactionController.notifyInteractionEnded(),
-                      child: StreamBuilder<GlobalMapConfig>(
-                        stream: const RemoteKeysService().streamGlobalMapConfig(),
-                        initialData: const GlobalMapConfig(),
-                        builder: (context, snapshot) {
-                          final cfg = snapshot.data ?? const GlobalMapConfig();
-                          final tileUrl = cfg.resolveTileUrl();
+                      child: ValueListenableBuilder<GlobalMapConfig>(
+                        valueListenable: MapConfigController.instance.configNotifier,
+                        builder: (context, cfg, _) {
+                          final ctrl = MapConfigController.instance;
+                          final activeProvider = ctrl.effectiveProviderTypeOrNull;
+                          final tileUrl = activeProvider == MapProviderType.mapbox
+                              ? cfg.resolveMapboxTileUrl()
+                              : '';
+                          if (activeProvider == null || tileUrl.isEmpty) {
+                            return Container(
+                              key: const Key('hub_driver_map_unconfigured'),
+                              color: Theme.of(context).colorScheme.surfaceContainerLow,
+                              alignment: Alignment.center,
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.map_outlined,
+                                    size: 40,
+                                    color: Theme.of(context).colorScheme.outline,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    activeProvider == null
+                                        ? 'Map Service Not Configured'
+                                        : 'Google Maps Active in Hub',
+                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    activeProvider == null
+                                        ? 'No active map API key is configured in Map & API Key Management.'
+                                        : 'Mapbox raster tiles are disabled while Google Maps is active.',
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
                           return FlutterMap(
                             mapController: _mapController,
                             options: MapOptions(
@@ -1253,7 +1326,6 @@ class _LiveDriverMapDialogState extends State<_LiveDriverMapDialog> {
                             children: [
                               TileLayer(
                                 urlTemplate: tileUrl,
-                                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                 subdomains: const ['a', 'b', 'c', 'd'],
                                 userAgentPackageName: 'com.sesetech.sese_hub',
                                 retinaMode: cfg.hasValidMapboxToken,

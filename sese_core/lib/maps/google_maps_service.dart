@@ -1,6 +1,10 @@
+import 'dart:convert';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
+import 'map_config_controller.dart';
 import 'place_models.dart';
 
 /// User-safe failure from the Maps proxy. [message] may be shown verbatim.
@@ -15,37 +19,36 @@ class GoogleMapsException implements Exception {
   String toString() => 'GoogleMapsException($code): $message';
 }
 
-/// Centralized Google Maps Platform client. EVERY web-service call
-/// (autocomplete/details/geocode/directions) funnels through the
-/// `googleMapsProxy` callable, which attaches the restricted server key —
-/// there is deliberately no key, no `http` import, and no Google URL
-/// anywhere in Dart.
+/// Centralized Google Maps Platform client.
+///
+/// Uses the live platform-restricted Google Maps API key configured in
+/// SeseHub (`system_config/api_keys` via [MapConfigController]) with zero
+/// hardcoded keys.
 ///
 /// All methods are best-effort and never throw raw errors: failures
-/// surface as [GoogleMapsException] with a display-safe message, and the
-/// repo convention (graceful degradation without Firebase) applies — a
-/// missing Firebase app resolves to `offline`, never a crash.
+/// surface as [GoogleMapsException] with a display-safe message.
 class GoogleMapsService {
+  // ignore: unused_field
   final FirebaseFunctions? _functions;
+  final http.Client? _client;
 
-  /// Test seam: replaces the callable round-trip entirely. Return the
-  /// decoded `data` map the proxy would have sent (e.g.
-  /// `{'predictions': [...]}`).
+  /// Test seam: replaces the remote round-trip entirely. Return the
+  /// decoded `data` map (e.g. `{'predictions': [...]}`).
   @visibleForTesting
   static Future<Map<String, dynamic>> Function(
     String action,
     Map<String, dynamic> params,
   )? callableOverride;
 
-  const GoogleMapsService([this._functions]);
+  const GoogleMapsService([
+    this._functions,
+    http.Client? client,
+  ]) : _client = client;
 
-  FirebaseFunctions? get _fx {
-    if (_functions != null) return _functions;
-    try {
-      return FirebaseFunctions.instance;
-    } catch (_) {
-      return null;
-    }
+  String _resolveApiKey() {
+    final cfg = MapConfigController.instance.currentConfig;
+    if (!cfg.hasValidGoogleKey) return '';
+    return cfg.apiKey!.trim();
   }
 
   Future<Map<String, dynamic>> _call(
@@ -55,25 +58,35 @@ class GoogleMapsService {
     if (callableOverride != null) {
       return callableOverride!(action, params);
     }
-    final fx = _fx;
-    if (fx == null) {
+
+    final apiKey = _resolveApiKey();
+    if (apiKey.isEmpty) {
       throw const GoogleMapsException(
-        'offline',
-        'Location search needs a connection.',
+        'unconfigured',
+        'Google Maps API key is not configured in SeseHub.',
       );
     }
+
     try {
-      final res = await fx
-          .httpsCallable('googleMapsProxy')
-          .call(<String, dynamic>{'action': action, ...params});
-      final data = res.data;
-      if (data is Map) return Map<String, dynamic>.from(data);
-      throw const GoogleMapsException(
-        'unavailable',
-        'Location lookup failed. Please try again.',
-      );
-    } on FirebaseFunctionsException catch (e) {
-      throw GoogleMapsException(_codeOf(e.code), _messageOf(e));
+      switch (action) {
+        case 'autocomplete':
+          return await _restAutocomplete(apiKey, params);
+        case 'details':
+          return await _restDetails(apiKey, params);
+        case 'geocode':
+          return await _restGeocode(apiKey, params);
+        case 'reverseGeocode':
+          return await _restReverseGeocode(apiKey, params);
+        case 'directions':
+          return await _restDirections(apiKey, params);
+        default:
+          throw const GoogleMapsException(
+            'unavailable',
+            'Unsupported Google Maps action.',
+          );
+      }
+    } on GoogleMapsException {
+      rethrow;
     } catch (e) {
       debugPrint('GoogleMapsService.$action failed: $e');
       throw const GoogleMapsException(
@@ -83,35 +96,220 @@ class GoogleMapsService {
     }
   }
 
-  static String _codeOf(String code) {
-    switch (code) {
-      case 'resource-exhausted':
-        return 'quota';
-      case 'not-found':
-        return 'not-found';
-      case 'unauthenticated':
-      case 'permission-denied':
-        return 'denied';
-      case 'invalid-argument':
-        return 'denied';
-      default:
-        return 'unavailable';
+  Future<Map<String, dynamic>> _getJson(Uri uri) async {
+    final client = _client ?? http.Client();
+    final http.Response response;
+    try {
+      response = await client.get(uri).timeout(const Duration(seconds: 8));
+    } finally {
+      if (_client == null) client.close();
     }
+    if (response.statusCode != 200) {
+      throw GoogleMapsException(
+        'unavailable',
+        'Location lookup failed (HTTP ${response.statusCode}).',
+      );
+    }
+    final decoded = json.decode(response.body);
+    if (decoded is! Map) {
+      throw const GoogleMapsException(
+        'unavailable',
+        'Location lookup failed. Please try again.',
+      );
+    }
+    final data = Map<String, dynamic>.from(decoded);
+    final status = (data['status'] ?? '').toString().toUpperCase();
+    if (status == 'OK') return data;
+    if (status == 'ZERO_RESULTS') {
+      throw const GoogleMapsException('not-found', 'No matching places found.');
+    }
+    if (status == 'OVER_QUERY_LIMIT' || status == 'OVER_DAILY_LIMIT') {
+      throw const GoogleMapsException(
+        'quota',
+        'Search quota is exhausted. Try a recent location or try again later.',
+      );
+    }
+    if (status == 'REQUEST_DENIED' || status == 'INVALID_REQUEST') {
+      throw GoogleMapsException(
+        'denied',
+        (data['error_message'] ?? 'Google Maps request denied.').toString(),
+      );
+    }
+    throw const GoogleMapsException(
+      'unavailable',
+      'Location lookup failed. Please try again.',
+    );
   }
 
-  static String _messageOf(FirebaseFunctionsException e) {
-    final msg = e.message ?? '';
-    if (msg.isNotEmpty) return msg;
-    switch (e.code) {
-      case 'resource-exhausted':
-        return 'Search quota is exhausted. Try a recent location or try again later.';
-      case 'not-found':
-        return 'No matching places found.';
-      case 'unauthenticated':
-        return 'You must sign in to search.';
-      default:
-        return 'Location lookup failed. Please try again.';
+  Future<Map<String, dynamic>> _restAutocomplete(
+    String apiKey,
+    Map<String, dynamic> params,
+  ) async {
+    final query = <String, String>{
+      'input': (params['input'] ?? '').toString(),
+      'components': 'country:ng',
+      'key': apiKey,
+    };
+    final lat = params['lat'];
+    final lng = params['lng'];
+    if (lat != null && lng != null) {
+      query['location'] = '$lat,$lng';
+      query['radius'] = '50000';
     }
+    final uri = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/place/autocomplete/json',
+      query,
+    );
+    final data = await _getJson(uri);
+    final rawPreds = data['predictions'] as List? ?? const [];
+    final normalized = rawPreds.whereType<Map>().map((raw) {
+      final p = Map<String, dynamic>.from(raw);
+      final fmt = p['structured_formatting'] is Map
+          ? Map<String, dynamic>.from(p['structured_formatting'] as Map)
+          : <String, dynamic>{};
+      return <String, dynamic>{
+        'placeId': (p['place_id'] ?? '').toString(),
+        'description': (p['description'] ?? '').toString(),
+        'mainText': (fmt['main_text'] ?? '').toString(),
+        'secondaryText': (fmt['secondary_text'] ?? '').toString(),
+      };
+    }).toList();
+    return {'predictions': normalized};
+  }
+
+  Future<Map<String, dynamic>> _restDetails(
+    String apiKey,
+    Map<String, dynamic> params,
+  ) async {
+    final uri = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/place/details/json',
+      {
+        'place_id': (params['input'] ?? '').toString(),
+        'fields': 'place_id,name,formatted_address,geometry',
+        'key': apiKey,
+      },
+    );
+    final data = await _getJson(uri);
+    final result = data['result'] is Map
+        ? Map<String, dynamic>.from(data['result'] as Map)
+        : <String, dynamic>{};
+    final geom = result['geometry'] is Map
+        ? Map<String, dynamic>.from(result['geometry'] as Map)
+        : <String, dynamic>{};
+    final loc = geom['location'] is Map
+        ? Map<String, dynamic>.from(geom['location'] as Map)
+        : <String, dynamic>{};
+    return {
+      'details': {
+        'placeId': (result['place_id'] ?? params['input'] ?? '').toString(),
+        'name': (result['name'] ?? '').toString(),
+        'formattedAddress': (result['formatted_address'] ?? '').toString(),
+        'lat': (loc['lat'] as num?)?.toDouble() ?? 0.0,
+        'lng': (loc['lng'] as num?)?.toDouble() ?? 0.0,
+      },
+    };
+  }
+
+  Future<Map<String, dynamic>> _restGeocode(
+    String apiKey,
+    Map<String, dynamic> params,
+  ) async {
+    final uri = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/geocode/json',
+      {
+        'address': (params['input'] ?? '').toString(),
+        'components': 'country:NG',
+        'key': apiKey,
+      },
+    );
+    final data = await _getJson(uri);
+    final results = data['results'] as List? ?? const [];
+    if (results.isEmpty || results.first is! Map) {
+      throw const GoogleMapsException('not-found', 'No matching places found.');
+    }
+    final first = Map<String, dynamic>.from(results.first as Map);
+    final geom = first['geometry'] is Map
+        ? Map<String, dynamic>.from(first['geometry'] as Map)
+        : <String, dynamic>{};
+    final loc = geom['location'] is Map
+        ? Map<String, dynamic>.from(geom['location'] as Map)
+        : <String, dynamic>{};
+    final formatted = (first['formatted_address'] ?? '').toString();
+    return {
+      'address': {
+        'placeId': (first['place_id'] ?? '').toString(),
+        'name': formatted,
+        'formattedAddress': formatted,
+        'lat': (loc['lat'] as num?)?.toDouble() ?? 0.0,
+        'lng': (loc['lng'] as num?)?.toDouble() ?? 0.0,
+      },
+    };
+  }
+
+  Future<Map<String, dynamic>> _restReverseGeocode(
+    String apiKey,
+    Map<String, dynamic> params,
+  ) async {
+    final uri = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/geocode/json',
+      {
+        'latlng': '${params['lat']},${params['lng']}',
+        'key': apiKey,
+      },
+    );
+    final data = await _getJson(uri);
+    final results = data['results'] as List? ?? const [];
+    if (results.isEmpty || results.first is! Map) {
+      throw const GoogleMapsException('not-found', 'No address found.');
+    }
+    final first = Map<String, dynamic>.from(results.first as Map);
+    return {
+      'address': (first['formatted_address'] ?? '').toString(),
+    };
+  }
+
+  Future<Map<String, dynamic>> _restDirections(
+    String apiKey,
+    Map<String, dynamic> params,
+  ) async {
+    final uri = Uri.https(
+      'maps.googleapis.com',
+      '/maps/api/directions/json',
+      {
+        'origin': '${params['originLat']},${params['originLng']}',
+        'destination': '${params['destLat']},${params['destLng']}',
+        'mode': 'driving',
+        'key': apiKey,
+      },
+    );
+    final data = await _getJson(uri);
+    final routes = data['routes'] as List? ?? const [];
+    if (routes.isEmpty || routes.first is! Map) {
+      throw const GoogleMapsException('not-found', 'No route found.');
+    }
+    final first = Map<String, dynamic>.from(routes.first as Map);
+    final overview = first['overview_polyline'] is Map
+        ? Map<String, dynamic>.from(first['overview_polyline'] as Map)
+        : <String, dynamic>{};
+    final legs = first['legs'] as List? ?? const [];
+    int distanceM = 0;
+    int durationS = 0;
+    if (legs.isNotEmpty && legs.first is Map) {
+      final leg = Map<String, dynamic>.from(legs.first as Map);
+      final dist = leg['distance'] is Map ? leg['distance'] as Map : const {};
+      final dur = leg['duration'] is Map ? leg['duration'] as Map : const {};
+      distanceM = (dist['value'] as num?)?.toInt() ?? 0;
+      durationS = (dur['value'] as num?)?.toInt() ?? 0;
+    }
+    return {
+      'polyline': (overview['points'] ?? '').toString(),
+      'distanceM': distanceM,
+      'durationS': durationS,
+    };
   }
 
   /// Places Autocomplete (Nigeria-biased server-side). Empty query returns

@@ -297,47 +297,83 @@ class MapConfigController {
   ///    - Phase 1: Google Maps (Primary) — active while Google calls < free cap AND no fallback active.
   ///    - Phase 2: Mapbox (Buffer) — active when Google cap is hit (or Google unavailable), while Mapbox calls < free cap AND token valid AND no Mapbox fallback.
   ///    - Phase 3: Google Maps (Pay-As-You-Go) — active when Mapbox free cap is hit or Mapbox fails. (We prefer Google billing over Mapbox billing).
-  MapProviderType _resolveChain(String providerCode, GlobalMapConfig cfg) {
+  MapProviderType? _resolveChain(String providerCode, GlobalMapConfig cfg) {
+    if (!cfg.hasAnyValidProvider) {
+      return null;
+    }
+
     final requested = MapProviderType.fromCode(providerCode);
+    final isForced = cfg.isForcedMode;
 
     // If explicit requested provider is Mapbox:
     if (requested == MapProviderType.mapbox) {
-      if (cfg.hasValidMapboxToken && !_isMapboxFallbackActive && !isMapboxQuotaExceeded) {
+      if (cfg.hasValidMapboxToken) {
+        if (isForced) {
+          return MapProviderType.mapbox;
+        }
+        if (!_isMapboxFallbackActive && !isMapboxQuotaExceeded) {
+          return MapProviderType.mapbox;
+        }
+        if (cfg.hasValidGoogleKey && !isGoogleFallbackActive) {
+          return MapProviderType.google; // Fallback to Google PAYG only if configured
+        }
         return MapProviderType.mapbox;
       }
-      return MapProviderType.google; // Fallback to Google Payg
+      // Primary Mapbox lacks an active token in SeseHub -> use Google if configured, else unconfigured.
+      return cfg.hasValidGoogleKey ? MapProviderType.google : null;
     }
 
     // Default 'google' / 'auto' path:
-    // Phase 1: Google Free Tier
-    final canUseGoogleFree = !isGoogleFallbackActive && cfg.hasValidApiKey && !isGoogleQuotaExceeded;
-    if (canUseGoogleFree) {
+    if (cfg.hasValidGoogleKey) {
+      if (isForced) {
+        return MapProviderType.google;
+      }
+      // Phase 1: Google Free Tier
+      final canUseGoogleFree = !isGoogleFallbackActive && !isGoogleQuotaExceeded;
+      if (canUseGoogleFree) {
+        return MapProviderType.google;
+      }
+
+      // Phase 2: Mapbox Buffer (when Google free cap hit or Google temporarily unavailable)
+      final canUseMapboxBuffer = !_isMapboxFallbackActive && cfg.hasValidMapboxToken && !isMapboxQuotaExceeded;
+      if (canUseMapboxBuffer) {
+        return MapProviderType.mapbox;
+      }
+
+      // Phase 3: Google Pay-As-You-Go overflow
       return MapProviderType.google;
     }
 
-    // Phase 2: Mapbox Buffer (when Google free cap hit or Google temporarily unavailable)
-    final canUseMapboxBuffer = !_isMapboxFallbackActive && cfg.hasValidMapboxToken && !isMapboxQuotaExceeded;
-    if (canUseMapboxBuffer) {
-      return MapProviderType.mapbox;
-    }
-
-    // Phase 3: Google Pay-As-You-Go overflow
-    return MapProviderType.google;
+    // Primary Google lacks an active key in SeseHub -> use Mapbox if configured, else unconfigured.
+    return cfg.hasValidMapboxToken ? MapProviderType.mapbox : null;
   }
+
+  /// Resolves effective active map provider type, or `null` when no provider has
+  /// an active API key/token configured in SeseHub.
+  MapProviderType? get effectiveProviderTypeOrNull =>
+      _resolveChain(currentConfig.normalizedProvider, currentConfig);
 
   /// Resolves effective active map provider type.
   MapProviderType get effectiveProviderType =>
-      _resolveChain(currentConfig.normalizedProvider, currentConfig);
+      effectiveProviderTypeOrNull ?? MapProviderType.google;
 
-  /// Effective provider for a single feature area ([MapFeature]).
-  MapProviderType providerTypeForFeature(MapFeature feature) {
+  /// Effective provider for a single feature area ([MapFeature]), or `null`
+  /// when no provider has an active API key/token configured in SeseHub.
+  MapProviderType? providerTypeForFeatureOrNull(MapFeature feature) {
     final pinned = currentConfig.featureProviderRaw(feature);
-    if (pinned == 'auto') return effectiveProviderType;
+    if (pinned == 'auto') return effectiveProviderTypeOrNull;
     return _resolveChain(pinned, currentConfig);
   }
 
-  bool get isGoogle => effectiveProviderType == MapProviderType.google;
-  bool get isMapbox => effectiveProviderType == MapProviderType.mapbox;
+  /// Effective provider for a single feature area ([MapFeature]).
+  MapProviderType providerTypeForFeature(MapFeature feature) =>
+      providerTypeForFeatureOrNull(feature) ?? MapProviderType.google;
+
+  bool get hasActiveProvider => effectiveProviderTypeOrNull != null;
+  bool get isUnconfigured => effectiveProviderTypeOrNull == null;
+  bool get isForcedMode => currentConfig.isForcedMode;
+  bool get isGoogle => effectiveProviderTypeOrNull == MapProviderType.google;
+  bool get isMapbox => effectiveProviderTypeOrNull == MapProviderType.mapbox;
 
   // ── Geocoding feature-pin enforcement ────────────────────────────────────
 

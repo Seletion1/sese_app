@@ -5,7 +5,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'global_map_config.dart';
 import 'google_maps_service.dart';
+import 'map_config_controller.dart';
+import 'mapbox_service.dart';
 
 /// Source of a [PlaceResult] — drives cache eviction heuristics.
 enum PlaceSource {
@@ -14,6 +17,9 @@ enum PlaceSource {
 
   /// Fetched from Google Places API (falls back when local yields nothing).
   google,
+
+  /// Fetched from Mapbox Geocoding API.
+  mapbox,
 
   /// Fetched from the Sese Central Server geocoder endpoint.
   server,
@@ -357,6 +363,48 @@ class LocalGeocoderService {
     double? nearLng,
     int limit = 5,
   }) async {
+    final provider =
+        MapConfigController.instance.providerTypeForFeatureOrNull(MapFeature.geocoding);
+    if (provider == null) return [];
+
+    if (provider == MapProviderType.mapbox) {
+      try {
+        const mb = MapboxService();
+        final predictions = await mb.autocomplete(
+          query,
+          lat: nearLat,
+          lng: nearLng,
+        );
+        if (predictions.isEmpty) return [];
+        final results = <PlaceResult>[];
+        for (final pred in predictions.take(limit)) {
+          final detail = await mb.geocode(
+            pred.description,
+            lat: nearLat,
+            lng: nearLng,
+          );
+          if (detail == null) continue;
+          final result = PlaceResult(
+            placeId: detail.placeId,
+            name: detail.name.isNotEmpty ? detail.name : pred.mainText,
+            address: detail.formattedAddress.isNotEmpty
+                ? detail.formattedAddress
+                : pred.description,
+            lat: detail.lat,
+            lng: detail.lng,
+            state: null,
+            source: PlaceSource.mapbox,
+          );
+          results.add(result);
+          await savePlace(result);
+        }
+        return results;
+      } catch (e) {
+        debugPrint('LocalGeocoderService: Mapbox fallback error: $e');
+        return [];
+      }
+    }
+
     try {
       final predictions = await _mapsService.autocomplete(
         query,
