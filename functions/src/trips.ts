@@ -1168,7 +1168,19 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
 
   const isVerifiedCust = await isVerifiedCustomer(customerId);
   const custUserSnap = await db().collection("users").doc(customerId).get();
-  const custSequentialId = String(custUserSnap.data()?.sequentialId ?? "").trim();
+  const rawUserSeq = String(custUserSnap.data()?.customerSequentialId ?? custUserSnap.data()?.sequentialId ?? "").trim();
+  let custSequentialId = rawUserSeq.startsWith("SC") ? rawUserSeq : "";
+  if (!custSequentialId) {
+    try {
+      const custDocSnap = await db().collection("customers").doc(customerId).get();
+      const cSeq = String(custDocSnap.data()?.sequentialId ?? "").trim();
+      if (cSeq) custSequentialId = cSeq;
+    } catch (_) {}
+  }
+  if (!custSequentialId) custSequentialId = rawUserSeq;
+
+  const resolvedPickupAddress = String(d.pickup?.address ?? d.pickup?.name ?? (d as any).pickupAddress ?? "").trim();
+  const resolvedDropoffAddress = String(d.dropoff?.address ?? d.dropoff?.name ?? (d as any).dropoffAddress ?? "").trim();
   const maskedPhoneMap = await maskedPhones(customerId, pickupPhone, dropoffPhone, d);
   const isHideCustomerPhone = maskedPhoneMap.phoneMasked === true;
   const safeCustomerPhone = isHideCustomerPhone && customerPhone ? maskPhone(customerPhone) : customerPhone;
@@ -1179,6 +1191,13 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     ...(custSequentialId ? { customerSequentialId: custSequentialId } : {}),
     customerName,
     customerPhone: safeCustomerPhone,
+    pickupAddress: resolvedPickupAddress,
+    dropoffAddress: resolvedDropoffAddress,
+    pickupLat: d.pickup.lat,
+    pickupLng: d.pickup.lng,
+    dropoffLat: d.dropoff.lat,
+    dropoffLng: d.dropoff.lng,
+    ...(Array.isArray((d as any).stops) && (d as any).stops.length > 0 ? { stops: (d as any).stops } : {}),
     statusHistory: initialStatusHistory,
     tripBooker: {
       uid: customerId,
@@ -1291,14 +1310,49 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  // Atomic transaction: locks available wallet balance into active escrow hold AND mints the trip doc
+  // Atomic transaction: allocates sequential RTID/DTID order code, locks wallet escrow, AND mints the trip doc
+  const normalizedServiceType = String(serviceType || "").toLowerCase();
+  const isDeliveryOrder =
+    normalizedServiceType === "delivery" ||
+    normalizedServiceType === "send_item" ||
+    normalizedServiceType === "receive_item" ||
+    normalizedServiceType === "parcel" ||
+    normalizedServiceType === "package";
+  const orderCounterRef = db().collection("counters").doc("order_ids");
+  let allocatedOrderCode = "";
+
   await db().runTransaction(async (tx) => {
+    const orderCounterSnap = await tx.get(orderCounterRef);
+    const counterData = orderCounterSnap.exists ? (orderCounterSnap.data() ?? {}) : {};
+    const prevSeq = Number(isDeliveryOrder ? (counterData.deliverySeq ?? 0) : (counterData.rideSeq ?? 0));
+    const nextSeq = (Number.isFinite(prevSeq) && prevSeq >= 0 ? prevSeq : 0) + 1;
+    allocatedOrderCode = `${isDeliveryOrder ? "DTID" : "RTID"}${String(nextSeq).padStart(4, "0")}`;
+
     let actualCoverage = 0;
     let actualCoverageKobo = 0;
+    let escrowWalletSnap: admin.firestore.DocumentSnapshot | null = null;
+    let txCustSeqId: string | null = custSequentialId || null;
 
     if (escrowLocked && walletCoverageAmount > 0) {
-      const wSnap = await tx.get(custWalletRef);
-      const wData = wSnap.exists ? wSnap.data()! : {};
+      escrowWalletSnap = await tx.get(custWalletRef);
+      if (!txCustSeqId) {
+        const uSnap = await tx.get(db().collection("users").doc(customerId));
+        txCustSeqId = (uSnap.data()?.sequentialId as string | undefined) || null;
+      }
+    }
+
+    // All reads complete — perform writes below
+    tx.set(
+      orderCounterRef,
+      {
+        [isDeliveryOrder ? "deliverySeq" : "rideSeq"]: nextSeq,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    if (escrowLocked && walletCoverageAmount > 0 && escrowWalletSnap) {
+      const wData = escrowWalletSnap.exists ? escrowWalletSnap.data()! : {};
       const mainBal = typeof wData.mainWalletBalance === "number"
         ? wData.mainWalletBalance
         : (typeof wData.balance === "number" ? wData.balance / 100 : 0);
@@ -1321,23 +1375,22 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
           { merge: true }
         );
 
-        const custUserSnap = await tx.get(db().collection("users").doc(customerId));
-        const custSeqId = (custUserSnap.data()?.sequentialId as string | undefined) || null;
-
         tx.set(
           custWalletRef.collection("transactions").doc(`${tripId}_escrow_hold`),
           {
             type: "trip_escrow_hold",
             role: "customer",
-            sequentialId: custSeqId,
-            userId: custSeqId || customerId,
+            sequentialId: txCustSeqId,
+            userId: txCustSeqId || customerId,
             uid: customerId,
             amountNaira: -actualCoverage,
             amountKobo: -actualCoverageKobo,
             amount: -actualCoverageKobo,
             tripId,
+            orderCode: allocatedOrderCode,
+            displayOrderId: allocatedOrderCode,
             currency: "NGN",
-            note: `Locked in escrow for active trip ${tripId}`,
+            note: `Locked in escrow for active trip ${allocatedOrderCode}`,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
           }
         );
@@ -1349,7 +1402,7 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
           amountNaira: -actualCoverage,
           amountKobo: -actualCoverageKobo,
           currency: "NGN",
-          note: `Locked in escrow for active trip ${tripId}`,
+          note: `Locked in escrow for active trip ${allocatedOrderCode}`,
           timestamp: Date.now(),
           stage: "creation",
           invariantsChecked: true,
@@ -1379,8 +1432,10 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
         amountKobo: -discountKobo,
         amountNaira: -seseCreditsDiscount,
         tripId,
+        orderCode: allocatedOrderCode,
+        displayOrderId: allocatedOrderCode,
         currency: "NGN",
-        note: `Sese Credits applied as Trip Discount on trip ${tripId}`,
+        note: `Sese Credits applied as Trip Discount on trip ${allocatedOrderCode}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -1395,7 +1450,12 @@ export const createTrip = guardedOnCall<CreateTripData>(async (request) => {
       );
     }
 
-    tx.set(ref, tripDocPayload);
+    tx.set(ref, {
+      ...tripDocPayload,
+      orderCode: allocatedOrderCode,
+      displayOrderId: allocatedOrderCode,
+      sequentialId: allocatedOrderCode,
+    });
 
     persistTripChangeLogInTx(tx, {
       tripId,
@@ -5657,13 +5717,14 @@ export const hubReassignTrip = guardedOnCall(async (request) => {
     });
   });
 
-  const pickupAddress = String((tripSnapshotData as any)?.pickupAddress ?? "Pickup location");
-  const dropoffAddress = String((tripSnapshotData as any)?.dropoffAddress ?? "Drop-off location");
-  const fareFormatted = String((tripSnapshotData as any)?.fareFormatted ?? "");
+  const tData = (tripSnapshotData ?? {}) as Record<string, any>;
+  const pickupAddress = String(tData.pickupAddress ?? tData.pickup?.address ?? tData.pickup?.name ?? "Pickup location");
+  const dropoffAddress = String(tData.dropoffAddress ?? tData.dropoff?.address ?? tData.dropoff?.name ?? "Drop-off location");
+  const fareFormatted = String(tData.fareFormatted ?? "");
   const offerTitle = fareFormatted
-    ? `Re-assigned Order • ${fareFormatted}`
-    : "New Re-assigned Order Available";
-  const offerBody = `First to pick wins • Pickup: ${pickupAddress}\nDrop-off: ${dropoffAddress}`;
+    ? `New Order • ${fareFormatted}`
+    : "New Order Available";
+  const offerBody = `Pickup: ${pickupAddress}\nDrop-off: ${dropoffAddress}`;
 
   await Promise.allSettled(
     driverIds.map((dId) =>
@@ -5675,8 +5736,9 @@ export const hubReassignTrip = guardedOnCall(async (request) => {
         "new_trip_offer",
         {
           tripId,
+          orderId: tripId,
+          orderCode: String(tData.orderCode ?? tData.displayOrderId ?? ""),
           type: "new_trip_offer",
-          reassigned: "true",
           pickupAddress,
           dropoffAddress,
         },

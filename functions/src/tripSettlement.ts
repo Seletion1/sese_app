@@ -256,6 +256,11 @@ export async function handleTripCompletion(
       return;
     }
     const liveTrip = liveTripSnap.data()!;
+    const orderCode =
+      (liveTrip.orderCode as string | undefined) ||
+      (liveTrip.displayOrderId as string | undefined) ||
+      "";
+    const orderDisplayLabel = orderCode || tripId;
 
     const tripStatus = String(liveTrip.status ?? "");
     if (tripStatus !== "COMPLETED") {
@@ -310,8 +315,9 @@ export async function handleTripCompletion(
         amountKobo: -commissionDebitKobo,
         amountNaira: -commissionAmount,
         tripId,
+        ...(orderCode ? { orderCode, displayOrderId: orderCode } : {}),
         currency: "NGN",
-        note: `Platform commission fee for trip ${tripId}`,
+        note: `Platform commission fee for trip ${orderDisplayLabel}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -457,8 +463,9 @@ export async function handleTripCompletion(
           amountKobo: -coverageKobo,
           amount: -coverageKobo,
           tripId,
+          ...(orderCode ? { orderCode, displayOrderId: orderCode } : {}),
           currency: "NGN",
-          note: `Payment for trip ${tripId}`,
+          note: `Payment for trip ${orderDisplayLabel}`,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
 
@@ -492,8 +499,9 @@ export async function handleTripCompletion(
         amountKobo: coverageKobo,
         amount: coverageKobo,
         tripId,
+        ...(orderCode ? { orderCode, displayOrderId: orderCode } : {}),
         currency: "NGN",
-        note: `Wallet fare portion credited for trip ${tripId}`,
+        note: `Wallet fare portion credited for trip ${orderDisplayLabel}`,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
@@ -833,6 +841,11 @@ export async function handleTripCancellationSettlement(
 
     const customerId = String(trip.customerId ?? trip.userId ?? "");
     const driverId = String(trip.driver?.driverId ?? trip.driverId ?? "");
+    const orderCode =
+      (trip.orderCode as string | undefined) ||
+      (trip.displayOrderId as string | undefined) ||
+      "";
+    const orderDisplayLabel = orderCode || tripId;
     const custWalletRef = customerId ? db().collection("wallets").doc(customerId) : null;
     const driverWalletRef = driverId ? db().collection("wallets").doc(driverId) : null;
     const custUserRef = customerId ? db().collection("users").doc(customerId) : null;
@@ -1010,8 +1023,9 @@ export async function handleTripCancellationSettlement(
           amountKobo: coverageKobo,
           amount: coverageKobo,
           tripId,
+          ...(orderCode ? { orderCode, displayOrderId: orderCode } : {}),
           currency: "NGN",
-          note: `Escrow hold released for cancelled trip ${tripId}`,
+          note: `Escrow hold released for cancelled trip ${orderDisplayLabel}`,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         }
       );

@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -222,6 +221,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   final pickupCountry = (data['pickupCountryCode'] ?? data['countryCode'] ?? 'NG').toString().toUpperCase();
                   final pickupState = (data['pickupState'] ?? data['stateOrRegion'] ?? '').toString().toUpperCase();
                   final tripId = doc.id.toLowerCase();
+                  final orderCode = (data['orderCode'] ?? data['displayOrderId'] ?? data['sequentialId'] ?? '').toString().toLowerCase();
                   final customerName = (data['customerName'] ?? data['userName'] ?? '').toString().toLowerCase();
                   final customerPhone = (data['customerPhone'] ?? data['phoneNumber'] ?? '').toString().toLowerCase();
                   final customerId = (data['customerId'] ?? '').toString().toLowerCase();
@@ -259,6 +259,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                   if (_searchQuery.isNotEmpty) {
                     final q = _searchQuery.toLowerCase();
                     return tripId.contains(q) ||
+                        orderCode.contains(q) ||
                         customerName.contains(q) ||
                         customerPhone.contains(q) ||
                         customerId.contains(q) ||
@@ -546,8 +547,9 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
     final isScheduled = data['isScheduled'] == true || status.toLowerCase().contains('scheduled');
     final scheduledDate = _parseDate(data['scheduledPickupTime'] ?? data['scheduledAt']);
-    final pickup = (data['pickupAddress'] ?? 'Pickup').toString();
-    final dropoff = (data['dropoffAddress'] ?? 'Dropoff').toString();
+    final pickup = _resolveAddress(data, isPickup: true);
+    final dropoff = _resolveAddress(data, isPickup: false);
+    final displayOrderId = _displayOrderId(tripId, data);
 
     final upperStatus = status.toUpperCase();
     final bool isDriverAcceptedWithoutDriver =
@@ -608,7 +610,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'ID: ${tripId.length > 12 ? tripId.substring(0, 12) : tripId}',
+                    'ID: $displayOrderId',
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -787,12 +789,12 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     final vehiclePlate = rawVehiclePlate.isNotEmpty ? rawVehiclePlate : 'N/A';
     final upperStatus = (data['status'] ?? '').toString().toUpperCase();
     final bool canReassign = !upperStatus.contains('COMPLETED') && !upperStatus.contains('CANCELLED');
-    final requirePin = data['deliveryPinRequired'] == true || data['requireDeliveryPin'] == true || data['forceDeliveryPinSystemWide'] == true;
-    final isPinVerified = data['deliveryPinVerified'] == true || data['deliveryPinSkipped'] == true;
     final isScheduled = data['isScheduled'] == true || (data['status'] ?? '').toString().toLowerCase().contains('scheduled');
     final scheduledDate = _parseDate(data['scheduledPickupTime'] ?? data['scheduledAt']);
-    final pickup = (data['pickupAddress'] ?? 'Pickup address').toString();
-    final dropoff = (data['dropoffAddress'] ?? 'Dropoff address').toString();
+    final pickup = _resolveAddress(data, isPickup: true);
+    final dropoff = _resolveAddress(data, isPickup: false);
+    final displayOrderId = _displayOrderId(tripId, data);
+    final rawStops = data['stops'] is List ? (data['stops'] as List) : const [];
 
     final isSplit = data['isSplitPayment'] == true || data['paymentSplit'] != null;
     final senderShare = (data['senderShareNaira'] is num) ? (data['senderShareNaira'] as num).toDouble() : 0.0;
@@ -814,115 +816,7 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
             controller: controller,
             padding: const EdgeInsets.all(20),
             children: [
-              Text('Live Trip Inspection Audit: $tripId', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-
-              // 🌟 PROMINENT SECURITY / DELIVERY PIN SUPPORT CARD
-              Card(
-                color: Colors.amber.shade50,
-                elevation: 3,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(color: Colors.amber.shade600, width: 1.5),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.security, size: 28, color: Colors.amber.shade900),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  '4-Digit Security / Delivery PIN Gate',
-                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                ),
-                                const SizedBox(height: 2),
-                                if (!requirePin)
-                                  Text(
-                                    'PIN Protection is not required for this trip.',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  )
-                                else
-                                  FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                                    future: _db.collection('delivery_pins').doc(tripId).get(),
-                                    builder: (context, snapshot) {
-                                      final pin = (snapshot.data?.data()?['pin'] ?? '').toString();
-                                      final pinDisplay = pin.isNotEmpty ? pin : (snapshot.connectionState == ConnectionState.waiting ? 'Loading...' : 'None');
-                                      return Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              'CUSTOMER PIN: $pinDisplay${isPinVerified ? ' (VERIFIED)' : ''}',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                                letterSpacing: 1.5,
-                                                color: isPinVerified ? Colors.green.shade900 : Colors.amber.shade900,
-                                              ),
-                                            ),
-                                          ),
-                                          if (pin.isNotEmpty)
-                                            IconButton.filledTonal(
-                                              icon: const Icon(Icons.copy),
-                                              tooltip: 'Copy Security PIN',
-                                              onPressed: () {
-                                                Clipboard.setData(ClipboardData(text: pin));
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text('PIN $pin copied to clipboard!'),
-                                                    backgroundColor: Colors.green.shade800,
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.shade100.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(Icons.support_agent, size: 18, color: Colors.amber.shade900),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Support Operator Hotline Guide: If the customer is temporarily unreachable at pickup or drop-off, verify the driver\'s registered identity and verbally provide the 4-digit PIN displayed above to authorize order handover.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.brown.shade900,
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              Text('Live Trip Inspection Audit: $displayOrderId', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
 
               // Scheduled Booking Details (if applicable)
@@ -986,6 +880,32 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
                         ],
                       ),
                       const SizedBox(height: 10),
+                      if (rawStops.isNotEmpty) ...[
+                        for (int i = 0; i < rawStops.length; i++) ...[
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.more_vert, color: Colors.amber, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Stop ${i + 1}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                    Text(
+                                      rawStops[i] is Map
+                                          ? ((rawStops[i]['address'] ?? rawStops[i]['name'] ?? 'Stop ${i + 1}').toString())
+                                          : rawStops[i].toString(),
+                                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ],
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -1295,6 +1215,36 @@ class _RidesConsoleBodyState extends State<_RidesConsoleBody> {
     }
   }
 
+  static String _displayOrderId(String tripId, Map<String, dynamic> data) {
+    final code = (data['orderCode'] ?? data['displayOrderId'] ?? data['sequentialId'] ?? '')
+        .toString()
+        .trim();
+    if (code.isNotEmpty) return code;
+    return tripId.length > 10 ? tripId.substring(0, 10) : tripId;
+  }
+
+  static String _resolveAddress(Map<String, dynamic> data, {required bool isPickup}) {
+    final primary = isPickup ? data['pickupAddress'] : data['dropoffAddress'];
+    if (primary != null && primary.toString().trim().isNotEmpty) {
+      return primary.toString().trim();
+    }
+    final nested = isPickup ? (data['pickup'] ?? data['origin']) : (data['dropoff'] ?? data['destination']);
+    if (nested is Map) {
+      final addr = (nested['address'] ?? nested['name'] ?? nested['formattedAddress'] ?? '').toString().trim();
+      if (addr.isNotEmpty) return addr;
+      final lat = nested['lat'] ?? nested['latitude'];
+      final lng = nested['lng'] ?? nested['longitude'];
+      if (lat is num && lng is num) {
+        return '${lat.toDouble().toStringAsFixed(5)}, ${lng.toDouble().toStringAsFixed(5)}';
+      }
+    }
+    final alt = isPickup ? data['originAddress'] : data['destinationAddress'];
+    if (alt != null && alt.toString().trim().isNotEmpty) {
+      return alt.toString().trim();
+    }
+    return isPickup ? 'Pickup coordinates only' : 'Drop-off coordinates only';
+  }
+
   static String _formatDateTime(DateTime dt) {
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
@@ -1340,13 +1290,19 @@ class _MemberIdBadgeState extends State<_MemberIdBadge> {
     }
   }
 
+  String get _cacheKey => '${widget.isDriver ? 'd' : 'c'}_${widget.uid}';
+
   void _init() {
-    if (widget.initialId.isNotEmpty) {
-      widget.cache[widget.uid] = widget.initialId;
-      _resolvedId = widget.initialId;
+    final init = widget.initialId.trim();
+    final validPrefix = widget.isDriver
+        ? init.startsWith('SD')
+        : (init.startsWith('SC') || (!init.startsWith('SD') && init.isNotEmpty));
+    if (init.isNotEmpty && validPrefix) {
+      widget.cache[_cacheKey] = init;
+      _resolvedId = init;
       return;
     }
-    final cached = widget.cache[widget.uid];
+    final cached = widget.cache[_cacheKey];
     if (cached != null && cached.isNotEmpty) {
       _resolvedId = cached;
       return;
@@ -1360,13 +1316,29 @@ class _MemberIdBadgeState extends State<_MemberIdBadge> {
       if (widget.isDriver) {
         final dDoc = await widget.db.collection('drivers').doc(widget.uid).get();
         found = (dDoc.data()?['sequentialId'] ?? '').toString().trim();
-      }
-      if (found.isEmpty) {
+        if (found.isEmpty) {
+          final uDoc = await widget.db.collection('users').doc(widget.uid).get();
+          found = (uDoc.data()?['sequentialId'] ?? '').toString().trim();
+        }
+      } else {
         final uDoc = await widget.db.collection('users').doc(widget.uid).get();
-        found = (uDoc.data()?['sequentialId'] ?? '').toString().trim();
+        final uData = uDoc.data() ?? const <String, dynamic>{};
+        final custSeq = (uData['customerSequentialId'] ?? '').toString().trim();
+        final userSeq = (uData['sequentialId'] ?? '').toString().trim();
+        if (custSeq.startsWith('SC')) {
+          found = custSeq;
+        } else if (userSeq.startsWith('SC')) {
+          found = userSeq;
+        } else {
+          final cDoc = await widget.db.collection('customers').doc(widget.uid).get();
+          found = (cDoc.data()?['sequentialId'] ?? '').toString().trim();
+          if (found.isEmpty) {
+            found = custSeq.isNotEmpty ? custSeq : userSeq;
+          }
+        }
       }
       if (found.isNotEmpty) {
-        widget.cache[widget.uid] = found;
+        widget.cache[_cacheKey] = found;
         if (mounted) setState(() => _resolvedId = found);
       } else {
         if (mounted) setState(() => _resolvedId = 'Pending ID');
@@ -1431,16 +1403,30 @@ class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
   String _search = '';
 
   double? get _pickupLat {
-    final p = widget.tripData['pickupLocation'];
-    if (p is Map && p['lat'] is num) return (p['lat'] as num).toDouble();
-    if (widget.tripData['pickupLat'] is num) return (widget.tripData['pickupLat'] as num).toDouble();
+    for (final key in ['pickup', 'pickupLocation', 'origin']) {
+      final p = widget.tripData[key];
+      if (p is GeoPoint) return p.latitude;
+      if (p is Map) {
+        final lat = p['lat'] ?? p['latitude'];
+        if (lat is num) return lat.toDouble();
+      }
+    }
+    final top = widget.tripData['pickupLat'] ?? widget.tripData['originLat'];
+    if (top is num) return top.toDouble();
     return null;
   }
 
   double? get _pickupLng {
-    final p = widget.tripData['pickupLocation'];
-    if (p is Map && p['lng'] is num) return (p['lng'] as num).toDouble();
-    if (widget.tripData['pickupLng'] is num) return (widget.tripData['pickupLng'] as num).toDouble();
+    for (final key in ['pickup', 'pickupLocation', 'origin']) {
+      final p = widget.tripData[key];
+      if (p is GeoPoint) return p.longitude;
+      if (p is Map) {
+        final lng = p['lng'] ?? p['longitude'];
+        if (lng is num) return lng.toDouble();
+      }
+    }
+    final top = widget.tripData['pickupLng'] ?? widget.tripData['originLng'];
+    if (top is num) return top.toDouble();
     return null;
   }
 
@@ -1531,7 +1517,7 @@ class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Re-assign Order (${widget.tripId.length > 10 ? widget.tripId.substring(0, 10) : widget.tripId})',
+                  'Re-assign Order (${_RidesConsoleBodyState._displayOrderId(widget.tripId, widget.tripData)})',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
@@ -1604,17 +1590,22 @@ class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
                   return true;
                 }).toList();
 
+                // Sort closest to pickup first; drivers without valid coordinates go last.
                 entries.sort((a, b) {
                   final da = a.data();
                   final dbMap = b.data();
-                  final onA = da['isOnline'] == true ? 0 : 1;
-                  final onB = dbMap['isOnline'] == true ? 0 : 1;
-                  if (onA != onB) return onA.compareTo(onB);
                   final ca = _extractCoords(da);
                   final cb = _extractCoords(dbMap);
-                  final distA = _haversineKm(_pickupLat, _pickupLng, ca.$1, ca.$2) ?? 99999.0;
-                  final distB = _haversineKm(_pickupLat, _pickupLng, cb.$1, cb.$2) ?? 99999.0;
-                  return distA.compareTo(distB);
+                  final distA = _haversineKm(_pickupLat, _pickupLng, ca.$1, ca.$2);
+                  final distB = _haversineKm(_pickupLat, _pickupLng, cb.$1, cb.$2);
+                  if (distA != null && distB != null) {
+                    return distA.compareTo(distB);
+                  }
+                  if (distA != null) return -1;
+                  if (distB != null) return 1;
+                  final onA = da['isOnline'] == true ? 0 : 1;
+                  final onB = dbMap['isOnline'] == true ? 0 : 1;
+                  return onA.compareTo(onB);
                 });
 
                 if (entries.isEmpty) {
@@ -1634,10 +1625,11 @@ class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
                     final name = (d['fullName'] ?? d['name'] ?? 'Driver').toString();
                     final seqId = (d['sequentialId'] ?? '').toString().trim();
                     final isOnline = d['isOnline'] == true;
-                    final area = (d['stateOrRegion'] ?? d['state'] ?? d['countryCode'] ?? 'Area N/A').toString();
                     final coords = _extractCoords(d);
                     final distKm = _haversineKm(_pickupLat, _pickupLng, coords.$1, coords.$2);
-                    final distLabel = distKm != null ? '${distKm.toStringAsFixed(1)} km' : area;
+                    final distLabel = distKm != null
+                        ? '${distKm.toStringAsFixed(1)} km from pickup'
+                        : 'Distance unavailable';
                     final selected = _selectedIds.contains(driverId);
 
                     return CheckboxListTile(
@@ -1687,8 +1679,14 @@ class _ReassignDriversSheetState extends State<_ReassignDriversSheet> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text('$area • $distLabel', style: const TextStyle(fontSize: 12)),
-                          const Spacer(),
+                          Expanded(
+                            child: Text(
+                              distLabel,
+                              style: const TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
                           _DriverWalletStatusBadge(db: widget.db, driverId: driverId),
                         ],
                       ),
