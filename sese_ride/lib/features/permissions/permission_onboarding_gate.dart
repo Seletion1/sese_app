@@ -44,7 +44,8 @@ class PermissionOnboardingGate extends StatefulWidget {
       _PermissionOnboardingGateState();
 }
 
-class _PermissionOnboardingGateState extends State<PermissionOnboardingGate> {
+class _PermissionOnboardingGateState extends State<PermissionOnboardingGate>
+    with WidgetsBindingObserver {
   late Future<bool> _isCompletedFuture;
   String? _cachedUserId;
   UserRole? _cachedRole;
@@ -52,7 +53,21 @@ class _PermissionOnboardingGateState extends State<PermissionOnboardingGate> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkPermissions();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      PermissionOnboardingService.refreshLocationStatus();
+    }
   }
 
   void _checkPermissions() {

@@ -9,6 +9,7 @@ import 'package:sese_core/sese_core.dart';
 import '../../../widgets/map_provider.dart';
 import '../../notifications/notification_inbox_screen.dart';
 import '../../permissions/feature_permission_service.dart';
+import '../../permissions/permission_onboarding_service.dart';
 import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/live_trip_screen.dart';
 import '../../trips/services/trip_service.dart';
@@ -41,13 +42,16 @@ class CustomerHomeMapScreen extends StatefulWidget {
   State<CustomerHomeMapScreen> createState() => _CustomerHomeMapScreenState();
 }
 
-class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
+class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen>
+    with WidgetsBindingObserver {
   static const Color _brandAmber = Color(0xFFFFB800);
 
   TripRepository get _tripRepo =>
       widget.tripRepository ?? FirestoreTripRepository();
 
   late LatLng _position;
+  bool _hasLocationPermission = false;
+  VoidCallback? _locationPermListener;
   final SeSeMapController _mapController = SeSeMapController();
   bool _hasShownMockWarning = false;
 
@@ -68,11 +72,28 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _hasLocationPermission =
+        PermissionOnboardingService.locationGrantedNotifier.value;
+    _locationPermListener = () {
+      final granted =
+          PermissionOnboardingService.locationGrantedNotifier.value;
+      if (!mounted) return;
+      if (granted != _hasLocationPermission) {
+        setState(() => _hasLocationPermission = granted);
+      }
+      if (granted) {
+        unawaited(_resolvePosition());
+      }
+    };
+    PermissionOnboardingService.locationGrantedNotifier
+        .addListener(_locationPermListener!);
     if (widget.initialPosition != null) {
       _position = widget.initialPosition!;
     } else {
       final fast = LocationService.lastKnownPosition;
       _position = fast ?? const LatLng(6.5244, 3.3792); // Fast cache or Lagos fallback
+      unawaited(PermissionOnboardingService.refreshLocationStatus());
       _resolvePosition();
     }
     // Ensure any zombie/stale incoming call audio or overlays are cleared when arriving on Home
@@ -85,9 +106,21 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (_locationPermListener != null) {
+      PermissionOnboardingService.locationGrantedNotifier
+          .removeListener(_locationPermListener!);
+    }
     _mapInteractionController.dispose();
     _positionSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(PermissionOnboardingService.refreshLocationStatus());
+    }
   }
 
   /// Best-effort platform fix for map centering. Never throws: falls back
@@ -101,8 +134,22 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        if (mounted && _hasLocationPermission) {
+          setState(() => _hasLocationPermission = false);
+        }
         return;
       }
+      if (mounted && !_hasLocationPermission) {
+        setState(() => _hasLocationPermission = true);
+      }
+      try {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null && mounted) {
+          final fastPos = LatLng(lastKnown.latitude, lastKnown.longitude);
+          setState(() => _position = fastPos);
+          _mapController.recenterTo(fastPos, 16.0);
+        }
+      } catch (_) {}
       // Request the highest-accuracy fix the device can provide.
       // Without explicit locationSettings the platform defaults to
       // LocationAccuracy.medium (~100 m), which causes the blue dot and
@@ -179,6 +226,8 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
         featureName: 'My Location',
         rationale:
             'SeSe needs location access to center the map where you are and show nearby drivers and routes.',
+        user: widget.user,
+        role: UserRole.customer,
       );
       if (granted) {
         await _resolvePosition();
@@ -236,7 +285,7 @@ class _CustomerHomeMapScreenState extends State<CustomerHomeMapScreen> {
               // 16.0 matches the zoom used after the high-accuracy GPS
               // fix lands, so the map never jumps when re-centering.
               initialZoom: 16.0,
-              showMyLocation: true,
+              showMyLocation: _hasLocationPermission,
               myLocationButtonEnabled: false,
               showRecenterFab: true,
               // Use the authoritative live GPS tracking blue dot (showMyLocation)

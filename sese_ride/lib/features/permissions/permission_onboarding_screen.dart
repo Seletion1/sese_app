@@ -17,6 +17,32 @@ class PermissionOnboardingScreen extends StatefulWidget {
   final AuthRepository? auth;
   final VoidCallback onCompleted;
 
+  /// Presents the unified "Permissions Required" board as a full-screen modal
+  /// route from any feature (e.g. Go Online, Recenter, Camera) so no fragmented
+  /// single-permission popups are ever shown. Returns `true` if Precise Location
+  /// is granted when the board closes.
+  static Future<bool> showAsModal(
+    BuildContext context, {
+    required AppUser user,
+    required UserRole role,
+  }) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => PermissionOnboardingScreen(
+          user: user,
+          role: role,
+          onCompleted: () {
+            if (Navigator.of(ctx).canPop()) {
+              Navigator.of(ctx).pop();
+            }
+          },
+        ),
+      ),
+    );
+    return PermissionOnboardingService.refreshLocationStatus();
+  }
+
   const PermissionOnboardingScreen({
     super.key,
     required this.user,
@@ -63,6 +89,7 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
   Future<void> _loadStatuses() async {
     setState(() => _isLoading = true);
     final statuses = await PermissionOnboardingService.checkStatuses(_bundleItems);
+    await PermissionOnboardingService.refreshLocationStatus();
     if (!mounted) return;
     setState(() {
       _statuses = statuses;
@@ -107,6 +134,7 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
 
     final result =
         await PermissionOnboardingService.requestAllPermissions(_bundleItems);
+    await PermissionOnboardingService.refreshLocationStatus();
 
     if (!mounted) return;
 
@@ -324,10 +352,11 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
                       ),
                       onPressed: () async {
                         Navigator.of(ctx).pop();
-                        await PermissionOnboardingService.setCompleted(
-                          userId: widget.user.uid,
-                          role: widget.role,
+                        PermissionOnboardingService.markSessionSkipped(
+                          widget.user.uid,
+                          widget.role,
                         );
+                        await PermissionOnboardingService.refreshLocationStatus();
                         if (mounted) widget.onCompleted();
                       },
                       child: const Text(
@@ -465,6 +494,7 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
                                     setState(() {
                                       _statuses[item.id] = newStatus;
                                     });
+                                    await PermissionOnboardingService.refreshLocationStatus();
                                     if (_areAllMandatoryGranted) {
                                       await PermissionOnboardingService.setCompleted(
                                         userId: widget.user.uid,

@@ -8,12 +8,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/services/remote_config_service.dart';
 import '../../customer/services/location_service.dart';
 import '../../notifications/notification_inbox_screen.dart';
+import '../../permissions/permission_onboarding_screen.dart';
+import '../../permissions/permission_onboarding_service.dart';
 import '../../trips/models/trip_models.dart';
 import '../../trips/presentation/trip_rating_dialog.dart';
 import '../../trips/services/trip_rating_service.dart';
@@ -351,6 +352,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
   /// platform location fix when available. Centers the home map canvas and
   /// feeds the signed online payload plus the incoming-offer route preview.
   late LatLng _driverPosition;
+  bool _hasLocationPermission = false;
+  VoidCallback? _locationPermListener;
 
   /// Driver's real-time heading (compass bearing 0–360°, clockwise from north).
   /// Updated on every GPS tick and forwarded to the NAV arrow marker so the
@@ -375,6 +378,23 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _driverPosition =
         widget.initialPosition ?? fast ?? const LatLng(6.5244, 3.3792); // Lagos fallback
     _loadFleet();
+    _hasLocationPermission =
+        PermissionOnboardingService.locationGrantedNotifier.value;
+    _locationPermListener = () {
+      final granted =
+          PermissionOnboardingService.locationGrantedNotifier.value;
+      if (!mounted) return;
+      if (granted != _hasLocationPermission) {
+        setState(() => _hasLocationPermission = granted);
+      }
+      if (granted) {
+        unawaited(_resolvePosition());
+        _startLivePositionTracking();
+      }
+    };
+    PermissionOnboardingService.locationGrantedNotifier
+        .addListener(_locationPermListener!);
+    unawaited(PermissionOnboardingService.refreshLocationStatus());
     _resolvePosition();
     _startLivePositionTracking();
     _initSessionControl();
@@ -553,6 +573,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     _activeTripSheetController.removeListener(_onActiveTripSheetChanged);
     _mapInteractionController.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    if (_locationPermListener != null) {
+      PermissionOnboardingService.locationGrantedNotifier
+          .removeListener(_locationPermListener!);
+    }
     _statusSubscription?.cancel();
     _livePositionSubscription?.cancel();
     _activeTripSheetController.dispose();
@@ -583,6 +607,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     final foreground = state == AppLifecycleState.resumed;
 
     if (!foreground && !backgrounded) return; // inactive — ignore
+
+    if (foreground) {
+      unawaited(PermissionOnboardingService.refreshLocationStatus());
+    }
 
     final nowPaused = backgrounded;
     if (nowPaused == _appPaused) return;
@@ -632,17 +660,39 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        if (mounted && _hasLocationPermission) {
+          setState(() => _hasLocationPermission = false);
+        }
         return;
       }
-      final pos = await Geolocator.getCurrentPosition();
+      if (mounted && !_hasLocationPermission) {
+        setState(() => _hasLocationPermission = true);
+      }
+      // Fast-path: snap immediately to last known position while high-accuracy fix resolves.
+      try {
+        final lastKnown = await Geolocator.getLastKnownPosition();
+        if (lastKnown != null && mounted) {
+          final fastPos = LatLng(lastKnown.latitude, lastKnown.longitude);
+          setState(() => _driverPosition = fastPos);
+          _mapController.recenterTo(fastPos, 16.0);
+        }
+      } catch (_) {}
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
       if (!mounted) return;
       final newPos = LatLng(pos.latitude, pos.longitude);
       setState(() {
         _driverPosition = newPos;
+        _hasLocationPermission = true;
       });
       // Immediately move/recenter map camera on acquired live position.
       // ignore: discarded_futures
-      _mapController.recenterTo(_driverPosition, 16.5);
+      _mapController.recenterTo(_driverPosition, 16.0);
     } catch (_) {
       // No platform location (e.g. widget tests) or native location stack
       // unavailable — keep seeded default. Plain catch handles both
@@ -1005,60 +1055,38 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         debugPrint('DriverDashboard: Live foreground location permission: $permission');
       }
 
-      if (permission == LocationPermission.denied) {
-        // Show prominent foreground disclosure before OS prompt
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         if (!mounted) return false;
-        final consented = await ProminentLocationDisclosureDialog.showForeground(
+        final resolvedUser = widget.user ??
+            AppUser(
+              uid: widget.driverId,
+              email: '',
+              fullName: 'SeSe Driver',
+              phoneNumber: '',
+              role: UserRole.driver,
+              createdAt: DateTime.now(),
+            );
+        await PermissionOnboardingScreen.showAsModal(
           context,
-          userId: widget.driverId,
+          user: resolvedUser,
+          role: UserRole.driver,
         );
-        if (!consented) return false;
-
-        permission = await Geolocator.requestPermission();
-        if (kDebugMode) {
-          debugPrint('DriverDashboard: Foreground permission after request: $permission');
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (kDebugMode) {
-          debugPrint('DriverDashboard: Foreground location permission is deniedForever');
-        }
         if (!mounted) return false;
-        if (promptSettingsIfDenied) {
-          final openSettings = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.red),
-                  SizedBox(width: 8),
-                  Text('Location Access Required'),
-                ],
-              ),
-              content: const Text(
-                'Location access is permanently denied in Android Settings. SESE Ride needs location access to match you with nearby orders and calculate trip routes.\n\nPlease enable "Allow all the time" or "Allow while using app" in App Permissions.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Open Settings'),
-                ),
-              ],
-            ),
-          );
-          if (openSettings == true) {
-            await openAppSettings();
+        permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.always ||
+            permission == LocationPermission.whileInUse) {
+          PermissionOnboardingService.locationGrantedNotifier.value = true;
+          if (!_hasLocationPermission) {
+            setState(() => _hasLocationPermission = true);
           }
+          unawaited(_resolvePosition());
+          _startLivePositionTracking();
         }
-        return false;
       }
 
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -2482,7 +2510,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
       initialCenter: _driverPosition,
       initialZoom: hasActiveTrip ? 16.5 : 15.0,
       isDarkOverride: isDark,
-      showMyLocation: !hasActiveTrip,
+      showMyLocation: _hasLocationPermission && !hasActiveTrip,
       showRecenterFab: false,
       userLocation: _driverPosition,
       userBearing: _driverBearing,

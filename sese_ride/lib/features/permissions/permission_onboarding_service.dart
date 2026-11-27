@@ -24,25 +24,62 @@ class PermissionBundleResult {
 class PermissionOnboardingService {
   static const String _flagPrefix = 'permission_onboarding_completed_';
 
+  /// Live OS location permission notifier observed by Home/Driver map screens
+  /// so `myLocationEnabled` and GPS camera centering fire the instant Precise
+  /// Location transitions from denied -> granted without restarting the app.
+  static final ValueNotifier<bool> locationGrantedNotifier =
+      ValueNotifier<bool>(false);
+
+  static final Set<String> _sessionSkippedKeys = <String>{};
+
   static String _flagKey(String userId, UserRole role) {
     final effectiveUserId = userId.isEmpty ? 'guest' : userId;
     return '$_flagPrefix${role.name}_$effectiveUserId';
   }
 
-  /// Checks if all baseline mandatory permissions are currently granted at
-  /// the OS level for [role], or if onboarding was previously completed.
+  /// Records that the user explicitly chose "Skip for now" / "Continue Anyway"
+  /// in the current in-memory session so they are not trapped in a loop, while
+  /// still re-prompting on fresh login if Precise Location remains denied.
+  static void markSessionSkipped(String userId, UserRole role) {
+    _sessionSkippedKeys.add(_flagKey(userId, role));
+  }
+
+  /// Queries real OS location permission and updates [locationGrantedNotifier].
+  static Future<bool> refreshLocationStatus() async {
+    try {
+      final status = await Permission.locationWhenInUse.status;
+      final granted = _isGrantedStatus(status);
+      if (locationGrantedNotifier.value != granted) {
+        locationGrantedNotifier.value = granted;
+      }
+      return granted;
+    } catch (_) {
+      return locationGrantedNotifier.value;
+    }
+  }
+
+  /// Checks if Precise Location & baseline mandatory permissions are currently
+  /// granted at the OS level for [role].
   ///
-  /// Always queries real OS permission status first to ensure that role
-  /// transitions (e.g. Customer -> Driver needing background location and storage)
-  /// or revoked permissions correctly re-present the unified Permission Dashboard.
+  /// Always checks real OS Precise Location status first so a user landing
+  /// after login/registration without Precise Location immediately sees the
+  /// unified "Permissions Required" board (unless explicitly skipped this session).
   static Future<bool> isCompleted({
     required String userId,
     required UserRole role,
   }) async {
     try {
-      // First check persistent completion flag
-      final prefs = await SharedPreferences.getInstance();
       final key = _flagKey(userId, role);
+      final locationGranted = await refreshLocationStatus();
+
+      if (!locationGranted) {
+        if (_sessionSkippedKeys.contains(key)) {
+          return true;
+        }
+        return false;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
       final isFlagCompleted = prefs.getBool(key) ?? false;
       if (isFlagCompleted) {
         return true;
