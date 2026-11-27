@@ -17,6 +17,7 @@ class _RecordingStreakService extends DriverStreakService {
     required double lat,
     required double lng,
     required bool isMocked,
+    double? heading,
   }) async {
     heartbeatCalls++;
     lastIsMocked = isMocked;
