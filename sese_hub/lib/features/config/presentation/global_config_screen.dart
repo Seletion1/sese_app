@@ -948,8 +948,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
             const SizedBox(height: 20),
             _buildDispatchConsoleCard(),
             const SizedBox(height: 20),
-            _buildApiKeysCard(),
-            const SizedBox(height: 20),
             _buildVehicleRecommendationsCard(),
           ]),
         ),
@@ -2236,43 +2234,6 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               ),
               value: _allowBidding,
               onChanged: (val) => setState(() => _allowBidding = val),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Dedicated Map & API Key Management link card (consolidated in MapApiKeyConfigScreen / system_config/api_keys)
-  Widget _buildApiKeysCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Map & API Key Management (system_config/api_keys)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'All map providers, platform-restricted Google Maps / Mapbox keys, monthly call caps, '
-              'auto-fallback, and live usage counters are managed in Map & API Key Management.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              key: const Key('global_config_open_api_keys_screen_btn'),
-              icon: const Icon(Icons.map_rounded, size: 18),
-              label: const Text('Open Map & API Key Management'),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const MapApiKeyConfigScreen(),
-                  ),
-                );
-              },
             ),
           ],
         ),
