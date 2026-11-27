@@ -111,8 +111,9 @@ class _FakeStreakBackend implements DriverStreakBackend {
     String tripId,
     double lat,
     double lng,
-    bool isMocked,
-  ) async =>
+    bool isMocked, {
+    double? heading,
+  }) async =>
       {'ok': true};
 
   @override
