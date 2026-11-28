@@ -9,7 +9,9 @@ void main() {
 
   group('Driver offer background handlers', () {
     test('driverBackgroundHandler persists new_trip_offer payload', () async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'driver_online_session': 'session_test_123',
+      });
       const message = RemoteMessage(
         data: {
           'type': 'new_trip_offer',
@@ -29,6 +31,24 @@ void main() {
       expect(pending, isNotNull);
       expect(pending, contains('tripId=trip_bg_test_1'));
       expect(pending, contains('type=new_trip_offer'));
+    });
+
+    test('driverBackgroundHandler drops offer payload when driver is offline', () async {
+      SharedPreferences.setMockInitialValues({
+        'driver_is_online': false,
+      });
+      const message = RemoteMessage(
+        data: {
+          'type': 'new_trip_offer',
+          'tripId': 'trip_bg_offline',
+        },
+      );
+
+      await driverBackgroundHandler(message);
+
+      final prefs = await SharedPreferences.getInstance();
+      final pending = prefs.getString('pending_offer_payload');
+      expect(pending, isNull);
     });
 
     test(

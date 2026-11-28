@@ -584,6 +584,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
     // ignore: discarded_futures
     PushNotificationService.unsubscribe('driver_${widget.driverId}');
     unawaited(_persistOnlineSession(null));
+    _dismissAndClearOfferState();
+  }
+
+  void _dismissAndClearOfferState() {
+    PushNotificationService.incomingOfferNotifier.value = null;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.remove('pending_offer_payload');
+    }).catchError((_) {});
   }
 
   void _onActiveTripSheetChanged() {
@@ -1292,6 +1300,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
         // ignore: discarded_futures
         PushNotificationService.unsubscribe('driver_${widget.driverId}');
         unawaited(_persistOnlineSession(null));
+        _dismissAndClearOfferState();
         // Clear fast-hydration cache so a subsequent cold start does not
         // mistakenly treat the driver as online and bypass the splash.
         DriverSessionCache.instance.saveSessionState(
@@ -2226,6 +2235,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen>
                 driverPosition: _driverPosition,
                 isAppPaused: () => _appPaused,
                 isOnBreak: () => _isOnBreak,
+                isOnline: () => _isOnline,
                 user: widget.user,
               ),
             ),
@@ -3079,6 +3089,9 @@ class _PingListener extends StatefulWidget {
   /// Quick-Order pool (Tier 3) remains visible and manually browseable.
   final bool Function() isOnBreak;
 
+  /// Returns true when the driver is actively ONLINE.
+  final bool Function() isOnline;
+
   final AppUser? user;
 
   const _PingListener({
@@ -3088,6 +3101,7 @@ class _PingListener extends StatefulWidget {
     required this.driverPosition,
     required this.isAppPaused,
     required this.isOnBreak,
+    required this.isOnline,
     this.user,
   });
 
@@ -3104,12 +3118,25 @@ class _PingListenerState extends State<_PingListener>
   VoidCallback? _offerNotifierListener;
 
   @override
+  void didUpdateWidget(_PingListener oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isOnline() && _sheetOpen) {
+      _sheetOpen = false;
+      _sheetForTrip = null;
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     DriverWakeService.instance.initialize();
     _nativeWakeSub =
         DriverWakeService.instance.incomingOrderIdStream.listen((orderId) {
+      if (!widget.isOnline()) return;
       if (!_sheetOpen && orderId.isNotEmpty && orderId != _sheetForTrip) {
         // ignore: discarded_futures
         _fetchAndShowOffer(orderId);
@@ -3117,6 +3144,7 @@ class _PingListenerState extends State<_PingListener>
     });
     _pushOfferSub =
         PushNotificationService.onMessageDataStream.stream.listen((data) {
+      if (!widget.isOnline()) return;
       final type = data['type'] ?? '';
       final tripId = data['tripId'] ?? '';
       if (type == 'offer_cancelled' || type == 'trip_cancelled') {
@@ -3152,6 +3180,7 @@ class _PingListenerState extends State<_PingListener>
     });
 
     _offerNotifierListener = () {
+      if (!widget.isOnline()) return;
       final data = PushNotificationService.incomingOfferNotifier.value;
       if (data != null) {
         final tripId = data['tripId'] ?? '';
@@ -3168,6 +3197,7 @@ class _PingListenerState extends State<_PingListener>
     PushNotificationService.incomingOfferNotifier.addListener(_offerNotifierListener!);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!widget.isOnline()) return;
       final nativeWakeOrderId =
           await DriverWakeService.instance.consumeInitialWakeOrderId();
       if (nativeWakeOrderId != null && nativeWakeOrderId.isNotEmpty) {
@@ -3218,6 +3248,7 @@ class _PingListenerState extends State<_PingListener>
   }
 
   Future<void> _checkAndShowStashedOffer() async {
+    if (!widget.isOnline()) return;
     try {
       final initialData = PushNotificationService.incomingOfferNotifier.value;
       if (initialData != null) {
@@ -3241,7 +3272,7 @@ class _PingListenerState extends State<_PingListener>
     String tripId, {
     bool autoAccept = false,
   }) async {
-    if (tripId.isEmpty || _sheetOpen || !mounted || widget.isOnBreak()) return;
+    if (!widget.isOnline() || tripId.isEmpty || _sheetOpen || !mounted || widget.isOnBreak()) return;
     if (_sheetForTrip == tripId) return;
 
     try {

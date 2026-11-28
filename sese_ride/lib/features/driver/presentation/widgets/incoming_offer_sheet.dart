@@ -227,15 +227,18 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
           user: widget.user,
         );
       } else {
+        // Race condition: trip cancelled / accepted by another driver -> dismiss card
+        if (mounted) Navigator.of(context).pop();
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text(e.userMessage)));
       }
     } catch (e) {
       debugPrint('IncomingOfferSheet._accept error: $e');
       if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Unable to accept trip. Please try again.'),
+            content: Text('This trip is no longer available.'),
           ),
         );
       }
@@ -246,6 +249,27 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
           _accepting = false;
         });
       }
+    }
+  }
+
+  void _dismissOnCancellationOrUnavailable([String? message]) {
+    if (_expiryHandled || !mounted) return;
+    _expiryHandled = true;
+
+    // Stop alert sound loop & countdown timer immediately.
+    // ignore: discarded_futures
+    AppSoundService.instance.stopIncomingOrderAlert();
+    _countdown.stop();
+
+    if (mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            message ?? 'This trip is no longer available.',
+          ),
+        ),
+      );
     }
   }
 
@@ -291,6 +315,25 @@ class _IncomingOfferSheetState extends State<IncomingOfferSheet>
     return StreamBuilder<ActiveTrip?>(
       stream: _tripStream(),
       builder: (context, snap) {
+        if (snap.hasData) {
+          final liveTrip = snap.data;
+          final isUnavailable = liveTrip == null ||
+              liveTrip.status == TripStatus.cancelled ||
+              liveTrip.status == TripStatus.expired ||
+              liveTrip.status == TripStatus.completed ||
+              (liveTrip.driverId.isNotEmpty &&
+                  liveTrip.driverId != widget.driverId &&
+                  liveTrip.driverId != widget.user?.uid);
+          if (isUnavailable) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _dismissOnCancellationOrUnavailable(
+                liveTrip?.status == TripStatus.cancelled
+                    ? 'Customer cancelled the trip request.'
+                    : 'This trip is no longer available.',
+              );
+            });
+          }
+        }
         final trip = snap.data ?? widget.trip;
         final fareLabel = _fareLabel(trip);
         final perKmLabel = _perKmLabel(trip);

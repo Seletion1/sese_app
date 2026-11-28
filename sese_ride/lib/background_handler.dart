@@ -7,13 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 
+import 'features/driver/services/driver_wake_service.dart';
+
 /// Driver-side background FCM handler for `sese_ride`.
 ///
 /// For incoming order pings (`new_trip_offer`, `trip_offer`, `direct_ping`,
 /// `tier_ping`, `marketplace_broadcast`), this:
-/// 1. Persists the payload to [SharedPreferences] for instant handoff.
-/// 2. Fires the Play-Store-compliant heads-up notification with `Accept` and
-///    `Decline` action buttons via [PushNotificationService.showFromMessage].
+/// 1. Checks if the driver is actively ONLINE. Drops the ping if offline.
+/// 2. Persists the payload to [SharedPreferences] for instant handoff.
+/// 3. Checks system overlay permission (`SYSTEM_ALERT_WINDOW`). If granted, the
+///    overlay/wake window handles presentation without stacking a duplicate
+///    notification banner over it. If not granted, posts the heads-up banner as fallback.
 @pragma('vm:entry-point')
 Future<void> driverBackgroundHandler(RemoteMessage message) async {
   final type = (message.data['type'] ?? '').toString();
@@ -27,8 +31,21 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
   final isOffer = offerTypes.contains(type);
 
   if (isOffer) {
-    // 1. Persist payload so the main isolate can consume it on cold-start
-    //    or on the next resume without waiting for a Firestore round-trip.
+    // 0. Strict Offline Gate: Drivers who are offline must NEVER receive/pop offer alerts.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final onlineSession = prefs.getString('driver_online_session');
+      final explicitOnline = prefs.getBool('driver_is_online');
+      final isOffline = onlineSession == null && explicitOnline == false;
+      if (isOffline) {
+        debugPrint(
+            'driverBackgroundHandler: driver is OFFLINE. Dropping incoming offer ping.');
+        return;
+      }
+    } catch (_) {}
+
+    // 1. Persist payload so the main isolate or overlay can consume it
+    //    without waiting for a Firestore round-trip.
     try {
       final prefs = await SharedPreferences.getInstance();
       final entries = message.data.entries
@@ -43,12 +60,21 @@ Future<void> driverBackgroundHandler(RemoteMessage message) async {
           'driverBackgroundHandler: payload persist failed (non-fatal): $e');
     }
 
-    // 2. Fire the native high-priority heads-up notification with audible
-    //    chime and Accept / Decline action buttons.
+    // 2. Smart Presentation: Check overlay permission.
+    // If overlay permission is granted, the overlay/wake window displays the order card.
+    // Suppress the duplicate heads-up notification banner to avoid stacking alerts.
+    final canOverlay = await DriverWakeService.instance.canDrawOverlays();
+    if (canOverlay) {
+      debugPrint(
+          'driverBackgroundHandler: overlay permission granted. Displaying overlay directly; suppressed duplicate notification banner.');
+      return;
+    }
+
+    // 3. Fallback: If overlay permission is missing, post the high-priority notification banner.
     try {
       await PushNotificationService.showFromMessage(message);
       debugPrint(
-          'driverBackgroundHandler: launched heads-up notification for trip ${message.data['tripId']}');
+          'driverBackgroundHandler: launched fallback heads-up notification for trip ${message.data['tripId']}');
     } catch (e) {
       debugPrint(
           'driverBackgroundHandler: showFromMessage heads-up alert failed: $e');
