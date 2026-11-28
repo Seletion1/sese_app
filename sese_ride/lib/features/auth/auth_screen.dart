@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -11,6 +12,7 @@ import '../driver/presentation/driver_onboarding_screen.dart';
 import '../home/customer_home_shell.dart';
 import '../home/driver_home_shell.dart';
 import '../referral/referral_input_widget.dart';
+import '../settings/role_controller.dart';
 
 /// Unified Authentication Screen for sese_ride.
 /// Supports Customer and Driver authentication with dual action modes:
@@ -149,6 +151,8 @@ class _AuthScreenState extends State<AuthScreen> {
           await _promptGoogleReferralOrSkip(appUser);
           if (!mounted) return;
         }
+
+        unawaited(RoleController.instance.activateMode(appUser.uid, appUser.role));
 
         if (appUser.role == UserRole.driver) {
           if (appUser.isPendingOnboarding) {
@@ -568,6 +572,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _routeToHome(AppUser user) {
+    unawaited(RoleController.instance.activateMode(user.uid, user.role));
     if (user.role == UserRole.driver) {
       if (user.isPendingOnboarding) {
         Navigator.of(context).pushAndRemoveUntil(

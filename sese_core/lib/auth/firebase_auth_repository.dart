@@ -356,6 +356,17 @@ class FirebaseAuthRepository implements AuthRepository {
     final rawEmail = (firebaseUser.email ?? '').trim();
     final normEmail = UniquenessService.normalizeEmail(rawEmail);
 
+    String extractedPhone = (firebaseUser.phoneNumber ?? '').trim();
+    if (extractedPhone.isEmpty) {
+      for (final provider in firebaseUser.providerData) {
+        final pPhone = (provider.phoneNumber ?? '').trim();
+        if (pPhone.isNotEmpty) {
+          extractedPhone = pPhone;
+          break;
+        }
+      }
+    }
+
     if (isDriver) {
       bool isNewDriver = false;
       if (firestore != null) {
@@ -390,10 +401,9 @@ class FirebaseAuthRepository implements AuthRepository {
               existingData?['createdAt'] ?? FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         };
-        if (firebaseUser.phoneNumber != null &&
-            firebaseUser.phoneNumber!.trim().isNotEmpty) {
-          driverData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
-          driverData['phoneNumberE164'] = firebaseUser.phoneNumber!.trim();
+        if (extractedPhone.isNotEmpty) {
+          driverData['phoneNumber'] = extractedPhone;
+          driverData['phoneNumberE164'] = extractedPhone;
         }
         await driverDocRef.set(driverData, SetOptions(merge: true));
       }
@@ -402,7 +412,7 @@ class FirebaseAuthRepository implements AuthRepository {
         uid: firebaseUser.uid,
         fullName: displayName.isNotEmpty ? displayName : rawEmail,
         email: rawEmail,
-        phoneNumber: firebaseUser.phoneNumber ?? '',
+        phoneNumber: extractedPhone,
         role: UserRole.driver,
         isActive: false,
         createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
@@ -440,10 +450,9 @@ class FirebaseAuthRepository implements AuthRepository {
               existingData?['createdAt'] ?? FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         };
-        if (firebaseUser.phoneNumber != null &&
-            firebaseUser.phoneNumber!.trim().isNotEmpty) {
-          userData['phoneNumber'] = firebaseUser.phoneNumber!.trim();
-          userData['phoneNumberE164'] = firebaseUser.phoneNumber!.trim();
+        if (extractedPhone.isNotEmpty) {
+          userData['phoneNumber'] = extractedPhone;
+          userData['phoneNumberE164'] = extractedPhone;
         }
         await userDocRef.set(userData, SetOptions(merge: true));
       }
@@ -452,7 +461,7 @@ class FirebaseAuthRepository implements AuthRepository {
         uid: firebaseUser.uid,
         fullName: displayName.isNotEmpty ? displayName : rawEmail,
         email: rawEmail,
-        phoneNumber: firebaseUser.phoneNumber ?? '',
+        phoneNumber: extractedPhone,
         role: UserRole.customer,
         isActive: true,
         createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
@@ -1330,9 +1339,36 @@ class FirebaseAuthRepository implements AuthRepository {
         }
       }
 
-      // 4. Check drivers/{uid} FIRST — driver accounts are authoritative
-      // for the Driver toggle. (Checked before users/ so a Firebase user
-      // holding both docs resolves to their driver onboarding state.)
+      // 4. Role-aware lookup: Customer-selected sign-in checks users/{uid} first
+      final requestedRole = selectedRole ?? _pendingSelectedRole;
+
+      if (requestedRole == UserRole.customer && !isHubApp) {
+        try {
+          final userDoc =
+              await firestore.collection('users').doc(firebaseUser.uid).get();
+          if (userDoc.exists && userDoc.data() != null) {
+            final data = Map<String, dynamic>.from(userDoc.data()!);
+            data['uid'] = firebaseUser.uid;
+            data['email'] = firebaseUser.email ?? data['email'] ?? '';
+            data.putIfAbsent('role', () => 'customer');
+            data.putIfAbsent(
+              'photoUrl',
+              () => data['photoURL'] ?? firebaseUser.photoURL ?? '',
+            );
+            final existing = AppUser.fromMap(data);
+            _logRoleSelection(existing.role, selectedRole);
+            LocalCacheService.instance.setJsonMap(
+              'cached_app_user_${firebaseUser.uid}',
+              existing.toMap(),
+            );
+            return existing;
+          }
+        } catch (e) {
+          debugPrint('FirebaseAuthRepository._fetchAppUser customer-first error: $e');
+        }
+      }
+
+      // 5. Check drivers/{uid} — driver accounts are authoritative for the Driver toggle.
       try {
         final driverDoc =
             await firestore.collection('drivers').doc(firebaseUser.uid).get();
