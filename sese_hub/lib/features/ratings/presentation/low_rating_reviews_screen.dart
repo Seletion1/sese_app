@@ -51,7 +51,9 @@ class _LowRatingReviewsListState extends State<_LowRatingReviewsList> {
 
   Stream<QuerySnapshot<Map<String, dynamic>>> get _stream {
     Query<Map<String, dynamic>> q = _db.collection('low_rating_reviews');
-    if (_pendingOnly) q = q.where('reviewStatus', isEqualTo: 'pending');
+    if (_pendingOnly) {
+      return q.where('reviewStatus', isEqualTo: 'pending').snapshots();
+    }
     return q.orderBy('createdAt', descending: true).snapshots();
   }
 
@@ -93,7 +95,16 @@ class _LowRatingReviewsListState extends State<_LowRatingReviewsList> {
                       style: TextStyle(color: colorScheme.error)),
                 );
               }
-              final docs = snap.data?.docs ?? [];
+              final docs = (snap.data?.docs ?? []).toList();
+              docs.sort((a, b) {
+                final dA = a.data()['createdAt'];
+                final dB = b.data()['createdAt'];
+                DateTime tA = DateTime.fromMillisecondsSinceEpoch(0);
+                DateTime tB = DateTime.fromMillisecondsSinceEpoch(0);
+                if (dA is Timestamp) tA = dA.toDate();
+                if (dB is Timestamp) tB = dB.toDate();
+                return tB.compareTo(tA);
+              });
               if (docs.isEmpty) {
                 return Center(
                   child: Column(
