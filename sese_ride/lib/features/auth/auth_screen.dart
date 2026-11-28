@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sese_core/sese_core.dart';
 
 import 'auth_controller.dart';
@@ -146,9 +147,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
         if (!mounted) return;
 
-        // When a user creates an account using Google, prompt for Referral ID or Skip
-        if (_controller.isSignUpMode || appUser.isNewRegistration) {
+        if (await _shouldPromptReferral(appUser)) {
           await _promptGoogleReferralOrSkip(appUser);
+          await _markReferralHandled(appUser.uid);
           if (!mounted) return;
         }
 
@@ -905,6 +906,26 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       ),
     );
+  }
+
+  Future<bool> _shouldPromptReferral(AppUser user) async {
+    if (user.referredBy.trim().isNotEmpty) {
+      return false;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final handled = prefs.getBool('referral_prompt_handled_${user.uid}') ?? false;
+      return !handled;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _markReferralHandled(String uid) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('referral_prompt_handled_$uid', true);
+    } catch (_) {}
   }
 
   Future<void> _promptGoogleReferralOrSkip(AppUser appUser) async {

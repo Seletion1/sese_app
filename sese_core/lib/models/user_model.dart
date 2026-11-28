@@ -33,6 +33,9 @@ class AppUser {
   /// Also serves as the user's sole referral code.
   final String sequentialId;
 
+  /// UID or referral Member ID of the referrer who referred this user.
+  final String referredBy;
+
   /// Set to true when this AppUser was newly created during this registration/sign-up session.
   final bool isNewRegistration;
 
@@ -50,6 +53,7 @@ class AppUser {
     this.totalRatingSum = 0,
     this.totalRatingCount = 0,
     this.sequentialId = '',
+    this.referredBy = '',
     this.ratingPercentage = 0.0,
     this.isNewRegistration = false,
   });
@@ -84,6 +88,7 @@ class AppUser {
       'totalRatingCount': totalRatingCount,
       'ratingPercentage': ratingPercentage,
       if (sequentialId.isNotEmpty) 'sequentialId': sequentialId,
+      if (referredBy.isNotEmpty) 'referredBy': referredBy,
     };
     final trimmedPhone = phoneNumber.trim();
     if (trimmedPhone.isNotEmpty) {
@@ -114,6 +119,7 @@ class AppUser {
       totalRatingCount: safeNum(map['totalRatingCount'])?.toInt() ?? 0,
       ratingPercentage: safeNum(map['ratingPercentage'])?.toDouble() ?? 0.0,
       sequentialId: (map['sequentialId'] ?? '').toString(),
+      referredBy: (map['referredBy'] ?? map['referrerId'] ?? map['referred_by_code'] ?? '').toString().trim(),
     );
   }
 
@@ -144,6 +150,7 @@ class AppUser {
     int? totalRatingCount,
     double? ratingPercentage,
     String? sequentialId,
+    String? referredBy,
     bool? isNewRegistration,
   }) {
     return AppUser(
@@ -161,6 +168,7 @@ class AppUser {
       totalRatingCount: totalRatingCount ?? this.totalRatingCount,
       ratingPercentage: ratingPercentage ?? this.ratingPercentage,
       sequentialId: sequentialId ?? this.sequentialId,
+      referredBy: referredBy ?? this.referredBy,
       isNewRegistration: isNewRegistration ?? this.isNewRegistration,
     );
   }
