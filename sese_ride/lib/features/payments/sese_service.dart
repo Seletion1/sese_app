@@ -542,7 +542,16 @@ class SeseService {
       debugPrint('SeseService.launchCheckout externalApplication error: $e');
     }
 
-    // Attempt 3: Platform Default
+    // Attempt 3: External Non-Browser Application (banking/payment apps)
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalNonBrowserApplication);
+      debugPrint('SeseService.launchCheckout externalNonBrowserApplication: $ok');
+      if (ok) return true;
+    } catch (e) {
+      debugPrint('SeseService.launchCheckout externalNonBrowserApplication error: $e');
+    }
+
+    // Attempt 4: Platform Default
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.platformDefault);
       debugPrint('SeseService.launchCheckout platformDefault: $ok');
@@ -593,8 +602,11 @@ class SeseService {
     if (msg.contains('gateway_not_supported') || msg.contains('unsupported gateway')) {
       return 'The selected payment gateway is not supported.';
     }
-    // OPay API authentication / credential errors — guide the admin to fix keys
+    // OPay API authentication / parameter errors — guide the admin or user cleanly
     // rather than showing a raw OPay error code to the driver.
+    if (msg.contains('02001') || msg.contains('http message not readable')) {
+      return 'OPay parameter error. Please try Paystack or contact support.';
+    }
     if (msg.contains('opay error') &&
         (msg.contains('02003') ||
             msg.contains('02004') ||

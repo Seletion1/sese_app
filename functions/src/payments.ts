@@ -405,7 +405,7 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
             returnUrl: callbackUrl,
             callbackUrl,
             cancelUrl: `${callbackUrl}?status=cancelled`,
-            expireAt: 30,
+            expireAt: "30",
             userInfo: {
               userEmail: email,
               userId: uid,
@@ -414,7 +414,6 @@ export const initializePayment = guardedOnCall<InitializePaymentData>(
               name: purpose === "trip_payment" ? "Trip Payment" : "Sese Credits Top-Up",
               description: "SeSe Ride Direct Checkout",
             },
-            payMethods: ["account", "qrcode", "card", "bankTransfer"],
           },
           config
         );
