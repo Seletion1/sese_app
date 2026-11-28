@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -155,6 +157,32 @@ class ReferralHubScreen extends StatelessWidget {
                           ],
                         ),
                       ),
+                      if (kIsWeb) ...[
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          key: const Key('referral_web_cashout_button'),
+                          icon: const Icon(Icons.account_balance_wallet_outlined, size: 18),
+                          label: const Text('Cash Out'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.amber.shade700,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: credits >= 1000
+                              ? () => showDialog<void>(
+                                    context: context,
+                                    builder: (_) => _WebCashOutDialog(
+                                      user: user,
+                                      availableCredits: credits,
+                                    ),
+                                  )
+                              : null,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -657,6 +685,261 @@ class _RuleRow extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Web-Only Cash Out dialog.
+class _WebCashOutDialog extends StatefulWidget {
+  final AppUser user;
+  final double availableCredits;
+
+  const _WebCashOutDialog({
+    required this.user,
+    required this.availableCredits,
+  });
+
+  @override
+  State<_WebCashOutDialog> createState() => _WebCashOutDialogState();
+}
+
+class _WebCashOutDialogState extends State<_WebCashOutDialog> {
+  late final TextEditingController _amountCtrl;
+  late final TextEditingController _bankNameCtrl;
+  late final TextEditingController _accountNumCtrl;
+  late final TextEditingController _accountNameCtrl;
+
+  bool _submitting = false;
+  String? _error;
+
+  static const List<Map<String, String>> _popularBanks = [
+    {'name': 'Access Bank', 'code': '044'},
+    {'name': 'GTBank (Guaranty Trust Bank)', 'code': '058'},
+    {'name': 'First Bank of Nigeria', 'code': '011'},
+    {'name': 'Zenith Bank', 'code': '057'},
+    {'name': 'UBA (United Bank for Africa)', 'code': '033'},
+    {'name': 'Kuda Bank', 'code': '50211'},
+    {'name': 'OPay', 'code': '999992'},
+    {'name': 'PalmPay', 'code': '999991'},
+    {'name': 'Moniepoint Microfinance Bank', 'code': '50515'},
+    {'name': 'Stanbic IBTC Bank', 'code': '221'},
+  ];
+
+  String _selectedBankCode = '044';
+  String _selectedBankName = 'Access Bank';
+
+  @override
+  void initState() {
+    super.initState();
+    final initialAmount = widget.availableCredits >= 1000 ? 1000.0 : widget.availableCredits;
+    _amountCtrl = TextEditingController(text: initialAmount.toStringAsFixed(0));
+    _bankNameCtrl = TextEditingController(text: _selectedBankName);
+    _accountNumCtrl = TextEditingController();
+    _accountNameCtrl = TextEditingController(text: widget.user.fullName);
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _bankNameCtrl.dispose();
+    _accountNumCtrl.dispose();
+    _accountNameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitCashOut() async {
+    if (_submitting) return;
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0.0;
+    if (amount < 1000) {
+      setState(() {
+        _error = 'Minimum referral cash-out amount is ₦1,000.00.';
+        _submitting = false;
+      });
+      return;
+    }
+
+    if (amount > widget.availableCredits) {
+      setState(() {
+        _error = 'Requested amount exceeds available balance (₦${widget.availableCredits.toStringAsFixed(2)}).';
+        _submitting = false;
+      });
+      return;
+    }
+
+    final accountNum = _accountNumCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (accountNum.length < 10) {
+      setState(() {
+        _error = 'Please enter a valid 10-digit account number.';
+        _submitting = false;
+      });
+      return;
+    }
+
+    final accountName = _accountNameCtrl.text.trim();
+    if (accountName.isEmpty) {
+      setState(() {
+        _error = 'Please enter the account holder name.';
+        _submitting = false;
+      });
+      return;
+    }
+
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('requestReferralCashOut');
+      final res = await callable.call<Map<String, dynamic>>({
+        'amountNaira': amount,
+        'bankCode': _selectedBankCode,
+        'bankName': _selectedBankName,
+        'accountNumber': accountNum,
+        'accountName': accountName,
+        'idempotencyKey': 'web_cashout_${widget.user.uid}_${DateTime.now().millisecondsSinceEpoch}',
+      });
+
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            (res.data['message'] ?? 'Referral cash-out request submitted successfully!').toString(),
+          ),
+          backgroundColor: Colors.green.shade800,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e is FirebaseFunctionsException ? e.message : 'Cash-out request failed. Please try again.';
+        _submitting = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.account_balance_wallet_outlined, color: Colors.amber),
+          SizedBox(width: 8),
+          Text('Referral Cash Out'),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Available Credits:', style: TextStyle(fontWeight: FontWeight.w500)),
+                    Text(
+                      '₦${widget.availableCredits.toStringAsFixed(2)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _amountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Amount (₦)',
+                  hintText: 'e.g. 2000',
+                  prefixText: '₦ ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedBankCode,
+                decoration: const InputDecoration(
+                  labelText: 'Select Bank',
+                  border: OutlineInputBorder(),
+                ),
+                items: _popularBanks.map((b) {
+                  return DropdownMenuItem<String>(
+                    value: b['code'],
+                    child: Text(b['name'] ?? ''),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    final found = _popularBanks.firstWhere((b) => b['code'] == val, orElse: () => _popularBanks.first);
+                    setState(() {
+                      _selectedBankCode = val;
+                      _selectedBankName = found['name'] ?? 'Bank';
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _accountNumCtrl,
+                keyboardType: TextInputType.number,
+                maxLength: 10,
+                decoration: const InputDecoration(
+                  labelText: 'Account Number (10 Digits)',
+                  hintText: 'e.g. 0123456789',
+                  border: OutlineInputBorder(),
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _accountNameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Account Holder Name',
+                  hintText: 'e.g. John Doe',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.amber.shade700,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _submitting ? null : _submitCashOut,
+          child: _submitting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Submit Cash Out'),
         ),
       ],
     );

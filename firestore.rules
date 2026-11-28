@@ -965,6 +965,18 @@ service cloud.firestore {
       }
     }
 
+    // ===== PAYOUT REQUESTS =====
+    // Created exclusively by `requestReferralCashOut` Cloud Function.
+    // Client write is strictly DENIED (0% client trust).
+    // Account owner and hub staff may read payout status.
+    match /payout_requests/{payoutId} {
+      allow read: if isAuthenticated() && (
+        resource.data.uid == request.auth.uid ||
+        isHubStaff() || isOperationsAdmin()
+      );
+      allow create, update, delete: if false;
+    }
+
     // ===== RUNTIME CONFIG VAULT (PROMPT 97) =====
     // Encrypted credentials + write-only hints. Read by authorized admins only;
     // writes flow exclusively through the TOTP-gated Cloud Function callables

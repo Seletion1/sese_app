@@ -77,6 +77,14 @@ class SeseCreditTransaction {
         return 'Waiting fee earned';
       case 'debt_settled_cash':
         return 'Debt settled';
+      case 'referral_cashout':
+      case 'referral_cash_out':
+      case 'cash_out':
+      case 'payout_debit':
+        return 'Referral cash out';
+      case 'referral_cashout_refund':
+      case 'payout_refund':
+        return 'Referral cash out refund';
       default:
         return type.replaceAll('_', ' ');
     }
@@ -110,6 +118,10 @@ class SeseCreditTransaction {
       'escrow_hold',
       'waiting_fee_paid',
       'unpaid_waiting_fee_debited',
+      'referral_cashout',
+      'referral_cash_out',
+      'cash_out',
+      'payout_debit',
     };
     if (debitTypes.contains(lower)) return false;
     if (lower.endsWith('_debit') ||

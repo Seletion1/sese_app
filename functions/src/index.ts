@@ -108,6 +108,8 @@ export { onSupportMessageCreated, onAgentReplied, hubClaimSupportChat } from "./
 
 export { deleteAccount } from "./deleteAccount";
 
+export { requestReferralCashOut } from "./referralCashOut";
+
 // Granular targeted push broadcast engine (admin console + inbox).
 export { sendTargetedBroadcast } from "./broadcast";
 
