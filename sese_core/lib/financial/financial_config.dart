@@ -32,6 +32,12 @@ class FinancialConfig {
   /// Agent referral eligibility window in days. Default 547 (~1.5 years).
   final int agentReferralDurationDays;
 
+  /// Minimum referral cash-out threshold. Default ₦5,000.00.
+  final double minReferralCashOutNaira;
+
+  /// Maximum daily referral cash-out limit. Default ₦20,000.00.
+  final double maxDailyReferralCashOutNaira;
+
   const FinancialConfig({
     this.minWalletBalanceToOnline = 1.0,
     this.minTopUpAmount = 1000.0,
@@ -39,6 +45,8 @@ class FinancialConfig {
     this.agentReferralCommissionRate = 0.02,
     this.standardReferralDurationDays = 365,
     this.agentReferralDurationDays = 547,
+    this.minReferralCashOutNaira = 5000.0,
+    this.maxDailyReferralCashOutNaira = 20000.0,
   });
 
   factory FinancialConfig.fromMap(Map<String, dynamic>? map) {
@@ -56,6 +64,8 @@ class FinancialConfig {
       agentReferralCommissionRate: d('agentReferralCommissionRate', 0.02),
       standardReferralDurationDays: i('standardReferralDurationDays', 365),
       agentReferralDurationDays: i('agentReferralDurationDays', 547),
+      minReferralCashOutNaira: d('minReferralCashOutNaira', 5000.0),
+      maxDailyReferralCashOutNaira: d('maxDailyReferralCashOutNaira', 20000.0),
     );
   }
 
@@ -67,6 +77,8 @@ class FinancialConfig {
         'agentReferralCommissionRate': agentReferralCommissionRate,
         'standardReferralDurationDays': standardReferralDurationDays,
         'agentReferralDurationDays': agentReferralDurationDays,
+        'minReferralCashOutNaira': minReferralCashOutNaira,
+        'maxDailyReferralCashOutNaira': maxDailyReferralCashOutNaira,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

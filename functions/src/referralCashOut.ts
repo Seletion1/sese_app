@@ -18,7 +18,7 @@ export interface ReferralCashOutRequestData {
  *
  * Enforces:
  * - Authenticated session (`request.auth.uid`).
- * - Server-side validation of minimum thresholds (`₦1,000.00`), account inputs.
+ * - Configurable minimum threshold (`₦5,000.00` default) & rolling daily cap (`₦20,000.00` default) read from Firestore.
  * - Single atomic Firestore transaction re-reading server-side available balance.
  * - Idempotency lock preventing duplicate payouts or race conditions.
  * - Atomic balance deduction and transaction ledger entry (`type: 'referral_cashout'`).
@@ -33,10 +33,38 @@ export const requestReferralCashOut = guardedOnCall<ReferralCashOutRequestData>(
     const { amountNaira, bankCode, bankName, accountNumber, accountName, idempotencyKey } =
       request.data ?? {};
 
-    if (typeof amountNaira !== "number" || !Number.isFinite(amountNaira) || amountNaira < 1000) {
+    // 1. Fetch dynamic threshold settings from Firestore
+    let minCashOutNaira = 5000;
+    let maxDailyCashOutNaira = 20000;
+
+    try {
+      const [finSnap, refSnap] = await Promise.all([
+        db().collection("system_configs").doc("financials").get(),
+        db().collection("system_config").doc("referral_settings").get(),
+      ]);
+
+      const finData = finSnap.exists ? finSnap.data()! : {};
+      const refData = refSnap.exists ? refSnap.data()! : {};
+
+      if (typeof finData["minReferralCashOutNaira"] === "number") {
+        minCashOutNaira = finData["minReferralCashOutNaira"];
+      } else if (typeof refData["minReferralCashOutNaira"] === "number") {
+        minCashOutNaira = refData["minReferralCashOutNaira"];
+      }
+
+      if (typeof finData["maxDailyReferralCashOutNaira"] === "number") {
+        maxDailyCashOutNaira = finData["maxDailyReferralCashOutNaira"];
+      } else if (typeof refData["maxDailyReferralCashOutNaira"] === "number") {
+        maxDailyCashOutNaira = refData["maxDailyReferralCashOutNaira"];
+      }
+    } catch (e) {
+      console.warn("[requestReferralCashOut] Config read fallback:", e);
+    }
+
+    if (typeof amountNaira !== "number" || !Number.isFinite(amountNaira) || amountNaira < minCashOutNaira) {
       throw new HttpsError(
         "invalid-argument",
-        "Minimum referral cash-out amount is ₦1,000.00."
+        `Minimum referral cash-out amount is ₦${minCashOutNaira.toLocaleString()}.`
       );
     }
 
@@ -49,6 +77,31 @@ export const requestReferralCashOut = guardedOnCall<ReferralCashOutRequestData>(
       throw new HttpsError(
         "invalid-argument",
         "Valid bank name, 10-digit account number, and account name are required."
+      );
+    }
+
+    // 2. Check rolling 24-hour daily cash-out total
+    const twentyFourHoursAgo = admin.firestore.Timestamp.fromMillis(Date.now() - (24 * 60 * 60 * 1000));
+    const pastPayoutsSnap = await db()
+      .collection("payout_requests")
+      .where("uid", "==", uid)
+      .where("createdAt", ">=", twentyFourHoursAgo)
+      .get();
+
+    let todayTotalNaira = 0;
+    for (const doc of pastPayoutsSnap.docs) {
+      const p = doc.data();
+      const status = String(p["status"] ?? "").toLowerCase();
+      if (status === "pending" || status === "completed" || status === "approved") {
+        todayTotalNaira += Number(p["amountNaira"] ?? 0);
+      }
+    }
+
+    if (todayTotalNaira + amountNaira > maxDailyCashOutNaira) {
+      const remainingAllowance = Math.max(0, maxDailyCashOutNaira - todayTotalNaira);
+      throw new HttpsError(
+        "failed-precondition",
+        `DAILY_LIMIT_EXCEEDED: Maximum daily cash-out limit is ₦${maxDailyCashOutNaira.toLocaleString()}. You have requested ₦${todayTotalNaira.toLocaleString()} in the last 24 hours. Remaining daily allowance: ₦${remainingAllowance.toLocaleString()}.`
       );
     }
 

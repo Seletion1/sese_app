@@ -269,6 +269,8 @@ class ReferralRevenueSettings {
   final int standardReferralDurationDays;
   final int agentReferralDurationDays;
   final double fixedReferralBonusNaira;
+  final double minReferralCashOutNaira;
+  final double maxDailyReferralCashOutNaira;
 
   const ReferralRevenueSettings({
     this.platformBaseCommissionRate = 20.0,
@@ -279,6 +281,8 @@ class ReferralRevenueSettings {
     this.standardReferralDurationDays = 365,
     this.agentReferralDurationDays = 547,
     this.fixedReferralBonusNaira = 0.0,
+    this.minReferralCashOutNaira = 5000.0,
+    this.maxDailyReferralCashOutNaira = 20000.0,
   });
 
   factory ReferralRevenueSettings.fromMap(Map<String, dynamic>? map) {
@@ -294,6 +298,8 @@ class ReferralRevenueSettings {
       standardReferralDurationDays: intOf('standardReferralDurationDays', 365),
       agentReferralDurationDays: intOf('agentReferralDurationDays', 547),
       fixedReferralBonusNaira: doubleOf('fixedReferralBonusNaira', 0.0),
+      minReferralCashOutNaira: doubleOf('minReferralCashOutNaira', 5000.0),
+      maxDailyReferralCashOutNaira: doubleOf('maxDailyReferralCashOutNaira', 20000.0),
     );
   }
 
@@ -306,5 +312,7 @@ class ReferralRevenueSettings {
     'standardReferralDurationDays': standardReferralDurationDays,
     'agentReferralDurationDays': agentReferralDurationDays,
     'fixedReferralBonusNaira': fixedReferralBonusNaira,
+    'minReferralCashOutNaira': minReferralCashOutNaira,
+    'maxDailyReferralCashOutNaira': maxDailyReferralCashOutNaira,
   };
 }

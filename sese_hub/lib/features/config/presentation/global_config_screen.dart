@@ -193,6 +193,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
   final _agentReferralCommissionRateCtrl = TextEditingController(text: '2.0');
   final _standardReferralDurationDaysCtrl = TextEditingController(text: '365');
   final _agentReferralDurationDaysCtrl = TextEditingController(text: '547');
+  final _minReferralCashOutCtrl = TextEditingController(text: '5000');
+  final _maxDailyReferralCashOutCtrl = TextEditingController(text: '20000');
 
   // Remote Keys & API Configuration Controllers (/system_config/remote_keys)
   final _paystackPublicKeyCtrl = TextEditingController();
@@ -440,6 +442,8 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
       _agentReferralCommissionRateCtrl.text = (finConfig.agentReferralCommissionRate * 100).toStringAsFixed(2);
       _standardReferralDurationDaysCtrl.text = finConfig.standardReferralDurationDays.toString();
       _agentReferralDurationDaysCtrl.text = finConfig.agentReferralDurationDays.toString();
+      _minReferralCashOutCtrl.text = finConfig.minReferralCashOutNaira.toStringAsFixed(0);
+      _maxDailyReferralCashOutCtrl.text = finConfig.maxDailyReferralCashOutNaira.toStringAsFixed(0);
       _loading = false;
     }
   });
@@ -653,6 +657,10 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
               int.tryParse(_standardReferralDurationDaysCtrl.text.trim()) ?? 365,
           agentReferralDurationDays:
               int.tryParse(_agentReferralDurationDaysCtrl.text.trim()) ?? 547,
+          minReferralCashOutNaira:
+              double.tryParse(_minReferralCashOutCtrl.text.trim()) ?? 5000.0,
+          maxDailyReferralCashOutNaira:
+              double.tryParse(_maxDailyReferralCashOutCtrl.text.trim()) ?? 20000.0,
         ),
       );
 
@@ -1395,6 +1403,30 @@ class _GlobalConfigScreenState extends State<GlobalConfigScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Agent Referral Window',
                       suffixText: 'days',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _minReferralCashOutCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Min Cash-Out Threshold',
+                      prefixText: '₦ ',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                _CappedField(
+                  preferredWidth: 220,
+                  child: TextFormField(
+                    controller: _maxDailyReferralCashOutCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Max Daily Cash-Out Limit',
+                      prefixText: '₦ ',
                       border: OutlineInputBorder(),
                     ),
                   ),

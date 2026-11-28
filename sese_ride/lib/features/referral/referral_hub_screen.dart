@@ -172,7 +172,7 @@ class ReferralHubScreen extends StatelessWidget {
                             ),
                             elevation: 0,
                           ),
-                          onPressed: credits >= 1000
+                          onPressed: credits >= 5000
                               ? () => showDialog<void>(
                                     context: context,
                                     builder: (_) => _WebCashOutDialog(
@@ -733,7 +733,7 @@ class _WebCashOutDialogState extends State<_WebCashOutDialog> {
   @override
   void initState() {
     super.initState();
-    final initialAmount = widget.availableCredits >= 1000 ? 1000.0 : widget.availableCredits;
+    final initialAmount = widget.availableCredits >= 5000 ? 5000.0 : widget.availableCredits;
     _amountCtrl = TextEditingController(text: initialAmount.toStringAsFixed(0));
     _bankNameCtrl = TextEditingController(text: _selectedBankName);
     _accountNumCtrl = TextEditingController();
@@ -757,9 +757,12 @@ class _WebCashOutDialogState extends State<_WebCashOutDialog> {
     });
 
     final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0.0;
-    if (amount < 1000) {
+    final config = await const FinancialConfigService().getConfig();
+    final minThreshold = config.minReferralCashOutNaira;
+
+    if (amount < minThreshold) {
       setState(() {
-        _error = 'Minimum referral cash-out amount is ₦1,000.00.';
+        _error = 'Minimum referral cash-out amount is ₦${minThreshold.toStringAsFixed(0)}.';
         _submitting = false;
       });
       return;
