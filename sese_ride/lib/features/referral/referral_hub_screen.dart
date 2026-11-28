@@ -276,6 +276,22 @@ class ReferralHubScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
+          // ── Active Referrals List (Compact Row Layout) ─────────────────────
+          Text(
+            'ACTIVE REFERRALS',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: Colors.grey,
+                ),
+          ),
+          const SizedBox(height: 10),
+          _ActiveReferralsSection(
+            userId: user.uid,
+            isDark: Theme.of(context).brightness == Brightness.dark,
+          ),
+          const SizedBox(height: 16),
+
           // ── Program Rules Card ──────────────────────────────────────────
           Card(
             shape: RoundedRectangleBorder(
@@ -317,6 +333,293 @@ class ReferralHubScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ActiveReferralData {
+  final String refereeUid;
+  final String firstName;
+  final int completedTrips;
+  final double earnedNaira;
+  final DateTime signupTime;
+
+  const _ActiveReferralData({
+    required this.refereeUid,
+    required this.firstName,
+    required this.completedTrips,
+    required this.earnedNaira,
+    required this.signupTime,
+  });
+
+  /// Formatted live countdown e.g. `354d remaining`, `7h remaining`, `15m remaining`.
+  String get countdownText {
+    final expiry = signupTime.add(const Duration(days: 365));
+    final remaining = expiry.difference(DateTime.now());
+    if (remaining.isNegative || remaining.inSeconds <= 0) {
+      return 'Expired';
+    }
+    if (remaining.inDays >= 1) {
+      return '${remaining.inDays}d remaining';
+    }
+    if (remaining.inHours >= 1) {
+      return '${remaining.inHours}h remaining';
+    }
+    if (remaining.inMinutes > 0) {
+      return '${remaining.inMinutes}m remaining';
+    }
+    return '<1m remaining';
+  }
+
+  bool get isExpired {
+    final expiry = signupTime.add(const Duration(days: 365));
+    return expiry.difference(DateTime.now()).isNegative;
+  }
+}
+
+class _ActiveReferralsSection extends StatelessWidget {
+  final String userId;
+  final bool isDark;
+
+  const _ActiveReferralsSection({
+    required this.userId,
+    required this.isDark,
+  });
+
+  static String _extractFirstName(dynamic rawFirst, dynamic rawFull, dynamic rawDisplay) {
+    final f = (rawFirst ?? '').toString().trim();
+    if (f.isNotEmpty) return f.split(RegExp(r'\s+')).first;
+
+    final full = (rawFull ?? '').toString().trim();
+    if (full.isNotEmpty) return full.split(RegExp(r'\s+')).first;
+
+    final disp = (rawDisplay ?? '').toString().trim();
+    if (disp.isNotEmpty) return disp.split(RegExp(r'\s+')).first;
+
+    return 'Member';
+  }
+
+  static DateTime _parseDate(dynamic raw) {
+    if (raw != null) {
+      try {
+        if (raw is Timestamp) return raw.toDate();
+        if ((raw as dynamic).toDate != null) {
+          return (raw as dynamic).toDate() as DateTime;
+        }
+      } catch (_) {}
+      if (raw is String) {
+        final parsed = DateTime.tryParse(raw);
+        if (parsed != null) return parsed;
+      }
+    }
+    return DateTime.now();
+  }
+
+  Stream<List<_ActiveReferralData>> _referralsStream() {
+    try {
+      final db = FirebaseFirestore.instance;
+      // Stream user referrals subcollection
+      return db
+          .collection('users')
+          .doc(userId)
+          .collection('referrals')
+          .snapshots()
+          .asyncMap((snap) async {
+        final list = <_ActiveReferralData>[];
+        final seenUids = <String>{};
+
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final uid = doc.id;
+          seenUids.add(uid);
+
+          final firstName = _extractFirstName(
+            d['refereeFirstName'],
+            d['fullName'],
+            d['displayName'],
+          );
+          final trips = (d['completedTrips'] as num?)?.toInt() ?? 0;
+          final earned = (d['totalEarnedNaira'] as num?)?.toDouble() ?? 0.0;
+          final signupTime = _parseDate(d['referralSignupAt'] ?? d['createdAt']);
+
+          final item = _ActiveReferralData(
+            refereeUid: uid,
+            firstName: firstName,
+            completedTrips: trips,
+            earnedNaira: earned,
+            signupTime: signupTime,
+          );
+
+          if (!item.isExpired) {
+            list.add(item);
+          }
+        }
+
+        // Also query fallback users and drivers where referredBy == userId
+        try {
+          final uSnap = await db
+              .collection('users')
+              .where('referredBy', isEqualTo: userId)
+              .get();
+          for (final doc in uSnap.docs) {
+            if (seenUids.contains(doc.id)) continue;
+            seenUids.add(doc.id);
+            final d = doc.data();
+            final firstName = _extractFirstName(d['firstName'], d['fullName'], d['displayName']);
+            final trips = (d['completedTrips'] as num?)?.toInt() ?? 0;
+            final signupTime = _parseDate(d['referralSignupAt'] ?? d['createdAt']);
+            final item = _ActiveReferralData(
+              refereeUid: doc.id,
+              firstName: firstName,
+              completedTrips: trips,
+              earnedNaira: 0.0,
+              signupTime: signupTime,
+            );
+            if (!item.isExpired) list.add(item);
+          }
+
+          final dSnap = await db
+              .collection('drivers')
+              .where('referredBy', isEqualTo: userId)
+              .get();
+          for (final doc in dSnap.docs) {
+            if (seenUids.contains(doc.id)) continue;
+            seenUids.add(doc.id);
+            final d = doc.data();
+            final firstName = _extractFirstName(d['firstName'], d['fullName'], d['displayName']);
+            final trips = (d['completedTrips'] as num?)?.toInt() ?? 0;
+            final signupTime = _parseDate(d['referralSignupAt'] ?? d['createdAt']);
+            final item = _ActiveReferralData(
+              refereeUid: doc.id,
+              firstName: firstName,
+              completedTrips: trips,
+              earnedNaira: 0.0,
+              signupTime: signupTime,
+            );
+            if (!item.isExpired) list.add(item);
+          }
+        } catch (_) {}
+
+        list.sort((a, b) => b.signupTime.compareTo(a.signupTime));
+        return list;
+      });
+    } catch (_) {
+      return Stream.value(const <_ActiveReferralData>[]);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<_ActiveReferralData>>(
+      stream: _referralsStream(),
+      builder: (context, snap) {
+        final items = snap.data ?? const <_ActiveReferralData>[];
+
+        if (items.isEmpty) {
+          return Container(
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF252530) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+              ),
+            ),
+            child: Text(
+              'No active referrals yet. Share your code above to start earning!',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.grey.shade600, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        return ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return Container(
+              key: Key('active_referral_item_${item.refereeUid}'),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF252530) : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF3A3A46) : Colors.grey.shade200,
+                ),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: Colors.amber.shade100,
+                    child: Text(
+                      item.firstName.isNotEmpty
+                          ? item.firstName[0].toUpperCase()
+                          : 'M',
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.firstName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          item.countdownText,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '₦${item.earnedNaira.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: Colors.green,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${item.completedTrips} trips',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

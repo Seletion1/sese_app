@@ -775,6 +775,23 @@ export async function processTripReferralAccumulation(
           { merge: true }
         );
 
+        // Mirror tracking stats to referrals subcollection
+        const refTrackPayload = {
+          totalEarnedNaira: admin.firestore.FieldValue.increment(creditAmountNaira),
+          completedTrips: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        tx.set(
+          db().collection("users").doc(referrerId).collection("referrals").doc(refereeId),
+          refTrackPayload,
+          { merge: true }
+        );
+        tx.set(
+          db().collection("drivers").doc(referrerId).collection("referrals").doc(refereeId),
+          refTrackPayload,
+          { merge: true }
+        );
+
         persistFinancialAuditLogInTx(tx, {
           tripId,
           type: "referral_credit",

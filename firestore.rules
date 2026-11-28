@@ -790,6 +790,12 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if false;
       }
+
+      // Referral tracking subcollection (`users/{userId}/referrals/{refereeId}`).
+      match /referrals/{refereeId} {
+        allow read: if isAuthenticated() && (isOwner(userId) || isHubStaff());
+        allow write: if false; // Server-managed via Admin SDK
+      }
     }
 
     // Root-level post-trip ratings & reviews (driver rates customer, customer rates driver)

@@ -633,6 +633,13 @@ export const applyReferralCode = onCall(
       return { success: false, message: "A referrer has already been applied to this account." };
     }
 
+    const refereeData = (userSnap.data() ?? driverSnap.data() ?? {}) as Record<string, unknown>;
+    const rawRefereeFirst = String(
+      refereeData.firstName ?? refereeData.fullName ?? refereeData.displayName ?? ""
+    ).trim();
+    const refereeFirstName = rawRefereeFirst ? rawRefereeFirst.split(/\s+/)[0] : "Member";
+    const refereeRole = userSnap.exists ? "customer" : (driverSnap.exists ? "driver" : "customer");
+
     const payload = {
       referredBy: referrerUid,
       referrerId: referrerUid,
@@ -643,6 +650,18 @@ export const applyReferralCode = onCall(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
+    const referralTrackingRecord = {
+      refereeUid,
+      referrerUid,
+      referrerCode: rawCode,
+      refereeFirstName,
+      refereeRole,
+      completedTrips: 0,
+      totalEarnedNaira: 0.0,
+      referralSignupAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
     const batch = firestore.batch();
     if (userSnap.exists) {
       batch.update(userRef, payload);
@@ -650,6 +669,17 @@ export const applyReferralCode = onCall(
     if (driverSnap.exists) {
       batch.update(driverRef, payload);
     }
+
+    batch.set(
+      firestore.collection("users").doc(referrerUid).collection("referrals").doc(refereeUid),
+      referralTrackingRecord,
+      { merge: true }
+    );
+    batch.set(
+      firestore.collection("drivers").doc(referrerUid).collection("referrals").doc(refereeUid),
+      referralTrackingRecord,
+      { merge: true }
+    );
 
     await batch.commit();
 
