@@ -250,12 +250,18 @@ class SeseCreditsScreen extends StatelessWidget {
                                           fontSize: 13.5,
                                         ),
                                       ),
-                                      if (tx.paymentReference.isNotEmpty)
+                                      if (tx.formattedSubtitle.isNotEmpty)
                                         Text(
-                                          tx.paymentReference,
+                                          tx.formattedSubtitle,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                fontSize: 11,
+                                                color: Colors.grey,
+                                              ),
                                         ),
                                     ],
                                   ),

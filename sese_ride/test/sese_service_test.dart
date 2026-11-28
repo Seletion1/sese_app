@@ -131,6 +131,30 @@ void main() {
       expect(tx.amountKobo, 1000000);
       expect(tx.label, 'Trip payment');
     });
+
+    test('formats top-up subtitle with date & time only without raw references', () {
+      final dt = DateTime(2026, 11, 28, 8, 15);
+      final tx = WalletTransaction.fromMap('t3', {
+        'type': 'credit_topup',
+        'amountKobo': 200000,
+        'paymentReference': 'sese_p869DfLV_mwuqyg22g21',
+        'createdAt': dt.toIso8601String(),
+      });
+      expect(tx.formattedSubtitle, 'Nov 28, 2026 • 08:15');
+      expect(tx.formattedSubtitle, isNot(contains('sese_p869')));
+    });
+
+    test('formats commission subtitle with date, time, and resolved Order ID', () {
+      final dt = DateTime(2026, 11, 28, 8, 15);
+      final tx = WalletTransaction.fromMap('t4', {
+        'type': 'platform_commission',
+        'amountKobo': -73500,
+        'orderCode': 'DTID0001',
+        'createdAt': dt.toIso8601String(),
+      });
+      expect(tx.resolvedOrderId, 'DTID0001');
+      expect(tx.formattedSubtitle, 'Nov 28, 2026 • 08:15 • DTID0001');
+    });
   });
 
   group('formatNaira', () {

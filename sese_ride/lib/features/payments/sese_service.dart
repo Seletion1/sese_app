@@ -30,6 +30,8 @@ class SeseCreditTransaction {
   final int amountKobo;
   final String currency;
   final String paymentReference;
+  final String? tripId;
+  final String? displayOrderId;
   final DateTime? createdAt;
   final String? role;
 
@@ -39,6 +41,8 @@ class SeseCreditTransaction {
     required this.amountKobo,
     this.currency = 'NGN',
     this.paymentReference = '',
+    this.tripId,
+    this.displayOrderId,
     this.createdAt,
     this.role,
   });
@@ -178,6 +182,69 @@ class SeseCreditTransaction {
     return true;
   }
 
+  /// Canonical Order ID for display (e.g. `DTID0001` or `RTID9999`).
+  String get resolvedOrderId {
+    if (displayOrderId != null && displayOrderId!.isNotEmpty) {
+      return displayOrderId!;
+    }
+    if (tripId != null && tripId!.isNotEmpty) {
+      final t = tripId!.trim();
+      if (t.startsWith('DTID') || t.startsWith('RTID') || t.startsWith('SC') || t.startsWith('SD')) {
+        return t;
+      }
+      final clean = t.replaceAll('trip_', '').replaceAll('order_', '').toUpperCase();
+      if (clean.length >= 4) {
+        return 'DTID${clean.substring(0, 4)}';
+      }
+      return 'DTID$clean';
+    }
+    return '';
+  }
+
+  /// Formats [createdAt] as a compact date & time string (e.g. `Nov 28, 2026 • 08:15`).
+  String get formattedDateTime {
+    if (createdAt == null) return '';
+    final dt = createdAt!.toLocal();
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final m = months[dt.month - 1];
+    final day = dt.day;
+    final year = dt.year;
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$m $day, $year • $hh:$mm';
+  }
+
+  /// Formatted compact single-line subtitle for credit ledger rows.
+  ///
+  /// For commission / trip fee deductions: `Nov 28, 2026 • 08:15 • DTID0001`
+  /// For credit top-ups: `Nov 28, 2026 • 08:15` (date & time ONLY — raw refs omitted).
+  String get formattedSubtitle {
+    final dateTime = formattedDateTime;
+    final lower = type.toLowerCase();
+    final isTopUp = lower == 'wallet_topup' ||
+        lower == 'driver_credit_topup' ||
+        lower == 'credit_topup' ||
+        lower == 'topup' ||
+        (amountKobo > 0 && paymentReference.isNotEmpty && (tripId == null || tripId!.isEmpty));
+
+    if (isTopUp) {
+      return dateTime;
+    }
+
+    final orderId = resolvedOrderId;
+    if (dateTime.isNotEmpty && orderId.isNotEmpty) {
+      return '$dateTime • $orderId';
+    } else if (dateTime.isNotEmpty) {
+      return dateTime;
+    } else if (orderId.isNotEmpty) {
+      return orderId;
+    }
+    return '';
+  }
+
   factory SeseCreditTransaction.fromMap(String id, Map<String, dynamic> map) {
     DateTime? when;
     final raw = map['createdAt'];
@@ -195,12 +262,26 @@ class SeseCreditTransaction {
     }
     final rawRole = map['role'] ?? map['userRole'] ?? map['actorRole'];
     final roleStr = rawRole?.toString().toLowerCase();
+
+    final rawTripId = map['tripId'] ?? map['trip_id'] ?? map['orderId'] ?? map['order_id'];
+    final tripIdStr = rawTripId?.toString().trim();
+
+    final rawDisplayId = map['displayOrderId'] ??
+        map['display_order_id'] ??
+        map['orderCode'] ??
+        map['order_code'] ??
+        map['displayId'] ??
+        map['display_id'];
+    final displayIdStr = rawDisplayId?.toString().trim();
+
     return SeseCreditTransaction(
       id: id,
       type: (map['type'] ?? 'driver_credit_topup').toString(),
       amountKobo: kobo,
       currency: (map['currency'] ?? 'NGN').toString(),
       paymentReference: (map['paymentReference'] ?? '').toString(),
+      tripId: (tripIdStr != null && tripIdStr.isNotEmpty) ? tripIdStr : null,
+      displayOrderId: (displayIdStr != null && displayIdStr.isNotEmpty) ? displayIdStr : null,
       createdAt: when,
       role: roleStr,
     );
