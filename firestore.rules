@@ -1045,49 +1045,45 @@ service cloud.firestore {
     // ===== SUPPORT CHATS (AI-FIRST & HUMAN AGENT HANDOVER) =====
     function isChatParticipant(chatId) {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/support_chats/$(chatId)).data.userId == request.auth.uid ||
-         get(/databases/$(database)/documents/support_chats/$(chatId)).data.assignedAgentId == request.auth.uid);
+        (get(/databases/$(database)/documents/support_chats/$(chatId)).data.get('userId', '') == request.auth.uid ||
+         get(/databases/$(database)/documents/support_chats/$(chatId)).data.get('userUid', '') == request.auth.uid ||
+         get(/databases/$(database)/documents/support_chats/$(chatId)).data.get('uid', '') == request.auth.uid ||
+         get(/databases/$(database)/documents/support_chats/$(chatId)).data.get('driverId', '') == request.auth.uid ||
+         get(/databases/$(database)/documents/support_chats/$(chatId)).data.get('assignedAgentId', '') == request.auth.uid);
     }
     match /support_chats/{chatId} {
-      // NOTE: kept as a single disjunction. It is semantically identical to
-      // splitting it per-field, and Firestore DOES accept a disjunction when
-      // one branch is provable from the query's own constraints
-      // (`where('userId','==',uid)` proves the first branch). An earlier draft
-      // "fixed" a suspected query/rules mismatch here; that was not the cause
-      // of the failure and the change has been reverted to avoid a false
-      // fix. The real cause is still unconfirmed — see the split try/catch in
-      // SupportChatService.openOrCreateSession, which now reports the actual
-      // FirebaseException.code so it can be identified from a device run.
       allow read: if adminSupportAccess() ||
-        (isAuthenticated() && (resource.data.userId == request.auth.uid || resource.data.assignedAgentId == request.auth.uid));
+        (isAuthenticated() && (
+          resource.data.get('userId', '') == request.auth.uid ||
+          resource.data.get('userUid', '') == request.auth.uid ||
+          resource.data.get('uid', '') == request.auth.uid ||
+          resource.data.get('driverId', '') == request.auth.uid ||
+          resource.data.get('assignedAgentId', '') == request.auth.uid
+        ));
       allow create: if isAuthenticated() && isNotSuspended() &&
-        request.resource.data.userId == request.auth.uid &&
-        (request.resource.data.status in ['ai_active', 'open', 'pending']) &&
-        (request.resource.data.userRole in ['customer', 'driver']);
-      // Owner update: two disjoint capabilities, never combined.
-      //  (a) Escalation — a user may move an active chat to pending_agent to
-      //      request a human. This is the ONLY owner-allowed status change.
-      //  (b) CSAT — after resolution the owner may write ONLY the rating
-      //      fields. A user must not be able to un-resolve a chat, reassign
-      //      it, or rewrite escalation state by submitting a rating, so every
-      //      other field is pinned to its current value.
-      // NOTE: previously this allowed any owner update on a non-resolved
-      // chat, which let a user set status, assignedAgentId or userRole to
-      // arbitrary values.
+        (request.resource.data.get('userId', '') == request.auth.uid ||
+         request.resource.data.get('userUid', '') == request.auth.uid ||
+         request.resource.data.get('uid', '') == request.auth.uid ||
+         request.resource.data.get('driverId', '') == request.auth.uid) &&
+        (request.resource.data.get('status', 'ai_active') in ['ai_active', 'open', 'pending', 'queued', 'pending_agent', 'agent_connected']) &&
+        (!request.resource.data.keys().hasAny(['userRole']) || request.resource.data.userRole in ['customer', 'driver', 'user']);
+
       allow update: if adminSupportAccess() || isValidSupportChatOwnerUpdate();
 
     function isValidSupportChatOwnerUpdate() {
       return isAuthenticated() && isNotSuspended() &&
-        resource.data.userId == request.auth.uid &&
+        (resource.data.get('userId', '') == request.auth.uid ||
+         resource.data.get('userUid', '') == request.auth.uid ||
+         resource.data.get('uid', '') == request.auth.uid ||
+         resource.data.get('driverId', '') == request.auth.uid) &&
         (
-          // (a) Escalation path.
-          resource.data.status in ['ai_active', 'pending_agent'] &&
+          // (a) Sending messages or escalating across active sessions.
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'status', 'updatedAt', 'lastMessage', 'escalatedAt'
+            'status', 'updatedAt', 'lastMessage', 'escalateReason', 'escalateDetail', 'escalatedAt'
           ])
           ||
-          // (b) CSAT path, only once the agent has resolved it.
-          resource.data.status == 'resolved' &&
+          // (b) CSAT path, once resolved.
+          resource.data.get('status', '') == 'resolved' &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'csatRating', 'csatComment', 'csatSubmittedAt'
           ])

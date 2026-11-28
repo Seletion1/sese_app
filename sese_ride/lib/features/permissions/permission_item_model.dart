@@ -74,10 +74,10 @@ class PermissionItem {
         id: 'photos_storage',
         title: 'Camera & Documents',
         description:
-            'Required to capture vehicle inspection photos, profile verification, and document scans.',
+            'Requested when capturing vehicle inspection photos, profile verification, and document scans.',
         icon: Icons.camera_alt_rounded,
         permission: Permission.camera,
-        isMandatory: true,
+        isMandatory: false,
       ),
       PermissionItem(
         id: 'overlay_bubble',

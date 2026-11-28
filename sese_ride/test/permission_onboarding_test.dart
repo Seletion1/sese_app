@@ -15,7 +15,10 @@ void main() {
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
     SeseUniversalMap.debugTileProviderOverride = BlankTileProvider();
+    PermissionOnboardingService.resetForTesting();
   });
 
   group('PermissionItem Bundles', () {

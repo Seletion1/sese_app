@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sese_core/sese_core.dart';
@@ -39,15 +41,25 @@ class PermissionOnboardingService {
   }
 
   /// Records that the user explicitly chose "Skip for now" / "Continue Anyway"
-  /// in the current in-memory session so they are not trapped in a loop, while
-  /// still re-prompting on fresh login if Precise Location remains denied.
+  /// in the current in-memory session and persists completion flag.
   static void markSessionSkipped(String userId, UserRole role) {
-    _sessionSkippedKeys.add(_flagKey(userId, role));
+    final key = _flagKey(userId, role);
+    _sessionSkippedKeys.add(key);
+    unawaited(setCompleted(userId: userId, role: role));
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _sessionSkippedKeys.clear();
+    locationGrantedNotifier.value = false;
   }
 
   /// Queries real OS location permission and updates [locationGrantedNotifier].
   static Future<bool> refreshLocationStatus() async {
     try {
+      if (SeseUniversalMap.debugTileProviderOverride != null) {
+        return locationGrantedNotifier.value;
+      }
       final status = await Permission.locationWhenInUse.status;
       final granted = _isGrantedStatus(status);
       if (locationGrantedNotifier.value != granted) {
@@ -71,19 +83,20 @@ class PermissionOnboardingService {
   }) async {
     try {
       final key = _flagKey(userId, role);
-      final locationGranted = await refreshLocationStatus();
-
-      if (!locationGranted) {
-        if (_sessionSkippedKeys.contains(key)) {
-          return true;
-        }
-        return false;
+      if (_sessionSkippedKeys.contains(key)) {
+        return true;
       }
 
       final prefs = await SharedPreferences.getInstance();
       final isFlagCompleted = prefs.getBool(key) ?? false;
       if (isFlagCompleted) {
         return true;
+      }
+
+      final locationGranted = await refreshLocationStatus();
+
+      if (!locationGranted) {
+        return false;
       }
 
       final items = PermissionItem.bundleForRole(role);

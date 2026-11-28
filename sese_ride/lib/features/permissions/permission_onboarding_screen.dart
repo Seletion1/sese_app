@@ -350,14 +350,15 @@ class _PermissionOnboardingScreenState extends State<PermissionOnboardingScreen>
                           borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-                      onPressed: () async {
-                        Navigator.of(ctx).pop();
+                      onPressed: () {
                         PermissionOnboardingService.markSessionSkipped(
                           widget.user.uid,
                           widget.role,
                         );
-                        await PermissionOnboardingService.refreshLocationStatus();
-                        if (mounted) widget.onCompleted();
+                        Navigator.of(ctx).pop();
+                        if (mounted) {
+                          widget.onCompleted();
+                        }
                       },
                       child: const Text(
                         'Continue Anyway',
